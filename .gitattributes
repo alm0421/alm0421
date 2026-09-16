@@ -1,0 +1,14 @@
+# Normalise line endings in the repository to LF.
+* text=auto eol=lf
+
+# Windows launchers MUST be checked out with CRLF. cmd.exe mis-parses labels
+# and multi-line blocks in a .bat file that uses bare LF endings, and Windows
+# PowerShell is happier with CRLF too. `eol=crlf` forces this on every platform.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Keep these exactly as authored.
+*.png  binary
+*.jpg  binary
+*.ico  binary
