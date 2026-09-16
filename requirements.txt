@@ -1,0 +1,24 @@
+# Core runtime dependencies.
+# Pinned to major versions validated against Python 3.11 on 2026-09-16.
+
+# Broker + market data (official Alpaca SDK; provides trading, data, enums)
+alpaca-py>=0.44,<1.0
+
+# Data handling / indicator math
+pandas>=2.2
+numpy>=1.26
+
+# Configuration + secrets loading
+PyYAML>=6.0
+python-dotenv>=1.0
+
+# Exchange session + holiday calendars (offline source of truth for US equity
+# sessions; the Alpaca /v2/clock endpoint is preferred when connected)
+pandas_market_calendars>=4.4
+
+# IANA timezone database. REQUIRED ON WINDOWS: the stdlib `zoneinfo` module has
+# no bundled tz data on Windows and raises ZoneInfoNotFoundError without this.
+tzdata>=2024.1
+
+# Operator dashboard
+streamlit>=1.40

@@ -1,0 +1,104 @@
+# ===========================================================================
+# Trading platform configuration.
+#
+# The `mode` key is the single most important setting in this file. It decides
+# whether orders are recorded as intents, sent to a paper account, or sent to a
+# live account. It defaults to the safest value.
+#
+# Environment variable TRADING_MODE overrides this key at runtime.
+# ===========================================================================
+
+# signal_only | backtest | paper | live
+mode: signal_only
+
+account:
+  broker: alpaca
+
+data:
+  provider: alpaca
+  # iex          - real-time, but IEX venue only (free tier). Partial book.
+  # sip          - real-time consolidated tape (paid subscription).
+  # delayed_sip  - consolidated tape delayed 15 minutes. Labelled DELAYED and
+  #                therefore refused for order sizing/triggering.
+  feed: iex
+  # A quote older than this is treated as stale and blocks execution.
+  stale_quote_seconds: 60
+  # A bar older than this many seconds past its expected close is stale.
+  stale_bar_seconds: 300
+  display_timezone: America/New_York
+  # Bounded retries for transient provider errors.
+  max_retries: 3
+  retry_backoff_seconds: 1.0
+
+universe:
+  file: config/universe.yaml
+
+scanner:
+  enabled: [momentum]
+  refresh_seconds: 60
+  max_results: 25
+  lookback_bars: 120
+  bar_timeframe: 5Min
+
+strategies:
+  enabled: [ema_pullback]
+  ema_pullback:
+    fast_period: 9
+    slow_period: 21
+    trend_period: 50
+    rsi_period: 14
+    rsi_floor: 40.0
+    rsi_ceiling: 70.0
+    atr_period: 14
+    stop_atr_multiple: 1.5
+    target_atr_multiple: 3.0
+    min_confidence: 0.55
+
+risk:
+  # --- Position limits ---
+  max_open_positions: 5
+  max_position_notional: 2000.0
+  max_position_pct_equity: 0.10
+  max_symbol_concentration_pct: 0.25
+
+  # --- Loss limits ---
+  max_daily_loss: 500.0
+  max_daily_loss_pct: 0.02
+
+  # --- Activity limits ---
+  max_trades_per_day: 20
+
+  # --- Account floors ---
+  min_account_equity: 1000.0
+
+  # --- Mandatory protections ---
+  require_stop_loss: true
+  allow_extended_hours: false
+  block_when_market_closed: true
+
+  # --- Duplicate suppression ---
+  duplicate_order_window_seconds: 300
+
+  # --- Kill switch ---
+  # If this file exists, every order is rejected. Create it to halt trading.
+  kill_switch_file: logs/KILL_SWITCH
+
+execution:
+  # Build-level opt-in for live trading. This is ONE of three required gates;
+  # setting it true alone does NOT enable live trading.
+  live_trading_enabled: false
+  default_time_in_force: day
+  allowed_order_types: [market, limit, stop, stop_limit, trailing_stop]
+  # Futures is intentionally absent: no shipped adapter supports it.
+  allowed_asset_classes: [us_equity, crypto]
+  order_submit_retries: 2
+  order_submit_backoff_seconds: 1.0
+
+logging:
+  level: INFO
+  dir: logs
+  json_logs: true
+  console: true
+
+outputs:
+  dir: outputs

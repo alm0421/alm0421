@@ -1,0 +1,33 @@
+# Symbol universe, grouped by asset class.
+#
+# Symbols are validated against the broker's asset catalogue at preflight; an
+# unknown or non-tradable symbol is reported rather than silently dropped.
+
+us_equity:
+  - AAPL
+  - MSFT
+  - NVDA
+  - AMD
+  - TSLA
+  - AMZN
+  - META
+  - GOOGL
+  - SPY
+  - QQQ
+
+crypto:
+  # Alpaca crypto pairs use a SLASH-delimited format (BTC/USD, not BTCUSD).
+  - BTC/USD
+  - ETH/USD
+
+us_option:
+  # OCC-format contract symbols, e.g. AAPL250117C00150000.
+  # Options trading requires an approved Alpaca options level and must be added
+  # to `execution.allowed_asset_classes` before any order can route.
+  []
+
+futures:
+  # No shipped broker adapter supports futures. Alpaca does not offer futures
+  # trading or futures market data. Symbols listed here will be rejected at
+  # order validation with an explicit unsupported-asset-class error.
+  []

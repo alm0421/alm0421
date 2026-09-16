@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trading-platform"
+version = "0.1.0"
+description = "Signal generation, risk management and paper-trading execution for US equities and crypto."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "alpaca-py>=0.44,<1.0",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0",
+    "pandas_market_calendars>=4.4",
+    "tzdata>=2024.1",
+    "streamlit>=1.40",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = [
+    "ignore::DeprecationWarning:websockets.*",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
