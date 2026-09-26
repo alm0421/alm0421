@@ -83,7 +83,10 @@ SIMS = {"SPYSIM": "US stock market (Fama-French market return) spliced into SPY"
         "VTVSIM": "US large-cap value (Fama-French big/high B/M) from 1926, spliced into VTV",
         "VUGSIM": "US large-cap growth (Fama-French big/low B/M) from 1926, spliced into VUG",
         "EFASIM": "Developed ex-US stocks (Fama-French) from 1990, spliced into EFA",
-        "GLDSIM": "Gold (World Bank monthly average price, stepped daily) from 1960, spliced into GLD"}
+        "GLDSIM": "Gold (World Bank monthly average price, stepped daily) from 1960, spliced into GLD",
+        "LQDSIM": "Investment-grade corporates priced off Moody's Aaa/Baa yields from 1953, spliced into LQD",
+        "EEMSIM": "Emerging markets (Fama-French, monthly steps) from 1989, spliced into EEM",
+        "DBCSIM": "Commodities (World Bank price indexes + T-bill collateral, monthly steps) from 1960, spliced into DBC"}
 
 
 def is_sim(ticker: str) -> bool:

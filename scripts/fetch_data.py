@@ -310,7 +310,8 @@ def update_membership() -> pd.DataFrame:
 
 def fetch_macro() -> None:
     MACRO.mkdir(parents=True, exist_ok=True)
-    for sid in ("CPIAUCSL", "DTB3", "DGS10", "DGS20", "DGS30", "DGS5", "DGS2", "GS10", "TB3MS"):
+    for sid in ("CPIAUCSL", "DTB3", "DGS10", "DGS20", "DGS30", "DGS5", "DGS2", "DGS1", "GS10", "TB3MS",
+                "DAAA", "DBAA", "AAA", "BAA"):
         try:
             txt = requests.get(f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={sid}", headers=UA, timeout=60).text
             df = pd.read_csv(io.StringIO(txt))
@@ -330,7 +331,8 @@ def fetch_factors() -> None:
                      ("ff5_daily", "F-F_Research_Data_5_Factors_2x3_daily_CSV.zip"),
                      ("mom_daily", "F-F_Momentum_Factor_daily_CSV.zip"),
                      ("port6_daily", "6_Portfolios_2x3_daily_CSV.zip"),
-                     ("dev_ff3_daily", "Developed_ex_US_3_Factors_Daily_CSV.zip")):
+                     ("dev_ff3_daily", "Developed_ex_US_3_Factors_Daily_CSV.zip"),
+                     ("em_ff5_monthly", "Emerging_5_Factors_CSV.zip")):
         try:
             z = zipfile.ZipFile(io.BytesIO(requests.get(base + fn, headers=UA, timeout=120).content))
             raw = z.read(z.namelist()[0]).decode("latin-1").splitlines()
@@ -339,13 +341,17 @@ def fetch_factors() -> None:
             header = [h.strip() for h in raw[start].split(",")]
             for l in raw[start + 1:]:
                 parts = [x.strip() for x in l.split(",")]
-                if len(parts) != len(header) or not re.fullmatch(r"\d{8}", parts[0]):
+                if len(parts) != len(header) or not re.fullmatch(r"\d{8}|\d{6}", parts[0]):
                     if rows:
                         break
                     continue
                 rows.append(parts)
             df = pd.DataFrame(rows, columns=["date"] + header[1:])
-            df["date"] = pd.to_datetime(df["date"], format="%Y%m%d").dt.strftime("%Y-%m-%d")
+            fmt = "%Y%m%d" if len(df["date"].iloc[0]) == 8 else "%Y%m"
+            dt_ = pd.to_datetime(df["date"], format=fmt)
+            if fmt == "%Y%m":
+                dt_ = dt_ + pd.offsets.MonthEnd(0)
+            df["date"] = dt_.dt.strftime("%Y-%m-%d")
             for c in header[1:]:
                 df[c] = pd.to_numeric(df[c], errors="coerce").where(lambda x: x > -99) / 100.0
             df.to_csv(FACTORS / f"{name}.csv", index=False)
@@ -425,7 +431,9 @@ def build_sims() -> list[str]:
         long = y["DGS20"].combine_first((y["DGS10"] + y["DGS30"]) / 2).combine_first(y["DGS10"])
         _series_file("TLTSIM", _splice(_bond_returns(long, 20), "TLT"), "20-year Treasury priced off FRED yields, then TLT")
         _series_file("IEFSIM", _splice(_bond_returns(y["DGS10"], 9), "IEF"), "9-year Treasury off the 10-year yield, then IEF")
-        _series_file("SHYSIM", _splice(_bond_returns(y["DGS2"], 2), "SHY"), "2-year Treasury off the 2-year yield, then SHY")
+        y1 = pd.read_csv(MACRO / "DGS1.csv", parse_dates=["date"], index_col="date")["value"].astype(float)
+        short = y["DGS2"].combine_first(y1)  # the 1-year yield stands in before the 2-year series (1976)
+        _series_file("SHYSIM", _splice(_bond_returns(short, 2), "SHY"), "2-year Treasury off the 2-year yield (1-year before 1976), then SHY")
         made += ["TLTSIM", "IEFSIM", "SHYSIM"]
     except Exception as e:  # noqa: BLE001
         print(f"sim bonds failed: {e}", file=sys.stderr)
@@ -460,6 +468,43 @@ def build_sims() -> list[str]:
     except Exception as e:  # noqa: BLE001
         print(f"sim IEISIM failed: {e}", file=sys.stderr)
     try:
+        # investment-grade corporates: a 10-year par bond at the average of Moody's Aaa and Baa yields
+        # (daily from 1986, monthly before), then LQD
+        def fred(sid):
+            return pd.read_csv(MACRO / f"{sid}.csv", parse_dates=["date"], index_col="date")["value"].astype(float)
+        daily = (fred("DAAA") + fred("DBAA")) / 2
+        monthly = (fred("AAA") + fred("BAA")) / 2
+        m = monthly[monthly.index < daily.index[0]]
+        m.index = m.index + pd.offsets.MonthEnd(0)
+        corp = pd.concat([m.resample("B").ffill(), daily]).sort_index()
+        corp = corp[~corp.index.duplicated(keep="last")]
+        _series_file("LQDSIM", _splice(_bond_returns(corp[corp.index >= "1953-01-01"], 10), "LQD"),
+                     "investment-grade corporates priced off Moody's Aaa/Baa yields, then LQD")
+        made.append("LQDSIM")
+    except Exception as e:  # noqa: BLE001
+        print(f"sim LQDSIM failed: {e}", file=sys.stderr)
+    try:
+        em = pd.read_csv(FACTORS / "em_ff5_monthly.csv", parse_dates=["date"], index_col="date")
+        r = (em["Mkt-RF"] + em["RF"]).dropna()
+        level = (1 + r).cumprod()
+        daily = level.resample("B").ffill().pct_change().dropna()
+        _series_file("EEMSIM", _splice(daily, "EEM"), "emerging markets (Fama-French, monthly, from 1989), then EEM")
+        made.append("EEMSIM")
+    except Exception as e:  # noqa: BLE001
+        print(f"sim EEMSIM failed: {e}", file=sys.stderr)
+    try:
+        c = commodity_monthly()
+        tb = pd.read_csv(MACRO / "TB3MS.csv", parse_dates=["date"], index_col="date")["value"].astype(float) / 100 / 12
+        tb.index = tb.index + pd.offsets.MonthEnd(0)
+        r = c.pct_change().dropna() + tb.reindex(c.index).ffill().reindex(c.index[1:]).fillna(0).to_numpy()
+        level = (1 + r).cumprod()
+        daily = level.resample("B").ffill().pct_change().dropna()
+        _series_file("DBCSIM", _splice(daily, "DBC"),
+                     "commodities: World Bank energy + non-energy price indexes plus T-bill collateral (no roll yield), then DBC")
+        made.append("DBCSIM")
+    except Exception as e:  # noqa: BLE001
+        print(f"sim DBCSIM failed: {e}", file=sys.stderr)
+    try:
         g = gold_monthly()
         daily = g.resample("B").ffill()
         _series_file("GLDSIM", _splice(daily.pct_change().dropna(), "GLD"),
@@ -468,6 +513,29 @@ def build_sims() -> list[str]:
     except Exception as e:  # noqa: BLE001
         print(f"sim GLDSIM failed: {e}", file=sys.stderr)
     return made
+
+
+def _pink_sheet(sheet: str) -> pd.DataFrame:
+    page = requests.get("https://www.worldbank.org/en/research/commodity-markets", headers=UA, timeout=60).text
+    m = re.search(r'https://thedocs\.worldbank\.org/[^"\']+CMO-Historical-Data-Monthly\.xlsx', page)
+    if not m:
+        raise RuntimeError("Pink Sheet link not found")
+    return pd.read_excel(io.BytesIO(requests.get(m.group(0), headers=UA, timeout=120).content), sheet_name=sheet, header=None)
+
+
+def commodity_monthly() -> pd.Series:
+    """World Bank monthly commodity price index (energy and non-energy, 2010=100), from 1960."""
+    raw = _pink_sheet("Monthly Indices")
+    hdr = next(i for i in range(min(len(raw), 20)) if any("energy" in str(v).lower() for v in raw.iloc[i]))
+    cols = {str(v).strip().lower(): j for j, v in enumerate(raw.iloc[hdr])}
+    pick = [j for k, j in cols.items() if k in ("energy", "non-energy", "non energy")]
+    if not pick:
+        raise RuntimeError(f"energy/non-energy columns not found: {list(cols)[:12]}")
+    rows = raw.iloc[hdr + 1:]
+    rows = rows[rows[0].astype(str).str.fullmatch(r"\d{4}M\d{2}")]
+    idx = pd.to_datetime(rows[0].str.replace("M", "-") + "-01") + pd.offsets.MonthEnd(0)
+    vals = rows[pick].apply(pd.to_numeric, errors="coerce").mean(axis=1).to_numpy()
+    return pd.Series(vals, index=idx).dropna()
 
 
 def gold_monthly() -> pd.Series:
