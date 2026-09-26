@@ -538,7 +538,17 @@ def api_montecarlo(body):
         s.stress_years = int(body.get("stress_years") or 10)
         if body.get("stress_shock") not in (None, ""):
             s.stress_shock = float(body["stress_shock"])
-        if body.get("age") not in (None, "") and body.get("until_age") not in (None, ""):
+        s.horizon = str(body.get("horizon") or "fixed")
+        if s.horizon == "mortality":
+            if body.get("age") in (None, ""):
+                raise ClientError("The life-table horizon needs the current age.")
+            s.age = float(body["age"])
+            s.sex = str(body.get("sex") or "male")
+            if s.sex not in ("male", "female", "joint"):
+                raise ClientError("sex must be male, female or joint")
+            if body.get("age2") not in (None, ""):
+                s.age2 = float(body["age2"])
+        elif body.get("age") not in (None, "") and body.get("until_age") not in (None, ""):
             s.age, s.until_age = float(body["age"]), float(body["until_age"])
     except (TypeError, ValueError) as e:
         raise ClientError(f"Bad number: {e}")
@@ -580,20 +590,40 @@ def api_montecarlo(body):
     return report._clean(R)
 
 
-def api_factors(body):
-    from . import factors as F
+def _factor_target(body):
     w = _weights(body)
     if w:
-        target = w
-    elif (body.get("ticker") or "").strip():
-        target = body["ticker"].strip()
-    else:
-        target = _target_spec(body)
-        if target is None:
-            raise ClientError("Give a ticker, tickers with weights, a sentence or a saved run.")
-    r, name = F.returns_for(target)
-    R = F.analyze(r, body.get("model") or "ff3", body.get("freq") or "monthly", body.get("start") or None,
+        return w
+    if (body.get("ticker") or "").strip():
+        return body["ticker"].strip()
+    target = _target_spec(body)
+    if target is None:
+        raise ClientError("Give a ticker, tickers with weights, a sentence or a saved run.")
+    return target
+
+
+def api_factors(body):
+    from . import factors as F
+    r, name = F.returns_for(_factor_target(body))
+    model = (body.get("model") or "ff3").strip()
+    addons = "".join(ch for ch in str(body.get("addons") or "").replace(" ", "+").replace(",", "+") if ch.isalnum() or ch in "+_")
+    if addons.strip("+") and model != "auto":
+        model = model + "+" + "+".join(a for a in addons.split("+") if a)
+    elif addons.strip("+"):
+        model = F.auto_model(name) + "+" + "+".join(a for a in addons.split("+") if a)
+    R = F.analyze(r, model, body.get("freq") or "monthly", body.get("start") or None,
                   body.get("end") or None, int(body.get("rolling_months") or 36), name=name)
+    return report._clean(R)
+
+
+def api_style(body):
+    from . import factors as F
+    from . import style as ST
+    r, name = F.returns_for(_factor_target(body))
+    raw = body.get("assets") or ""
+    assets = [t for t in (raw if isinstance(raw, list) else str(raw).replace(",", " ").split()) if str(t).strip()] or None
+    R = ST.analyze(r, assets, body.get("start") or None, body.get("end") or None,
+                   int(body.get("window") or body.get("rolling_months") or 36), name=name)
     return report._clean(R)
 
 
@@ -802,7 +832,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/paper": lambda b: api_paper(b, "POST"),
                 "/api/fetch": api_fetch, "/api/share": api_share, "/api/orders": api_orders,
                 "/api/gallery/stats": api_gallery_stats, "/api/import/composer": api_import_composer,
-                "/api/montecarlo": api_montecarlo, "/api/factors": api_factors, "/api/correlation": api_correlation,
+                "/api/montecarlo": api_montecarlo, "/api/factors": api_factors, "/api/style": api_style, "/api/correlation": api_correlation,
             }
             if path in handlers:
                 return self._json(200, handlers[path](body))

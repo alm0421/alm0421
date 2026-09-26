@@ -21,8 +21,8 @@ python -m backtester "buy at the close Microsoft when it trades down 5 days in a
 | **Gallery** | Library strategies and saved runs with their headline numbers. Fork one into the editor, or export/import a strategy JSON file. |
 | **Compare** | Put several strategies (from history or typed) in one report. Every column is compared over the same period. |
 | **Research** | A parameter sweep (`hold {1..5} days`) with a heatmap. Walk-forward optimisation (rolling or anchored). A portfolio optimiser: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity, max diversification, max return / max drawdown, max Omega (at a threshold return), target return, target volatility, inverse volatility and equal weight (pick any subset), with per-asset and group limits (`SPY+QQQ <= 70%`), the efficient frontier, an out-of-sample check and rolling (walk-forward) re-optimisation compared with the static weights. A target that can't be reached says what can ("the minimum achievable volatility is 9.1%"). |
-| **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first, or a -30% first year) and a horizon set by age ("until age 95"). |
-| **Factors** | Regress a ticker, portfolio, sentence or saved run on CAPM, Fama-French 3, Carhart 4, Fama-French 5, FF5 + momentum, developed-markets Fama-French 3 (`dev_ff3`, alias `intl`), the bond factors TERM and DEF (`bonds`) or FF3 + bond factors (`ff3+bonds`), monthly or daily: loadings with t-stats, R², annualised alpha and rolling 36-month loadings. |
+| **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), and any number of cash-flow phases (contribute, then withdraw). |
+| **Factors** | Regress a ticker, portfolio, sentence or saved run on CAPM, Fama-French 3, Carhart 4, Fama-French 5 or FF5 + momentum for the US or a region (developed, developed ex US, Europe, Japan, Asia Pacific ex Japan, North America, emerging), AQR's quality (QMJ) and betting-against-beta (BAB) factors, and the bond factors TERM and DEF, monthly (French's official monthly files) or daily: loadings with t-stats, R², annualised alpha and rolling 36-month loadings. **Style analysis** (Sharpe 1992) finds the asset-class mix that best tracks the returns, with rolling 36-month weights. |
 | **Correlations** | The correlation matrix of daily or monthly total returns over a chosen period, a rolling correlation of any pair, and per-asset statistics (CAGR, volatility, Sharpe, max drawdown, best/worst year, first date of data), like Portfolio Visualizer's asset correlations. |
 | **Signals & paper** | Shows what a strategy says to do on the latest bar: new entries, open positions and target weights. You can also start a forward test ("paper trading") that only uses data arriving after you saved it. |
 | **History** | Saved runs, with open, edit, share and delete. |
@@ -167,7 +167,12 @@ python -m backtester montecarlo --weights "SPY 60 TLT 40" --balance 1000000 --ye
 python -m backtester montecarlo "hold 60% SPY and 40% AGG, withdraw 4% per year adjusted for inflation, starting with $1,000,000" --model t
 python -m backtester montecarlo --weights "SPY 60 TLT 40" --withdrawal 40000 --age 65 --until-age 95 --stress worst_sequence
 python -m backtester factors QQQ --model ff5 --freq monthly          # or --weights "SPY 60 TLT 40", a sentence, --run ID
-python -m backtester factors AGG --model ff3+bonds                   # models: capm ff3 carhart ff5 ff6 dev_ff3 (intl) bonds ff3+bonds
+python -m backtester factors AGG --model ff3+bonds                   # models: capm ff3 carhart ff5 ff6 bonds ff3+bonds ...
+python -m backtester factors VGK --model europe_ff5                  # regional: <region>_ff3|ff5|carhart|ff6
+python -m backtester factors EFA --model auto                        # the ticker's region (EFA -> developed ex US)
+python -m backtester factors QQQ --model ff5+qmj+bab                 # add-ons: mom, qmj, bab, bonds, term, def
+python -m backtester style QQQ [--assets "SPY EFA EEM IEF BIL"] [--window 36]
+python -m backtester montecarlo --weights "SPY 60 IEF 40" --withdrawal 50000 --horizon mortality --age 65 --sex joint --age2 63
 python -m backtester correlation SPY TLT GLD EFASIM --window 36 --freq monthly [--pair SPY,TLT] [--start 2000-01-01]
 python -m backtester optimize SPY TLT GLD --methods omega,max_return_over_maxdd --omega-threshold 0.03
 python -m backtester signals "buy Nasdaq 100 stocks when RSI(2) is below 5, hold 3 days" [--webhook URL]
@@ -271,7 +276,12 @@ close and commits updates, so `git pull` gets fresh data. It downloads:
 - point-in-time membership reconstructed from the Wikipedia article's revision history, with the live
   list from stockanalysis.com, Wikipedia or Nasdaq for the current month
 - the T-bill rate and CPI from FRED
-- Fama-French factors from Kenneth French's data library
+- Fama-French factors from Kenneth French's data library: US daily and official monthly files
+  (3 factors, 5 factors, momentum), the same for developed, developed ex US, Europe, Japan, Asia Pacific
+  ex Japan and North America, and emerging markets (monthly only)
+- AQR's Quality Minus Junk and Betting Against Beta factors (monthly spreadsheets, every country and
+  aggregate). Each file is parsed on its own (`backtester/sources.py`); a failure is logged in
+  `data/factors/fetch_log.txt` and the rest of the job carries on
 - share counts for market-cap weighting
 
 **Delisted former members.** Yahoo drops companies that were acquired or went bankrupt (Celgene,
@@ -284,7 +294,7 @@ The **Daily signals** Action then scans the paper-trading strategies (`paper/*.j
 `signals/latest.md`. It also posts to a webhook if you add a repository secret `ALERT_WEBHOOK_URL`
 (for example a Slack or Discord incoming webhook).
 
-### Long-history series (SPYSIM, TLTSIM, IEFSIM, IEISIM, SHYSIM, BILSIM, VBSIM, VBRSIM, VTVSIM, VUGSIM, EFASIM, GLDSIM)
+### Long-history series (SPYSIM, TLTSIM, IEFSIM, IEISIM, SHYSIM, BILSIM, VBSIM, VBRSIM, VTVSIM, VUGSIM, VBKSIM, EFASIM, GLDSIM)
 
 The data job also builds simulated total-return indexes that extend funds back before they
 existed, then continue with the real fund's total return:
@@ -301,6 +311,7 @@ existed, then continue with the real fund's total return:
 | VBRSIM | US small-cap value (Fama-French small / high book-to-market) | VBR |
 | VTVSIM | US large-cap value (Fama-French big / high book-to-market) | VTV |
 | VUGSIM | US large-cap growth (Fama-French big / low book-to-market) | VUG |
+| VBKSIM | US small-cap growth (Fama-French small / low book-to-market) | VBK |
 | EFASIM | Developed markets ex-US (Fama-French, from 1990) | EFA |
 | GLDSIM | Gold (World Bank monthly average price, stepped daily, from 1960) | GLD |
 
@@ -333,6 +344,44 @@ the start of each period, pro rata, and the portfolio is rebalanced on its sched
 - Stress tests: `worst_sequence` puts the worst historical run of N years (default 10) at the start of every
   path; `shock` makes the first year return -30% (or your figure). A horizon can be given by age
   (`--age 65 --until-age 95`).
+- Cash-flow phases: on the site, add one row per phase (e.g. contribute $20,000 a year in years 1-15, then
+  withdraw $60,000 a year from year 16), each with its own frequency and inflation setting. From the command
+  line, a portfolio sentence with a contribution and a withdrawal does the same.
+- Withdrawals never take more than the balance: a path that cannot pay in full pays what is left and ends at
+  zero (no negative balances). The results show the total actually withdrawn and the share of paths that
+  fell short.
+- Lifetime horizon (`--horizon mortality --age 65 --sex male|female|joint [--age2 63]`, or "a lifetime" on
+  the site): the paths run until the chance of being alive falls below 0.1%, and the chance of success is
+  weighted by survival - the sum over years of P(death that year) x P(money left at the end of that year),
+  plus the chance of outliving the horizon times the success then. Mortality is the SSA 2023 period life
+  table (Social Security area population, as used in the 2026 Trustees Report, embedded in
+  `backtester/lifetable.py`); a couple is two independent lives, a man and a woman, and the money must last
+  until the second death. A period table assumes no future mortality improvement, so it slightly
+  understates lifetimes.
+
+## Factor analysis
+
+- **Monthly** regressions use Kenneth French's official monthly factor files, which French builds from
+  monthly portfolio returns (they differ slightly from compounded daily factors). Until the data job has
+  downloaded a monthly file, its daily counterpart is compounded instead and the report says so.
+  **Daily** regressions use the daily files.
+- **Regions**: `developed` (incl. the US), `developed_ex_us` (`dev_ff3`, alias `intl`; short prefix `dev`),
+  `europe`, `japan`, `asia_pacific_ex_japan` (`apxj`), `north_america` (`na`), `emerging` (`em`, monthly
+  only), each with `_ff3`, `_ff5`, `_carhart` and `_ff6` (e.g. `europe_ff5`, `em_carhart`). Returns are in
+  US dollars and the risk-free rate is the US T-bill. `--model auto` picks the region from known tickers
+  (EFA/VEA -> developed ex US, VGK -> Europe, EWJ -> Japan, EEM/VWO -> emerging, VT/ACWI -> developed), and
+  a note suggests the regional model when a known ticker is run on another region's factors.
+- **Add-ons**: `+mom`, `+qmj`, `+bab`, `+bonds` (`+term`, `+def`) on any model: `ff5+qmj+bab`,
+  `europe_ff3+qmj`. QMJ and BAB are AQR's monthly factors (Asness, Frazzini and Pedersen) for the model's
+  region: USA, Global (developed), Global Ex USA, Europe, North America or JPN. AQR publishes no emerging
+  or Asia Pacific ex Japan aggregate, and they are monthly only.
+- **Style analysis** (`python -m backtester style QQQ`, or "Style analysis" on the Factors page): Sharpe's
+  (1992) returns-based style analysis - the non-negative weights, adding up to 100%, on asset-class returns
+  that minimise the variance of the tracking difference. Default classes (the first series with data):
+  US large value (VTVSIM/VTV), US large growth (VUGSIM/VUG), US small value (VBRSIM/VBR), US small growth
+  (VBKSIM/VBK), developed ex US (EFASIM/EFA), emerging (EEMSIM/EEM), Treasuries (IEFSIM/IEF), corporates
+  (LQDSIM/LQD) and T-bills (BILSIM/BIL); `--assets` sets your own. Reports R² (share of the variance the mix
+  explains), the selection return, tracking error, and rolling 36-month weights (a stacked chart on the site).
 
 A sentence or saved run with fixed weights is simulated from its assets; one with rules resamples
 the strategy's own monthly returns.

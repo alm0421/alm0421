@@ -6,7 +6,10 @@
     python -m backtester walkforward "buy QQQ when RSI(2) is below {5..20 step 5}, hold {1..5} days"
     python -m backtester optimize SPY QQQ TLT GLD --max-weight 0.6 --constraint "SPY+QQQ <= 70%" --rolling 12
     python -m backtester montecarlo --weights "SPY 60 TLT 40" --years 30 --withdrawal 40000 --balance 1000000
-    python -m backtester factors QQQ --model ff5 --freq monthly      (models: capm ff3 carhart ff5 ff6 dev_ff3/intl bonds ff3+bonds)
+    python -m backtester factors QQQ --model ff5 --freq monthly      (models: capm ff3 carhart ff5 ff6 bonds ff3+bonds,
+                                    <region>_ff3/ff5/carhart/ff6 for developed, dev (ex US), europe, japan,
+                                    asia_pacific_ex_japan, north_america, emerging; add-ons ff5+qmj+bab; auto)
+    python -m backtester style QQQ                                   (returns-based style analysis)
     python -m backtester correlation SPY TLT GLD EFASIM --window 36 --freq monthly
     python -m backtester signals "buy Nasdaq 100 stocks when RSI(2) is below 5, hold 3 days"
     python -m backtester paper add "..." --name rsi2 ; python -m backtester paper report
@@ -25,7 +28,7 @@ from . import data, expr, parser, report, runner
 from .montecarlo import parse_weights
 
 SUBCOMMANDS = {"run", "compare", "sweep", "walkforward", "optimize", "signals", "paper", "web", "tickers", "library", "montecarlo",
-               "factors", "import-composer", "correlation", "correlations"}
+               "factors", "style", "import-composer", "correlation", "correlations"}
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -366,6 +369,10 @@ def cmd_montecarlo(argv: list[str]) -> int:
     p.add_argument("--shock", type=float, default=-0.30, help="first-year return for --stress shock (default -0.30)")
     p.add_argument("--age", type=float, help="current age; with --until-age the horizon is the difference")
     p.add_argument("--until-age", type=float, help="e.g. 95: withdraw until this age")
+    p.add_argument("--horizon", choices=["fixed", "mortality"], default="fixed",
+                   help="mortality: run until the SSA life table says nobody is left and weight success by survival (needs --age)")
+    p.add_argument("--sex", choices=["male", "female", "joint"], default="male", help="for --horizon mortality")
+    p.add_argument("--age2", type=float, help="--sex joint: the second person's age (default: --age)")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     weights, spec = _load_target(a)
@@ -379,8 +386,12 @@ def cmd_montecarlo(argv: list[str]) -> int:
     s = mc.Settings(start_balance=a.balance, years=a.years, model=a.model, block_months=a.block, rebalance=a.rebalance,
                     sims=a.sims, seed=a.seed, success_target=a.success, start=a.start, end=a.end,
                     inflation=a.inflation if a.inflation == "historical" else float(a.inflation),
-                    stress=a.stress, stress_years=a.stress_years, stress_shock=a.shock, age=a.age, until_age=a.until_age)
-    if (a.age is None) != (a.until_age is None):
+                    stress=a.stress, stress_years=a.stress_years, stress_shock=a.shock, age=a.age, until_age=a.until_age,
+                    horizon=a.horizon, sex=a.sex, age2=a.age2)
+    if a.horizon == "mortality":
+        if a.age is None:
+            raise ValueError("--horizon mortality needs --age.")
+    elif (a.age is None) != (a.until_age is None):
         raise ValueError("Give both --age and --until-age (the horizon is the difference).")
     for f in a.forecast:
         t, r, v = f.split(":")
@@ -408,8 +419,9 @@ def cmd_factors(argv: list[str]) -> int:
     p.add_argument("--weights", help="portfolio, e.g. 'SPY 60 TLT 40' (rebalanced monthly)")
     p.add_argument("--spec")
     p.add_argument("--run", help="id of a saved run from the site")
-    p.add_argument("--model", default="ff3", choices=list(F.MODELS) + list(F.ALIASES),
-                   help="; ".join(f"{m['key']}: {m['label']} ({m['about']})" for m in F.model_list()))
+    p.add_argument("--model", default="ff3",
+                   help="auto (the ticker's region), a model, or a model plus add-ons such as ff5+qmj+bab or "
+                        "europe_ff5+qmj. " + "; ".join(f"{m['key']}: {m['label']}" for m in F.model_list()))
     p.add_argument("--freq", default="monthly", choices=["monthly", "daily"])
     p.add_argument("--rolling", type=int, default=36, help="rolling window in months (default 36)")
     p.add_argument("--start")
@@ -424,6 +436,34 @@ def cmd_factors(argv: list[str]) -> int:
     r, name = F.returns_for(target)
     R = F.analyze(r, a.model, a.freq, a.start, a.end, a.rolling, name=name)
     print(json.dumps(report._clean(R), indent=2) if a.json else F.console(R))
+    return 0
+
+
+def cmd_style(argv: list[str]) -> int:
+    from . import factors as F
+    from . import style as ST
+    p = argparse.ArgumentParser(prog="python -m backtester style",
+                                description="Returns-based style analysis (Sharpe 1992): the non-negative mix of asset "
+                                            "classes, adding up to 100%, that best tracks a fund's monthly returns.")
+    p.add_argument("text", nargs="?", help="a ticker (QQQ) or a strategy/portfolio sentence")
+    p.add_argument("--weights", help="portfolio, e.g. 'SPY 60 TLT 40' (rebalanced monthly)")
+    p.add_argument("--spec")
+    p.add_argument("--run", help="id of a saved run from the site")
+    p.add_argument("--assets", help="asset-class tickers to use instead of the defaults, e.g. 'SPY EFA AGG BIL'")
+    p.add_argument("--window", type=int, default=36, help="rolling window in months (default 36)")
+    p.add_argument("--start")
+    p.add_argument("--end")
+    p.add_argument("--json", action="store_true")
+    a = p.parse_args(argv)
+    if a.text and not a.weights and " " not in a.text.strip():
+        target = a.text.strip()
+    else:
+        w, spec = _load_target(a)
+        target = w if w is not None else spec
+    r, name = F.returns_for(target)
+    assets = a.assets.replace(",", " ").split() if a.assets else None
+    R = ST.analyze(r, assets, a.start, a.end, a.window, name=name)
+    print(json.dumps(report._clean(R), indent=2) if a.json else ST.console(R))
     return 0
 
 
@@ -553,6 +593,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_montecarlo(rest)
         if cmd == "factors":
             return cmd_factors(rest)
+        if cmd == "style":
+            return cmd_style(rest)
         if cmd in ("correlation", "correlations"):
             return cmd_correlation(rest)
         if cmd == "optimize":

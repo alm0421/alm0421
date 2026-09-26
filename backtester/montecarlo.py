@@ -28,7 +28,14 @@ Stress tests (Settings.stress):
                   the chosen model: sequence-of-returns risk for someone retiring into a bad decade
   shock           every path's first year returns `stress_shock` (default -30%), spread evenly over its
                   twelve months, then continues with the model
-Horizon: `years`, or `until_age - age` when both ages are given ("withdraw until age 95").
+Horizon: `years`, or `until_age - age` when both ages are given ("withdraw until age 95"), or
+horizon="mortality": the paths run until the survival probability from the current age falls below 0.1%
+(SSA period life table, see lifetable.py; sex "male", "female" or "joint" for a couple, where the money must
+last until the second death) and the chance of success is weighted by survival: the sum over the years k of
+P(death in year k) x P(money left at the end of year k), plus P(alive at the end) x P(money left then).
+
+Withdrawals never take more than the balance: a path that cannot pay a withdrawal in full pays what is
+left, ends at zero (no negative balances, no borrowing) and has failed from then on.
 """
 from __future__ import annotations
 
@@ -94,6 +101,9 @@ class Settings:
     stress_shock: float = -0.30                   # first-year return of the "shock" stress test
     age: float | None = None                      # current age: with until_age, the horizon is until_age - age
     until_age: float | None = None
+    horizon: str = "fixed"                        # "fixed" (years / until_age) or "mortality" (SSA life table)
+    sex: str = "male"                             # mortality: "male", "female" or "joint" (a couple)
+    age2: float | None = None                     # joint: the second person's age (default: the same age)
 
 
 # ------------------------------------------------------------------ history
@@ -183,28 +193,68 @@ def _portfolio_returns(A: np.ndarray, w: np.ndarray, rebalance_every: int) -> np
     return np.maximum(out, -1.0)
 
 
-def simulate_balances(P: np.ndarray, cum_infl: np.ndarray, start: float, flows: list[CashFlow]) -> np.ndarray:
-    """Balances (sims, months + 1) given portfolio returns P (sims, months) and the cumulative
-    inflation index at the start of each month cum_infl (sims, months + 1)."""
+def simulate(P: np.ndarray, cum_infl: np.ndarray, start: float, flows: list[CashFlow]) -> dict:
+    """Balances (sims, months + 1) given portfolio returns P (sims, months) and the cumulative inflation
+    index at the start of each month cum_infl (sims, months + 1), plus what was actually withdrawn.
+    A withdrawal is capped at the balance available (contributions of the same period count first), so a
+    balance never goes below zero; the unpaid part is the shortfall."""
     sims, months = P.shape
     B = np.empty((sims, months + 1))
     B[:, 0] = start
     b = np.full(sims, float(start))
+    paid = np.zeros(sims)
+    paid_real = np.zeros(sims)
+    asked = np.zeros(sims)
     for m in range(months):
-        f = np.zeros(sims)
+        add = np.zeros(sims)
+        take = np.zeros(sims)
         year = m // 12 + 1
         for cf in flows:
             step = STEPS.get(cf.freq, 12) or 12
             if m % step or year < cf.start_year or (cf.end_year and year > cf.end_year):
                 continue
+            v = np.zeros(sims)
             if cf.amount:
-                f += cf.amount * (cum_infl[:, m] if cf.inflation_adjusted else 1.0)
+                v = v + cf.amount * (cum_infl[:, m] if cf.inflation_adjusted else 1.0)
             if cf.pct:
-                f += cf.pct * step / 12 * np.maximum(b, 0)
-        b = np.maximum(b + f, 0.0) * (1 + P[:, m])
+                v = v + cf.pct * step / 12 * np.maximum(b, 0)
+            add += np.maximum(v, 0.0)
+            take += np.maximum(-v, 0.0)
+        avail = np.maximum(b, 0.0) + add
+        got = np.minimum(take, avail)            # never withdraw more than there is
+        paid += got
+        paid_real += got / cum_infl[:, m]
+        asked += take
+        b = (avail - got) * (1 + P[:, m])
         b = np.where(b > 1e-9, b, 0.0)
         B[:, m + 1] = b
-    return B
+    return {"B": B, "withdrawn": paid, "withdrawn_real": paid_real, "requested": asked}
+
+
+def simulate_balances(P: np.ndarray, cum_infl: np.ndarray, start: float, flows: list[CashFlow]) -> np.ndarray:
+    """Balances (sims, months + 1); see simulate()."""
+    return simulate(P, cum_infl, start, flows)["B"]
+
+
+def mortality_curve(s: "Settings", years: int = 120) -> tuple[np.ndarray, str]:
+    """Survival probabilities S[k] (k = 0..years) for the settings' age(s) and sex, and a description."""
+    from . import lifetable
+    if s.age is None:
+        raise ValueError("The mortality horizon needs the current age.")
+    sex = str(s.sex or "male").strip().lower()
+    if sex == "joint":
+        a2 = s.age if s.age2 is None else s.age2
+        return (lifetable.joint_survival(s.age, "male", a2, "female", years),
+                f"a couple (man aged {s.age:g}, woman aged {a2:g}), until the second death")
+    return lifetable.survival(s.age, sex, years), f"a {sex} aged {s.age:g}"
+
+
+def survival_weighted_success(alive: np.ndarray, S: np.ndarray) -> float:
+    """sum_k P(death in year k) * alive[k] + P(alive after the last year) * alive[-1]; alive[k] is the share of
+    paths with money left at the end of year k (k = 0..years), S the survival curve over the same years."""
+    S = np.asarray(S, float)[: len(alive)]
+    d = S[:-1] - S[1:]
+    return float((d * alive[1:]).sum() + S[-1] * alive[-1])
 
 
 def _alive_to_end(P: np.ndarray, cum_infl: np.ndarray, start: float, rate: float) -> tuple[np.ndarray, np.ndarray]:
@@ -280,7 +330,16 @@ def run(s: Settings) -> dict:
     if s.model not in MODELS:
         raise ValueError(f"model must be one of {MODELS}")
     notes = []
-    if s.age is not None and s.until_age is not None:
+    S_full = None
+    if s.horizon not in ("fixed", "mortality", None, ""):
+        raise ValueError("horizon must be 'fixed' or 'mortality'")
+    if s.horizon == "mortality":
+        from . import lifetable
+        S_full, who = mortality_curve(s)
+        s.years = max(1, lifetable.horizon_years(S_full))
+        notes.append(f"Horizon from the {lifetable.SOURCE}: {who}. The paths run {s.years} years (until the chance of "
+                     f"being alive falls below 0.1%) and the chance of success is weighted by the chance of being alive.")
+    elif s.age is not None and s.until_age is not None:
         yrs = int(round(float(s.until_age) - float(s.age)))
         if yrs < 1:
             raise ValueError(f"The final age ({s.until_age:g}) must be above the current age ({s.age:g}).")
@@ -388,7 +447,8 @@ def run(s: Settings) -> dict:
         notes[-1] += f" (evenly over {k} months), then continues with the {s.model} model."
     if s.expense_ratio:
         P = P - s.expense_ratio / 12.0
-    B = simulate_balances(P, cum_infl, s.start_balance, s.flows)
+    SIM = simulate(P, cum_infl, s.start_balance, s.flows)
+    B = SIM["B"]
     R = B / cum_infl
 
     yrs = np.arange(0, s.years + 1)
@@ -415,7 +475,9 @@ def run(s: Settings) -> dict:
                      "flows": [cf.describe() for cf in s.flows] or ["no cash flows"],
                      "history_start": hist.index[0].date(), "history_end": hist.index[-1].date(),
                      "history_months": len(hist), "t_df": t_df, "success_target": s.success_target,
-                     "age": s.age, "until_age": s.until_age, "stress": s.stress or None},
+                     "age": s.age, "until_age": s.until_age, "stress": s.stress or None,
+                     "horizon": s.horizon or "fixed", "sex": s.sex if s.horizon == "mortality" else None,
+                     "age2": (s.age if s.age2 is None else s.age2) if s.horizon == "mortality" and str(s.sex).lower() == "joint" else None},
         "years": yrs.tolist(),
         "bands": bands, "bands_real": bands_real,
         "success_by_year": alive.tolist(),
@@ -434,6 +496,24 @@ def run(s: Settings) -> dict:
         "hist_stats": {"mean_annual": (hist.mean() * 12).to_dict(), "vol_annual": (hist.std() * np.sqrt(12)).to_dict(),
                        "correlation": hist.corr().round(3).to_numpy().tolist(), "tickers": tick},
     }
+    if has_wd:
+        short = SIM["requested"] - SIM["withdrawn"]
+        out["withdrawals"] = {"total": q(SIM["withdrawn"]), "total_real": q(SIM["withdrawn_real"]),
+                              "requested_mean": float(SIM["requested"].mean()),
+                              "share_of_paths_short": float((short > 1e-6 * max(1.0, s.start_balance)).mean())}
+    if S_full is not None:
+        from . import lifetable
+        S = S_full[: s.years + 1]
+        w = survival_weighted_success(alive, S)
+        out["prob_success_to_horizon"] = out["prob_success"]
+        out["prob_success"] = w
+        age0 = float(s.age)
+        out["mortality"] = {"source": lifetable.SOURCE, "table_year": lifetable.TABLE_YEAR, "sex": s.sex, "age": s.age,
+                            "age2": out["settings"]["age2"], "survival_by_year": S.tolist(),
+                            "life_expectancy": lifetable.life_expectancy(S_full),
+                            "median_years_left": int(np.argmax(S_full < 0.5)) if (S_full < 0.5).any() else None,
+                            "prob_success_weighted": w, "prob_outlive_money": 1 - w,
+                            "ages": [age0 + k for k in yrs.tolist()]}
     if has_wd:
         depleted = B[:, 1:] <= 0
         first = np.where(depleted.any(axis=1), depleted.argmax(axis=1) + 1, -1)
@@ -543,7 +623,17 @@ def console(R: dict) -> str:
     L.append(f"{'Annual return (nominal)':>28s} " + " ".join(f"{pc(v):>13s}" for v in R["annual_return"].values()))
     L.append(f"{'Annual return (real)':>28s} " + " ".join(f"{pc(v):>13s}" for v in R["annual_return_real"].values()))
     L.append(f"{'Max drawdown':>28s} " + " ".join(f"{pc(v):>13s}" for v in R["max_drawdown"].values()))
-    L.append(f"Chance of success (money left after {st['years']} years): {R['prob_success']:.1%}")
+    if R.get("mortality"):
+        M = R["mortality"]
+        L.append(f"Chance the money lasts a lifetime (weighted by survival, SSA {M['table_year']} life table): {R['prob_success']:.1%}"
+                 f"   (life expectancy {M['life_expectancy']:.1f} years; money left after all {st['years']} years: "
+                 f"{R['prob_success_to_horizon']:.1%})")
+    else:
+        L.append(f"Chance of success (money left after {st['years']} years): {R['prob_success']:.1%}")
+    if R.get("withdrawals"):
+        W = R["withdrawals"]
+        L.append(f"Total withdrawn (median; withdrawals never exceed the balance): ${W['total']['50']:,.0f} "
+                 f"(${W['total_real']['50']:,.0f} in today's dollars); paths that could not pay in full: {W['share_of_paths_short']:.1%}")
     if R.get("show_withdrawal_rates", True):
         L.append(f"Safe withdrawal rate ({st['success_target']:.0%} success, inflation-adjusted, from the start balance): "
                  f"{pc(R['safe_withdrawal_rate'])}   perpetual withdrawal rate: {pc(R['perpetual_withdrawal_rate'])}")

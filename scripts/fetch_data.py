@@ -26,6 +26,9 @@ import requests
 import yfinance as yf
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from backtester import sources  # noqa: E402  (factor-file parsers shared with the tests)
+
 PRICES = ROOT / "data" / "prices"
 UA = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -386,40 +389,39 @@ def fetch_macro() -> None:
 
 
 def fetch_factors() -> None:
+    """Kenneth French's factor files (US daily and official monthly; the international regions' 3-factor,
+    5-factor and momentum files, monthly and daily; emerging markets monthly) and AQR's QMJ and BAB monthly
+    factors. Each file is parsed by backtester/sources.py; a failure is logged (data/factors/fetch_log.txt)
+    and the other files carry on."""
     import zipfile
     FACTORS.mkdir(parents=True, exist_ok=True)
-    base = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
-    for name, fn in (("ff3_daily", "F-F_Research_Data_Factors_daily_CSV.zip"),
-                     ("ff5_daily", "F-F_Research_Data_5_Factors_2x3_daily_CSV.zip"),
-                     ("mom_daily", "F-F_Momentum_Factor_daily_CSV.zip"),
-                     ("port6_daily", "6_Portfolios_2x3_daily_CSV.zip"),
-                     ("dev_ff3_daily", "Developed_ex_US_3_Factors_Daily_CSV.zip"),
-                     ("em_ff5_monthly", "Emerging_5_Factors_CSV.zip")):
+    ok, bad = [], []
+    for name, fn in sources.FRENCH_FILES:
         try:
-            z = zipfile.ZipFile(io.BytesIO(requests.get(base + fn, headers=UA, timeout=120).content))
-            raw = z.read(z.namelist()[0]).decode("latin-1").splitlines()
-            start = next(i for i, l in enumerate(raw) if re.match(r"^\s*,", l) or l.lower().startswith(",mkt") or "Mkt-RF" in l or "Mom" in l)
-            rows = []
-            header = [h.strip() for h in raw[start].split(",")]
-            for l in raw[start + 1:]:
-                parts = [x.strip() for x in l.split(",")]
-                if len(parts) != len(header) or not re.fullmatch(r"\d{8}|\d{6}", parts[0]):
-                    if rows:
-                        break
-                    continue
-                rows.append(parts)
-            df = pd.DataFrame(rows, columns=["date"] + header[1:])
-            fmt = "%Y%m%d" if len(df["date"].iloc[0]) == 8 else "%Y%m"
-            dt_ = pd.to_datetime(df["date"], format=fmt)
-            if fmt == "%Y%m":
-                dt_ = dt_ + pd.offsets.MonthEnd(0)
-            df["date"] = dt_.dt.strftime("%Y-%m-%d")
-            for c in header[1:]:
-                df[c] = pd.to_numeric(df[c], errors="coerce").where(lambda x: x > -99) / 100.0
+            z = zipfile.ZipFile(io.BytesIO(requests.get(sources.FRENCH_BASE + fn, headers=UA, timeout=120).content))
+            member = next(n for n in z.namelist() if n.lower().endswith(".csv"))
+            df = sources.parse_french_csv(z.read(member).decode("latin-1"))
             df.to_csv(FACTORS / f"{name}.csv", index=False)
-            print(f"factors {name}: {len(df)} rows, columns {header[1:]}")
+            ok.append(name)
+            print(f"factors {name}: {len(df)} rows {df['date'].iloc[0]} .. {df['date'].iloc[-1]}, columns {list(df.columns[1:])}")
         except Exception as e:  # noqa: BLE001
+            bad.append(f"{name} ({fn}): {e}")
             print(f"factors {name} failed: {e}", file=sys.stderr)
+        time.sleep(0.3)
+    for name, fn, sheet in sources.AQR_FILES:
+        try:
+            content = requests.get(sources.AQR_BASE + fn, headers=UA, timeout=180).content
+            xl = pd.ExcelFile(io.BytesIO(content))
+            use = sheet if sheet in xl.sheet_names else xl.sheet_names[0]
+            df = sources.parse_aqr_sheet(xl.parse(use, header=None))
+            df.to_csv(FACTORS / f"{name}.csv", index=False)
+            ok.append(name)
+            print(f"factors {name}: {len(df)} rows {df['date'].iloc[0]} .. {df['date'].iloc[-1]}, columns {list(df.columns[1:])}")
+        except Exception as e:  # noqa: BLE001
+            bad.append(f"{name} ({fn}): {e}")
+            print(f"factors {name} failed: {e}", file=sys.stderr)
+    (FACTORS / "fetch_log.txt").write_text(
+        f"{len(ok)} factor files downloaded\n" + ("failed:\n" + "\n".join(bad) + "\n" if bad else "no failures\n"))
 
 
 def fetch_shares(tickers: list[str]) -> None:
@@ -514,7 +516,8 @@ def build_sims() -> list[str]:
         col = {c.upper().replace(" ", ""): c for c in p6.columns}
         for t, key, real, note in (("VBRSIM", "SMALLHIBM", "VBR", "US small-cap value (Fama-French small/high B/M)"),
                                    ("VTVSIM", "BIGHIBM", "VTV", "US large-cap value (Fama-French big/high B/M)"),
-                                   ("VUGSIM", "BIGLOBM", "VUG", "US large-cap growth (Fama-French big/low B/M)")):
+                                   ("VUGSIM", "BIGLOBM", "VUG", "US large-cap growth (Fama-French big/low B/M)"),
+                                   ("VBKSIM", "SMALLLOBM", "VBK", "US small-cap growth (Fama-French small/low B/M)")):
             if key in col:
                 _series_file(t, _splice(p6[col[key]].dropna(), real), note + ", then " + real)
                 made.append(t)

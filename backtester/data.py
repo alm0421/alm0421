@@ -82,6 +82,7 @@ SIMS = {"SPYSIM": "US stock market (Fama-French market return) spliced into SPY"
         "VBRSIM": "US small-cap value (Fama-French small/high B/M) from 1926, spliced into VBR",
         "VTVSIM": "US large-cap value (Fama-French big/high B/M) from 1926, spliced into VTV",
         "VUGSIM": "US large-cap growth (Fama-French big/low B/M) from 1926, spliced into VUG",
+        "VBKSIM": "US small-cap growth (Fama-French small/low B/M) from 1926, spliced into VBK",
         "EFASIM": "Developed ex-US stocks: Fama-French EAFE-region index (monthly) from 1975, daily from 1990, spliced into EFA",
         "VNQSIM": "US REITs: FTSE Nareit All Equity REITs total return (monthly) from 1972, spliced into VNQ",
         "GLDSIM": "Gold (World Bank monthly average price, stepped daily) from 1960, spliced into GLD",
