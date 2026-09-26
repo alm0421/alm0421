@@ -1816,6 +1816,28 @@ class Text:
         return [w for w in words if w not in STOP]
 
 
+def _broker_costs(T: Text, notes: list[str], sep: str = "") -> dict:
+    """Broker fee presets ("IBKR commissions", "IBKR tiered") and volume-based slippage, read before the generic
+    cost phrases (signal strategies and allocation portfolios alike). `sep` lets an allocation sentence's comma go
+    with the phrase."""
+    broker: dict = {}
+    m = T.find(sep + r"(?:(?:with|using|and|at) )?(?:ibkr|interactive brokers?)(?: pro)?(?: \(?(fixed|tiered)\)?)?"
+               r"(?: (?:pricing|commissions?|fees|rates?|commission (?:schedule|model|plan)|costs?))*(?: \((fixed|tiered)\))?")
+    if m:
+        tier = (m.group(1) or m.group(2) or "fixed").lower()
+        broker["commission_model"] = f"ibkr_{tier}"
+        if not (m.group(1) or m.group(2)):
+            notes.append("IBKR commissions: using IBKR Pro Fixed pricing ($0.005/share, min $1, max 1% of the trade). "
+                         "Say 'IBKR tiered' for the tiered schedule.")
+    m = T.find(sep + r"(?:(?:(?:with|using|and) )?(?:(?:volume|liquidity)[- ](?:based|dependent|adjusted|aware)|square[- ]root)(?: (?:slippage|market impact|impact))+(?: model)?"
+               r"|(?:(?:with|using|and) )?(?:market )?impact(?: model)? slippage|(?:(?:with|using|and) )?(?:a )?market impact(?: model| costs?)?)")
+    if m:
+        broker["slippage_model"] = "volume"
+        notes.append("Volume-based slippage: each fill pays half the spread (2 bps default) plus 100 bps x sqrt(order shares / "
+                     "20-day average volume), on top of any fixed slippage.")
+    return broker
+
+
 def common_options(T: Text, notes: list[str]) -> dict:
     kw: dict = {}
     m = T.find(r"(?:start(?:ing)? with|capital of|initial capital of|account of|begin(?:ning)? with|with an? (?:initial |starting )?(?:balance|investment) of|with) \$(\d+(?:\.\d+)?)(?! (?:per|a|each|every|monthly|quarterly|yearly|annually))(?:(?: of)? (?:capital|in capital))?")
@@ -2344,22 +2366,7 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
             t = f"{rest[: mv.end()]} {who}{rest[mv.end():]}"
     T = Text(t)
     notes: list[str] = []
-    # broker fee presets and volume-based slippage (before the generic cost phrases)
-    broker: dict = {}
-    m = T.find(r"(?:(?:with|using|and|at) )?(?:ibkr|interactive brokers?)(?: pro)?(?: \(?(fixed|tiered)\)?)?"
-               r"(?: (?:pricing|commissions?|fees|rates?|commission (?:schedule|model|plan)|costs?))*(?: \((fixed|tiered)\))?")
-    if m:
-        tier = (m.group(1) or m.group(2) or "fixed").lower()
-        broker["commission_model"] = f"ibkr_{tier}"
-        if not (m.group(1) or m.group(2)):
-            notes.append("IBKR commissions: using IBKR Pro Fixed pricing ($0.005/share, min $1, max 1% of the trade). "
-                         "Say 'IBKR tiered' for the tiered schedule.")
-    m = T.find(r"(?:(?:with|using|and) )?(?:(?:volume|liquidity)[- ](?:based|dependent|adjusted|aware)|square[- ]root)(?: (?:slippage|market impact|impact))+(?: model)?"
-               r"|(?:(?:with|using|and) )?(?:market )?impact(?: model)? slippage|(?:(?:with|using|and) )?(?:a )?market impact(?: model| costs?)?")
-    if m:
-        broker["slippage_model"] = "volume"
-        notes.append("Volume-based slippage: each fill pays half the spread (2 bps default) plus 100 bps x sqrt(order shares / "
-                     "20-day average volume), on top of any fixed slippage.")
+    broker = _broker_costs(T, notes)
     kw = common_options(T, notes)
     kw.update(broker)
 
@@ -2395,9 +2402,11 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
     m = T.find(rf"{NUM}% (?:annual |yearly )?borrow(?:ing)? (?:fee|cost|rate)|borrow (?:fee|cost|rate) of {NUM}%")
     if m:
         kw["borrow_fee"] = float(m.group(1) or m.group(2)) / 100
-    m = T.find(rf"{NUM}% margin (?:interest|rate)|margin (?:interest|rate) of {NUM}%")
+    m = T.find(rf"(?:(?:with|and|paying) )?(?:an? )?{NUM}% margin (?:interest|rate)|(?:(?:with|and|paying) )?(?:a )?margin (?:interest|rate)(?: of|:)? {NUM}%")
     if m:
         kw["margin_rate"] = float(m.group(1) or m.group(2)) / 100
+    if T.find(r"(?:(?:with|using|on|in|and) )?(?:an? )?portfolio[- ]margin(?:ing)?(?: account)?"):
+        kw["margin_account"] = "portfolio"
     m = T.find(rf"(?:(?:with|and) )?(?:a )?{NUM}% maintenance(?: margin)?(?: requirement)?|maintenance margin(?: requirement)?(?: of)? {NUM}%")
     if m:
         kw["maintenance_margin"] = float(m.group(1) or m.group(2)) / 100
@@ -2411,7 +2420,11 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
     m = T.find(r"pyramid(?:ing)?(?: up to)? (\d+)(?: times| entries)?|(?:add to (?:the )?(?:position|winners)|scale in)(?: up to)? (\d+) times|up to (\d+) entries per (?:ticker|stock|position)")
     if m:
         kw["pyramiding"] = int(m.group(1) or m.group(2) or m.group(3))
-    # ranking
+    # ranking: by market cap ("rank by market cap", "prefer the largest"), or by a named indicator
+    mcap = T.find(r"(?:prefer(?:ring)?|rank(?:ed|ing)?(?: them)? by|pick(?:ing)?|choose|choosing|favou?r(?:ing)?) (?:the )?"
+                  r"(?:(largest|biggest|smallest|highest|lowest) )?market[- ]cap(?:itali[sz]ation)?s?(?: first)?"
+                  r"|(?:prefer(?:ring)?|pick(?:ing)?|choose|choosing|favou?r(?:ing)?) (?:the )?(largest|biggest|smallest)"
+                  r"(?: (?:companies|stocks|names|ones))?(?: (?:by|in) market[- ]cap(?:itali[sz]ation)?)?(?: first)?(?=\s*(?:[,;.]|$))")
     mr = T.find(r"(?:prefer(?:ring)?|rank(?:ed)? by|pick(?:ing)?|choose|choosing|favou?r(?:ing)?) (?:the )?(lowest|highest|weakest|strongest|biggest losers?|biggest gainers?|most oversold|most overbought|biggest declines?|largest declines?)(?: (rsi|return|decline|change|volatility))?(?: first)?")
 
     # ---- exits and stops (anywhere)
@@ -2734,6 +2747,13 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
             raise ParseError(f"Could not interpret {' '.join(left)!r} in the exit {cl.strip()!r}.")
 
     side = "both" if len(parsed) == 2 else ("short" if "short" in parsed else "long")
+    if mcap:
+        if mr or ranked:
+            raise ParseError("The ranking is given twice; keep one of them.")
+        w = (mcap.group(1) or mcap.group(2) or "largest").lower()
+        kw["rank_by"], kw["rank_ascending"] = "market_cap", w in ("smallest", "lowest")
+        notes.append(f"Ranking: when more tickers signal than there are free slots, the {'smallest' if kw['rank_ascending'] else 'largest'} "
+                     "market caps (as of the signal day) are bought first.")
     if mr:
         w = mr.group(1)
         if mr.group(2) == "rsi" or "oversold" in w or "overbought" in w:
@@ -3693,11 +3713,14 @@ def parse_allocation(text: str) -> Portfolio:
                              "which this version does not have.")
         notes.append(f"Volatility target {tv['target_vol']:.0%} a year: the portfolio's exposure is scaled towards it, using its "
                      + (f"{tv['target_vol_lookback']} day" if "target_vol_lookback" in tv else "default") + " realised volatility.")
+    broker = _broker_costs(T, notes, sep=",? ?")
     kw = common_options(T, notes)
+    kw.update(broker)
     benchmark = kw.pop("benchmark", None)
     if "commission_per_share" in kw:
         raise ParseError("Per-share commissions are not supported for allocation portfolios; use '$1 per trade' or '0.1% commission'.")
-    pk: dict = {k: v for k, v in kw.items() if k in ("capital", "slippage_bps", "commission", "commission_pct", "start", "end", "cash_rate", "point_in_time")}
+    pk: dict = {k: v for k, v in kw.items() if k in ("capital", "slippage_bps", "commission", "commission_pct", "start", "end", "cash_rate", "point_in_time",
+                                                   "commission_model", "slippage_model")}
 
     # rebalancing
     rb = None
@@ -3777,7 +3800,8 @@ def parse_allocation(text: str) -> Portfolio:
     m = T.find(rf",? ?(?:(?:with|and) )?(?:an? )?(?:expense ratio|annual fee|management fee|fee) of {NUM}%(?: (?:a|per) year)?|,? ?(?:with |and )?(?:an? )?{NUM}% (?:expense ratio|annual fee|management fee|fee)(?: (?:a|per) year)?")
     if m:
         extra["expense_ratio"] = float(m.group(1) or m.group(2)) / 100
-    m = T.find(rf",? ?(?:(?:with|and|paying) )?(?:a )?margin (?:rate|interest|spread) of {NUM}%(?: above (?:t-?bills|the t-?bill rate))?|,? ?(?:paying )?{NUM}% margin (?:rate|interest)")
+    m = T.find(rf",? ?(?:(?:with|and|paying) )?(?:a )?margin (?:rate|interest|spread)(?: of|:)? {NUM}%(?: above (?:t-?bills|the t-?bill rate))?"
+               rf"|,? ?(?:(?:with|and|paying) )?(?:an? )?{NUM}% margin (?:rate|interest|spread)")
     if m:
         extra["margin_rate"] = float(m.group(1) or m.group(2)) / 100
     mrot = re.search(r"\b(?:rotate|switch)\w* (daily|weekly|monthly|quarterly|annually|yearly)\b", T.rest, re.I)

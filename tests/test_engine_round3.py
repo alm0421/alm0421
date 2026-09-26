@@ -177,7 +177,7 @@ def test_trade_stats_use_closed_trades_and_report_open_pnl(fake, tmp_path):
 
 def test_negative_final_equity_is_minus_100_percent_without_warnings(fake):
     fake["X"] = bars(flat(40) + flat(41, 400))
-    s = Strategy(cash_rate=None, universe=["X"], entry="dow == 0", side="short", hold_bars=60, leverage=3,
+    s = Strategy(cash_rate=None, universe=["X"], entry="dow == 0", side="short", hold_bars=60, leverage=3, margin_account="portfolio",
                  maintenance_margin=0)
     r = engine.run(s)
     assert r.equity.iloc[-1] < 0
