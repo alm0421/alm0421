@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import re
+import threading
 from dataclasses import dataclass
 
 from . import data
@@ -73,6 +74,99 @@ MONTHS = ["january", "february", "march", "april", "may", "june", "july", "augus
 
 SECTOR_ETFS = ["XLK", "XLF", "XLE", "XLV", "XLY", "XLP", "XLI", "XLU", "XLB", "XLRE", "XLC"]
 
+# Named model ("lazy") portfolios, as Portfolio Visualizer / Portfolio Charts list them. Each entry:
+# (phrase regex, display name, [(weight %, ETF), ...], source). Numbers are written as digits because
+# sentences are normalised first ("three" -> "3"). To add one, append a row.
+MODEL_PORTFOLIOS = [
+    (r"(?:bogleheads?'? )?3[- ]fund", "Three-fund portfolio", [(64, "VTI"), (16, "VXUS"), (20, "BND")],
+     "Bogleheads three-fund portfolio: 80% stocks (a fifth of them international) and 20% bonds"),
+    (r"(?:ray )?(?:dalio'?s? )?all[- ]weather", "All Weather portfolio",
+     [(30, "VTI"), (40, "TLT"), (15, "IEF"), (7.5, "GLD"), (7.5, "DBC")], "Ray Dalio's All Weather (Tony Robbins' version)"),
+    (r"golden butterfly", "Golden Butterfly", [(20, "VTI"), (20, "VBR"), (20, "TLT"), (20, "SHY"), (20, "GLD")],
+     "Tyler (Portfolio Charts): total market, small-cap value, long and short Treasuries, gold"),
+    (r"(?:harry )?(?:browne'?s? )?permanent", "Permanent Portfolio", [(25, "VTI"), (25, "TLT"), (25, "BIL"), (25, "GLD")],
+     "Harry Browne: stocks, long Treasuries, cash, gold"),
+    (r"(?:bill )?(?:schultheis'?s? )?coffee ?house", "Coffeehouse portfolio",
+     [(40, "BND"), (10, "SPY"), (10, "VTV"), (10, "VB"), (10, "VBR"), (10, "EFA"), (10, "VNQ")],
+     "Bill Schultheis: 40% bonds, 10% each in large, large value, small, small value, international and REITs"),
+    (r"(?:meb )?(?:faber'?s? )?ivy", "Ivy portfolio", [(20, "VTI"), (20, "VEU"), (20, "BND"), (20, "VNQ"), (20, "DBC")],
+     "Faber's Ivy / GTAA 5 asset classes held in equal weights (no timing)"),
+    (r"(?:william )?(?:bernstein'?s? )?no[- ]brainer", "Bernstein No-Brainer", [(25, "SPY"), (25, "VB"), (25, "VGK"), (25, "SHY")],
+     "William Bernstein: S&P 500, small caps, European stocks, short-term bonds"),
+    (r"(?:classic )?60[/-]40", "60/40 portfolio", [(60, "VTI"), (40, "BND")], "60% US total market, 40% total bond market"),
+    (r"hedgefundie'?s?(?: excellent)? adventure|hfea", "Hedgefundie's Excellent Adventure", [(55, "UPRO"), (45, "TMF")],
+     "55% 3x S&P 500 (UPRO), 45% 3x long Treasuries (TMF)"),
+    (r"(?:david )?swensen'?s?(?: yale)?|yale(?: endowment)?", "Swensen (Yale) portfolio",
+     [(30, "VTI"), (15, "EFA"), (5, "EEM"), (20, "VNQ"), (15, "TIP"), (15, "IEF")],
+     "David Swensen's individual-investor portfolio: US, developed, emerging, REITs, TIPS, Treasuries"),
+    (r"larry(?: swedroe'?s?)?|swedroe'?s?", "Larry portfolio", [(15, "VBR"), (7.5, "VSS"), (7.5, "VWO"), (70, "IEF")],
+     "Larry Swedroe: 30% small value / emerging stocks, 70% intermediate Treasuries (VSS stands in for international small value)"),
+]
+MODEL_RX = r"(?:the |a |an )?(?:" + "|".join(p for p, *_ in MODEL_PORTFOLIOS) + r")(?:'s)?(?: lazy)?(?: portfolio| model| allocation| strategy)?"
+
+# long-history series that can stand in for an ETF before it existed: (series, None) when it IS that
+# ETF extended back, (series, proxy description) when it approximates it. The first available wins,
+# so e.g. a future BNDSIM listed before IEFSIM takes over automatically. Missing series are skipped.
+SIM_FOR = {
+    "SPY": [("SPYSIM", None)], "VTI": [("SPYSIM", "the US market (Fama-French), then SPY")],
+    "VOO": [("SPYSIM", "the US market, then SPY")],
+    "TLT": [("TLTSIM", None)], "IEF": [("IEFSIM", None)], "SHY": [("SHYSIM", None)], "BIL": [("BILSIM", None)],
+    "IEI": [("IEISIM", None)], "VB": [("VBSIM", None)], "VBR": [("VBRSIM", None)], "VTV": [("VTVSIM", None)],
+    "VUG": [("VUGSIM", None)], "EFA": [("EFASIM", None)], "GLD": [("GLDSIM", None)],
+    "DBC": [("DBCSIM", None)], "VNQ": [("VNQSIM", None)], "EEM": [("EEMSIM", None)],
+    "VWO": [("EEMSIM", "emerging markets, then EEM")], "LQD": [("LQDSIM", None)], "TIP": [("TIPSIM", None)],
+    "BND": [("BNDSIM", None), ("AGGSIM", "the aggregate bond market, then AGG"),
+            ("IEFSIM", "intermediate Treasuries, then IEF")],
+    "AGG": [("AGGSIM", None), ("IEFSIM", "intermediate Treasuries, then IEF")],
+    "VXUS": [("EFASIM", "developed markets ex-US (no emerging markets), then EFA")],
+    "VEU": [("EFASIM", "developed markets ex-US (no emerging markets), then EFA")],
+    "VEA": [("EFASIM", "developed markets ex-US, then EFA")],
+}
+
+
+def _model_portfolio(text: str, notes: list[str]) -> dict | None:
+    """'golden butterfly' -> its weights node; with a start date before an ETF existed, the long-history
+    series (SPYSIM, TLTSIM, ...) are used for the funds that have one, with a note."""
+    s = text.strip().lower()
+    if not re.fullmatch(MODEL_RX, s):
+        return None
+    for pat, name, holdings, about in MODEL_PORTFOLIOS:
+        if re.fullmatch(rf"(?:the |a |an )?(?:{pat})(?:'s)?(?: lazy)?(?: portfolio| model| allocation| strategy)?", s):
+            break
+    start = getattr(_TL, "start", None)
+    known = _known()
+    kids, ws, swaps, late = [], [], [], []
+    for w, etf in holdings:
+        use = etf
+        first = None
+        try:
+            first = data.load(etf).index[0] if etf in known else None
+        except Exception:
+            first = None
+        if start and (first is None or str(first.date()) > str(start)[:10]):
+            for sim, proxy in SIM_FOR.get(etf, []):
+                if sim in known:
+                    use = sim
+                    swaps.append(f"{sim} for {etf}" + (f" ({proxy})" if proxy else ""))
+                    break
+            else:
+                if first is not None:
+                    late.append(f"{etf} (from {first.date()})")
+        if use not in known:
+            raise ParseError(f"{name} needs {etf}, which has no price data here.")
+        kids.append({"asset": use})
+        ws.append(w / 100)
+    notes.append(f"{name}: " + ", ".join(f"{w:g}% {e}" for w, e in holdings) + f" ({about}).")
+    if swaps:
+        notes.append(f"Start {str(start)[:10]} is before some of the funds existed: using the long-history series "
+                     + "; ".join(swaps) + ".")
+    if late:
+        notes.append("No long-history series for " + ", ".join(late) + ": the backtest can only start once it has data.")
+    if not start and any(any(sim in known for sim, _ in SIM_FOR.get(e, [])) for _, e in holdings):
+        notes.append(f"{name} uses the ETFs; add e.g. 'since 1972' to extend it back with the simulated long-history series.")
+    return {"weights": "specified", "w": [round(w, 10) for w in ws], "children": kids}
+
+
 # words that may be left over after everything meaningful was recognised
 STOP = set("""
 a an the it its it's is are was were be been being this that these those then than also just only
@@ -80,7 +174,7 @@ when whenever if once and or but so of on at in into for to with by from as per 
 stock stocks share shares price prices ticker tickers symbol symbols etf etfs fund funds day days
 today same trade trades trading traded position positions order orders strategy backtest test please
 i me my we our us you want would like let lets let's run show see what happens using use rule rules
-signal signals market markets just simply both plus ones one's there here now time times
+signal signals market markets just simply both plus ones one's there here now time times they them their
 buy buying bought sell selling sold hold holding keep own go goes going get enter exit cover long
 short purchase invest investing put allocate allocation portfolio money account close
 """.split())
@@ -88,6 +182,21 @@ short purchase invest investing put allocate allocation portfolio money account 
 
 class ParseError(ValueError):
     pass
+
+
+# notes raised deep inside condition / value parsing (which has no notes list of its own); parse()
+# resets them and adds them to the result's notes. Thread-local: the site parses in several threads.
+_TL = threading.local()
+
+
+def _note(msg: str) -> None:
+    lst = getattr(_TL, "notes", None)
+    if lst is not None and msg not in lst:
+        lst.append(msg)
+
+
+def _pending_notes() -> list[str]:
+    return list(getattr(_TL, "notes", None) or [])
 
 
 @dataclass
@@ -130,7 +239,18 @@ class Ctx:
 def _normalize(text: str) -> str:
     t = text.replace("’", "'").replace("–", "-").replace("—", "-").replace("“", '"').replace("”", '"')
     t = re.sub(r"\s+", " ", t).strip()
+    t = t.replace("≥", " >= ").replace("≤", " <= ").replace("＞", ">").replace("＜", "<")
+    t = _sub_outside(r"(?i)\b(?:greater than or equal to|equal to or greater than|higher than or equal to|"
+                     r"above or equal to|at or above|greater or equal to)(?= )", ">=", t)
+    t = _sub_outside(r"(?i)\b(?:less than or equal to|equal to or less than|lower than or equal to|"
+                     r"below or equal to|at or below|less or equal to)(?= )", "<=", t)
+    # contractions ("don't rebalance" and "let's" stay as they are)
+    t = re.sub(r"(?i)\b(it|that|this|there|he|she)'s\b", r"\1 is", t)
+    t = re.sub(r"(?i)\b(is|does|has|was|are|have|did|were)n't\b", r"\1 not", t)
+    t = re.sub(r"(?i)\b(they|we|you)'re\b", r"\1 are", t)
+    t = re.sub(r"\s+", " ", t).strip()
     t = re.sub(r"(\d)\s*percent\b", r"\1%", t, flags=re.I)
+    t = _sub_outside(r"(?i)(?<![\w.$])(\d+(?:\.\d+)?) ?(?:cents?\b|¢)", lambda m: f"${float(m.group(1)) / 100:g}", t)
     t = re.sub(r"\bper cent\b", "%", t, flags=re.I)
     for w, n in WORD_NUMS.items():
         t = re.sub(rf"\b{w}\b", str(n), t, flags=re.I)
@@ -261,15 +381,57 @@ def find_tickers(text: str, strict: bool = False) -> list[str]:
             elif strict:
                 unknown.append(f"{name} ({sym})")
     if strict and unknown:
-        raise ParseError(
-            f"No price data for: {', '.join(dict.fromkeys(unknown))}. "
-            + " ".join(f"Did you mean {', '.join(data.suggest(u.split(' (')[0]))} for {u}?" for u in dict.fromkeys(unknown))
-            + " (`python -m backtester tickers` lists all.)")
+        def one(u):
+            sug = data.suggest(u.split(" (")[-1].rstrip(")") if " (" in u else u)
+            return f"unknown ticker {u}" + (f" (closest: {', '.join(sug)})" if sug else "")
+        msg = "; ".join(one(u) for u in dict.fromkeys(unknown))
+        raise ParseError(msg[0].upper() + msg[1:] + " - no price data. (`python -m backtester tickers` lists all.)")
     out: list[str] = []
     for _, s in sorted(found):
         if s not in out:
             out.append(s)
     return out
+
+
+# tickers that are also English words (or parser vocabulary): never read from lowercase text
+ENGLISH_TICKERS = set("""
+all app arm be cat cost cure dell dis dust fang fast flex fox gold corn has jets java life lit lite mar mat on
+qual shop size spot tail tan team tip trip ups usd vip yang are low high open close day hold buy sell top cash bond
+bonds rate rates ring now well real key sun eat run win net plus ever tell love fun main dash pep coin hood
+""".split())
+
+
+def _lowercase_tickers(text: str) -> str:
+    """'if tqqq 10 day rsi is above 79 then uvxy else tqqq' -> the same with TQQQ / UVXY: a lowercase word
+    is read as a ticker only when it is 3+ letters, has price data and is not an English or vocabulary
+    word ('spy' is accepted). Text inside backticks is left alone. Adds a note listing what was read."""
+    known = _known()
+    words = set(STOP) | {w.lower() for w in NOT_TICKERS} | ENGLISH_TICKERS | set(WORD_NUMS) | set(DOW) | set(MONTHS)
+    for name in COMPANIES:
+        words.update(name.split())
+    done: list[str] = []
+
+    def fix(m):
+        w = m.group(0)
+        if len(w) < 3 or w in words or w.upper() not in known:
+            return w
+        done.append(w)
+        return w.upper()
+    parts = re.split(r"(`[^`]*`)", text)
+    out = "".join(p if p.startswith("`") else re.sub(r"(?<![\w$^'.-])[a-z]{3,5}(?![\w'-])", fix, p) for p in parts)
+    if done:
+        _note("Lowercase ticker" + ("s" if len(set(done)) > 1 else "") + " read as "
+              + ", ".join(f"'{w}' = {w.upper()}" for w in dict.fromkeys(done)) + ".")
+    return out
+
+
+def _intraday_check(text: str) -> None:
+    m = re.search(r"(?i)\b(?:at|by|after|before|around|until) \d{1,2}(?::\d{2})? ?(?:am|pm|a\.m\.|p\.m\.)(?![\w])"
+                  r"|\b(?:at|by|after|before|around|until) \d{1,2}:\d{2}\b"
+                  r"|\b(?:\d+[- ]?(?:min(?:ute)?s?|hours?|h)|hourly|minute)(?: bars?| charts?| candles?| timeframe)\b", _mask(text, parens=False))
+    if m:
+        raise ParseError(f"'{text[m.start():m.end()].strip()}': intraday times and bars are not supported - the data is daily "
+                         "(one open, high, low and close per day). Use 'at the open', 'at the close' or 'at the next open'.")
 
 
 def _cmp(word: str) -> str:
@@ -377,8 +539,57 @@ OSC = r"(rsi|stochastic(?: %?k)?|stoch|cci|williams %?r|willr|mfi|money flow ind
 
 # ----------------------------------------------------------------- conditions
 
+TF_INDICATORS = (r"(?:\d+ (?:day |period |bar )?)?(?:macd|atr|average true range|supertrend|parabolic sar|sar\b|cci|adx|stoch|"
+                 r"mfi|money flow|williams|willr|obv|on[- ]balance|bollinger|%b|keltner|roc\b|rate of change|%k|%d|\+di|-di|"
+                 r"plus di|minus di|upper|lower|middle)")
+TF_CALLS = {"macd", "macd_signal", "macd_hist", "atr", "natr", "supertrend", "sar", "cci", "adx", "stoch_k", "stoch_d", "mfi",
+            "willr", "obv", "bb_upper", "bb_lower", "keltner_upper", "keltner_lower", "plus_di", "minus_di", "ret"}
+
+
+def _wrap_timeframe(e: str, per: str) -> str:
+    """Wrap each side of every comparison / crossing that uses a daily-bar indicator in weekly(...) /
+    monthly(...): close > supertrend(10, 3) -> close > weekly(supertrend(10, 3))."""
+    def has_tf(node):
+        return any(isinstance(x, ast.Call) and isinstance(x.func, ast.Name) and x.func.id in TF_CALLS for x in ast.walk(node))
+
+    def wrap(node):
+        if has_tf(node):
+            return ast.Call(func=ast.Name(id=per, ctx=ast.Load()), args=[node], keywords=[])
+        return node
+
+    class T(ast.NodeTransformer):
+        def visit_Compare(self, n):
+            n.left = wrap(n.left)
+            n.comparators = [wrap(x) for x in n.comparators]
+            return n
+
+        def visit_Call(self, n):
+            if isinstance(n.func, ast.Name) and n.func.id in ("crossover", "crossunder"):
+                n.args = [wrap(x) for x in n.args]
+                return n
+            return self.generic_visit(n)
+    tree = T().visit(ast.parse(e, mode="eval"))
+    out = ast.unparse(tree)
+    if f"{per}(" not in out:
+        raise ParseError(f"'{per}' could not be applied here; write the rule in backticks, e.g. `{per}(macd_hist()) > 0`.")
+    return out
+
+
 def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     """Return (expression, leftover words) for one sub-clause."""
+    # "daily RSI(2)" is the normal daily-bar indicator
+    text = re.sub(rf"(?i)\bdaily (?={TF_INDICATORS}|rsi|close|sma|ema|\d+ (?:day |period )?(?:sma|ema|moving average|ma)\b)", "", text)
+    # "the weekly MACD histogram", "weekly ATR(14)", "the weekly supertrend": the indicator on weekly bars
+    tfs = re.findall(rf"(?i)\b(weekly|monthly) (?={TF_INDICATORS})", text)
+    if tfs and "`" not in text:
+        pers = {x.lower() for x in tfs}
+        if len(pers) > 1:
+            raise ParseError(f"'{text.strip()}' mixes weekly and monthly indicators; split it into two conditions.")
+        per = pers.pop()
+        if not ctx.base:
+            _unsupported(f"a {per} indicator of another ticker")
+        e, left = parse_condition(re.sub(rf"(?i)\b(?:weekly|monthly) (?={TF_INDICATORS})", "", text), ctx)
+        return (_wrap_timeframe(e, per) if e else e), left
     s = " " + text.strip().lower() + " "
     parts: list[str] = []
 
@@ -407,6 +618,11 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
 
     # negations of relations: "not above 79" is "at most 79"
     s = _negations(s)
+    # "above its 200-day" (no noun) = its 200-day simple moving average
+    def bare_ma(m):
+        _note(f"'{m.group(2).strip()}' with no indicator named was read as the {m.group(3)} {m.group(4)} simple moving average.")
+        return f"{m.group(1)}{m.group(2)} moving average"
+    s = re.sub(r"((?:above|below|over|under|>=?|<=?) )((?:its|the) (\d+) (day|week|month)s?)(?= *$)", bare_ma, s)
     # volume against its average (before the price-vs-average phrases)
     take(r"volume (?:is )?(above|below|over|under) (?:its |the )?(?:(\d+) day )?(?:average|avg|moving average)(?: volume)?",
          lambda m: f"{v} {_cmp(m.group(1))} sma({v}, {m.group(2) or 20})")
@@ -444,22 +660,28 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
                     else (f"crossunder(macd_hist(), 0)" if "histogram" in m.group(0) else "crossunder(macd(), 0)") if ("turns negative" in m.group(1) or "crosses below" in m.group(1))
                     else f"{'macd_hist()' if 'histogram' in m.group(0) else 'macd()'} {'>' if ('positive' in m.group(1) or 'above' in m.group(1)) else '<'} 0"))
     # directional movement
-    take(r"(?:\+di|plus di) (?:is )?(above|below|crosses above|crosses below) (?:the )?(?:-di|minus di)",
-         lambda m: (f"crossover(plus_di(), minus_di())" if m.group(1) == "crosses above" else
-                    f"crossunder(plus_di(), minus_di())" if m.group(1) == "crosses below" else
-                    f"plus_di() {_cmp(m.group(1))} minus_di()"))
+    def di(m):
+        a, b = ("plus_di()", "minus_di()") if m.group("a").lstrip("the ").startswith(("+", "plus")) else ("minus_di()", "plus_di()")
+        rel = m.group("rel")
+        if m.group("cross"):
+            return f"{'crossover' if rel in ('above', 'over') else 'crossunder'}({a}, {b})"
+        return f"{a} {_cmp(rel)} {b}"
+    take(r"(?P<a>(?:the )?(?:\+di|plus di|-di|minus di)) (?:line )?(?:is )?(?P<cross>cross(?:es|ed)? )?(?P<rel>above|over|below|under) "
+         r"(?:the )?(?P<b>\+di|plus di|-di|minus di)(?: line)?", di)
     # stochastic %K vs %D
     def kd(m):
         if not ctx.base:
             _unsupported("the stochastic of another ticker")
         k, d = "stoch_k(14, 3)", "stoch_d(14, 3, 3)"
         rel = m.group("rel")
+        zone = f" and ({k} {_cmp(m.group('zrel'))} {m.group('zv')})" if m.group("zrel") else ""
         if m.group("cross"):
-            return f"{'crossover' if rel in ('above', 'over') else 'crossunder'}({k}, {d})"
-        return f"{k} {_cmp(rel)} {d}"
+            return f"{'crossover' if rel in ('above', 'over') else 'crossunder'}({k}, {d}){zone}"
+        return f"{k} {_cmp(rel)} {d}{zone}"
     KP = r"(?:the )?(?:(?:slow |full )?stoch(?:astic)?(?:'s)? )?%k(?: line)?"
     DP = r"(?:the |its )?(?:(?:slow |full )?stoch(?:astic)?(?:'s)? )?%d(?: line)?"
-    take(rf"{KP} (?:is )?(?:(?P<cross>cross(?:es|ed)?(?: back)?) )?(?P<rel>above|over|below|under|<=|>=) {DP}", kd)
+    take(rf"{KP} (?:is )?(?:(?P<cross>cross(?:es|ed)?(?: back)?) )?(?P<rel>above|over|below|under|<=|>=) {DP}"
+         rf"(?: (?:while |when |with )?(?:(?:%k|it|both) (?:is |are )?)?(?:in the oversold zone |in the overbought zone )?(?P<zrel>below|under|above|over) (?P<zv>{NUM[1:-1]}))?", kd)
     if re.search(rf"{KP} cross(?:es|ed)? {DP}", s):
         raise ParseError("'%K crosses %D': which way? Say '%K crosses above %D' or '%K crosses below %D'.")
 
@@ -480,6 +702,15 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     s = re.sub(r"\b(weekly|monthly) (\d+)(?: (?:period|bar))? ((?:simple |exponential )?(?:moving average|sma|ema|ma)\b)",
                lambda m: f"{m.group(2)} {'week' if m.group(1) == 'weekly' else 'month'} {m.group(3)}", s)
 
+    def per_close(m):
+        pc = f"{m.group('per')}_close({'' if ctx.base else c})"
+        ma = _mat_expr(m, "a", c)
+        if m.group("cross"):
+            return f"{'crossover' if _cmp(m.group('rel'))[0] == '>' else 'crossunder'}({pc}, {ma})"
+        return f"{pc} {_cmp(m.group('rel'))} {ma}"
+    take(rf"(?:the |its )?(?P<per>weekly|monthly) clos(?:e|ing price) (?:is |closes? |stays? )?(?P<cross>cross(?:es|ed)? (?:back )?)?"
+         rf"(?P<rel>above|over|below|under|>=?|<=?) (?:the |its )?{_mat('a')}", per_close)
+
     # oscillator crossings and levels
     take(rf"(?:the )?(?:(\d+) (?:day|period|bar) )?{OSC}\s*(?:\(\s*(\d+)\s*\)|(\d+))? (?:line )?(?:cross(?:es|ed)?(?: back)?|(?:falls?|fell|drops?|dropped|dips?|dipped|moves?|moved|goes|went|gets?|rises?|rose|climbs?|climbed|comes?|came) back) (above|over|below|under) (-?{NUM})",
          lambda m: f"{'crossover' if m.group(5) in ('above', 'over') else 'crossunder'}({_osc(m.group(2), m.group(1) or m.group(3) or m.group(4), ctx)}, {m.group(6)})")
@@ -496,6 +727,35 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     take(rf"(?:the |its )?{_mat('a')} (?:line )?(?:is |has |stays |remains )?(?P<cross>cross(?:es|ed)? )?(?P<rel>above|over|below|under|<=|>=) (?:the |its )?{_mat('b')}", ma_vs_ma)
     take(r"golden cross", lambda m: f"crossover(sma({c}, 50), sma({c}, 200))")
     take(r"death cross", lambda m: f"crossunder(sma({c}, 50), sma({c}, 200))")
+
+    # on-balance volume against its own average
+    def obv_x(m):
+        if not ctx.base:
+            _unsupported("OBV of another ticker")
+        ma = f"{'ema' if 'ema' in m.group('k') or 'exp' in m.group('k') else 'sma'}(obv(), {m.group('n')})"
+        if m.group("cross"):
+            return f"{'crossover' if _cmp(m.group('rel')) == '>' else 'crossunder'}(obv(), {ma})"
+        return f"obv() {_cmp(m.group('rel'))} {ma}"
+    take(rf"(?:the )?(?:obv|on[- ]balance volume)(?: line)? (?:is )?(?P<cross>cross(?:es|ed)?(?: back)? )?(?P<rel>above|over|below|under) "
+         rf"(?:its |the )?(?P<n>\d+) (?:day |period |bar )?(?P<k>{MAK})", obv_x)
+
+    # Bollinger %B: (close - lower band) / (upper band - lower band)
+    def pctb(m):
+        if not ctx.base:
+            _unsupported("Bollinger %B of another ticker")
+        b = "((close - bb_lower(20, 2)) / (bb_upper(20, 2) - bb_lower(20, 2)))"
+        if m.group("cross"):
+            return f"{'crossover' if _cmp(m.group('rel')) == '>' else 'crossunder'}({b}, {m.group('v')})"
+        return f"{b} {_cmp(m.group('rel'))} {m.group('v')}"
+    take(rf"(?:the )?(?:bollinger |bb )?%b(?: value| reading)? (?:is )?(?P<cross>cross(?:es|ed)?(?: back)? )?(?P<rel>{CMPW[1:-1]}) (?P<v>-?{NUM[1:-1]})(?!%)", pctb)
+
+    # "the close is 2 ATR below the 20 day EMA"
+    def atr_off(m):
+        if not ctx.base:
+            _unsupported("ATR of another ticker")
+        k, ma, below = float(m.group("k")), _mat_expr(m, "a", c), _cmp(m.group("rel")) == "<"
+        return f"{c} {'<' if below else '>'} {ma} {'-' if below else '+'} {k:g} * atr(14)"
+    take(rf"(?:closes? |is |trades? |falls |drops |rises |moves )?(?:at least |more than )?(?P<k>{NUM[1:-1]}) ?(?:x )?atrs? (?P<rel>below|under|above|over) (?:the |its )?{_mat('a')}", atr_off)
 
     # price vs moving average (or VWAP), optionally by X%
     def px_vs(m, ma):
@@ -517,17 +777,47 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
         return px_vs(m, f"vwap({n})" if ctx.base else f"(sma((({h} + {l} + {c}) / 3) * {v}, {n}) / sma({v}, {n}))")
     take(PX + r"(?:(?P<vn>\d+) (?:day|bar|period|session)s? )?(?:rolling )?vwap", vwap_x)
 
-    # drawdown from a high
-    take(rf"(?:is |trades? |closes? )?within {NUM}% (?:of|from) (?:its |the )?(?:(\d+) (day|week|month|year) high|52 week high|all[- ]time high|high)",
-         lambda m: f"drawdown({c}{', ' + str(252 if '52 week' in m.group(0) else _period(m.group(2), m.group(3))) if (m.group(2) or '52 week' in m.group(0)) else ''}) >= {-float(m.group(1)) / 100:g}")
-    take(rf"(?:is |trades? |closes? )?(?:at least |more than )?{NUM}% (?:or more )?(?:below|off|under) (?:its |the )?(?:(\d+) (day|week|month|year) high|52 week high|all[- ]time high|high)",
-         lambda m: f"drawdown({c}{', ' + str(252 if '52 week' in m.group(0) else _period(m.group(2), m.group(3))) if (m.group(2) or '52 week' in m.group(0)) else ''}) <= {-float(m.group(1)) / 100:g}")
+    # distance from an N-day / 52-week / all-time high or low: "is down 10% from its 200 day high",
+    # "has fallen 20% below its 52 week high", "rallied 10% off its 20 day low", "within 2% of its high"
+    def extreme(m):
+        g = m.groupdict()
+        n, unit, hl = g["n"], g["unit"], g["hl"]
+        high = hl in ("high", "peak", "top")
+        look = (252 if (n == "52" and unit.startswith("week")) else _period(n, unit)) if n else None   # None: all history
+        pct = float(g["pct"]) / 100
+        verb = "down" if g.get("dn") else "up" if g.get("up") else None
+        prep = g.get("prep")
+        what = g["span"].strip()
+        low_base = f"lowest({c}, {look})" if look else f"cummin({c})"
+        if g.get("within"):
+            if high:
+                return f"drawdown({c}{', ' + str(look) if look else ''}) >= {-pct:g}"
+            return f"{c} / {low_base} - 1 <= {pct:g}"
+        if high:
+            if verb == "up" or prep in ("above", "over"):
+                raise ParseError(f"'{m.group(0).strip()}': the price cannot be above {what} (the high includes today). "
+                                 f"Did you mean below it, e.g. 'is down {g['pct']}% from {what}'?")
+            return f"drawdown({c}{', ' + str(look) if look else ''}) <= {-pct:g}"
+        if verb == "down" or prep in ("below", "under"):
+            raise ParseError(f"'{m.group(0).strip()}': the price cannot be below {what} (the low includes today). "
+                             f"Did you mean above it, e.g. 'is up {g['pct']}% from {what}'?")
+        return f"{c} / {low_base} - 1 >= {pct:g}"
+    EXT_SPAN = (r"(?P<span>(?:its |the |their )?(?:(?P<n>\d+) (?P<unit>day|week|month|year|bar|session)s? |(?:all[- ]time |record |lifetime ))?"
+                r"(?P<hl>high|peak|top|low|bottom|trough)s?)(?! (?:of|in) the day)")
+    take(rf"(?:is |trades? |closes? |sits? |stays? |remains? )?(?P<within>within) (?P<pct>{NUM[1:-1]})% (?:of|from) {EXT_SPAN}", extreme)
+    take(rf"{MOVE_AUX}(?:(?P<dn>{DOWN_VERBS})|(?P<up>{UP_VERBS}|bounced|rebounded|recovered)|off|sits?|stays?|remains?)?(?: by)?"
+         rf"(?: at least| more than| over| greater than)? (?P<pct>{NUM[1:-1]})%(?: or more)? (?P<prep>from|off|below|under|above|over) {EXT_SPAN}", extreme)
+    take(rf"(?:at least |more than )?(?P<pct>{NUM[1:-1]})% (?:or more )?(?P<prep>from|off|below|under|above|over) {EXT_SPAN}", extreme)
 
     # breakouts vs prior N-day range
     take(r"(?:closes? |breaks? |trades? |moves? )?(above|over|below|under) (?:its |the )?(?:previous |prior |last )?(\d+) (day|week|month|bar)s? (high|low)",
          lambda m: (f"{c} > ref(highest({h}, {_period(m.group(2), m.group(3))}), 1)" if m.group(4) == "high" and _cmp(m.group(1)) == ">"
                     else f"{c} < ref(lowest({l}, {_period(m.group(2), m.group(3))}), 1)" if m.group(4) == "low" and _cmp(m.group(1)) == "<"
                     else f"{c} {_cmp(m.group(1))} ref({'highest(' + h if m.group(4) == 'high' else 'lowest(' + l}, {_period(m.group(2), m.group(3))}), 1)"))
+    take(r"(?:closes? |breaks? |trades? |moves? |crosses |is |goes )?(above|over|below|under) (?:the )?(highest high|lowest low|highest close|lowest close|"
+         r"high(?:est price)?|low(?:est price)?) (?:of|in|over|during) (?:the )?(?:last|past|prior|previous) (\d+) (day|week|month|bar|session)s?",
+         lambda m: f"{c} {_cmp(m.group(1))} ref({'highest' if m.group(2).startswith('high') else 'lowest'}("
+                   f"{c if m.group(2).endswith('close') else (h if m.group(2).startswith('high') else l)}, {_period(m.group(3), m.group(4))}), 1)")
     take(r"breaks? out(?: to a new)? (\d+) (day|week|month)s? high", lambda m: f"{c} > ref(highest({h}, {_period(m.group(1), m.group(2))}), 1)")
     take(r"breaks? down(?: to a new)? (\d+) (day|week|month)s? low", lambda m: f"{c} < ref(lowest({l}, {_period(m.group(1), m.group(2))}), 1)")
 
@@ -544,9 +834,15 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     # supertrend / SAR / keltner / donchian
     take(r"(?:closes? |is |trades? )?(above|below) (?:the )?supertrend", lambda m: f"{c} {_cmp(m.group(1))} supertrend(10, 3)")
     take(r"supertrend (?:turns |flips )?(bullish|bearish)", lambda m: f"{'crossover' if m.group(1) == 'bullish' else 'crossunder'}({c}, supertrend(10, 3))")
-    take(r"(?:closes? |is |trades? )?(above|below) (?:the )?(?:parabolic )?sar", lambda m: f"{c} {_cmp(m.group(1))} sar()")
-    take(r"(?:closes? |is |trades? )?(above|below) (?:the )?(upper|lower) keltner(?: channel| band)?",
-         lambda m: f"{c} {_cmp(m.group(1))} keltner_{m.group(2)}(20, 2)")
+    take(r"(?:(?:the )?(?:parabolic )?sar|the dots?) (?:flips?|flipped|crosses|crossed|moves?|moved|goes|went|turns?|turned|switches) "
+         r"(below|under|above|over) (?:the )?(?:price|close|closing price|candles?|bars?)",
+         lambda m: f"{'crossover' if _cmp(m.group(1)) == '<' else 'crossunder'}({c}, sar())" if ctx.base else _unsupported("SAR of another ticker"))
+    take(r"(?:closes? |is |trades? |price )?(?:(cross(?:es|ed)?(?: back)?) )?(above|below|over|under) (?:the )?(?:parabolic )?sar",
+         lambda m: (f"{'crossover' if _cmp(m.group(2)) == '>' else 'crossunder'}({c}, sar())" if m.group(1)
+                    else f"{c} {_cmp(m.group(2))} sar()") if ctx.base else _unsupported("SAR of another ticker"))
+    take(r"(?:closes? |is |trades? |price )?(?:(cross(?:es|ed)?(?: back)?) )?(above|below|over|under) (?:the |its )?(upper|lower) keltner(?: channel)?(?: band| line)?",
+         lambda m: ((f"{'crossover' if _cmp(m.group(2)) == '>' else 'crossunder'}({c}, keltner_{m.group(3)}(20, 2))" if m.group(1)
+                     else f"{c} {_cmp(m.group(2))} keltner_{m.group(3)}(20, 2)") if ctx.base else _unsupported("Keltner channels of another ticker")))
 
     # gaps
     def gap(m):
@@ -568,8 +864,10 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
          else _unsupported("ATR of another ticker"))
 
     # volatility
-    take(rf"(?:(\d+) day )?(?:historical |realized |annualized )?volatility (?:is )?{CMPW} {NUM}%",
-         lambda m: f"volatility({int(m.group(1) or 20)}{xs}) {_cmp(m.group(2))} {float(m.group(3)) / 100:g}")
+    def vol(m):
+        n, kind, rel, v = int(m.group(1) or 20), (m.group("kind") or "").strip(), m.group("rel"), float(m.group("v"))
+        return _vol_threshold(m.group(0).strip(), n, kind, _cmp(rel), v / 100, ctx)
+    take(rf"(?:(\d+) day )?(?P<kind>historical |realized |realised |annuali[sz]ed |daily )?(?:volatility|vol) (?:is )?(?P<rel>{CMPW[1:-1]}) (?P<v>{NUM[1:-1]})%", vol)
 
     # percentage moves over N days. The direction comes from which verb list matched (never from
     # string tests on the verb), so every auxiliary form ("has fallen", "was down") keeps its sign.
@@ -578,9 +876,17 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
         n, unit = m.group("n"), m.group("unit")
         n = _period(n, unit) if n else (_period(1, unit) if unit else 1)
         r = ctx.ret(n) if ctx.total else (chg if n == 1 else f"ret({c}, {n})")
+        if m.group("yday"):
+            if m.group("pre"):
+                raise ParseError(f"'{m.group(0).strip()}': 'yesterday' and a period together are ambiguous; write it in backticks, "
+                                 f"e.g. `ref(ret(close, 3), 1) <= -0.05`.")
+            r = f"ref({r}, 1)"
+            _note(f"'{m.group(0).strip()}' = the previous bar's 1-day move ({r}); the rule is checked at today's close. "
+                  "Drop 'yesterday' for today's move.")
         return f"{r} <= {-pct:g}" if m.group("dn") else f"{r} >= {pct:g}"
     take(rf"{MOVE_AUX}(?:(?P<dn>{DOWN_VERBS})|(?P<up>{UP_VERBS}))(?: by)?(?: more than| at least| over| greater than)? (?P<pct>{NUM[1:-1]})%(?: or more)?"
-         rf"(?:(?: in| over| during| within)(?: the)?(?: last| past| prior| previous)? (?:(?P<n>\d+) )?(?:trading )?(?P<unit>day|week|month|session|bar|year)s?| today| on the day| in a single day| in one day| intraday)?", move)
+         rf"(?P<pre>(?: in| over| during| within)(?: the)?(?: last| past| prior| previous)? (?:(?P<n>\d+) )?(?:trading )?(?P<unit>day|week|month|session|bar|year)s?| today| on the day| in a single day| in one day| intraday)?"
+         rf"(?P<yday> yesterday(?!')| on the (?:previous|prior) (?:day|session)| the (?:previous|prior) (?:day|session)| the day before)?", move)
 
     def ret_cmp(m):
         n = _period(m.group(1) or 1, m.group(2))
@@ -609,6 +915,8 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     # previous-day references
     take(r"(?:closes?|is|trades?|price is|moves?|goes|rises|falls|drops) (below|under|above|over|<=|>=) (?:the )?(?:previous|prior|yesterday's|yesterdays|last) (?:day's |days |session's |bar's )?(high|low|close|open)",
          lambda m: f"{c} {_cmp(m.group(1))} ref({ {'high': h, 'low': l, 'close': c, 'open': o}[m.group(2)] }, 1)")
+    take(r"opens? (below|under|above|over|<=|>=) (?:the )?(?:previous|prior|yesterday's|yesterdays|last) (?:day's |days |session's |bar's )?(high|low|close|open)",
+         lambda m: f"{o} {_cmp(m.group(1))} ref({ {'high': h, 'low': l, 'close': c, 'open': o}[m.group(2)] }, 1)")
     take(r"inside day", lambda m: f"({h} < ref({h}, 1)) and ({l} > ref({l}, 1))")
     take(r"outside day", lambda m: f"({h} > ref({h}, 1)) and ({l} < ref({l}, 1))")
 
@@ -650,9 +958,11 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
          lambda m: f"month == {MONTHS.index(m.group(1)) + 1}")
 
     # single down / up day (after the % and streak patterns)
-    take(r"(?:closes? (?:down|lower|red)|down (?:day|close)|red day|negative day|first down (?:day|close)|trades? down|is down|goes down|moves down|falls|drops|declines)",
+    take(r"(?:closes? (?:down|lower|red)|closed (?:down|lower|red)|down (?:day|close)|red day|negative day|first down (?:day|close)|trades? down|"
+         r"is down|was down|goes down|went down|moves down|moved down|falls|fell|drops|dropped|declines|declined)",
          lambda m: f"{chg} < 0")
-    take(r"(?:closes? (?:up|higher|green)|up (?:day|close)|green day|positive day|first up (?:day|close)|higher close|trades? up|is up|goes up|moves up|rises|gains)",
+    take(r"(?:closes? (?:up|higher|green)|closed (?:up|higher|green)|up (?:day|close)|green day|positive day|first up (?:day|close)|higher close|"
+         r"trades? up|is up|was up|goes up|went up|moves up|moved up|rises|rose|gains|gained)",
          lambda m: f"{chg} > 0")
     take(r"(?:is |the (?:trade|position) is )?(?:profitable|in profit|shows a profit)", lambda m: "pnl > 0")
 
@@ -661,8 +971,27 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     return expr_, " ".join(words)
 
 
+def _vol_threshold(phrase: str, n: int, kind: str, op: str, v: float, ctx: Ctx) -> str:
+    """'N day volatility' compared with a threshold. 'annualized' -> volatility() (annualised stdev of daily
+    returns); 'daily' -> stdev_return() (the plain daily stdev, as Composer's 'standard deviation of
+    return'); bare 'volatility' with a threshold below 10% is refused as ambiguous."""
+    kind, phrase = kind.lower(), re.sub(r"\s+", " ", phrase)
+    if kind == "daily":
+        return f"stdev_return({ctx.tr}, {n}) {op} {v:g}"
+    if not kind.startswith("annuali") and abs(v) < 0.10:
+        raise ParseError(f"'{phrase}': is {v * 100:g}% a daily or an annualised volatility? Say '{n} day standard deviation "
+                         f"of return' (daily, e.g. above 2%) or '{n} day annualized volatility' (e.g. above 20%).")
+    if not kind.startswith("annuali"):
+        _note(f"'{phrase}': volatility is annualised (standard deviation of daily returns x sqrt(252)); say "
+              f"'{n} day standard deviation of return' for the daily figure.")
+    return f"volatility({n}{'' if ctx.base else ', ' + ctx.c}) {op} {v:g}"
+
+
 def _negations(s: str) -> str:
-    """'is not above 79' -> 'is <= 79'; 'is not below' -> 'is >='."""
+    """'is not above 79' -> 'is <= 79'; 'is not below' -> 'is >='; 'does not close above' -> 'is <='."""
+    s = re.sub(r"(?i)\b(?:does|did|do|has|have) not (?:close|closed|trade|traded|stay|stayed|remain|remained|go|gone|move|moved|get|got) "
+               r"(above|over|greater than|higher than|more than|below|under|less than|lower than)(?![a-z])",
+               lambda m: "is <=" if m.group(1).lower() in ("above", "over", "greater than", "higher than", "more than") else "is >=", s)
     s = re.sub(r"(?i)\b(?:is|closes?|trades?|stays?|remains?) not (?:above|over|greater than|higher than|more than)(?![a-z])", "is <=", s)
     return re.sub(r"(?i)\b(?:is|closes?|trades?|stays?|remains?) not (?:below|under|less than|lower than)(?![a-z])", "is >=", s)
 
@@ -677,10 +1006,21 @@ def _split_top(text: str, word: str) -> list[str]:
     return _msplit(text, rf"\b{word}\b(?! (?:more|less|fewer|higher|lower|better|worse|greater|so|after|in \d)\b)", flags=0)
 
 
-def _sub_outside(pattern: str, repl, s: str, flags=0) -> str:
-    """re.sub applied only to the text outside `backtick` blocks."""
+def _sub_outside(pattern: str, repl, s: str, flags=0, count: int = 0) -> str:
+    """re.sub applied only to the text outside `backtick` blocks (at most `count` replacements, 0 = all)."""
     parts = re.split(r"(`[^`]*`)", s)
-    return "".join(p if p.startswith("`") and p.endswith("`") and len(p) > 1 else re.sub(pattern, repl, p, flags=flags) for p in parts)
+    out, left = [], count
+    for p in parts:
+        if (p.startswith("`") and p.endswith("`") and len(p) > 1) or (count and left <= 0):
+            out.append(p)
+            continue
+        if count:
+            p, k = re.subn(pattern, repl, p, count=left, flags=flags)
+            left -= k
+        else:
+            p = re.sub(pattern, repl, p, flags=flags)
+        out.append(p)
+    return "".join(out)
 
 
 # comparison words of a threshold condition ("<indicator> <comparison> <number or indicator>")
@@ -715,7 +1055,7 @@ def _threshold(text: str, ctx: Ctx) -> str | None:
             if not lhs.strip() or not rhs.strip():
                 continue
             try:
-                le, _ = value_phrase(lhs, ctx, default_n=None, total=ctx.total)
+                le, lnotes = value_phrase(lhs, ctx, default_n=None, total=ctx.total)
             except ParseError as e:
                 if "two different lookbacks" in str(e):
                     raise
@@ -730,13 +1070,37 @@ def _threshold(text: str, ctx: Ctx) -> str | None:
                     val /= 100
                 elif frac and abs(val) >= 1:
                     raise ParseError(f"'{text.strip()}': did you mean {val:g}%? Write the % sign for returns and drawdowns.")
+                for n_ in lnotes:
+                    _note(n_)
+                if le.startswith("volatility("):
+                    return _vol_threshold(text.strip(), int(re.match(r"volatility\((\d+)", le).group(1)),
+                                          "annualized" if re.search(r"annuali[sz]ed", lhs) else "", op, val, ctx)
+                if le.startswith("drawdown(") and val > 0:
+                    # "the drawdown is above 20%": a fall of more than 20% from the high (drawdown() is <= 0)
+                    flip = {">": "<", ">=": "<=", "<": ">", "<=": ">="}[op]
+                    _note(f"'{text.strip()}' was read as a fall of {'more' if op[0] == '>' else 'less'} than "
+                          f"{val * 100:g}% from the high: {le} {flip} {-val:g} (drawdown() is zero or negative).")
+                    return f"{le} {flip} {-val:g}"
                 return f"{le} {op} {val:g}"
             try:
-                re_, _ = value_phrase(rhs, ctx, default_n=None, total=ctx.total)
+                re_, rnotes = value_phrase(rhs, ctx, default_n=None, total=ctx.total)
             except ParseError:
                 continue
+            for n_ in lnotes + rnotes:
+                _note(n_)
             return f"{le} {op} {re_}"
     return None
+
+
+def _both(m) -> str:
+    """'both SPY and QQQ are above their 200 day moving averages' -> 'SPY is above its 200 day moving average
+    and QQQ is above its 200 day moving average'."""
+    a, b = m.group("a"), m.group("b")
+    if len(find_tickers(a.upper(), strict=False)) != 1 or len(find_tickers(b.upper(), strict=False)) != 1:
+        return m.group(0)
+    rest = re.sub(r"(?i)\btheir\b", "its", m.group("rest"))
+    rest = re.sub(r"(?i)\b(averages|smas|emas|mas|highs|lows|bands|lines)\b", lambda x: x.group(1)[:-1], rest)
+    return f"{a} is {rest} and {b} is {rest}"
 
 
 def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list: bool = False, total: bool = False):
@@ -748,6 +1112,8 @@ def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list:
     """
     text = _sub_outside(r"\b(?:but only if|but only when|only if|only when|provided that|provided|as long as|so long as|while|but)\b", " and ", text)
     text = _sub_outside(r".+", lambda m: _negations(m.group(0)), text)
+    text = _sub_outside(r"(?i)\b(?:both )?(?P<a>[\^$]?[a-z]{1,5}(?:sim)?) and (?P<b>[\^$]?[a-z]{1,5}(?:sim)?) (?:are both|both are|are) "
+                        r"(?P<rest>[^,;]+?)(?=$|,|;| and | or )", _both, text)
     and_parts = _msplit(text, r"\band\b|,|;|\bwith\b(?! a)", flags=0)
     exprs, bad = [], []
     for part in and_parts:
@@ -829,6 +1195,16 @@ def _pair_compare(text: str, traded: list[str]) -> str | None:
     'the 3 month return of QQQ beats the 3 month return of TLT'."""
     if len(find_tickers(text, strict=True)) != 2 or "`" in text:
         return None
+    # "QQQ (has) outperformed TLT over 20 days" -> total return of QQQ over 20 days > TLT's
+    mo = re.fullmatch(r"(?i)\s*(?P<a>\S+?)\s+(?:has |have )?(?:been )?(?P<v>outperform(?:ed|s|ing)?|beat(?:en|s)?|"
+                      r"underperform(?:ed|s|ing)?|lagged|lags?|trailed|trails?)\s+(?P<b>\S+?)\s+(?:over|in|during|for|across) "
+                      r"(?:the )?(?:last |past |prior |previous )?(?P<n>\d+) (?P<u>day|week|month|year|session|bar)s?\s*", text)
+    if mo and len(find_tickers(mo.group("a"), strict=True)) == 1 and len(find_tickers(mo.group("b"), strict=True)) == 1:
+        per = f"{mo.group('n')} {mo.group('u')} return"
+        ea, eb = _side(f"{mo.group('a')} {per}", traded), _side(f"{mo.group('b')} {per}", traded)
+        if ea and eb:
+            op = "<" if re.match(r"(?i)under|lag|trail", mo.group("v")) else ">"
+            return f"{ea} {op} {eb}"
     for pat, op in CMP_WORDS:
         m = re.search(rf"(?i)\s{pat}\s", f" {text} ")
         if not m:
@@ -906,6 +1282,27 @@ def _flip(entry: str, below: bool, series: str | None = None, price_only: bool =
 _CALL_NAMES = ("rsi", "stoch_k", "cci", "willr", "mfi", "adx")
 
 
+def _entry_indicators(entry: str) -> list[str]:
+    """The indicators (not prices) the entry compares with a number, e.g. ['macd_hist()'] for
+    crossover(macd_hist(), 0). Empty when the entry also compares a price (then 'it' is the price)."""
+    out, price = [], False
+    for term in split_and(entry):
+        n = ast.parse(term, mode="eval").body
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("crossover", "crossunder") and len(n.args) == 2:
+            a, b = n.args
+        elif isinstance(n, ast.Compare) and len(n.ops) == 1:
+            a, b = n.left, n.comparators[0]
+        else:
+            continue
+        sa = ast.unparse(a)
+        if _is_price(sa) or _is_price(ast.unparse(b)):
+            price = True
+            continue
+        if isinstance(a, ast.Call) and isinstance(b, (ast.Constant, ast.UnaryOp)) and sa not in out:
+            out.append(sa)
+    return [] if price else out
+
+
 def _calls(rule: str, names=_CALL_NAMES) -> list[str]:
     """Distinct calls of the given functions in a rule, e.g. ['rsi(close, 2)']."""
     out = []
@@ -976,6 +1373,10 @@ def common_options(T: Text, notes: list[str]) -> dict:
     m = T.find(rf"(?:with |and )?{NUM}% commissions?|commissions? of {NUM}%")
     if m:
         kw["commission_pct"] = float(m.group(1) or m.group(2)) / 100
+    m = T.find(r"slippage(?: of)? \d+(?:\.\d+)? ticks?|\d+(?:\.\d+)? ticks?(?: of)? slippage", consume=False)
+    if m:
+        raise ParseError(f"'{m.group(0)}': slippage in ticks ($0.01 a share) is not supported; slippage is a percentage of the "
+                         "price, in basis points. At $100 a share one tick is 1 bps, at $500 it is 0.2 bps: write e.g. '1 bps slippage'.")
     for word in ("slippage", "commission"):
         if re.search(rf"\b{word}", T.rest, re.I):
             raise ParseError(f"Could not understand the {word} amount. Write e.g. '5 bps slippage', '0.1% slippage', "
@@ -1023,7 +1424,8 @@ ALLOC_HINT = re.compile(
     r"allocat\w+|portfolio of|contribut\w+|withdraw\w*|\d+/\d+ (?:[a-z]+/[a-z]+)|"
     r"(?:hold|invest|put)\s+\d+(?:\.\d+)?%|\d+(?:\.\d+)?% (?:in |of )?(?:[a-z^$]{1,5}|cash)\b(?:,| and| plus)|"
     r"otherwise (?:hold |be in |in |go to |switch to )?(?:cash|[a-z^]{1,5}\b(?! days))|"
-    r"hold (?:[a-z^]{1,5}|cash) (?:when|while|if|as long as)\b)", re.I)
+    r"hold (?:[a-z^]{1,5}|cash) (?:when|while|if|as long as)\b|weighted by|weighting by|"
+    r"^\s*(?:hold|own)\s+(?!(?:it|them|for|on|onto|until|till|the (?:position|stock|shares?)|positions?|\d)\b))", re.I)
 SIGNAL_HINT = re.compile(
     r"\b(?:hold(?: it)?(?: for)? \d+ (?:trading )?(?:day|bar|week|session)s?|sell (?:when|if|at|on|after|half)|stop[- ]loss|"
     r"take[- ]profit|trailing stop|profit target|cover (?:at|when|on)|exit (?:when|at|after|on)|"
@@ -1039,7 +1441,11 @@ def looks_like_allocation(text: str) -> bool:
     # "if C [then] X else Y" is a regime switch between holdings (Composer), whatever the branches say
     if re.match(r"(?is)\s*[(\[]?\s*if\b", t) and (
             re.search(r"(?i)\b(?:else|otherwise)\b", _mask(t))
+            or (re.search(r"(?i)\bthen\b", _mask(t)) and not SIGNAL_HINT.search(t)
+                and not re.search(r"(?i)\bthen,? (?:buy|short|go long|go short|sell)\b", t))
             or (re.search(r"(?i)\b(?:hold|own|be in)\b", t) and not SIGNAL_HINT.search(t))):
+        return True
+    if re.match(rf"(?i)\s*(?:(?:hold|own|buy and hold|backtest|test|run|invest in) )?{MODEL_RX}(?![\w/])", t):
         return True
     if not ALLOC_HINT.search(t):
         return False
@@ -1052,9 +1458,99 @@ def looks_like_allocation(text: str) -> bool:
 
 def parse(text: str, **overrides):
     """Parse a sentence into a Strategy (signals) or a Portfolio (allocations)."""
+    saved = getattr(_TL, "notes", None)
+    _TL.notes = []
+    try:
+        obj = _parse(text, **overrides)
+        extra = [n for n in _pending_notes() if n not in obj.notes]
+        if extra:
+            obj.notes = list(obj.notes) + extra
+        _check_runnable(obj)
+        return obj
+    finally:
+        _TL.notes = saved
+
+
+def _check_runnable(obj) -> None:
+    """The checks a real run would fail on, made at parse time so a dry run refuses the same specs:
+    an empty or reversed period, a start after the last data date, and lookbacks / offsets the rule
+    language rejects when it evaluates (a lookback below 1, a negative offset)."""
+    start, end = getattr(obj, "start", None), getattr(obj, "end", None)
+    if start and end and str(start)[:10] > str(end)[:10]:
+        raise ParseError(f"The period is reversed: it starts on {str(start)[:10]} but ends on {str(end)[:10]}.")
+    known = _known()
+    if start:
+        tickers = ([t for t in obj.universe if t in known][:5] if isinstance(obj, Strategy) else
+                   [t for t in _tree_tickers(obj.tree) if t in known][:5])
+        last = None
+        for t in tickers:
+            try:
+                d = data.load(t).index[-1]
+            except Exception:
+                continue
+            last = d if last is None or d > last else last
+        if last is not None and str(start)[:10] > str(last.date()):
+            raise ParseError(f"The start date {str(start)[:10]} is after the last date with data ({last.date()}).")
+    rules = []
+    if isinstance(obj, Strategy):
+        rules = [r for r in (obj.entry, obj.short_entry, obj.exit_when, obj.entry_level, obj.rank_by) if isinstance(r, str)]
+        on = next((t for t in obj.universe if t in known), None)
+    else:
+        rules = [r for r in _rules(obj.tree) if isinstance(r, str)]
+        on = next((t for t in _tree_tickers(obj.tree) if t in known), None)
+    for r in rules:
+        _probe_rule(r, on)
+
+
+def _tree_tickers(n: dict) -> list[str]:
+    out = []
+    if n.get("asset"):
+        out.append(data.canonical(n["asset"]))
+    if n.get("on"):
+        out.append(data.canonical(n["on"]))
+    if isinstance(n.get("universe"), list):
+        out += [data.canonical(t) for t in n["universe"]]
+    for c in n.get("children") or []:
+        out += _tree_tickers(c)
+    for k in ("then", "else", "fallback"):
+        if isinstance(n.get(k), dict):
+            out += _tree_tickers(n[k])
+    return list(dict.fromkeys(out))
+
+
+def _probe_rule(rule: str, ticker: str | None) -> None:
+    """Evaluate a rule on a short synthetic series so argument errors (lookback < 1, negative offsets,
+    fractional periods) surface now. Data of other tickers is not loaded: sym() is left to the run."""
+    if "sym(" in rule or "tbill_ret" in rule or "market_cap" in rule:
+        # these need real data; check only the plain lookback / offset literals
+        for m in re.finditer(r"\b(?:ref)\([^()]*,\s*(-\d+)\s*\)", rule):
+            raise ParseError(f"'{rule}': negative offsets would look into the future and are not allowed.")
+        return
+    import numpy as np
+    import pandas as pd
+    from . import expr as _expr
+    idx = pd.bdate_range("2000-01-03", periods=60)
+    px = pd.Series(100 + np.cumsum(np.sin(np.arange(60))), index=idx)
+    df = pd.DataFrame({"open": px, "high": px + 1, "low": px - 1, "close": px, "adj_close": px, "volume": 1e6,
+                       "dividend": 0.0})
+    try:
+        _expr.evaluate_value(rule, _expr.Namespace(df, ticker=ticker))
+    except ParseError:
+        raise
+    except ValueError as e:
+        msg = str(e)
+        if re.search(r"lookback|offset|whole number|at least 1|negative", msg, re.I):
+            raise ParseError(f"'{rule}': {msg}") from None
+    except Exception:
+        pass   # anything else (missing data, shapes) is for the run to report
+
+
+def _parse(text: str, **overrides):
     if not text or not text.strip():
         raise ParseError("Describe a strategy, e.g. 'buy MSFT at the close when it is down 5 days in a row, hold 1 day'.")
     original = text
+    text = _lowercase_tickers(text)
+    _intraday_check(text)
     # "buy UVXY and hold" = "buy and hold UVXY" (an allocation that never rebalances)
     mbh = re.fullmatch(r"(?is)\s*buy (?P<who>[^,;`]+?) and hold(?: (?:it|them|forever|onto it|on to it))?(?P<rest>\s*(?:[,;].*)?)", text)
     if mbh and not re.search(r"(?i)\b(?:when|if|while|once|after|at|on)\b", mbh.group("who")) and find_tickers(mbh.group("who")):
@@ -1139,12 +1635,33 @@ def _exit_rule(wl: str, entry: str, universe: list[str], notes: list[str]) -> st
             raise ParseError(f"'{wl}': which RSI? The entry uses RSI({') and RSI('.join(periods)}). Give the period, e.g. 'RSI({periods[0]}) is above 70'.")
         notes.append("'RSI' with no period: using the standard 14-day RSI.")
         return m.group(0)
-    wl = re.sub(r"(?i)\b(?:(\d+) (?:day|period|bar|session) )?rsi\b(\s*\(\s*\d+\s*\)|\s+\d+(?![\d.]|\s*%))?", bare_rsi, wl)
+    wl = _sub_outside(r"(?i)\b(?:(\d+) (?:day|period|bar|session) )?rsi\b(\s*\(\s*\d+\s*\)|\s+\d+(?![\d.]|\s*%))?", bare_rsi, wl)
 
     # "it is over 70" / "it's under 30" / "it rises back above 50" -> the entry's indicator
     oscs = _calls(entry)
 
+    inds = _entry_indicators(entry)
+
+    def it_turns(m):
+        if len(inds) != 1:
+            raise ParseError(f"'{m.group(0).strip()}': what turns {m.group('sign')}? "
+                             + (f"The entry uses {' and '.join(inds)}. " if inds else "")
+                             + "Name it, e.g. 'sell when the MACD histogram turns negative'.")
+        pos = m.group("sign").lower() == "positive"
+        e = (f"{'crossover' if pos else 'crossunder'}({inds[0]}, 0)" if not re.match(r"(?i)is|stays", m.group("verb"))
+             else f"{inds[0]} {'>' if pos else '<'} 0")
+        notes.append(f"'{m.group(0).strip()}' was read as referring to the entry's indicator: {e}.")
+        return f" `{e}` "
+    wl = _sub_outside(r"(?i)\bit\s+(?P<verb>turns?|goes|flips?|becomes|gets|is|stays)\s+(?P<sign>positive|negative)\b", it_turns, wl)
+
     def it_osc(m):
+        crossing = m.group("back") or (m.group("verb") or "").lower().startswith("cross")
+        if not oscs and crossing and len(inds) == 1:
+            # "sell when it crosses below 0" after "buy when the 14 day ROC crosses above 0": the entry's indicator
+            op = _cmp(m.group("rel"))
+            e = f"{'crossover' if op == '>' else 'crossunder'}({inds[0]}, {m.group('n')})"
+            notes.append(f"'{m.group(0).strip()}' was read as referring to the entry's indicator: {e}.")
+            return f" `{e}` "
         if not oscs:
             return m.group(0)   # no indicator in the entry: 'it' is the price
         if len(oscs) > 1:
@@ -1157,7 +1674,7 @@ def _exit_rule(wl: str, entry: str, universe: list[str], notes: list[str]) -> st
             e = f"{oscs[0]} {op} {m.group('n')}"
         notes.append(f"'{m.group(0).strip()}' was read as referring to the entry's indicator: {e}.")
         return f" `{e}` "
-    wl = re.sub(r"(?i)\bit(?:'s|\s+is)?\s+(?:(?:now|still)\s+)?(?P<verb>(?:rises|climbs|falls|drops|goes|gets|moves|crosses|comes|dips|reads)\s+)?"
+    wl = _sub_outside(r"(?i)\bit(?:'s|\s+is)?\s+(?:(?:now|still)\s+)?(?P<verb>(?:rises|climbs|falls|drops|goes|gets|moves|crosses|comes|dips|reads)\s+)?"
                 r"(?P<back>back\s+)?(?P<rel>above|over|below|under|greater than|less than|higher than|lower than)\s+(?P<n>-?\d+(?:\.\d+)?)"
                 r"(?![\d.]|\s*%|\s*(?:day|week|month|bar|period|session)s?\b)", it_osc, wl)
     return parse_conditions(wl, universe)
@@ -1240,6 +1757,8 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
     if m:
         kw["sizing"], kw["risk_per_trade"] = "risk", float(m.group(1)) / 100
     m = T.find(rf"(?:put |invest |allocate |using |with |use )?{NUM}% (?:of (?:the )?(?:equity|capital|account|portfolio) )?(?:per|in each|for each|each|on each|to each) (?:trade|position|stock|name|entry)")
+    if not m:
+        m = T.find(rf"(?:put |invest |allocate |using |with |use )?{NUM}% (?:each|apiece)\b")
     if m:
         kw["position_size"] = float(m.group(1)) / 100
     m = T.find(rf"(?:with |using |at )?{NUM} ?x (?:leverage|leveraged|margin)|leverage of {NUM}x?|{NUM}:1 (?:leverage|margin)")
@@ -1391,7 +1910,7 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
                 if not ct:
                     raise ParseError("Which ticker(s)? Name one (e.g. MSFT or Microsoft) or say 'Nasdaq 100 stocks'.")
                 u = ct[:1]
-                cond_text = re.sub(rf"(?<![\w])[\$^]?{re.escape(u[0].lstrip('^'))}\b", " it ", cond_text, count=1, flags=re.I)
+                cond_text = _sub_outside(rf"(?<![\w])[\$^]?{re.escape(u[0].lstrip('^'))}\b", " it ", cond_text, count=1, flags=re.I)
         else:
             u = list(u) + [x for x in tick if x not in u]
         if universe is not None and set(u) != set(universe):
@@ -1428,13 +1947,13 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
             rest = re.sub(ENTRY_VERB, " ", low.strip(), flags=re.I)
             rest = re.sub(TIMING, " ", rest, flags=re.I)
             for tk in find_tickers(cl):
-                rest = re.sub(rf"(?<![\w])[\$^]?{re.escape(tk.lstrip('^'))}\b", " ", rest, flags=re.I)
+                rest = _sub_outside(rf"(?<![\w])[\$^]?{re.escape(tk.lstrip('^'))}\b", " ", rest, flags=re.I)
             for name in COMPANIES:
-                rest = re.sub(rf"\b{re.escape(name)}\b", " ", rest, flags=re.I)
+                rest = _sub_outside(rf"\b{re.escape(name)}\b", " ", rest, flags=re.I)
             rest = re.sub(r"nasdaq[- ]?100|\bndx\b|(?:all|each|any|every) (?:the )?(?:index )?(?:stocks?|members?|components?|constituents?)|stocks?|sector (?:etfs|spdrs|funds)", " ", rest, flags=re.I)
             cond = rest
         for tk in universe:
-            cond = re.sub(rf"(?<![\w])[\$^]?{re.escape(tk.lstrip('^'))}\b(?!\s*(?:is|closes|trades|'s)\b)", " it ", cond, flags=re.I) if len(universe) == 1 else cond
+            cond = _sub_outside(rf"(?<![\w])[\$^]?{re.escape(tk.lstrip('^'))}\b(?!\s*(?:is|closes|trades|'s)\b)", " it ", cond, flags=re.I) if len(universe) == 1 else cond
         if not re.sub(r"[^a-z0-9`]", "", re.sub(r"\b(?:it|the|a|an|and|stock|shares?)\b", "", cond.lower())):
             if order != "market" or ranked:
                 cond = "`True`"
@@ -1697,8 +2216,17 @@ def value_phrase(text: str, ctx: Ctx | None = None, default_n: int | None = None
          lambda m: f"stdev_return({tr}, {_unit_n(m.group(1) or m.group(3), m.group(2) or m.group(4), 20)})"),
         (rf"(?:(\d+) {U} )?(?:standard deviation|stdev|std dev|std) of (?:the )?(?:price|prices|close)(?: over (?:the )?(?:last |past )?(\d+) {U})?",
          lambda m: f"stdev({c}, {_unit_n(m.group(1) or m.group(3), m.group(2) or m.group(4), 20)})"),
+        (rf"(?:(\d+) {U} )?daily (?:volatility|vol)(?: over (?:the )?(?:last |past )?(\d+) {U})?",
+         lambda m: f"stdev_return({tr}, {_unit_n(m.group(1) or m.group(3), m.group(2) or m.group(4), 20)})"),
         (rf"(?:(\d+) {U} )?(?:annuali[sz]ed |historical |realized )?(?:volatility|vol)(?: over (?:the )?(?:last |past )?(\d+) {U})?",
          lambda m: f"volatility({_unit_n(m.group(1) or m.group(3), m.group(2) or m.group(4), 20)}{'' if ctx.base else ', ' + c})"),
+        (rf"(?:current )?drawdown (?:over|in|during) (?:the )?(?:last |past )?(\d+) {U}",
+         lambda m: (_note(f"'{m.group(0).strip()}' was read as the maximum drawdown within the last {_period(m.group(1), m.group(2))} "
+                          f"days (peak to trough, a positive number); say '{m.group(1)} {m.group(2)} drawdown' for the current "
+                          f"distance below the {m.group(1)} {m.group(2)} high."),
+                    f"max_drawdown({tr}, {_period(m.group(1), m.group(2))})")[1]),
+        (rf"(\d+)[- ](\d+) (?:month )?momentum",
+         lambda m: _skip_momentum(int(m.group(1)), int(m.group(2)), tr, c, total)),
         (rf"(?:(\d+) {U} )?(?:current )?drawdown(?: from (?:its |the )?(?:high|peak))?",
          lambda m: f"drawdown({c}{', ' + str(_period(m.group(1), m.group(2))) if m.group(1) else ''})"),
         (rf"distance (?:from|above|to) (?:its |the )?(\d+) {U} (?:moving average|ma|sma)",
@@ -1743,6 +2271,16 @@ def value_phrase(text: str, ctx: Ctx | None = None, default_n: int | None = None
                      f"'market cap', or a rule in backticks.")
 
 
+def _skip_momentum(n: int, skip: int, tr: str, c: str, total: bool) -> str:
+    """'12-1 momentum': the return over the last n months excluding the most recent `skip` months."""
+    if not 0 < skip < n:
+        raise ParseError(f"'{n}-{skip} momentum': the skipped months must be fewer than the lookback, e.g. '12-1 momentum'.")
+    look, lag = (n - skip) * 21, skip * 21
+    _note(f"'{n}-{skip} momentum' = the {n}-month return skipping the latest {skip} month{'s' if skip > 1 else ''}: the "
+          f"{look}-day return ending {lag} trading days ago (ref(..., {lag})).")
+    return f"ref(tret({tr}, {look}), {lag})" if total else f"ref(ret({c}, {look}), {lag})"
+
+
 WEIGHT_METHODS = [
     (r"(?:inverse[- ]vol(?:atility)?)", "inverse_vol"),
     (r"(?:equal[- ]risk(?: contribution)?|risk[- ]parity)", "risk_parity"),
@@ -1757,6 +2295,9 @@ WEIGHT_METHODS = [
 def _weighting_phrase(s: str) -> tuple[str, int | None] | None:
     """'inverse volatility weighted over 60 days' -> ('inverse_vol', 60). None if not a weighting phrase."""
     t = s.strip().lower()
+    # "inverse 10 day volatility" -> "inverse volatility over 10 days"
+    t = re.sub(r"\binverse (?:of (?:the )?)?(\d+ (?:day|week|month)s?) (?:volatility|vol|standard deviation(?: of returns?)?)\b",
+               r"inverse volatility over \1", t)
     for pat, name in WEIGHT_METHODS:
         m = re.fullmatch(rf"(?:and |then |with |using )?(?:weight(?:ed|ing)? (?:by |using )?|use )?{pat}(?:[- ]weight(?:ed|ing|s)?)?"
                          rf"(?:(?: weighted)?(?: over| using| with)? (?:an? |the )?(?:last |past )?(\d+) (day|week|month)s?(?: lookback| window| volatility)?)?", t)
@@ -1816,8 +2357,16 @@ def _asset_list(s: str) -> list[dict]:
             continue
         probe = it.upper() if re.fullmatch(r"[a-z^$]{1,6}", it) else it
         tk = find_tickers(probe, strict=True)
-        if len(tk) != 1:
-            raise ParseError(f"Could not identify a single ticker in {it!r}")
+        if len(tk) > 1 and re.search(r"(?i)\b(?:else|otherwise)\b", it):
+            raise ParseError(f"{it!r}: an 'otherwise' with no 'if' before it. Write 'if <condition> then <holding> "
+                             "otherwise <holding>'.")
+        if len(tk) > 1:
+            raise ParseError(f"{it!r} names several tickers ({', '.join(tk)}): separate them with commas or 'and', "
+                             "or put a group in brackets with its weights, e.g. '(60% TECL and 40% BIL)'.")
+        if not tk:
+            words = [w for w in re.findall(r"[A-Za-z%'^$]+|\d+", it) if w.lower() not in STOP]
+            raise ParseError(f"No ticker found in {it!r}" + (f" (not understood: {' '.join(words)!r})" if words else "")
+                             + ". Name a ticker (`python -m backtester tickers` lists all) or 'cash'.")
         rest = re.sub(rf"(?<![\w])[\$^]?{re.escape(tk[0].lstrip('^'))}\b", " ", probe, flags=re.I)
         for name, sym in COMPANIES.items():
             if sym == tk[0]:
@@ -1826,6 +2375,21 @@ def _asset_list(s: str) -> list[dict]:
         if left:
             raise ParseError(f"Could not interpret {' '.join(left)!r} in {it!r}")
         out.append({"asset": tk[0]})
+    if not out:
+        raise ParseError(f"No holdings found in {s!r}")
+    return out
+
+
+def _children(s: str, notes: list[str]) -> list[dict]:
+    """A list of holdings where each item is a ticker, cash, or a bracketed group of any kind:
+    'TQQQ, (60% TECL and 40% BIL) and SVIX'."""
+    out = []
+    for it in _split_top_level(s, r",| and | or |/| plus |&"):
+        it = it.strip()
+        if it.startswith("(") and _strip_parens(it) != it:
+            out.append(_node(_strip_parens(it), notes))
+        else:
+            out.extend(_asset_list(it))
     if not out:
         raise ParseError(f"No holdings found in {s!r}")
     return out
@@ -1886,12 +2450,15 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     notes = notes if notes is not None else []
     text = _sub_outside(r"\[", "(", _sub_outside(r"\]", ")", text))
     s = _strip_parens(text.strip().strip(",;. "))
-    s = re.sub(r"(?i)^(?:and |then )?(?:hold|buy and hold|buy|own|be in|invest(?: in)?|allocate(?: to)?|put (?:everything |it all |all )?in(?:to)?|go (?:to|into)|switch (?:to|into)|rotate (?:to|into)|stay in|move (?:to|into)|in)\s+", "", s)
+    s = re.sub(r"(?i)^(?:and |then )?(?:hold|buy and hold|buy|own|be in|select|pick|choose|invest(?: in)?|allocate(?: to)?|put (?:everything |it all |all )?in(?:to)?|go (?:to|into)|switch (?:to|into)|rotate (?:to|into)|stay in|move (?:to|into)|in)\s+", "", s)
     s = _strip_parens(s)
     low = s.lower()
     if re.fullmatch(r"(?:cash|t-?bills|treasury bills|money market|nothing|flat)", low):
         return {"cash": True}
 
+    mp = _model_portfolio(s, notes)
+    if mp:
+        return mp
     # if COND [then] X, (else if COND [then] Y,)* otherwise Z   -- any node in any branch
     if re.match(r"(?i)if\b", s):
         return _if_chain(s, notes)
@@ -1924,7 +2491,7 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     if m:
         s = f"{'top' if m.group(2) in ('best', 'top') else 'bottom'} {m.group(1)} of {m.group(3)} by {m.group(4)} {m.group(5)} return{m.group(6) or ''}"
         low = s.lower()
-    m = re.match(r"(?is)(?:the )?(top|bottom|best|worst|strongest|weakest|highest|lowest) (\d+) (?:of |among |from |in )?(?:the )?(.+?) (?:by|ranked by|based on|sorted by|according to|with the (?:highest|lowest|best|strongest|weakest)) (.+)$", s)
+    m = _msearch(r"(?is)(?:the )?(top|bottom|best|worst|strongest|weakest|highest|lowest) (\d+) (?:of |among |from |in )?(?:the )?(.+?) (?:by|ranked by|based on|sorted by|according to|with the (?:highest|lowest|best|strongest|weakest)) (.+)$", s, flags=re.I | re.S, match=True)
     if m:
         word, n, uni, rest = m.groups()
         parts = _split_top_level(rest, r",|;")
@@ -1948,7 +2515,7 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
             node["universe"] = uu
         else:
             node["universe"] = "children"
-            node["children"] = _asset_list(uni)
+            node["children"] = _children(uni, notes)
         gate, fallback = None, None
         i = 0
         while i < len(opts):
@@ -2075,6 +2642,23 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
             node["lookback"] = look
         return node
 
+    mw_ = _msearch(r"^(.+?),? (?:when(?:ever)?|while|if|as long as) (.+)$", s, flags=re.I | re.S)
+    if mw_ and not re.search(r"(?i)\b(?:otherwise|else)\b", _mask(s)):
+        raise ParseError(f"'{s.strip()}': holding {mw_.group(1).strip()} only while a condition holds needs an 'otherwise' "
+                         f"(e.g. '{mw_.group(1).strip()} when {mw_.group(2).strip()}, otherwise cash'). For a trading rule "
+                         f"on one ticker write 'buy <ticker> when ..., sell when ...'.")
+    # a list followed by its weighting: "TQQQ, SOXL and TECL, weighted by inverse 10 day volatility"
+    mtw = _msearch(r"^(?P<lst>.+?),?\s+(?P<w>(?:and |then |with |using )?(?:weight(?:ed|ing)? (?:by|using) .+|"
+                   r"(?:inverse[- ]vol(?:atility)?|risk[- ]parity|equal[- ]risk(?: contribution)?|min(?:imum)?[- ](?:variance|vol(?:atility)?)|"
+                   r"max(?:imum)?[- ](?:sharpe(?: ratio)?|diversification)|market[- ]cap(?:italization)?|equal(?:ly)?)[- ]weight(?:ed|ing|s)?\b.*))$", s,
+                   flags=re.I | re.S)
+    if mtw:
+        wp = _weighting_phrase(mtw.group("w"))
+        if wp:
+            node = {"weights": wp[0], "children": _children(mtw.group("lst"), notes)}
+            if wp[1] and wp[0] != "equal":
+                node["lookback"] = wp[1]
+            return node
     # a single asset, or a plain list (equal weight)
     items = _asset_list(s)
     if len(items) == 1:
@@ -2193,28 +2777,30 @@ def parse_allocation(text: str) -> Portfolio:
     body = re.sub(r"^buy[- ]and[- ]hold\s+", "", body)
     if not body:
         raise ParseError("What should the portfolio hold? e.g. 'hold 60% SPY and 40% TLT, rebalance quarterly'.")
-    tree = _node(body, notes)
+    _TL.start = pk.get("start")
+    try:
+        tree = _node(body, notes)
+    finally:
+        _TL.start = None
     if rb is None:
         if buy_hold:
             rb = "none"
-        elif _has(tree, "if"):
+        elif _has(tree, "if") or _has(tree, "filter") or _dynamic(tree):
+            # Composer semantics: rules, rankings and dynamic weights are re-evaluated every day
             rb = "daily"
-            if _has(tree, "filter"):
-                notes.append("Rebalance frequency not stated: the conditions are checked, and the filters re-ranked, every day "
-                             "at the close and the portfolio switches as soon as they change (Composer-style; say "
-                             "'rebalance monthly' to check less often).")
-            else:
-                notes.append("Rebalance frequency not stated: the conditions are checked every day at the close and the "
-                             "portfolio switches as soon as they change (say 'rebalance monthly' to check less often).")
-        elif _has(tree, "filter"):
-            rb = "monthly"
-            notes.append("Rebalance frequency not stated: re-evaluating the rules and rebalancing monthly (month-end close).")
+            what = [w for w, ok in (("the conditions are checked", _has(tree, "if")),
+                                    ("the filters are re-ranked", _has(tree, "filter")),
+                                    ("the dynamic weights are recomputed", _dynamic(tree))) if ok]
+            notes.append("Rebalance frequency not stated: " + ", ".join(what[:-1]) + (" and " if len(what) > 1 else "") + what[-1]
+                         + " every day at the close, and the portfolio trades as soon as they change (Composer-style; say "
+                         "'rebalance monthly' to check less often).")
         elif "weights" in tree:
             if band or band_rel:
                 rb = "none"  # threshold-only rebalancing
             else:
                 rb = "monthly"
-                notes.append("Rebalance frequency not stated: rebalancing monthly.")
+                notes.append("Rebalance frequency not stated: fixed weights are rebalanced monthly (month-end close); say "
+                             "'rebalance yearly' for Portfolio Visualizer's default, or 'rebalance quarterly', 'never rebalance'.")
         else:
             rb = "none"
     if buy_hold and rb != "none":
@@ -2233,6 +2819,9 @@ def parse_allocation(text: str) -> Portfolio:
                   withdrawal=wd, withdrawal_pct=wd_pct, withdrawal_freq=wfreq, inflation_adjust=infl,
                   description=raw, notes=notes, **pk, **extra, **newer,
                   **({"reinvest_dividends": kw["reinvest_dividends"]} if "reinvest_dividends" in kw else {}))
+    if any(re.search(r"\bcross(?:over|under)\(", r) for r in _if_rules(tree)):
+        notes.append("A 'crosses above/below' condition is true only on the day of the cross, so its branch is held for "
+                     "that one day (until the next check); say 'is above' / 'is below' to hold it while the price stays there.")
     if any(re.search(r"\btret\(", r) for r in _rules(tree)):
         notes.append("Returns in the conditions are total returns (dividends reinvested, from adjusted prices).")
     p.benchmark = benchmark
@@ -2322,6 +2911,16 @@ def _cash_flows(T: "Text", notes: list[str]) -> dict:
     return out
 
 
+def _if_rules(n: dict) -> list[str]:
+    out = [n["if"]] if isinstance(n.get("if"), str) else []
+    for c in n.get("children") or []:
+        out += _if_rules(c)
+    for k in ("then", "else", "fallback"):
+        if isinstance(n.get(k), dict):
+            out += _if_rules(n[k])
+    return out
+
+
 def _rules(n: dict) -> list[str]:
     """Every condition in a tree: if rules and filter requirements."""
     out = [n["if"]] if isinstance(n.get("if"), str) else []
@@ -2333,6 +2932,17 @@ def _rules(n: dict) -> list[str]:
         if isinstance(n.get(k), dict):
             out += _rules(n[k])
     return out
+
+
+DYNAMIC_WEIGHTS = ("inverse_vol", "risk_parity", "min_variance", "max_sharpe", "max_diversification", "market_cap")
+
+
+def _dynamic(n: dict) -> bool:
+    """True when any node's weights move with the market (inverse volatility, risk parity, ...)."""
+    if n.get("weights") in DYNAMIC_WEIGHTS or (n.get("filter") or {}).get("weights") in DYNAMIC_WEIGHTS:
+        return True
+    return any(_dynamic(c) for c in n.get("children") or []) or any(
+        isinstance(n.get(k), dict) and _dynamic(n[k]) for k in ("then", "else", "fallback"))
 
 
 def _has(n: dict, key: str, universe: str | None = None) -> bool:

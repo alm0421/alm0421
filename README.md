@@ -74,9 +74,14 @@ add $1,000 a month for 20 years, then withdraw $50,000 a year, hold 60% VTI and 
 hold 70% QQQ and 30% TLT, rebalance quarterly or when any weight drifts more than 5%
 ```
 
-Portfolios with if-conditions are checked **every day** by default (as in Composer); pure weight and
-top-N trees rebalance monthly unless you say otherwise. Filters and weightings can also rank or
-weight whole groups: in a JSON spec or the Build editor, any node can sit inside a filter, and it is
+Portfolios with if-conditions, top-N filters or dynamic weights (inverse volatility, risk parity, ...)
+are re-evaluated **every day** by default (as in Composer); fixed-weight trees rebalance monthly unless
+you say otherwise. Named model portfolios work as phrases: "golden butterfly since 1972, rebalance
+yearly", "three fund portfolio", "all weather", "permanent", "coffeehouse", "ivy", "Bernstein
+no-brainer", "60/40 portfolio", "Hedgefundie adventure", "Swensen", "larry portfolio" (the notes list
+the holdings, and long-history SIM series stand in before the funds existed). Filters and weightings
+can also rank or weight whole groups ("the top 1 of (60% TECL and 40% BIL), SVIX and TQQQ by 10 day
+return"): in a JSON spec or the Build editor, any node can sit inside a filter, and it is
 measured on its own simulated value over time. **Composer symphonies** can be imported directly:
 `python -m backtester import-composer symphony.json --run`, or "Import Composer symphony" on the
 Build page.
