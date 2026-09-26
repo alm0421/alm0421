@@ -28,6 +28,7 @@ import yfinance as yf
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from backtester import sources  # noqa: E402  (factor-file parsers shared with the tests)
+from backtester import fund_lists  # noqa: E402  (the broad ETF / mutual fund universe)
 
 PRICES = ROOT / "data" / "prices"
 UA = {
@@ -126,7 +127,12 @@ SCZ EFV AVDV DLS JNK VWEHX SCHP PFORX
 BOIL KOLD UTSL WEBL BULZ DPST IGV FXE FXY FXF FXB UDN SPHB NAIL JNUG JDST GLL AGQ ZSL TBF ROM GUSH DRIP
 CWEB RETL MIDU DFEN PILL DUSL UYG SPDN SPUU FNGO BNKU TPOR WANT
 """.split()
-ETFS = list(dict.fromkeys(ETFS))
+# real funds the simulated series splice in before their ETF existed (build_sims): refreshed every run
+SIM_FUNDS = """
+VTSMX VGTSX VGSIX VIVAX VIGRX NAESX VISVX VISGX VWESX VWITX VWLTX FNMIX PCRIX VEIEX
+EWJ EWU EWG EWC EWA EWQ EWL EWH VCLT MUB EMB VOE VOT
+""".split()
+ETFS = list(dict.fromkeys(ETFS + SIM_FUNDS))
 # large US stocks outside the Nasdaq-100 (stocks, not ETFs: kept separate so they are never mistaken
 # for funds, e.g. when ETFs are stripped from index membership)
 STOCKS = """
@@ -154,8 +160,35 @@ def requested_tickers(path: Path = EXTRA_TICKERS_FILE) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+STOCKS += [t for t in fund_lists.BROAD_STOCKS if t not in STOCKS]
 REQUESTED = [t for t in requested_tickers() if t not in set(ETFS) | set(STOCKS) | set(INDEXES)]
 EXTRA = ETFS + STOCKS + INDEXES + REQUESTED
+# The broad universe (backtester/fund_lists.py: ~650 ETFs and ~200 mutual funds), refreshed in rotating
+# batches: each run downloads at most BROAD_PER_RUN of them - missing files first, then the ones updated
+# longest ago - so a run stays well inside the Action's time limit and polite to Yahoo. A symbol that
+# failed is retried after BROAD_RETRY_DAYS (Yahoo doesn't know it, or it was delisted).
+BROAD_ETFS = [t for t in fund_lists.BROAD_ETFS if t not in set(EXTRA)]
+BROAD_FUNDS = [t for t in fund_lists.MUTUAL_FUNDS if t not in set(EXTRA) | set(BROAD_ETFS)]
+BROAD = BROAD_ETFS + BROAD_FUNDS
+BROAD_PER_RUN = 450
+BROAD_RETRY_DAYS = 30
+
+
+def broad_batch(broad: list[str], info: dict, failed: dict, today: str, budget: int = BROAD_PER_RUN,
+                on_disk=None) -> list[str]:
+    """The broad-universe symbols to download this run: at most `budget`, skipping symbols that failed
+    within BROAD_RETRY_DAYS, missing files first, then the oldest last update (`info`: {ticker: {"last": date}},
+    the previous run's universe.json). Ties keep the list order."""
+    on_disk = on_disk if on_disk is not None else (lambda t: (PRICES / f"{t}.csv").exists())
+    now = pd.Timestamp(today)
+    cand = []
+    for i, t in enumerate(broad):
+        f = failed.get(t)
+        if f and (now - pd.Timestamp(f)).days < BROAD_RETRY_DAYS:
+            continue
+        last = (info.get(t) or {}).get("last") if on_disk(t) else None
+        cand.append((last or "0000-00-00", i, t))
+    return [t for *_, t in sorted(cand)[:max(0, budget)]]
 
 # Symbol changes: membership lists use the old symbol, Yahoo keeps history under the new one.
 # Only renames where Yahoo's history for the new symbol genuinely continues the same company.
@@ -578,7 +611,10 @@ FRENCH_FILES = (("ff3_daily", "F-F_Research_Data_Factors_daily_CSV.zip"),
                 ("dev_ff3_daily", "Developed_ex_US_3_Factors_Daily_CSV.zip"),
                 ("dev_port6_daily", "Developed_ex_US_6_Portfolios_ME_BE-ME_daily_CSV.zip"),  # intl size/value
                 ("eu_ff3_daily", "Europe_3_Factors_Daily_CSV.zip"),
-                ("em_ff5_monthly", "Emerging_5_Factors_CSV.zip"))
+                ("em_ff5_monthly", "Emerging_5_Factors_CSV.zip"),
+                # 25 size x B/M portfolios (value-weighted, daily from 1926): mid-cap value/growth and the
+                # large value / small value refinements in build_sims; rounded when saved (about 4 MB)
+                ("port25_daily", "25_Portfolios_5x5_Daily_CSV.zip"))
 
 
 def fetch_factors() -> None:
@@ -594,7 +630,7 @@ def fetch_factors() -> None:
             z = zipfile.ZipFile(io.BytesIO(requests.get(sources.FRENCH_BASE + fn, headers=UA, timeout=120).content))
             member = next(n for n in z.namelist() if n.lower().endswith(".csv"))
             df = sources.parse_french_csv(z.read(member).decode("latin-1"))
-            df.to_csv(FACTORS / f"{name}.csv", index=False)
+            df.to_csv(FACTORS / f"{name}.csv", index=False, float_format="%.6g" if name == "port25_daily" else None)
             ok.append(name)
             print(f"factors {name}: {len(df)} rows {df['date'].iloc[0]} .. {df['date'].iloc[-1]}, columns {list(df.columns[1:])}")
         except Exception as e:  # noqa: BLE001
@@ -687,10 +723,14 @@ def _real_returns(real: str) -> pd.Series:
 
 def _splice_returns(sim_ret: pd.Series, *reals: str) -> pd.Series:
     """Simulated returns until the first real fund starts, then each real fund in turn (the later
-    fund takes over from its own start). Missing funds are skipped."""
+    fund takes over from its own start). Missing funds are skipped. "NAESX@1989-10-01" uses a fund only
+    from that date (e.g. when it became an index fund)."""
     ret = sim_ret.dropna().sort_index()
     for real in reals:
+        real, _, since = real.partition("@")
         r = _real_returns(real)
+        if since:
+            r = r[r.index >= pd.Timestamp(since)]
         if len(r):
             ret = pd.concat([ret[ret.index < r.index[0]], r])
     return ret.fillna(0.0)
@@ -812,6 +852,43 @@ def _validate(name: str, sim_ret: pd.Series, real: str) -> None:
         _simlog(f"validate {name} vs {real} failed: {e}")
 
 
+def _tracking_error(sim_ret: pd.Series, real: str | pd.Series, since=None) -> tuple[float, int] | None:
+    """(annualised monthly tracking error, months) of a model against a fund's total return on their
+    overlap (full months only), or None with less than 24 months. `real` is a ticker or a return series."""
+    r = _real_returns(real) if isinstance(real, str) else real.dropna()
+    s = sim_ret.dropna()
+    if r.empty or s.empty:
+        return None
+    lo, hi = max(s.index[0], r.index[0]), min(s.index[-1], r.index[-1])
+    if since is not None:
+        lo = max(lo, pd.Timestamp(since))
+    both = pd.concat({"m": s, "e": r}, axis=1).loc[lo:hi].fillna(0.0)
+    mo = ((1 + both).groupby(both.index.to_period("M")).prod() - 1).iloc[1:-1]
+    if len(mo) < 24:
+        return None
+    return float((mo["m"] - mo["e"]).std() * 12 ** 0.5), len(mo)
+
+
+def _pick_model(name: str, cands: dict, targets: tuple[str, ...], since=None) -> tuple[str, pd.Series]:
+    """The candidate model (label -> daily returns) that tracks the first target fund with data best
+    (lowest tracking error on the overlap); every candidate's score goes to the log. With no fund data,
+    the first candidate."""
+    cands = {k: v.dropna() for k, v in cands.items() if v is not None and len(v.dropna())}
+    if not cands:
+        raise RuntimeError(f"{name}: no candidate model")
+    for real in targets:
+        scores = {k: _tracking_error(v, real, since=since) for k, v in cands.items()}
+        scores = {k: v for k, v in scores.items() if v}
+        if scores:
+            best = min(scores, key=lambda k: scores[k][0])
+            _simnote(f"{name} model choice vs {real}: " + "; ".join(
+                f"{k}: tracking error {te:.2%}/yr ({n} months)" for k, (te, n) in scores.items()) + f" -> {best}")
+            return best, cands[best]
+    first = next(iter(cands))
+    _simnote(f"{name} model choice: no fund data to compare, using {first}")
+    return first, cands[first]
+
+
 def _fred(sid: str) -> pd.Series:
     d = pd.read_csv(MACRO / f"{sid}.csv", parse_dates=["date"], index_col="date")["value"]
     return pd.to_numeric(d, errors="coerce").dropna().sort_index()
@@ -860,7 +937,15 @@ def build_sims() -> list[str]:
         ff["rf"] = f["RF"].dropna()
         build("SPYSIM", f["Mkt-RF"] + f["RF"], ("SPY",), "US market total return from Fama-French before SPY, then SPY", "SPY")
         build("BILSIM", f["RF"], ("BIL",), "1-month T-bill (Fama-French RF) before BIL, then BIL")
+        ff["mkt"] = (f["Mkt-RF"] + f["RF"]).dropna()
     attempt("SPYSIM/BILSIM", us_market)
+
+    # "fund-exact" series: the named fund as soon as it or its mutual-fund twin exists
+    def total_market():
+        build("VTISIM", ff["mkt"], ("VTSMX", "VTI"),
+              "US total market: Fama-French market return until April 1992, then the Vanguard Total Stock Market "
+              "Index fund (VTSMX), then VTI from June 2001", "VTSMX")
+    attempt("VTISIM", total_market)
 
     bonds = {}
 
@@ -881,16 +966,52 @@ def build_sims() -> list[str]:
     # more US equity classes from Ken French's data library (value-weighted portfolios, daily)
     def size_value():
         p6 = _factor_file("port6_daily")
-        for t, key, real, note in (("VBRSIM", "SMALLHIBM", "VBR", "US small-cap value (Fama-French small/high B/M)"),
-                                   ("VTVSIM", "BIGHIBM", "VTV", "US large-cap value (Fama-French big/high B/M)"),
-                                   ("VUGSIM", "BIGLOBM", "VUG", "US large-cap growth (Fama-French big/low B/M)"),
-                                   ("VBKSIM", "SMALLLOBM", "VBK", "US small-cap growth (Fama-French small/low B/M)")):
+        g = {}
+        try:
+            g = port25_grid(_factor_file("port25_daily"))
+        except Exception as e:  # noqa: BLE001 - the 6 portfolios alone
+            _simlog(f"25 size x B/M portfolios unavailable: {e}")
+
+        def mix(cells):   # equal mix of 25-portfolio cells (size quintile, B/M quintile), 1 = small / low B/M
+            return pd.concat([g[c] for c in cells], axis=1).mean(axis=1) if g else None
+        H, N, L = p6[_col(p6, "BIGHIBM")], p6[_col(p6, "ME2BM2")], p6[_col(p6, "BIGLOBM")]
+        SH, SN, SL = p6[_col(p6, "SMALLHIBM")], p6[_col(p6, "ME1BM2")], p6[_col(p6, "SMALLLOBM")]
+        # (ticker, candidates, real funds spliced in: the mutual-fund twin then the ETF, fund for the choice, label)
+        specs = (
+            ("VTVSIM", {"big/high B/M": H, "1/3 big/high + 2/3 big/neutral B/M": H / 3 + N * 2 / 3,
+                        "25 portfolios: 2 largest size x 2 highest B/M quintiles": mix([(4, 4), (4, 5), (5, 4), (5, 5)]),
+                        "25 portfolios: largest size x B/M quintiles 3-5": mix([(5, 3), (5, 4), (5, 5)])},
+             ("VIVAX", "VTV"), "US large-cap value", "Vanguard Value Index fund (VIVAX)"),
+            ("VUGSIM", {"big/low B/M": L, "2/3 big/low + 1/3 big/neutral B/M": L * 2 / 3 + N / 3,
+                        "25 portfolios: 2 largest size x 2 lowest B/M quintiles": mix([(4, 1), (4, 2), (5, 1), (5, 2)])},
+                       ("VIGRX", "VUG"), "US large-cap growth", "Vanguard Growth Index fund (VIGRX)"),
+            ("VBRSIM", {"small/high B/M": SH, "1/2 small/high + 1/2 small/neutral B/M": (SH + SN) / 2,
+                        "25 portfolios: size quintiles 2-3 x 2 highest B/M quintiles": mix([(2, 4), (2, 5), (3, 4), (3, 5)])},
+             ("VISVX", "VBR"), "US small-cap value", "Vanguard Small-Cap Value Index fund (VISVX)"),
+            ("VBKSIM", {"small/low B/M": SL, "1/2 small/low + 1/2 small/neutral B/M": (SL + SN) / 2,
+                        "25 portfolios: size quintiles 2-3 x 2 lowest B/M quintiles": mix([(2, 1), (2, 2), (3, 1), (3, 2)])},
+             ("VISGX", "VBK"), "US small-cap growth", "Vanguard Small-Cap Growth Index fund (VISGX)"),
+            ("VBSIM", {"small portfolios of the 6 size x B/M": (SH + SN + SL) / 3,
+                       "25 portfolios: size quintiles 2-3": mix([(q, b) for q in (2, 3) for b in range(1, 6)])},
+             ("NAESX@1989-10-01", "VB"), "US small caps", "Vanguard Small-Cap Index fund (NAESX, an index fund from late 1989)"),
+            ("VOESIM", {"25 portfolios: size quintiles 3-4 x 2 highest B/M quintiles": mix([(3, 4), (3, 5), (4, 4), (4, 5)]),
+                        "25 portfolios: size quintile 3 x B/M quintiles 3-5": mix([(3, 3), (3, 4), (3, 5)])},
+             ("VOE",), "US mid-cap value", None),
+            ("VOTSIM", {"25 portfolios: size quintiles 3-4 x 2 lowest B/M quintiles": mix([(3, 1), (3, 2), (4, 1), (4, 2)]),
+                        "25 portfolios: size quintile 3 x B/M quintiles 1-3": mix([(3, 1), (3, 2), (3, 3)])},
+             ("VOT",), "US mid-cap growth", None),
+        )
+        for t, cands, reals, what, twin in specs:
             try:
-                build(t, p6[_col(p6, key)], (real,), note + ", then " + real, real)
+                funds = tuple(r.partition("@")[0] for r in reals)
+                label, model = _pick_model(t, cands, funds, since=reals[0].partition("@")[2] or None)
+                etf = funds[-1]
+                note = f"{what}: Fama-French {label} (daily from 1926)" + (f", then the {twin}" if twin else "") + f", then {etf}"
+                build(t, model, reals, note, funds[0])
+                if len(funds) > 1:
+                    _validate(t, model, etf)
             except Exception as e:  # noqa: BLE001
                 _simlog(f"sim {t} failed: {e}")
-        small = [c for c in p6.columns if c.upper().replace(" ", "").startswith(("SMALL", "ME1"))]
-        build("VBSIM", p6[small].mean(axis=1), ("VB",), "US small-cap (Fama-French small portfolios), then VB", "VB")
     attempt("size/value", size_value)
 
     def mid_caps():
@@ -910,6 +1031,7 @@ def build_sims() -> list[str]:
             note = "developed ex-US: Fama-French EAFE index (monthly steps on the last session) from 1975, daily from 1990, then EFA"
         except Exception as e:  # noqa: BLE001
             _simlog(f"EAFE monthly failed: {e}")
+        ff["efa"] = daily
         build("EFASIM", daily, ("EFA",), note, "EFA")
     attempt("EFASIM", developed)
 
@@ -1000,12 +1122,36 @@ def build_sims() -> list[str]:
     def emerging():
         em = _factor_file("em_ff5_monthly")
         r = (em["Mkt-RF"] + em["RF"]).dropna()
-        build("EEMSIM", _monthly_steps(r), ("EEM",), "emerging markets (Fama-French, monthly steps, from 1989), then EEM", "EEM")
+        ff["eem"] = _monthly_steps(r)
+        build("EEMSIM", ff["eem"], ("EEM",), "emerging markets (Fama-French, monthly steps, from 1989), then EEM", "EEM")
+        build("VWOSIM", ff["eem"], ("VEIEX", "VWO"),
+              "emerging markets: Fama-French (monthly steps) from 1989, then the Vanguard Emerging Markets Stock "
+              "Index fund (VEIEX) from 1994, then VWO", "VEIEX")
     attempt("EEMSIM", emerging)
 
+    def total_international():
+        # all-world ex-US: developed ex-US (EAFE) 80% and emerging 20% (about VXUS's split), rebalanced daily;
+        # before the emerging-markets series (1989) developed alone. Then the Vanguard Total International
+        # Stock Index fund (VGTSX, April 1996), then VXUS (January 2011)
+        efa = ff["efa"]
+        eem = ff.get("eem", pd.Series(dtype=float))
+        days = efa.index.union(eem.index)
+        e, m = efa.reindex(days).fillna(0.0), eem.reindex(days).fillna(0.0)
+        blend = e.copy()
+        if len(eem):
+            after = days >= eem.index[0]
+            blend[after] = 0.8 * e[after] + 0.2 * m[after]
+        build("VXUSSIM", blend, ("VGTSX", "VXUS"),
+              "international stocks: 80% developed ex-US (Fama-French EAFE) + 20% emerging (from 1989) until 1996, "
+              "then the Vanguard Total International Stock Index fund (VGTSX), then VXUS from 2011", "VGTSX")
+    attempt("VXUSSIM", total_international)
+
     def reits():
-        build("VNQSIM", _monthly_steps(nareit_monthly()), ("VNQ",),
-              "US REITs: FTSE Nareit All Equity REITs total return (monthly steps) from 1972, then VNQ", "VNQ")
+        m = _monthly_steps(nareit_monthly())
+        _validate("VNQSIM model", m, "VNQ")
+        build("VNQSIM", m, ("VGSIX", "VNQ"),
+              "US REITs: FTSE Nareit All Equity REITs total return (monthly steps) from 1972, then the Vanguard REIT "
+              "Index fund (VGSIX) from 1996, then VNQ", "VGSIX")
     attempt("VNQSIM", reits)
 
     def gold():
@@ -1042,10 +1188,132 @@ def build_sims() -> list[str]:
         ex.index = pd.DatetimeIndex(ex.index).to_period("M")
         tr = (ex + rfm.reindex(ex.index)).dropna()
         tr = tr[tr.index >= pd.Period("1960-01", "M")]
-        build("DBCSIM", _monthly_steps(tr), ("DBC",),
-              "commodity futures: AQR equal-weight commodity index excess return + T-bills (monthly steps) from 1960, then DBC", "DBC")
+        model = _monthly_steps(tr)
+        reals, note = ("DBC",), ("commodity futures: AQR equal-weight commodity index excess return + T-bills (monthly "
+                                 "steps) from 1960, then DBC")
+        # a real commodity fund before DBC (Feb 2006): the PIMCO CommodityRealReturn Strategy fund (PCRIX, June
+        # 2002; Bloomberg Commodity Index futures collateralised with TIPS), used only if it tracks DBC better than
+        # the model does on their common overlap
+        te_model = _tracking_error(model, "DBC", since="2006-03-01")
+        te_fund = _tracking_error(_real_returns("PCRIX"), "DBC", since="2006-03-01")
+        _simnote(f"DBCSIM: tracking error vs DBC from 2006: AQR model {te_model[0] if te_model else float('nan'):.2%}/yr, "
+                 f"PCRIX {te_fund[0] if te_fund else float('nan'):.2%}/yr")
+        if te_fund and (not te_model or te_fund[0] < te_model[0]):
+            reals = ("PCRIX", "DBC")
+            note = note.replace("then DBC", "then the PIMCO CommodityRealReturn Strategy fund (PCRIX) from mid-2002, then DBC")
+        build("DBCSIM", model, reals, note, "DBC")
     attempt("DBCSIM", commodities)
+
+    def long_corporates():
+        # long-term investment-grade corporates (VCLT / IGLB): a 20-year par bond at the average of Moody's Aaa
+        # and Baa yields (Moody's seasoned yields are themselves 20-30 year bonds), then the Vanguard Long-Term
+        # Investment-Grade fund (VWESX, 1973), then VCLT (2009)
+        model = _bond_returns(moody_yield(), 20)
+        _validate("VCLTSIM model", model, "VCLT")
+        build("VCLTSIM", model, ("VWESX", "VCLT"),
+              "long-term IG corporates: 20-year par bond at Moody's Aaa/Baa average yield (monthly averages before "
+              "1986) until the Vanguard Long-Term Investment-Grade fund (VWESX), then VCLT from 2009", "VWESX")
+    attempt("VCLTSIM", long_corporates)
+
+    def munis():
+        # municipal bonds: no free long muni total-return index, so real funds only - the Vanguard
+        # Intermediate-Term Tax-Exempt fund (VWITX, 1977), then MUB (2007)
+        r = _real_returns("VWITX")
+        _validate("MUBSIM (VWITX)", r, "MUB")
+        build("MUBSIM", r, ("MUB",), "US municipal bonds: Vanguard Intermediate-Term Tax-Exempt fund (VWITX) from "
+              "its Yahoo history, then MUB from 2007 (no model before)")
+    attempt("MUBSIM", munis)
+
+    def em_bonds():
+        # emerging-market USD bonds: the Fidelity New Markets Income fund (FNMIX, 1993), then EMB (Dec 2007)
+        r = _real_returns("FNMIX")
+        _validate("EMBSIM (FNMIX)", r, "EMB")
+        build("EMBSIM", r, ("EMB",), "emerging-market USD bonds: Fidelity New Markets Income fund (FNMIX) from 1993, "
+              "then EMB (no model before)")
+    attempt("EMBSIM", em_bonds)
+
+    # single countries: Fama-French country indexes (USD, value-weighted, dividends; monthly from 1975),
+    # Japan daily from 1990, then the iShares country ETF
+    for t, member, country in COUNTRY_SIMS:
+        def one(t=t, member=member, country=country):
+            m = _monthly_steps(french_country_index(member))
+            note = f"{country} stocks: Fama-French {country} index (monthly steps) from 1975"
+            if t == "EWJSIM":
+                try:
+                    j = _factor_file("japan_ff3_daily")
+                    d = (j["Mkt-RF"] + j["RF"]).dropna()
+                    m = pd.concat([m[m.index < d.index[0]], d])
+                    note += ", Fama-French Japan daily from 1990"
+                except Exception as e:  # noqa: BLE001
+                    _simlog(f"Japan daily failed: {e}")
+            etf = t[:-3]
+            build(t, m, (etf,), note + f", then {etf}", etf)
+        attempt(t, one)
     return made
+
+
+# (series, member of F-F_International_Countries.zip, country); member names as in the zip
+COUNTRY_SIMS = (("EWJSIM", "Japan.Dat", "Japan"), ("EWUSIM", "UK.Dat", "UK"), ("EWGSIM", "Germany.Dat", "Germany"),
+                ("EWCSIM", "Canada.Dat", "Canada"), ("EWASIM", "Austrlia.Dat", "Australia"),
+                ("EWQSIM", "France.Dat", "France"), ("EWLSIM", "Swtzrlnd.Dat", "Switzerland"),
+                ("EWHSIM", "HongKong.Dat", "Hong Kong"))
+_ZIPS: dict[str, object] = {}
+
+
+def french_country_index(member: str) -> pd.Series:
+    """Monthly USD total return (decimal) of a country's market in Fama-French's international country
+    portfolios (F-F_International_Countries.zip: Japan.Dat, UK.Dat, Germany.Dat, ..., 1975 onward)."""
+    import zipfile
+    url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_International_Countries.zip"
+    if url not in _ZIPS:
+        _ZIPS[url] = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+    z = _ZIPS[url]
+    names = z.namelist()
+    pick = next((n for n in names if n.lower() == member.lower() or n.lower().endswith("/" + member.lower())), None)
+    if pick is None:
+        raise RuntimeError(f"{member} not in {names}")
+    s = parse_french_dat(z.read(pick).decode("latin-1"), ("MKT",), label=pick)
+    _simnote(f"French country index {pick}: {len(s)} months {s.index[0]:%Y-%m}..{s.index[-1]:%Y-%m}")
+    return s
+
+
+def moody_yield() -> pd.Series:
+    """The average of Moody's seasoned Aaa and Baa corporate yields (percent) on every NYSE session from
+    1953: the daily series (DAAA/DBAA, from 1986) where they exist, before that the monthly averages
+    (AAA/BAA) held from the last session of their month."""
+    daily = ((_fred("DAAA") + _fred("DBAA")) / 2).dropna()
+    monthly = ((_fred("AAA") + _fred("BAA")) / 2).dropna()
+    monthly = monthly[(monthly.index >= "1953-01-01") & (monthly.index < daily.index[0])]
+    per = pd.DatetimeIndex(monthly.index).to_period("M")
+    at = _last_sessions(per[0].start_time, per[-1].end_time).reindex(per)
+    mm = pd.Series(monthly.to_numpy(), index=pd.DatetimeIndex(at.to_numpy()))
+    mm = mm[mm.index.notna()]
+    sess = _sessions(mm.index[0], daily.index[-1])
+    lvl = pd.concat([mm, daily]).sort_index()
+    lvl = lvl[~lvl.index.duplicated(keep="last")]
+    return lvl.reindex(lvl.index.union(sess)).ffill().reindex(sess).dropna()
+
+
+def port25_grid(df: pd.DataFrame) -> dict:
+    """{(size quintile, B/M quintile): daily returns} from French's 25 portfolios formed on size and
+    book-to-market (25_Portfolios_5x5_Daily_CSV.zip). Columns are named 'SMALL LoBM', 'ME1 BM2', ...,
+    'ME2 BM1', ..., 'BIG HiBM' (size outer, B/M inner); names that don't parse fall back to that order."""
+    cols = [c for c in df.columns if c != "date"]
+    if len(cols) != 25:
+        raise RuntimeError(f"expected 25 portfolio columns, got {len(cols)}: {cols[:6]}")
+    out = {}
+    for i, c in enumerate(cols):
+        k = c.upper().replace(" ", "")
+        m = re.fullmatch(r"(SMALL|BIG|ME(\d))(LOBM|HIBM|BM(\d))", k)
+        if m:
+            size = 1 if m.group(1) == "SMALL" else 5 if m.group(1) == "BIG" else int(m.group(2))
+            bm = 1 if m.group(3) == "LOBM" else 5 if m.group(3) == "HIBM" else int(m.group(4))
+        else:
+            size, bm = i // 5 + 1, i % 5 + 1
+        out[(size, bm)] = pd.to_numeric(df[c], errors="coerce")
+    if len(out) != 25:
+        raise RuntimeError(f"25 portfolios: columns {cols} don't form a 5 x 5 grid")
+    return out
 
 
 def french_international_index(name: str, column=("MKT",)) -> pd.Series:
@@ -1367,6 +1635,26 @@ def main() -> None:
             print(f"{t:6s} {ok[t]}", flush=True)
     print(f"prices: {len(ok)} ok, {len(failed)} failed in {time.time() - t0:.0f}s", flush=True)
 
+    # the broad ETF / mutual fund universe, a rotating batch per run (see broad_batch)
+    try:
+        prev = json.loads((ROOT / "data" / "universe.json").read_text())
+    except Exception:  # noqa: BLE001
+        prev = {}
+    broad_failed = {t: d for t, d in (prev.get("broad_failed") or {}).items() if t in set(BROAD)}
+    today = str(pd.Timestamp.today().date())
+    batch = broad_batch([t for t in BROAD if t not in ok], prev.get("tickers") or {}, broad_failed, today)
+    broad_ok = {}
+    t1 = time.time()
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for t, df in zip(batch, pool.map(lambda x: fetch_with_retry(x, tries=2), batch)):
+            if df is None:
+                broad_failed.setdefault(t, today)
+                continue
+            broad_failed.pop(t, None)
+            broad_ok[t] = save_merged(t, df)
+    print(f"broad universe: {len(broad_ok)} of {len(batch)} downloaded in {time.time() - t1:.0f}s "
+          f"({len(BROAD)} symbols in all; {len(broad_failed)} waiting to be retried)", flush=True)
+
     def file_info(t: str) -> dict | None:
         df = read_prices(t)
         if df is None or not len(df):
@@ -1474,11 +1762,22 @@ def main() -> None:
     fetch_shares(sorted(set(ndx) | set(former_ok)))
     sims = build_sims()
 
+    # every broad symbol with a file: this run's download, else what the last run recorded, else the file
+    broad_info = {}
+    for t in BROAD:
+        if t in broad_ok:
+            broad_info[t] = broad_ok[t]
+        elif (PRICES / f"{t}.csv").exists():
+            info = (prev.get("tickers") or {}).get(t) or file_info(t)
+            if info:
+                broad_info[t] = info
     meta = {
         "updated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "constituent_source": source,
         "nasdaq100": ndx,
-        "etfs": [t for t in ETFS if t in ok or t in kept],
+        "etfs": [t for t in ETFS if t in ok or t in kept] + [t for t in BROAD_ETFS if t in broad_info],
+        "funds": [t for t in BROAD_FUNDS if t in broad_info],               # mutual funds (backtester/fund_lists.py)
+        "broad_failed": dict(sorted(broad_failed.items())),
         "stocks": [t for t in STOCKS if t in ok or t in kept],
         "indexes": [t for t in INDEXES if t in ok or t in kept],
         "requested": [t for t in REQUESTED if t in ok or t in kept],            # from data/extra_tickers.txt
@@ -1487,7 +1786,7 @@ def main() -> None:
         "sims": sims,
         "former_members": sorted(former_ok),
         "former_members_missing_data": sorted(former_missing),
-        "tickers": {**kept, **ok, **former_ok},
+        "tickers": {**broad_info, **kept, **ok, **former_ok},
         "failed": failed,
         "kept_after_failed_refresh": sorted(kept),
         "dropped_stale": stale,

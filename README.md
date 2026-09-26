@@ -400,12 +400,26 @@ with hindsight, for review. When you name a ticker whose file is probably not th
 period - a recycled symbol such as CPWR (Compuware was an index member; the file is a later penny stock),
 DELL before 2016 or MNST before 2012 - the report adds an "Identity:" note.
 
-**Adding tickers.** Besides its built-in lists (Nasdaq-100 members, several hundred ETFs including the
-leveraged and inverse funds common in Composer symphonies, indexes), the job downloads every ticker in
-`data/extra_tickers.txt` (one or more per line, `#` for comments). Add a symbol there and run the
-**Fetch price data** workflow (Actions → Fetch price data → Run workflow; pushing a change to the file
-also starts it), then pull. A sentence or tree that names a ticker without data says so and points to
-this file.
+**Broad fund universe.** Besides the Nasdaq-100, the core ETFs and the indexes, the job keeps a curated
+list of about 650 US-listed ETFs across asset classes (total market, style, size, Avantis, Dimensional,
+factor, dividend, sector and industry, regional and country, Treasuries, corporates, high yield, munis, TIPS,
+international and EM bonds, REITs, commodities, alternatives, currencies, crypto, and the leveraged / inverse
+funds used in Composer symphonies) and about 200 popular mutual funds (Vanguard, Fidelity, DFA, PIMCO,
+American Funds, T. Rowe Price, Dodge & Cox, PRPFX, ...), listed in `backtester/fund_lists.py`. Yahoo serves a
+mutual fund as a daily NAV with its distributions, so its file is a total-return history (flat bars, no
+volume), mostly from the 1980s or the fund's launch. They are refreshed in rotating batches of up to 450 a run
+(missing files first, then the ones updated longest ago), so each run stays short and polite to Yahoo and a
+fund's last bar may be a day older than the ETFs'. A symbol Yahoo doesn't know is retried after 30 days
+(`broad_failed` in `data/universe.json`). None of them is ever read as a Nasdaq-100 member. A price file is
+about 50 bytes a day (about 0.25 MB for a typical ETF, 0.35 MB for a mutual fund with 30-45 years of
+history), so the broad list adds roughly 150 MB to `data/prices` (223 MB before it).
+
+**Adding tickers.** The job also downloads every ticker in `data/extra_tickers.txt` (one or more per line,
+`#` for comments). Add a symbol there and run the **Fetch price data** workflow (Actions → Fetch price data →
+Run workflow; pushing a change to the file also starts it), then pull. On the site's Data page, **Add
+ticker** downloads the symbol directly when the machine has internet access; otherwise (the cloud sandbox)
+it appends the symbol to `data/extra_tickers.txt` for you and says to push the file. A sentence or tree
+that names a ticker without data says so and points to this file.
 
 **Delisted former members.** Yahoo drops companies that were acquired or went bankrupt (Celgene,
 Xilinx, Activision, Yahoo, …), which is the main survivorship gap: about 90 former members have no free
@@ -446,19 +460,25 @@ failed to build and, for each one, how the model compares with the real fund whe
 | Series | Before the fund (start) | Then |
 |---|---|---|
 | SPYSIM | US stock market: Fama-French market return (1926, daily) | SPY |
-| VBSIM | US small caps: Fama-French small portfolios (1926, daily) | VB |
-| VBRSIM | US small-cap value: Fama-French small / high book-to-market (1926, daily) | VBR |
-| VBKSIM | US small-cap growth: Fama-French small / low book-to-market (1926, daily) | VBK |
+| VTISIM | US total market: Fama-French market return (1926, daily) | the Vanguard Total Stock Market Index fund VTSMX (April 1992), then VTI (2001) |
+| VBSIM | US small caps: Fama-French small-cap model (1926, daily; the candidate that tracks the fund best) | the Vanguard Small-Cap Index fund NAESX (from late 1989, when it became an index fund), then VB |
+| VBRSIM | US small-cap value: the best-tracking of Fama-French small / high B/M, small high + neutral, or the 25-portfolio size quintiles 2-3 x top two B/M quintiles (1926, daily) | the Vanguard Small-Cap Value Index fund VISVX (1998), then VBR |
+| VBKSIM | US small-cap growth: the same choice on the growth side (1926, daily) | the Vanguard Small-Cap Growth Index fund VISGX (1998), then VBK |
 | MIDSIM | US mid caps: Fama-French portfolio of the 30th-70th NYSE size percentiles (1926, daily) | MDY (S&P 400) |
-| VTVSIM | US large-cap value: Fama-French big / high book-to-market (1926, daily) | VTV |
-| VUGSIM | US large-cap growth: Fama-French big / low book-to-market (1926, daily) | VUG |
+| VOESIM | US mid-cap value: Fama-French 25 size x B/M portfolios, middle size quintiles x high B/M (1926, daily) | VOE |
+| VOTSIM | US mid-cap growth: the same, low B/M (1926, daily) | VOT |
+| VTVSIM | US large-cap value: the best-tracking of Fama-French big / high B/M, 1/3 big-high + 2/3 big-neutral B/M, or the 25-portfolio large-cap top B/M quintiles (1926, daily) | the Vanguard Value Index fund VIVAX (1992), then VTV |
+| VUGSIM | US large-cap growth: Fama-French big / low book-to-market or a 25-portfolio blend (1926, daily) | the Vanguard Growth Index fund VIGRX (1992), then VUG |
+| VXUSSIM | International stocks: 80% developed ex-US (EFASIM's model) + 20% emerging (EEMSIM's, from 1989), rebalanced daily (1975) | the Vanguard Total International Stock Index fund VGTSX (1996), then VXUS (2011) |
+| VWOSIM | Emerging markets: Fama-French (1989, monthly steps) | the Vanguard Emerging Markets Stock Index fund VEIEX (1994), then VWO |
+| EWJSIM, EWUSIM, EWGSIM, EWCSIM, EWASIM, EWQSIM, EWLSIM, EWHSIM | Japan, UK, Germany, Canada, Australia, France, Switzerland, Hong Kong: Fama-French country indexes in USD with dividends (1975, monthly steps; Japan daily from 1990) | the iShares country ETF |
 | EFASIM | Developed ex-US: Fama-French EAFE index (1975, monthly steps), Fama-French developed ex-US market (1990, daily) | EFA |
 | EFVSIM | Developed ex-US value: Fama-French EAFE high book-to-market index (1975, monthly steps), big / high B/M (1990, daily) | EFV |
 | SCZSIM | Developed ex-US small caps: Fama-French small portfolios (1990, daily) | SCZ |
 | AVDVSIM | Developed ex-US small-cap value: Fama-French small / high B/M (1990, daily) | AVDV |
 | VGKSIM | Europe: Fama-French Europe index (1975, monthly steps), Fama-French Europe market (1990, daily) | VGK |
 | EEMSIM | Emerging markets: Fama-French emerging market return (1989, monthly steps) | EEM |
-| VNQSIM | US REITs: FTSE Nareit All Equity REITs total return (1972, monthly steps) | VNQ |
+| VNQSIM | US REITs: FTSE Nareit All Equity REITs total return (1972, monthly steps) | the Vanguard REIT Index fund VGSIX (1996), then VNQ |
 | BILSIM | 1-month T-bills: Fama-French RF (1926, daily) | BIL |
 | SHYSIM | 2-year Treasuries priced from the FRED 2-year yield (1-year before 1976) (1962, daily) | SHY |
 | IEISIM | 5-year Treasuries from the 5-year yield (1962, daily) | IEI |
@@ -466,11 +486,37 @@ failed to build and, for each one, how the model compares with the real fund whe
 | TLTSIM | 20-year Treasuries from FRED constant-maturity yields (1962, daily) | TLT |
 | LQDSIM | Investment-grade corporates: 10-year par bond at the average of Moody's Aaa and Baa yields (1953; monthly yields before 1986, daily after) | LQD |
 | BNDSIM | US aggregate bonds: 70% 5-year Treasury + 30% corporate model (1962), then the Vanguard Total Bond Market Index fund VBMFX (Dec 1986) | BND |
+| VCLTSIM | Long-term IG corporates: 20-year par bond at the average of Moody's Aaa and Baa yields (1953; monthly yields before 1986) | the Vanguard Long-Term Investment-Grade fund VWESX (Yahoo history from 1980), then VCLT (2009) |
+| MUBSIM | US municipal bonds: the Vanguard Intermediate-Term Tax-Exempt fund VWITX (Yahoo history); no model before it (no free long muni index) | MUB (2007) |
+| EMBSIM | Emerging-market USD bonds: the Fidelity New Markets Income fund FNMIX (1993); no model before it | EMB (2007) |
 | TIPSIM | US TIPS: the Vanguard Inflation-Protected Securities fund VIPSX (mid-2000); no model before it (TIPS date from 1997) | TIP |
 | HYGSIM | US high yield: the Vanguard High-Yield Corporate fund VWEHX (1985); no model before it | HYG |
 | BNDXSIM | International government bonds hedged to USD: a 9-year par-bond model on OECD 10-year yields of up to 12 developed markets, hedged at the short-rate differential (1970, monthly steps), then the PIMCO International Bond (USD-hedged) fund PFORX (1993) | BNDX |
 | GLDSIM | Gold: World Bank monthly average price (1960-1968, monthly steps), LBMA PM fixing (April 1968, daily) | GLD |
-| DBCSIM | Commodity futures: AQR "Commodities for the Long Run" equal-weight index excess return + T-bills (1960, monthly steps) | DBC |
+| DBCSIM | Commodity futures: AQR "Commodities for the Long Run" equal-weight index excess return + T-bills (1960, monthly steps) | the PIMCO CommodityRealReturn Strategy fund PCRIX (mid-2002) when it tracks DBC better than the model on their overlap (the log shows both), then DBC |
+
+Where a model has candidates (VTVSIM, VUGSIM, VBRSIM, VBKSIM, VBSIM, VOESIM, VOTSIM), the data job picks the
+one with the lowest tracking error against the fund (the mutual-fund twin where it exists, the longer
+overlap) and logs every candidate's score in `data/sims_log.txt`. The old large-value model (Fama-French
+big / high B/M alone) is too deep-value: tracking error 8.3% a year against VTV with 20% volatility against
+14.5%; 1/3 big-high + 2/3 big-neutral B/M tracks VTV with 3.6% and 16.5% volatility.
+
+**Fund-exact series.** VTISIM, VXUSSIM, VWOSIM, VNQSIM, BNDSIM, VBSIM, VBRSIM, VBKSIM, VTVSIM and VUGSIM
+become the named fund as soon as it or its Vanguard mutual-fund twin (same index, same manager) exists, so a
+named portfolio run from 1972 holds, for example, the US market model until April 1992, VTSMX until
+mid-2001 and VTI after that. Named portfolios use these first and fall back to the older series (SPYSIM,
+EFASIM, ...) until the data job has built them.
+
+**Asset-class names.** After a weight, Portfolio Visualizer's asset-class names are read as the best
+long-history series, with a note: "40% US stock market, 20% international stocks, 40% total bond since 1972"
+holds VTISIM, VXUSSIM and BNDSIM. Recognised: (US / total) stock market, stocks; US large / mid / small cap,
+each with value or growth; international stocks, international developed, international small cap (value),
+international value, emerging markets, European stocks, Japan; REITs / real estate; gold; commodities; total
+bond / bonds / aggregate bonds; short, intermediate and long term Treasuries; TIPS; corporate bonds;
+long-term corporate bonds; high yield; municipal bonds; international bonds; emerging market bonds;
+T-bills. Name a fund (VTI, BND, ...) to use the fund alone; "cash" stays cash earning the T-bill rate. Next
+to real tickers, names that always meant a fund keep it ("60% SPY and 40% gold" holds GLD), so such a mix
+compares fund with fund.
 
 They are total-return indexes: `close` = `adj_close`, no dividends, `volume` 0 and
 open = high = low = close. Use them in the optimiser, Monte Carlo and factor pages (and in JSON
