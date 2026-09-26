@@ -79,6 +79,23 @@ def next_sessions(after, n: int = 1) -> pd.DatetimeIndex:
     return pd.DatetimeIndex(out)
 
 
+def anchor_day(first, traded: pd.DatetimeIndex | None = None) -> pd.Timestamp:
+    """The day an equity curve's starting-capital row sits on: the session before `first` on the traded
+    calendar `traded` (the union of the run's price dates), or - when the data starts at `first` - the
+    previous NYSE session (never a weekend or holiday such as New Year's Day)."""
+    first = pd.Timestamp(first)
+    if traded is not None and len(traded):
+        k = int(traded.searchsorted(first))
+        if k > 0:
+            return pd.Timestamp(traded[k - 1])
+    d = first.normalize() - pd.Timedelta(days=1)
+    for _ in range(10):
+        if is_session(d):
+            return d
+        d -= pd.Timedelta(days=1)
+    return first - pd.Timedelta(days=1)
+
+
 def extend(idx: pd.DatetimeIndex, n: int = 70) -> pd.DatetimeIndex:
     """`idx` followed by the next `n` sessions (for period-end logic at the data edge)."""
     if len(idx) == 0:

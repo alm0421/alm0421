@@ -262,6 +262,15 @@ python -m backtester tickers                                                 # w
   - "At the close" rules use that day's data and fill at the close (market-on-close).
   - "At the open" rules may only use data known at the open. Anything else is automatically checked
     on the previous close, and a spec that breaks this is rejected.
+    - The check is a whitelist: the open, `gap`, calendar variables, `sym("X").open`, anything inside
+      `ref(..., n)` with n ≥ 1, and one-series indicators given an open-safe series (`sma(open, 5)`;
+      `sma(20)` means `sma(close, 20)` and is refused). Keyword arguments are refused at the open.
+    - Lookbacks, lengths and offsets must be numbers written in the rule: `sma(close, abs(20))` or
+      `ref(close, 2-1)` is an error everywhere, so the check and the calculation can't read a rule
+      differently.
+    - Behind it, every run at the open replays the rule on dates across the whole history with that
+      day's close/high/low/volume replaced by other valid values (tiny to large), for every ticker the
+      rule reads; any change in the decision rejects the spec.
   - Negative offsets are rejected.
   - Tests truncate all data at a date and check that no earlier trade changes.
 - **Survivorship.** "Nasdaq 100 stocks" means point-in-time membership from 2004 (monthly snapshots
@@ -270,6 +279,16 @@ python -m backtester tickers                                                 # w
   - About half of former members (mostly acquired companies) have no free price history, so some
     bias remains. The report says so.
   - Before 2004 the earliest known list is used.
+- **Delistings.** When a held ticker's data ends more than a week before the backtest does (acquired or
+  delisted), the position is sold at its last close on its last day (trades/orders marked `delisted`, and a
+  note). The signal engine keeps the proceeds in cash for new signals; a portfolio holds them in cash until
+  its next rebalance, where the ticker counts as no longer trading (a fixed slice of it stays in cash, a
+  filter or weighting picks among the rest). An index universe drops it from membership.
+- **Spin-offs.** A "dividend" worth more than 15% of the price (the data books spun-off shares at their
+  value, e.g. MDLZ on 2012-10-02) is paid in cash like a dividend but labelled a spin-off/special
+  distribution in the notes and the portfolio ledger.
+- **Equity curve.** The curve starts with the starting capital on the previous trading session (never a
+  weekend or holiday), so the first bar's return counts; that row has no year or month of its own.
 - **Portfolios.** Targets are re-evaluated on the schedule (month-end close by default) and traded at
   the close or next open. Only the differences are traded, and new contributions buy the target mix.
   - A period ends on the last *scheduled* NYSE session of the week/month/quarter as known that day: after an

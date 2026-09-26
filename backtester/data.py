@@ -225,6 +225,26 @@ def corporate_action_days(ticker: str, threshold: float = 0.15) -> pd.DatetimeIn
     return df.index[(big & mismatch).fillna(False).to_numpy()]
 
 
+SPINOFF_SHARE = 0.15
+
+
+def spinoff_days(ticker: str, threshold: float = SPINOFF_SHARE) -> pd.DatetimeIndex:
+    """Ex-dates whose 'dividend' is really a spin-off distribution: a cash-equivalent payout of more than
+    `threshold` of the previous close (the data source books the spun-off shares' value as a dividend, e.g.
+    MDLZ's $14.17 on 2012-10-02 for Kraft Foods Group), or a payout on a day corporate_action_days flags.
+    The value is kept (paid in cash like a dividend); only its label differs."""
+    try:
+        df = load(ticker)
+    except Exception:  # noqa: BLE001 - unknown or synthetic ticker
+        return pd.DatetimeIndex([])
+    if "dividend" not in df or not len(df):
+        return pd.DatetimeIndex([])
+    d = df["dividend"].fillna(0.0)
+    big = (d / df["close"].shift(1)) > threshold
+    flagged = d.index.isin(corporate_action_days(ticker)) & (d > 0).to_numpy()
+    return df.index[(big.fillna(False).to_numpy() | flagged)]
+
+
 def coverage_note(start, end) -> str | None:
     c = coverage(start, end)
     if c.empty:
@@ -273,13 +293,35 @@ def membership() -> pd.DataFrame | None:
 
 
 def nasdaq100_ever() -> list[str]:
-    """Every ticker that has been a Nasdaq-100 member (in the membership history) and has price data."""
+    """Every ticker that has been a Nasdaq-100 member (in the membership history) and has price data.
+
+    A symbol from the membership history whose price file never stands for the member on any member date
+    (a recycled ticker now used by a small company, a junk series with no trading) is left out: it could
+    never be selected, and its data must not affect the run (e.g. an 'opens never quoted' check)."""
+    return list(_nasdaq100_ever())
+
+
+@lru_cache(maxsize=1)
+def _nasdaq100_ever() -> tuple[str, ...]:
     have = set(available_tickers())
     mem = membership()
-    names = set(nasdaq100())
+    cur = set(nasdaq100())
+    names = set(cur)
     if mem is not None:
         names |= set(mem.columns)
-    return sorted(t for t in names if t in have)
+    out = []
+    for t in sorted(n for n in names if n in have):
+        if t in cur or mem is None:
+            out.append(t)
+            continue
+        try:
+            idx = load(t).index
+        except DataError:
+            continue
+        m, _ = member_mask([t], idx)
+        if m.any():
+            out.append(t)
+    return tuple(out)
 
 
 def member_mask(tickers: list[str], index: pd.DatetimeIndex) -> tuple[np.ndarray, pd.Timestamp | None]:

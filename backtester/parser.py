@@ -2717,6 +2717,8 @@ def value_phrase(text: str, ctx: Ctx | None = None, default_n: int | None = None
     U = r"(day|week|month|year|bar|session)s?"
     pats = [
         (rf"`([^`]+)`", lambda m: m.group(1)),
+        # before the moving-average patterns, whose bare "ma" would otherwise match inside "market"
+        (r"\bmarket[- ]cap(?:itali[sz]ation)?\b", lambda m: "market_cap" if ctx.base else _unsupported("market cap of another ticker")),
         (rf"(?:(\d+) {U} )?(?:moving average|average|mean|ma) of (?:the )?(?:daily )?returns?(?: over (?:the )?(?:last |past )?(\d+) {U})?",
          lambda m: f"ma_return({tr}, {_unit_n(m.group(1) or m.group(3), m.group(2) or m.group(4), 20)})"),
         (rf"(?:(\d+) {U} )?(?:max(?:imum)?|largest|biggest) drawdowns?(?: over (?:the )?(?:last |past )?(\d+) {U})?",
@@ -2748,7 +2750,6 @@ def value_phrase(text: str, ctx: Ctx | None = None, default_n: int | None = None
          lambda m: f"{m.group(1)}_rsi({m.group(2) or m.group(3) or 14}{'' if ctx.base else ', ' + c})"),
         (rf"(?:(\d+) {U} )?(?:relative strength index|rsi)(?:\s*\(\s*(\d+)\s*\)|\s+(\d+)(?! {U}))?",
          lambda m: f"rsi({c}, {m.group(3) or m.group(4) or _unit_n(m.group(1), m.group(2), 14)})"),
-        (r"market cap(?:italization)?", lambda m: "market_cap" if ctx.base else _unsupported("market cap of another ticker")),
         (rf"(?:(\d+) {U} )?(?:cumulative |total |trailing )?(?:returns?|momentum|performance|gains?|change|price change)(?: over (?:the )?(?:last |past |prior )?(\d+) {U})?",
          None),
         (r"(?:yesterday|the previous day|previous day|the prior day|prior day|the previous|previous|the prior|prior) (high|low|close|open)",
@@ -3161,6 +3162,13 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     m = re.match(r"(?is)(?:the )?(\d+) (best|worst|top|bottom)[- ]perform(?:ing|ers)(?: (?:of|among|from|in))? (?:the )?(.+?) over (?:the )?(?:last |past )?(\d+) (day|week|month|year)s?(,.*)?$", s)
     if m:
         s = f"{'top' if m.group(2) in ('best', 'top') else 'bottom'} {m.group(1)} of {m.group(3)} by {m.group(4)} {m.group(5)} return{m.group(6) or ''}"
+        low = s.lower()
+    # "the 5 largest Nasdaq 100 stocks", "the largest 5 ... by market cap": size means market cap
+    m = re.match(r"(?is)(?:the )?(?:(\d+) (largest|biggest|smallest)|(largest|biggest|smallest) (\d+)) (?:of |among |from |in )?(?:the )?"
+                 r"((?:(?! by ).)+?)(?: by (?:market[- ]cap(?:itali[sz]ation)?|size))?(,.*)?$", s)
+    if m:
+        n_sz, big = m.group(1) or m.group(4), (m.group(2) or m.group(3)).lower() != "smallest"
+        s = f"{'top' if big else 'bottom'} {n_sz} of {m.group(5)} by market cap{m.group(6) or ''}"
         low = s.lower()
     m = _msearch(r"(?is)(?:the )?(top|bottom|best|worst|strongest|weakest|highest|lowest) (\d+) (?:of |among |from |in )?(?:the )?(.+?) (?:by|ranked by|based on|sorted by|according to|with the (?:highest|lowest|best|strongest|weakest)) (.+)$", s, flags=re.I | re.S, match=True)
     if m:
