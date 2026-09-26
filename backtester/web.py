@@ -53,6 +53,44 @@ class ClientError(Exception):
     pass
 
 
+# ------------------------------------------------------------------ favicon (reports and the site ask for /favicon.ico)
+
+FAVICON_SVG = (b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="3" '
+               b'fill="#2a78d6"/><path d="M2 12 L6 7.5 L9 9.5 L14 4" stroke="#fff" stroke-width="2" fill="none" '
+               b'stroke-linecap="round" stroke-linejoin="round"/></svg>')
+
+
+def _favicon_ico() -> bytes:
+    """A 32x32 .ico (PNG inside) of the same rising line, drawn without any imaging library."""
+    import struct
+    n = 32
+    px = [[(42, 120, 214, 255)] * n for _ in range(n)]
+    for (x0, y0), (x1, y1) in zip([(4, 24), (12, 15), (18, 19)], [(12, 15), (18, 19), (28, 8)]):
+        steps = max(abs(x1 - x0), abs(y1 - y0)) * 4
+        for s in range(steps + 1):
+            x, y = x0 + (x1 - x0) * s / steps, y0 + (y1 - y0) * s / steps
+            for dx in (-1.5, -0.5, 0.5, 1.5):
+                for dy in (-1.5, -0.5, 0.5, 1.5):
+                    xi, yi = int(x + dx), int(y + dy)
+                    if 0 <= xi < n and 0 <= yi < n and dx * dx + dy * dy <= 4.5:
+                        px[yi][xi] = (255, 255, 255, 255)
+    for y in range(n):  # rounded corners
+        for x in range(n):
+            cx, cy = min(x, n - 1 - x), min(y, n - 1 - y)
+            if cx < 4 and cy < 4 and (4 - cx) ** 2 + (4 - cy) ** 2 > 18:
+                px[y][x] = (0, 0, 0, 0)
+    raw = b"".join(b"\x00" + bytes(c for p in row for c in p) for row in px)
+
+    def chunk(tag, body):
+        return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF)
+    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", n, n, 8, 6, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+    return struct.pack("<HHH", 0, 1, 1) + struct.pack("<BBBBHHII", n, n, 0, 0, 1, 32, len(png), 22) + png
+
+
+FAVICON_ICO = _favicon_ico()
+
+
 def _index() -> list[dict]:
     p = RUNS / "index.json"
     return json.loads(p.read_text()) if p.exists() else []
@@ -193,6 +231,20 @@ def _probe_rules(spec) -> None:
             expr.evaluate_value(rule, expr.Namespace(df, extra=dict(pos), ticker="SPY"))
 
 
+def run_key(spec, rf="tbill", sensitivity=True) -> str:
+    """Identity of a run: the full spec and settings (as in its share link), the report options and the
+    data version. Running the same thing again on the same data reuses the saved run."""
+    stamp = str(data.data_status().get("updated_utc"))
+    return hashlib.sha1(f"{share_token(spec, rf)}|{int(bool(sensitivity))}|{stamp}".encode()).hexdigest()
+
+
+def _reusable(key: str) -> dict | None:
+    row = next((r for r in _index() if r.get("key") == key), None)
+    if row and (RUNS / row["id"] / "report.html").is_file():
+        return row
+    return None
+
+
 def _new_id(label: str) -> str:
     h = hashlib.sha1(f"{label}{time.time()}".encode()).hexdigest()[:6]
     return datetime.now().strftime("%Y%m%d-%H%M%S-") + h
@@ -235,12 +287,22 @@ def api_run(body):
         except (TypeError, ValueError):
             raise ClientError(f"Bad risk-free rate {rf!r}")
     spec = _spec(body)
+    sens = body.get("sensitivity", True) is not False
+    key = run_key(spec, rf, sens)
+    if not body.get("force"):
+        old = _reusable(key)
+        if old:  # the same spec and settings on the same data: open that run instead of saving a duplicate
+            return {"id": old["id"], "url": f"/r/{old['id']}/report.html",
+                    "files": sorted(p.name for p in (RUNS / old["id"]).iterdir()), "summary": old,
+                    "interpretation": spec.summary(), "notes": (old.get("spec") or {}).get("notes") or spec.notes,
+                    "spec": old.get("spec") or runner.to_dict(spec), "share": old.get("share"), "reused": True}
     res = runner.run(spec)
-    A = report.analyze(res, rf=rf, sensitivity=body.get("sensitivity", True))
+    A = report.analyze(res, rf=rf, sensitivity=sens)
     rid = _new_id(spec.description)
     out = RUNS / rid
     report.write_outputs(A, out)
     row = _summary_row(rid, report._clean(A), res.kind, spec.name or spec.description[:80], spec, res=res, rf=rf)
+    row["key"] = key
     with LOCK:
         idx = _index()
         idx.insert(0, report._clean(row))
@@ -274,26 +336,27 @@ def _gallery_cache_file() -> Path:
 
 
 def api_gallery():
-    from .library import LIBRARY
+    from .library import LIBRARY, TAGS
     f = _gallery_cache_file()
     cache = json.loads(f.read_text()) if f.exists() else {}
     stamp = str(data.data_status().get("updated_utc"))
     lib = []
     for x in LIBRARY:
-        c = cache.get(x["text"]) or {}
+        c = cache.get(x["id"]) or {}
         lib.append({**x, "stats": c.get("stats") if c.get("data") == stamp else None})
     runs = [r for r in _index() if r.get("kind") in ("signal", "allocation")]
-    return {"library": lib, "runs": runs}
+    return {"library": lib, "runs": runs, "tags": list(TAGS)}
 
 
 def api_gallery_stats(body):
     """Headline stats for one library strategy (cached until the data is updated)."""
     from . import metrics
-    from .library import LIBRARY
-    text = str(body.get("text") or "")
-    if text not in {x["text"] for x in LIBRARY}:
+    from .library import entry_spec, find
+    x = find(str(body.get("id") or body.get("text") or ""))
+    if x is None:
         raise ClientError("Not a library strategy.")
-    spec = parser.parse(text)
+    text = x["id"]
+    spec = entry_spec(x)
     res = runner.run(spec)
     st = metrics.equity_stats(res.equity, flows=res.extras.get("flows"))
     stats = report._clean({"cagr": st.get("cagr"), "sharpe": st.get("sharpe"), "max_drawdown": st.get("max_drawdown"),
@@ -305,7 +368,27 @@ def api_gallery_stats(body):
         cache[text] = {"data": str(data.data_status().get("updated_utc")), "stats": stats}
         RUNS.mkdir(parents=True, exist_ok=True)
         f.write_text(json.dumps(cache, default=str))
-    return {"text": text, "stats": stats}
+    return {"id": x["id"], "text": x.get("text"), "stats": stats}
+
+
+def api_import_composer(body):
+    """A Composer symphony (JSON text or object) -> a Portfolio spec for the block editor. Problems that
+    don't stop the tree from loading (e.g. a ticker without data) come back in "problems"."""
+    from . import composer_import
+    src = body.get("json")
+    if src in (None, "", {}):
+        raise ClientError("Paste a Composer symphony's JSON (or choose the exported file).")
+    d = composer_import.convert(src)
+    problems = []
+    interp = ""
+    try:
+        spec = runner.from_dict(dict(d))
+        spec.validate()
+        _probe_rules(spec)
+        interp = spec.summary()
+    except Exception as e:  # noqa: BLE001 - still load the tree, so the editor can mark what to fix
+        problems.append(friendly_error(e))
+    return {"spec": d, "interpretation": interp, "notes": d.get("notes", []), "problems": problems}
 
 
 def api_compare(body):
@@ -587,7 +670,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
-        if n > 2_000_000:
+        if n > 10_000_000:
             raise ClientError("Request too large")
         raw = self.rfile.read(n) if n else b"{}"
         try:
@@ -601,6 +684,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path in ("/", "/index.html") or path.startswith("/app"):
                 return self._send(200, APP.read_bytes(), "text/html; charset=utf-8")
+            if path == "/favicon.ico":
+                return self._send(200, FAVICON_ICO, "image/x-icon")
+            if path == "/favicon.svg":
+                return self._send(200, FAVICON_SVG, "image/svg+xml")
             if path == "/api/status":
                 return self._json(200, api_status())
             if path == "/api/runs":
@@ -637,7 +724,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/optimize": lambda b: api_research(b, "optimize"), "/api/signals": api_signals,
                 "/api/paper": lambda b: api_paper(b, "POST"),
                 "/api/fetch": api_fetch, "/api/share": api_share, "/api/orders": api_orders,
-                "/api/gallery/stats": api_gallery_stats,
+                "/api/gallery/stats": api_gallery_stats, "/api/import/composer": api_import_composer,
                 "/api/montecarlo": api_montecarlo, "/api/factors": api_factors,
             }
             if path in handlers:
