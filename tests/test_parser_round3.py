@@ -145,7 +145,7 @@ def test_unparenthesised_nested_then_is_refused():
     ("QQQ 20 day return is greater than 5%", "(tret(tr, 20) > 0.05)"),
     ("TQQQ current price is above its 20 day moving average", "close > sma(close, 20)"),
     ("SPY 10 day RSI is above 70", "(rsi(close, 10) > 70)"),
-    ("TQQQ 10 day RSI is at least 79", "rsi(close, 10) >= 79"),
+    ("TQQQ 10 day RSI is at least 79", "(rsi(close, 10) >= 79)"),
     ("TQQQ return over the last 10 days is above 5%", "tret(tr, 10) > 0.05"),
     ("TQQQ 5 day return over the last 10 days is above 1%", None),
 ])
