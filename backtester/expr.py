@@ -456,6 +456,19 @@ class Namespace(dict):
             # known from the period's last bar onward
             return m.reindex(base.index).ffill()
 
+        def _periodic(freq, fn, n, x=None):
+            """An indicator computed on completed weekly/monthly bars (each period's last close) and held
+            flat until the next period ends: a period's value is known at its last bar's close."""
+            base = c if x is None else _s(x, c)
+            if isinstance(n, pd.Series):  # f(x, n) order
+                base, n = n, (x if x is not None else 14)
+            if isinstance(n, float) and not float(n).is_integer():
+                raise ValueError(f"lookback periods must be whole numbers (got {n})")
+            if int(n) < 1:
+                raise ValueError("lookback periods must be at least 1")
+            ends = _ends(base, freq)
+            return fn(ends, int(n)).reindex(base.index).ffill()
+
         def _periodic_close(freq, x=None):
             base = c if x is None else _s(x, c)
             return _ends(base, freq).reindex(base.index).ffill()
@@ -488,6 +501,12 @@ class Namespace(dict):
             "cummax": lambda x: _s(x, c).cummax(), "cummin": lambda x: _s(x, c).cummin(),
             "weekly_sma": lambda n, x=None: _periodic_sma("W-FRI", n, x),
             "monthly_sma": lambda n, x=None: _periodic_sma("M", n, x),
+            "weekly_rsi": lambda n=14, x=None: _periodic("W-FRI", rsi_wilder, n, x),
+            "monthly_rsi": lambda n=14, x=None: _periodic("M", rsi_wilder, n, x),
+            "weekly_ema": lambda n, x=None: _periodic("W-FRI", lambda e, k: e.ewm(span=k, adjust=False, min_periods=k).mean(), n, x),
+            "monthly_ema": lambda n, x=None: _periodic("M", lambda e, k: e.ewm(span=k, adjust=False, min_periods=k).mean(), n, x),
+            "weekly_ret": lambda n=1, x=None: _periodic("W-FRI", lambda e, k: e / e.shift(k) - 1, n, x),
+            "monthly_ret": lambda n=1, x=None: _periodic("M", lambda e, k: e / e.shift(k) - 1, n, x),
             "weekly_close": lambda x=None: _periodic_close("W-FRI", x),
             "monthly_close": lambda x=None: _periodic_close("M", x),
             "is_week_end": lambda: is_period_end("W-FRI"), "is_month_end": lambda: is_period_end("M"),
@@ -524,7 +543,13 @@ Functions (x defaults to close; n = lookback in bars):
                tbill_ret(n) compounded T-bill return over n bars   market_cap
   timing       ref(x,n) (n >= 0) crossover(a,b) crossunder(a,b) count(cond,n) bars_since(cond)
                down_streak(x) up_streak(x) cummax(x) cummin(x)
-  timeframes   weekly_sma(n) monthly_sma(n) weekly_close() monthly_close()
+  timeframes   weekly_sma(n) weekly_ema(n) weekly_rsi(n) weekly_ret(n)      (x optional last argument)
+               monthly_sma(n) monthly_ema(n) monthly_rsi(n) monthly_ret(n)
+                 computed on completed weekly (Friday) / monthly bars, then held until the next
+                 period closes: a week's value is known at the close of its last trading day
+               weekly_close() monthly_close()   the last completed week's / month's close, as a
+                 daily series. Daily indicators of it (rsi(weekly_close(), 14)) are refused: they
+                 would run over repeated daily values; use weekly_rsi(14) etc. instead
                is_week_end() is_month_end() is_quarter_end() is_year_end()
   other ticker sym("SPY").close, sym("^VIX").close  -> another ticker aligned to this one
 Operators: + - * / < <= > >= == != and or not, e.g. 0.1 < ibs < 0.3
@@ -573,8 +598,28 @@ class _Vectorize(ast.NodeTransformer):
         return out
 
 
+# daily-bar indicators: applied to weekly_close()/monthly_close() they would run over repeated values
+_DAILY_INDICATORS = {"sma", "ma", "ema", "rma", "wma", "rsi", "stdev", "zscore", "ret", "roc", "tret", "highest", "lowest",
+                     "pct_rank", "volatility", "ma_return", "stdev_return", "max_drawdown", "drawdown", "macd",
+                     "down_streak", "up_streak"}
+
+
+def _check_timeframes(tree) -> None:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _DAILY_INDICATORS:
+            for a in node.args:
+                for sub in ast.walk(a):
+                    if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name) and sub.func.id in ("weekly_close", "monthly_close"):
+                        per = sub.func.id.split("_")[0]
+                        f = node.func.id
+                        hint = f"{per}_{f}(n)" if f in ("rsi", "ema", "sma", "ret") else f"{per}_sma(n), {per}_ema(n), {per}_rsi(n) or {per}_ret(n)"
+                        raise ValueError(f"{f}({sub.func.id}(), ...) would compute a daily {f} over a {per} close repeated on every "
+                                         f"day, not a {per} indicator. Use {hint}, which works on completed {per} bars.")
+
+
 def compile_expr(text: str):
     tree = ast.parse(text.strip(), mode="eval")
+    _check_timeframes(tree)
     for node in ast.walk(tree):
         if not isinstance(node, _ALLOWED):
             raise ValueError(f"not allowed in expression: {type(node).__name__} in {text!r}")
@@ -632,6 +677,7 @@ _ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "m
                  "stoch_k", "stoch_d", "adx", "plus_di", "minus_di", "cci", "willr", "obv", "mfi", "vwap",
                  "donchian_upper", "donchian_lower", "keltner_upper", "keltner_lower", "supertrend", "sar",
                  "weekly_sma", "monthly_sma", "weekly_close", "monthly_close", "is_week_end",
+                 "weekly_rsi", "monthly_rsi", "weekly_ema", "monthly_ema", "weekly_ret", "monthly_ret",
                  "is_month_end", "is_quarter_end", "is_year_end", "bars_since", "count"}
 
 
