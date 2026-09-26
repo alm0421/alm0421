@@ -66,6 +66,14 @@ def rf_daily(index: pd.DatetimeIndex, rf) -> pd.Series:
     return pd.Series(float(rf or 0.0) / TRADING_DAYS, index=index)
 
 
+def _anchor_year(series: pd.Series):
+    """The first calendar year when it holds only the curve's starting point (the anchor row on the session
+    before the first bar, e.g. Dec 31 for a run starting Jan 2): it has no return of its own. Else None."""
+    if len(series) > 1 and series.index[0].year != series.index[1].year:
+        return series.index[0].year
+    return None
+
+
 def monthly_returns(nav_: pd.Series) -> pd.Series:
     me = nav_.resample("ME").last()
     first = nav_.iloc[0]
@@ -334,6 +342,8 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, 
     yprev = yr.shift(1)
     yprev.iloc[0] = nv.iloc[0]
     yret = yr / yprev - 1
+    if _anchor_year(nv) is not None:
+        yret = yret.iloc[1:]
     var95 = -np.percentile(r, 5) if len(r) > 20 else np.nan
     cvar95 = -r[r <= np.percentile(r, 5)].mean() if len(r) > 20 else np.nan
     mvar95 = -np.percentile(mr, 5) if len(mr) > 12 else np.nan
@@ -617,18 +627,23 @@ def yearly_returns(series: dict[str, pd.Series]) -> pd.DataFrame:
         ye = eq.groupby(eq.index.year).last()
         prev = ye.shift(1)
         prev.iloc[0] = eq.iloc[0]
-        cols[name] = ye / prev - 1
+        r = ye / prev - 1
+        cols[name] = r.iloc[1:] if _anchor_year(eq) is not None else r
     return pd.DataFrame(cols)
 
 
 def yearly_detail(nav_: pd.Series, trades: pd.DataFrame, exposure: pd.Series, first_bar=None) -> pd.DataFrame:
     rows = {}
+    skip = _anchor_year(nav_)
     for y, eq in nav_.groupby(nav_.index.year):
+        if y == skip:
+            continue
         prev = nav_[nav_.index.year < y]
         base = prev.iloc[-1] if len(prev) else eq.iloc[0]
         path = pd.concat([pd.Series([base]), eq]).reset_index(drop=True)
         first, last = display_date(eq.index[0], first_bar), eq.index[-1]
-        partial = (not len(prev)) and (first.month > 1 or first.day > 7) or (last.month < 12 or last.day < 24)
+        opening = not len(prev) or (skip is not None and len(prev) == 1)   # the first year (after the anchor)
+        partial = opening and (first.month > 1 or first.day > 7) or (last.month < 12 or last.day < 24)
         rows[y] = {
             "return": eq.iloc[-1] / base - 1 if base > 0 else np.nan,   # nothing left to earn a return on
             "max_drawdown": (path / path.cummax() - 1).min(),
@@ -658,7 +673,10 @@ def yearly_balances(equity: pd.Series, nav_: pd.Series, flows: pd.Series | None 
     c = data.cpi()
     ci = c.reindex(nav_.index.union(c.index)).ffill().reindex(nav_.index) if not c.empty else None
     rows = {}
+    skip = _anchor_year(equity)
     for y, eq in equity.groupby(equity.index.year):
+        if y == skip:
+            continue
         prev = equity[equity.index.year < y]
         nprev, ny = nav_[nav_.index.year < y], nav_[nav_.index.year == y]
         if not len(ny):

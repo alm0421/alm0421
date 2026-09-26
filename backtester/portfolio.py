@@ -864,8 +864,8 @@ class _Evaluator:
         return bool(self.members.get(t, np.zeros(len(self.cal), bool))[i])
 
     def has(self, t: str, i: int) -> bool:
-        """Has the ticker started trading by bar i? A missing price on a day it has already traded
-        (another calendar's holiday) uses its last price rather than dropping it to cash."""
+        """Has the ticker started trading by bar i (and not stopped: delisted or acquired)? A missing price on a
+        day it has already traded (another calendar's holiday) uses its last price rather than dropping it to cash."""
         c = self.close[t]
         if np.isfinite(c[i]):
             return True
@@ -874,7 +874,14 @@ class _Evaluator:
         if t not in self._first:
             ok = np.flatnonzero(np.isfinite(c))
             self._first[t] = int(ok[0]) if len(ok) else len(c)
+        if self.ended(t, i):
+            return False
         return i > self._first[t] and i - self._first[t] > 0 and np.isfinite(c[max(0, i - 10): i]).any()
+
+    def ended(self, t: str, i: int) -> bool:
+        """Has the ticker's data ended by bar i, well before the end of the run (delisted or acquired)?"""
+        g = gone_bar(self.dfs[t], self.cal)
+        return g is not None and i > g
 
     def rets(self, t: str) -> np.ndarray:
         if t not in self._rets:
@@ -1020,7 +1027,12 @@ class _Evaluator:
             if self.has(t, i):
                 return {t: 1.0}
             if i >= self.off:
-                self.note(f"{t} had no price yet on some rebalance dates (before its history starts); its slice was held in cash then.")
+                if self.ended(t, i):
+                    self.note(f"{t}'s data ends on {self.dfs[t].index[-1].date()} (delisted or acquired): its slice was "
+                              "held in cash after that.")
+                else:
+                    self.note(f"{t} had no price yet on some rebalance dates (before its history starts); its slice was "
+                              "held in cash then.")
             return {"cash": 1.0}
         if n.get("cash"):
             return {"cash": 1.0}
@@ -1098,6 +1110,18 @@ class _Evaluator:
                 return out
             return w
         raise ValueError(f"bad node {n}")
+
+
+DELIST_GAP_DAYS = 7
+
+
+def gone_bar(df: pd.DataFrame, cal: pd.DatetimeIndex) -> int | None:
+    """The index in `cal` of a ticker's last bar when its data ends more than DELIST_GAP_DAYS before the
+    end of `cal` (delisted or acquired), else None. (A few days short is a late data refresh, not a delisting.)"""
+    if not len(df) or not len(cal) or df.index[-1] >= cal[-1] - pd.Timedelta(days=DELIST_GAP_DAYS):
+        return None
+    k = int(cal.searchsorted(df.index[-1], side="right")) - 1
+    return k if 0 <= k < len(cal) - 1 else None
 
 
 def _period_ids(idx: pd.DatetimeIndex, freq: str):
@@ -1366,6 +1390,16 @@ def run(p: Portfolio) -> Result:
     O = np.column_stack([dfs[t]["open"].reindex(cal).to_numpy() for t in tick])
     C = np.column_stack([ev.close[t][base:] for t in tick])
     DIV = np.column_stack([dfs[t]["dividend"].reindex(cal).fillna(0.0).to_numpy() for t in tick])
+    # a "dividend" that is really a spin-off (or special) distribution: same cash, labelled as such
+    SPIN = np.column_stack([cal.isin(data.spinoff_days(t)) for t in tick]) if N else np.zeros((T, 0), bool)
+    # delisted / acquired: data that ends well before the run does; sold at the last close, proceeds held in cash
+    gone = np.full(N, T)
+    for j, t in enumerate(tick):
+        g = gone_bar(dfs[t], cal)
+        if g is not None:
+            gone[j] = g
+    delisted: list[str] = []
+    spun: list[str] = []
     rate = _daily_rate(cal, p.cash_rate)
     borrow_extra = p.margin_rate / 252.0
     fee_daily = p.expense_ratio / 252.0
@@ -1432,6 +1466,8 @@ def run(p: Portfolio) -> Result:
             if t == "cash":
                 continue
             j = idx[t]
+            if i >= gone[j]:
+                continue  # delisted / acquired: nothing left to buy (its weight stays in cash)
             if np.isfinite(pv[j]) and pv[j] > 0:
                 want[j] = eq * w / pv[j]
         if not p.fractional_shares:
@@ -1439,7 +1475,7 @@ def run(p: Portfolio) -> Result:
         delta = want - shares
         # sells first, then buys (scaled to the cash available)
         for sgn in (-1, 1):
-            js = [j for j in range(N) if delta[j] * sgn > 1e-12 and np.isfinite(pv[j])]
+            js = [j for j in range(N) if delta[j] * sgn > 1e-12 and np.isfinite(pv[j]) and i < gone[j]]
             if sgn == 1 and js:
                 need = sum(delta[j] * pv[j] * (1 + slip) * (1 + p.commission_pct) + p.commission for j in js)
                 scale = min(1.0, max(cash + borrow_ok, 0) / need) if need > 0 else 1.0
@@ -1517,7 +1553,10 @@ def run(p: Portfolio) -> Result:
             for j in np.flatnonzero(div_cash != 0):
                 tcash[j] += div_cash[j]
                 tdiv[j] += div_cash[j]
-                ledger.append((cal[i], tick[j], "dividend", 0.0, float(div_cash[j]), 0.0))
+                kind = "spin-off distribution" if SPIN[i, j] else "dividend"
+                if SPIN[i, j] and f"{tick[j]} {cal[i].date()}" not in spun:
+                    spun.append(f"{tick[j]} {cal[i].date()}")
+                ledger.append((cal[i], tick[j], kind, 0.0, float(div_cash[j]), 0.0))
         # cash flows at the start of the day
         f = 0.0
         if contrib_days[i]:
@@ -1535,6 +1574,26 @@ def run(p: Portfolio) -> Result:
             pending_target = None
         # withdrawals that overdraw cash: sell proportionally at the close
         np.copyto(last_px, c, where=np.isfinite(c))
+        # delisted / acquired today (its last bar of data): sell at this last close
+        for j in np.flatnonzero(gone == i):
+            if shares[j] and np.isfinite(c[j]):
+                q = -shares[j]
+                fill = c[j] * (1 + np.sign(q) * slip)
+                com = p.commission + p.commission_pct * abs(q) * fill
+                eq_d = value(c)
+                cash -= q * fill + com
+                shares[j] = 0.0
+                tcash[j] -= q * fill + com
+                tcom[j] += com
+                ledger.append((cal[i], tick[j], "buy" if q > 0 else "sell", q, abs(q) * fill, com))
+                turnover += abs(q) * fill / eq_d if eq_d > 0 else 0.0
+                orders.append({"date": cal[i].date(), "ticker": tick[j], "side": "buy" if q > 0 else "sell",
+                               "shares": abs(q), "price": fill, "value": abs(q) * fill, "commission": com,
+                               "reason": "delisted"})
+                delisted.append(f"{tick[j]} delisted/acquired on {cal[i].date()}")
+            target.pop(tick[j], None)
+            if pending_target:
+                pending_target.pop(tick[j], None)
         eq_close = value(c)
         tgt_cash = 1.0 - sum(w for t, w in target.items() if t != "cash")
         if f < 0 and cash < min(0.0, tgt_cash) * eq_close - 1e-6 * max(eq_close, 1.0) and eq_close > 0 and target:
@@ -1542,7 +1601,8 @@ def run(p: Portfolio) -> Result:
         # invest new contributions at the close in the current target mix (no selling)
         if f > 0 and target and not sched[i]:
             pv = px_now(c)
-            live = {t: w for t, w in target.items() if t != "cash" and np.isfinite(pv[idx[t]]) and pv[idx[t]] > 0}
+            live = {t: w for t, w in target.items() if t != "cash" and np.isfinite(pv[idx[t]]) and pv[idx[t]] > 0
+                    and i < gone[idx[t]]}
             tot = sum(live.values())
             if tot > 0:
                 budget = min(f, max(cash, 0.0))
@@ -1634,6 +1694,16 @@ def run(p: Portfolio) -> Result:
                                "simulation stopped there and the balance is shown as $0 from then on.")
             equity[i:] = 0.0
             break
+    if delisted:
+        more = f" and {len(delisted) - 5} more" if len(delisted) > 5 else ""
+        p.notes.append(f"Delisted: {', '.join(delisted[:5])}{more}; the position was closed at its last price (the final "
+                       "close in the data; orders marked 'delisted') and the proceeds were held in cash. From the next "
+                       "rebalance on, the portfolio's rules treat it as no longer trading: a fixed slice of it stays in "
+                       "cash, a filter or weighting chooses among the remaining assets.")
+    if spun:
+        p.notes.append(f"Distributions: {', '.join(spun[:5])}{' and more' if len(spun) > 5 else ''} paid a spin-off or "
+                       "special distribution (more than 15% of the price; e.g. shares of a spun-off company booked at their "
+                       "value). It is paid in cash like a dividend but labelled 'spin-off distribution', not a dividend.")
     if margin_days:
         more = f" and {len(margin_days) - 5} more" if len(margin_days) > 5 else ""
         p.notes.append(f"Margin call on {', '.join(str(d) for d in margin_days[:5])}{more}: equity fell below "
@@ -1650,7 +1720,7 @@ def run(p: Portfolio) -> Result:
                        f"target {lev_peak[1]:.1f}x)" + (f"; margin calls cap it at {1 / mm:g}x." if mm else
                                                         " with margin calls turned off."))
 
-    start_day = cal[0] - pd.Timedelta(days=1)
+    start_day = _cal.anchor_day(cal[0], cal_all)   # the previous session, never a weekend or holiday
     idx_all = pd.DatetimeIndex([start_day]).append(cal)
     eq = pd.Series(np.concatenate([[p.capital], equity]), index=idx_all, name="equity")
     fl = pd.Series(np.concatenate([[0.0], flows]), index=idx_all, name="flows")
@@ -1765,7 +1835,7 @@ def _round_trips(ledger: list[tuple], tick: list[str], end_px: np.ndarray, last_
     for t, evs in by.items():
         pos, peak, st = 0.0, 0.0, None
         for d, _, kind, q, v, com in evs:
-            if kind in ("dividend", "fee"):
+            if kind in ("dividend", "fee", "spin-off distribution"):
                 if st is not None:
                     st["income"] += v
                 continue

@@ -13,6 +13,7 @@ FUNCTIONS below (or `python -m backtester --help-expr`) for the vocabulary.
 from __future__ import annotations
 
 import ast
+from functools import lru_cache
 from typing import Any, Callable
 
 import numpy as np
@@ -215,29 +216,47 @@ class Namespace(dict):
         c, hi, lo, vol = df["close"], df["high"], df["low"], df["volume"]
 
         def pick(args, default_x, default_n):
-            """Accept f(n), f(x, n), f(n, x) or f(). A series where the lookback belongs is an error, not a swap."""
+            """Accept f(n), f(x, n), f(n, x) or f(). A series where the lookback belongs is an error, not a swap.
+
+            The lookback must be a plain Python number (a literal in the rule), never a computed scalar such as
+            abs(1) or a series: with two arguments exactly one must be a series. So the static open-time check
+            (open_safe), which reads the same shapes off the rule's text, cannot disagree with what runs."""
             x, n = default_x, default_n
             series = [a for a in args if isinstance(a, pd.Series)]
             if len(series) > 1 or len(args) > 2:
                 raise ValueError("an indicator takes one series and one lookback, e.g. sma(close, 20); the lookback "
                                  "must be a fixed whole number, not a series (got more than one series or argument)")
+            if len(args) == 2 and not series:
+                raise ValueError("an indicator with two arguments needs a series and a lookback, e.g. sma(close, 20) "
+                                 "(got two numbers)")
             for a in args:
                 if isinstance(a, pd.Series):
                     x = a
                 else:
                     n = a
-            if isinstance(n, (bool, np.bool_)) or not isinstance(n, (int, float, np.integer, np.floating)):
-                raise ValueError(f"lookback periods must be fixed whole numbers (got {type(n).__name__})")
-            if isinstance(n, float) and not float(n).is_integer():
-                raise ValueError(f"lookback periods must be whole numbers (got {n})")
-            n = int(n)
+            n = lookback_number(n)
             if n < 1:
                 raise ValueError("lookback periods must be at least 1")
             return x, n
 
+        def lookback_number(n):
+            if isinstance(n, (bool, np.bool_)) or not isinstance(n, (int, float)) or isinstance(n, (np.integer, np.floating)):
+                raise ValueError(f"lookback periods must be whole numbers written in the rule, e.g. sma(close, 20) "
+                                 f"(got {type(n).__name__})")
+            if isinstance(n, float) and not float(n).is_integer():
+                raise ValueError(f"lookback periods must be whole numbers (got {n})")
+            return int(n)
+
+        def series_arg(x, f):
+            if not isinstance(x, pd.Series):
+                raise ValueError(f"{f}() needs a series such as close or rsi(close, 2), not a single number")
+            return x
+
         def nonneg(n):
-            if isinstance(n, pd.Series) or isinstance(n, (bool, np.bool_)) or not isinstance(n, (int, float, np.integer, np.floating)):
-                raise ValueError("offsets must be fixed whole numbers, e.g. ref(close, 5), not a series")
+            if isinstance(n, pd.Series) or isinstance(n, (bool, np.bool_)) or not isinstance(n, (int, float)) \
+                    or isinstance(n, (np.integer, np.floating)):
+                raise ValueError("offsets must be fixed whole numbers written in the rule, e.g. ref(close, 5), not a "
+                                 "series or a calculation")
             if isinstance(n, float) and not float(n).is_integer():
                 raise ValueError(f"offsets must be whole numbers (got {n})")
             n = int(n)
@@ -359,11 +378,13 @@ class Namespace(dict):
         def drawdown(*a):
             """x / highest(x, n) - 1 (<= 0); n defaults to all history."""
             x, n = c, None
+            if len(a) > 2 or sum(isinstance(v, pd.Series) for v in a) > 1 or (len(a) == 2 and not any(isinstance(v, pd.Series) for v in a)):
+                raise ValueError("drawdown takes a series and an optional lookback, e.g. drawdown(close, 252)")
             for v in a:
                 if isinstance(v, pd.Series):
                     x = v
                 else:
-                    n = int(v)
+                    n = lookback_number(v)
             peak = x.cummax() if n is None else x.rolling(n, min_periods=1).max()
             return x / peak - 1
 
@@ -525,10 +546,10 @@ class Namespace(dict):
             return pd.Series(out, index=c.index)
 
         def down_streak(x=None):
-            return streak(c if x is None else _s(x, c), -1)
+            return streak(c if x is None else series_arg(x, "down_streak"), -1)
 
         def up_streak(x=None):
-            return streak(c if x is None else _s(x, c), +1)
+            return streak(c if x is None else series_arg(x, "up_streak"), +1)
 
         def _period_close(freq):
             per = c.index.to_period(freq)
@@ -639,7 +660,7 @@ class Namespace(dict):
             "supertrend": supertrend, "sar": sar,
             "crossover": crossover, "crossunder": crossunder, "count": count, "bars_since": bars_since,
             "down_streak": down_streak, "up_streak": up_streak,
-            "cummax": lambda x: _s(x, c).cummax(), "cummin": lambda x: _s(x, c).cummin(),
+            "cummax": lambda x: series_arg(x, "cummax").cummax(), "cummin": lambda x: series_arg(x, "cummin").cummin(),
             "weekly_sma": lambda n, x=None: _periodic_sma("W-FRI", n, x),
             "monthly_sma": lambda n, x=None: _periodic_sma("M", n, x),
             "weekly_rsi": lambda n=14, x=None: _periodic("W-FRI", rsi_wilder, n, x),
@@ -671,7 +692,7 @@ Variables (per bar; prices are split-adjusted, as quoted):
 Position variables (exit rules only):
   bars_held  entry_price  pnl (open trade return, 0.05 = +5%)
   highest_since_entry  lowest_since_entry
-Functions (x defaults to close; n = lookback in bars):
+Functions (x defaults to close; n = lookback in bars, a number written in the rule - not a calculation):
   averages     sma(x,n) ema(x,n) rma(x,n) wma(x,n) vwap(n)
   ranges       highest(x,n) lowest(x,n) donchian_upper(n) donchian_lower(n) atr(n) natr(n)
   bands        bb_upper(n,k) bb_lower(n,k) keltner_upper(n,k) keltner_lower(n,k)
@@ -771,9 +792,81 @@ class _Timeframes(ast.NodeTransformer):
         return node
 
 
+# ---------------------------------------------------------------- static argument shapes
+# Every argument of an indicator is either a series (a price, a variable, another indicator, arithmetic on
+# them) or a lookback/length/offset/parameter, which must be a number written in the rule. A computed scalar
+# (abs(1), 1+0, 2 and 1) where a lookback belongs is refused outright, so the static open-time check below and
+# the runtime can never read the same argument differently.
+
+_VALUE_FUNCS = {"abs", "maximum", "minimum", "log", "sqrt"}          # element-wise maths on values
+_FREE_ARG_FUNCS = _VALUE_FUNCS | {"crossover", "crossunder", "sym", "weekly", "monthly", "_tf"}
+_SERIES_ONLY_FUNCS = {"cummax", "cummin", "down_streak", "up_streak", "bars_since"}
+_SCALAR_NAMES = {"entry_price"}                                       # position variable that is a number
+
+
+def _literal(node):
+    """A plain number literal (optionally with a sign), else None. Nothing computed counts."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+        return node.value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        v = _literal(node.operand)
+        return None if v is None else (-v if isinstance(node.op, ast.USub) else v)
+    return None
+
+
+def _kind(node) -> str:
+    """Static shape of an expression: 'lit' (a number literal), 'const' (a computed scalar), 'str',
+    'bars' (sym(...)) or 'series'."""
+    if _literal(node) is not None:
+        return "lit"
+    if isinstance(node, ast.Constant):
+        return "str" if isinstance(node.value, str) else "const"
+    if isinstance(node, ast.Name):
+        return "const" if node.id in _SCALAR_NAMES or node.id in ("True", "False") else "series"
+    if isinstance(node, ast.Attribute):
+        return "series"
+    if isinstance(node, ast.Call):
+        f = node.func.id if isinstance(node.func, ast.Name) else ""
+        if f == "sym":
+            return "bars"
+        if f in _VALUE_FUNCS:
+            kids = list(node.args) + [k.value for k in node.keywords]
+            return "series" if any(_kind(a) == "series" for a in kids) else "const"
+        return "series"
+    kids = [k for k in ast.iter_child_nodes(node) if isinstance(k, ast.expr)]
+    return "series" if any(_kind(k) == "series" for k in kids) else "const"
+
+
+def _check_arguments(tree) -> None:
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+            continue
+        f = node.func.id
+        if f == "sym":
+            if len(node.args) != 1 or node.keywords or _kind(node.args[0]) != "str":
+                raise ValueError('sym() takes one ticker in quotes, e.g. sym("SPY").close')
+            continue
+        if f in _FREE_ARG_FUNCS:
+            continue
+        for a in list(node.args) + [k.value for k in node.keywords]:
+            k = _kind(a)
+            if f in _SERIES_ONLY_FUNCS and k != "series":
+                raise ValueError(f"{f}() needs a series such as close or rsi(close, 2), not {ast.unparse(a)!r}")
+            if k in ("series", "lit"):
+                continue
+            raise ValueError(f"{f}(): {ast.unparse(a)!r} is not allowed where a lookback, length or parameter belongs; "
+                             f"write the number itself (e.g. {f}(close, 20)): computed values there are refused")
+
+
 def compile_expr(text: str):
-    tree = ast.parse(text.strip(), mode="eval")
+    return _compile_expr(text.strip())
+
+
+@lru_cache(maxsize=4096)
+def _compile_expr(text: str):
+    tree = ast.parse(text, mode="eval")
     _check_timeframes(tree)
+    _check_arguments(tree)
     for node in ast.walk(tree):
         if not isinstance(node, _ALLOWED):
             raise ValueError(f"not allowed in expression: {type(node).__name__} in {text!r}")
@@ -823,17 +916,6 @@ def evaluate_value(text, ns: Namespace) -> pd.Series:
 
 OPEN_SAFE_NAMES = {"gap", "dow", "month", "day", "year", "trading_day_of_month",
                    "trading_days_left_in_month", "open", "True", "False"}
-# functions whose series argument defaults to today's close/high/low when omitted
-_DEFAULTS_TO_CLOSE = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "stdev", "zscore", "ret", "roc",
-                      "rsi", "pct_rank", "down_streak", "up_streak", "drawdown", "cummax", "cummin", "tret",
-                      "max_drawdown", "ma_return", "stdev_return"}
-# functions that always read today's close/high/low
-_ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "macd_signal", "macd_hist",
-                 "stoch_k", "stoch_d", "adx", "plus_di", "minus_di", "cci", "willr", "obv", "mfi", "vwap",
-                 "donchian_upper", "donchian_lower", "keltner_upper", "keltner_lower", "supertrend", "sar",
-                 "weekly_sma", "monthly_sma", "weekly_close", "monthly_close", "is_week_end",
-                 "weekly_rsi", "monthly_rsi", "weekly_ema", "monthly_ema", "weekly_ret", "monthly_ret",
-                 "is_month_end", "is_quarter_end", "is_year_end", "bars_since", "count", "weekly", "monthly"}
 
 
 def first_defined(rule, ns) -> pd.Timestamp | None:
@@ -862,109 +944,177 @@ def first_defined(rule, ns) -> pd.Timestamp | None:
     return first
 
 
+# f(x, n): reads only its series argument x (close/high/low when x is left out)
+_OPEN_SERIES_FUNCS = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "stdev", "zscore", "ret", "roc", "rsi",
+                      "tret", "pct_rank", "max_drawdown", "ma_return", "stdev_return", "drawdown"}
+_OPEN_ONE_SERIES = {"cummax", "cummin", "down_streak", "up_streak"}
+_OPEN_ELEMENTWISE = _VALUE_FUNCS | {"crossover", "crossunder"}
+
+
+def _is_sym(node) -> bool:
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "sym"
+            and len(node.args) == 1 and not node.keywords and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str))
+
+
 def open_safe(rule) -> bool:
-    """True if `rule` can be evaluated at the bar's open, i.e. uses no data from later in the bar."""
+    """True if `rule` can be evaluated at the bar's open, i.e. uses no data from later in the bar.
+
+    A whitelist: every node must be shown to be known at the open. Names: the open, gap and calendar
+    variables. Calls: ref(x, n) with a literal n >= 1 (anything, shifted a bar), or n = 0 of an open-safe x;
+    the one-series indicators (sma, rsi, highest, ...) given exactly one open-safe series and otherwise only
+    number literals (left out, the series is today's close/high/low: not safe); element-wise maths and
+    crossovers of open-safe arguments; sym("X").open. Everything else - other indicators, keyword arguments,
+    computed lookbacks, today's close/high/low/volume - is not open-safe."""
     if callable(rule):
         return bool(getattr(rule, "open_safe", False))
-    def literal(node):
-        """A plain number literal (optionally negated), else None. Anything computed - `1+0`, `2 and 1`,
-        `~0` - is not accepted: the vectorised runtime may evaluate it differently."""
-        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
-            return node.value
-        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
-            v = literal(node.operand)
-            return None if v is None else (-v if isinstance(node.op, ast.USub) else v)
-        return None
-
-    def constant_expr(node):
-        """No series inside (only numbers and operators)."""
-        return not any(isinstance(ch, (ast.Name, ast.Attribute, ast.Call, ast.Subscript)) for ch in ast.walk(node))
+    if not isinstance(rule, str) or not rule.strip():
+        return False
+    try:
+        compile_expr(rule)
+        tree = ast.parse(rule.strip(), mode="eval")
+    except (ValueError, SyntaxError):
+        return False
 
     def ok(node) -> bool:
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            f = node.func.id
-            if node.keywords:
-                return False  # keyword arguments can re-order series/lookback: treat as not knowable at the open
-            if f == "ref":
-                n = node.args[1] if len(node.args) > 1 else None
-                if n is None:
-                    return True
-                v = literal(n)
-                return v is not None and v >= 1 and float(v).is_integer()
-            if f in _ALWAYS_CLOSE:
-                return False
-            if f in _DEFAULTS_TO_CLOSE:
-                # every argument must be either a plain number (a lookback) or contain a series;
-                # a computed constant like `1+0` is ambiguous at runtime, so the rule is not open-safe
-                if any(constant_expr(a) and literal(a) is None for a in node.args):
-                    return False
-                series_args = [a for a in node.args if literal(a) is None]
-                if not series_args:
-                    return False
-            if f == "sym":
-                return True
-            return all(ok(a) for a in node.args)
-        if isinstance(node, ast.Attribute):
-            return node.attr == "open" and ok(node.value)
+        if isinstance(node, ast.Expression):
+            return ok(node.body)
+        if isinstance(node, ast.Constant):
+            return isinstance(node.value, (int, float, bool))
         if isinstance(node, ast.Name):
             return node.id in OPEN_SAFE_NAMES
-        return all(ok(ch) for ch in ast.iter_child_nodes(node))
+        if isinstance(node, ast.Attribute):
+            return node.attr == "open" and _is_sym(node.value)
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name) or node.keywords:
+                return False
+            f, args = node.func.id, node.args
+            if f == "ref":
+                if not 1 <= len(args) <= 2 or _kind(args[0]) != "series":
+                    return False
+                n = _literal(args[1]) if len(args) == 2 else 1
+                if n is None or n < 0 or not float(n).is_integer():
+                    return False
+                return True if n >= 1 else ok(args[0])
+            if f in _OPEN_SERIES_FUNCS:
+                if len(args) > 2:
+                    return False
+                series = [a for a in args if _kind(a) == "series"]
+                if len(series) != 1 or any(_literal(a) is None for a in args if a is not series[0]):
+                    return False
+                return ok(series[0])
+            if f in _OPEN_ONE_SERIES:
+                return len(args) == 1 and _kind(args[0]) == "series" and ok(args[0])
+            if f in _OPEN_ELEMENTWISE:
+                return bool(args) and all(ok(a) for a in args)
+            return False
+        if isinstance(node, ast.BinOp):
+            return ok(node.left) and ok(node.right)
+        if isinstance(node, ast.UnaryOp):
+            return ok(node.operand)
+        if isinstance(node, ast.BoolOp):
+            return all(ok(v) for v in node.values)
+        if isinstance(node, ast.Compare):
+            return ok(node.left) and all(ok(x) for x in node.comparators)
+        return False
 
-    return ok(ast.parse(rule.strip(), mode="eval"))
+    return ok(tree)
 
 
 _SYM_OVERRIDE: dict = {}   # lookahead probe: perturbed copies of other tickers' data
 
 
-def open_time_probe(rule, df: pd.DataFrame, ticker: str | None = None, samples: int = 16) -> str | None:
+PROBE_SIZES = (1e-4, 2e-3, 0.01, 0.04, 0.12)
+PROBE_WINDOW = 2520   # bars of history behind each probed day (10 years)
+
+
+def _perturb_bar(frame: pd.DataFrame, day, rng, size: float, sign: int) -> pd.DataFrame:
+    """A copy of `frame` with day's close/high/low/volume (and total-return close) replaced by other values
+    consistent with its open: close = open * (1 +/- ~size), high >= max(open, close), low <= min(open, close),
+    wicks of random length. No fixed pattern, so a rule cannot recognise the perturbed bar."""
+    frame = frame.copy()
+    if day not in frame.index:
+        return frame
+    o = float(frame.at[day, "open"])
+    if not np.isfinite(o) or o <= 0:
+        return frame
+    old_c = float(frame.at[day, "close"])
+    new_c = max(o * (1 + sign * size * rng.uniform(0.3, 1.7)), o * 0.05)
+    wick = size * rng.uniform(0.0, 1.5, size=2)
+    frame.at[day, "close"] = new_c
+    frame.at[day, "high"] = max(o, new_c) * (1 + wick[0])
+    frame.at[day, "low"] = min(o, new_c) * (1 - min(wick[1], 0.9))
+    if "volume" in frame:
+        frame["volume"] = frame["volume"].astype(float)
+        frame.at[day, "volume"] = float(frame.at[day, "volume"]) * float(np.exp(rng.normal(0, 1.0))) + rng.uniform(0, 1e3)
+    if "adj_close" in frame and np.isfinite(old_c) and old_c > 0:
+        frame.at[day, "adj_close"] = float(frame.at[day, "adj_close"]) * new_c / old_c
+    if "quote_close" in frame:
+        frame.at[day, "quote_close"] = new_c
+    return frame
+
+
+def open_time_probe(rule, df: pd.DataFrame, ticker: str | None = None, samples: int = 32, seed: int = 0) -> str | None:
     """Empirical lookahead check for rules acted on at the open (defence in depth behind open_safe).
 
-    On sampled dates the data is cut at that bar and the bar's high/low/close/volume are replaced by
-    very different values. A rule knowable at the open gives the same answer either way. Returns a
-    description of the first violation, or None."""
+    On dates sampled across the WHOLE history (half of them days the rule fires), the data is cut at that bar
+    and the bar's close/high/low/volume/total-return close are replaced by other values consistent with its
+    open (sizes from 0.01% to ~20%, random wicks), for this ticker and every sym() ticker, together and
+    separately. A rule knowable at the open gives the same answer on every variant, and the same answer on
+    the cut data as on the full data. Returns a description of the first violation, or None."""
     if callable(rule) or df is None or len(df) < 60:
         return None
-    base = evaluate(rule, Namespace(df, ticker=ticker))
+    base = evaluate(rule, Namespace(df, ticker=ticker)).reindex(df.index, fill_value=False).to_numpy()
     idx = df.index
-    pos_true = np.flatnonzero(base.reindex(idx, fill_value=False).to_numpy())
-    rng = np.random.default_rng(0)
-    cand = np.arange(max(30, len(idx) - 2000), len(idx))
-    picks = list(rng.choice(pos_true[pos_true >= 30], size=min(samples // 2, int((pos_true >= 30).sum())), replace=False)) if len(pos_true) else []
-    picks += list(rng.choice(cand, size=min(samples - len(picks), len(cand)), replace=False))
+    rng = np.random.default_rng(seed)
+    pos_true = np.flatnonzero(base[1:]) + 1
+    pos_false = np.flatnonzero(~base[1:]) + 1
+    half = samples // 2
+    picks: list[int] = []
+    for pool, k in ((pos_true, half), (pos_false, samples - half)):
+        if len(pool):
+            # stratified over the whole history: one random day from each of k equal slices of the pool
+            for part in np.array_split(pool, min(k, len(pool))):
+                if len(part):
+                    picks.append(int(rng.choice(part)))
+    picks.append(len(idx) - 1)
     import re as _re
     others = sorted({data.canonical(t) for t in _re.findall(r"""sym\(\s*["']([^"']+)["']\s*\)""", str(rule))})
-    other_df = {t: data.load(t) for t in others}
-
-    def perturb(frame, day, f):
-        frame = frame.copy()
-        if day not in frame.index:
-            return frame
-        o = float(frame.at[day, "open"])
-        new_c = o * f
-        old_c = float(frame.at[day, "close"])
-        frame.at[day, "close"] = new_c
-        frame.at[day, "high"] = max(o, new_c) * 1.01
-        frame.at[day, "low"] = min(o, new_c) * 0.99
-        frame.at[day, "volume"] = float(frame.at[day, "volume"]) * (3 if f > 1 else 0.3)
-        if "adj_close" in frame:
-            frame.at[day, "adj_close"] = float(frame.at[day, "adj_close"]) * new_c / max(old_c, 1e-12)
-        return frame
-
-    for i in sorted(set(int(x) for x in picks)):
-        cut = df.iloc[: i + 1]
-        day = cut.index[-1]
+    other_df = {}
+    for t in others:
         try:
+            other_df[t] = data.load(t)
+        except Exception:  # noqa: BLE001 - the run itself reports an unknown ticker
+            pass
+    try:
+        for n_pick, i in enumerate(sorted(set(picks))):
+            cut = df.iloc[: i + 1]
+            day = cut.index[-1]
             for t, od in other_df.items():
                 _SYM_OVERRIDE[t] = od.loc[:day]
-            want = bool(evaluate(rule, Namespace(cut, ticker=ticker)).iloc[-1])
-            for f in (1.09, 0.91):
-                pert = perturb(cut, day, f)
-                for t, od in other_df.items():
-                    _SYM_OVERRIDE[t] = perturb(od.loc[:day], day, f)
+            # truncation (on every 4th day: a whole-history evaluation is the slow part)
+            if n_pick % 4 == 0 and i < len(idx) - 1 and bool(evaluate(rule, Namespace(cut, ticker=ticker)).iloc[-1]) != bool(base[i]):
+                return f"on {day.date()} the rule's answer depends on later bars"
+            # the perturbed copies are compared with the unperturbed one on the same recent window (enough
+            # history for any practical lookback; only the answer on `day` matters, so it is like for like)
+            win = cut.iloc[-PROBE_WINDOW:]
+            owin = {t: od.loc[:day].loc[win.index[0]:] for t, od in other_df.items()}
+            for t, od in owin.items():
+                _SYM_OVERRIDE[t] = od
+            want = bool(evaluate(rule, Namespace(win, ticker=ticker)).iloc[-1])
+            # the smallest and largest sizes both ways, the others one way at random
+            trials = [(size, sign, "both") for size in PROBE_SIZES
+                      for sign in ((1, -1) if size in (PROBE_SIZES[0], PROBE_SIZES[-1]) else (int(rng.choice([1, -1])),))]
+            if other_df:   # each side on its own as well: one leak must not mask the other
+                trials += [(float(rng.choice(PROBE_SIZES)), int(rng.choice([1, -1])), w) for w in ("self", "others")]
+            for size, sign, which in trials:
+                pert = _perturb_bar(win, day, rng, size, sign) if which != "others" else win
+                for t, od in owin.items():
+                    osign = sign if rng.random() < 0.5 else -sign
+                    _SYM_OVERRIDE[t] = _perturb_bar(od, day, rng, size, osign) if which != "self" else od
                 got = bool(evaluate(rule, Namespace(pert, ticker=ticker)).iloc[-1])
                 if got != want:
-                    j = day
-                    return f"on {j.date()} the rule's answer changes when that day's close/high/low change"
-        finally:
-            _SYM_OVERRIDE.clear()
+                    return f"on {day.date()} the rule's answer changes when that day's close/high/low change"
+    finally:
+        _SYM_OVERRIDE.clear()
     return None

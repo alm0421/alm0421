@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from . import calendar as _cal
 from . import data, expr
 from .strategy import Strategy, broker_commission
 
@@ -134,6 +135,7 @@ def _prepare(strat: Strategy):
     cal = None
     for df in dfs.values():
         cal = df.index if cal is None else cal.union(df.index)
+    traded = cal
     if start is not None:
         cal = cal[cal >= start]
     if end is not None:
@@ -207,27 +209,47 @@ def _prepare(strat: Strategy):
                 if "open_ok" in w and len(w) and w["open_ok"].mean() < 0.5:
                     raise ValueError(f"The rule uses {other}'s open, but {other} has no real opening prices (only daily "
                                      "closes, e.g. a mutual fund or simulated series). Use its close instead.")
+    # delisted / acquired: a ticker whose data ends well before the run's last day is sold at its last close
+    # (see run); it takes no new entries from that day on, and an index universe drops it from membership
+    delist = np.full(N, -1)
+    for j, t in enumerate(tick):
+        has_j = np.flatnonzero(valid[:, j])
+        if len(has_j) and has_j[-1] < T - 1 and dfs[t].index[-1] < cal[-1] - pd.Timedelta(days=7):
+            delist[j] = has_j[-1]
+            long_sig[delist[j]:, j] = False
+            short_sig[delist[j]:, j] = False
+
+    ndx = strat.universe_name == "NDX" and strat.point_in_time
+    member = np.ones((T, N), bool)
+    if ndx:
+        member, first = data.member_mask(tick, cal)
+        member &= valid
+        long_sig &= member
+        short_sig &= member
     if strat.entry_fill in ("open", "next_open") and strat.entry_order == "market":
         fill_ok = OK if strat.entry_fill == "open" else np.vstack([OK[1:], np.ones((1, N), bool)])
-        dead = [t for j, t in enumerate(tick) if valid[:, j].any() and not OK[valid[:, j], j].any()]
-        if dead:
+        # judged only on the bars where the ticker can be traded (for an index universe: while a member), so a
+        # never-member or recycled-ticker series in the universe file cannot fail the whole run
+        live = valid & member
+        dead = [t for j, t in enumerate(tick) if live[:, j].any() and not OK[live[:, j], j].any()]
+        if dead and not ndx:
             raise ValueError(f"{', '.join(dead)} has no real opening prices (only a daily close, e.g. a mutual fund or a "
                              "simulated series), so it can't be bought at the open. Trade it at the close instead.")
+        if dead:
+            strat.notes.append(f"Opens: {', '.join(dead[:8])}{' and more' if len(dead) > 8 else ''} had no quoted opening "
+                               "prices while in the index, so they were never bought at the open.")
         if (~fill_ok & (long_sig | short_sig)).any() and not any(n.startswith("Opens:") for n in strat.notes):
             strat.notes.append("Opens: some bars have no quoted opening price (old data); entries at the open are skipped on those days.")
         long_sig &= fill_ok
         short_sig &= fill_ok
 
-    if strat.universe_name == "NDX" and strat.point_in_time:
-        mask, first = data.member_mask(tick, cal)
-        long_sig &= mask
-        short_sig &= mask
+    if ndx:
         cov = data.coverage_note(str(cal[0].date()), str(cal[-1].date()))
         if cov and not any(n.startswith("Survivorship:") for n in strat.notes):
             strat.notes.append(cov)
 
     elif N > 1:
-        live = valid.sum(axis=1)
+        live = (np.cumsum(valid, axis=0) > 0).sum(axis=1)   # started trading (a later delisting still counts)
         need = max(2, int(0.5 * N))
         thin = np.flatnonzero(live < need)
         if len(thin) and thin[-1] > 20 and not any(n.startswith("Coverage:") for n in strat.notes):
@@ -236,7 +258,7 @@ def _prepare(strat: Strategy):
                 f"so early results come from a small subset. Add 'since <year>' to focus on the period with full coverage.")
     return dict(dfs=dfs, cal=cal, tick=tick, O=O, H=H, L=L, C=C, V=V, DIV=DIV, ATR=ATR, VOL=VOL, ADV=ADV,
                 LEVEL=LEVEL, long_sig=long_sig, short_sig=short_sig, exit_sig=exit_, rank=rank,
-                per_trade_exit=per_trade_exit, namespaces=namespaces)
+                per_trade_exit=per_trade_exit, namespaces=namespaces, delist=delist, traded=traded)
 
 
 # ------------------------------------------------------------------ simulation
@@ -254,6 +276,8 @@ def run(strat: Strategy) -> Result:
     rate = _daily_rate(cal, strat.cash_rate)
     has = ~np.isnan(C)
     last_bar = np.array([np.flatnonzero(has[:, j])[-1] if has[:, j].any() else -1 for j in range(N)])
+    delist = P["delist"]
+    delisted: list[str] = []
     last_close = np.full(N, np.nan)
 
     S = dict(cash=strat.capital, interest=0.0, halted=False)
@@ -442,6 +466,8 @@ def run(strat: Strategy) -> Result:
         """Handle an entry signal for ticker k in direction sgn."""
         if np.isnan(prices[k]):
             return
+        if 0 <= delist[k] <= i and not at_open:
+            return  # its last day of data: nothing is bought at (or after) its final close
         p = positions.get(k)
         if p is not None and p.sign != sgn:
             if strat.side == "both" and strat.reverse:
@@ -648,8 +674,11 @@ def run(strat: Strategy) -> Result:
             if strat.exit_when and sig and strat.exit_when_fill != "open":
                 if strat.exit_when_fill == "close":
                     close_part(i, p, c[k], "exit rule", at_open=False)
-                else:
-                    p.pending_open_exit, p.pending_reason = True, "exit rule"
+                    continue
+                p.pending_open_exit, p.pending_reason = True, "exit rule"
+            if delist[k] == i:
+                close_part(i, p, c[k], "delisted", at_open=False)
+                delisted.append(f"{tick[k]} delisted/acquired on {cal[i].date()}")
         np.copyto(last_close, c, where=~np.isnan(c))
 
         # ---- 3b. entries at the close / orders for tomorrow
@@ -702,6 +731,10 @@ def run(strat: Strategy) -> Result:
             for p in positions.values():
                 hold_w[i, p.k] = p.sign * p.shares * price_or_last(p.k, c) / equity[i]
 
+    if delisted:
+        more = f" and {len(delisted) - 5} more" if len(delisted) > 5 else ""
+        strat.notes.append(f"Delisted: {', '.join(delisted[:5])}{more}; the position was closed at its last price (the "
+                           "final close in the data; trades marked 'delisted') and the proceeds were held in cash.")
     if margin_calls:
         more = f" and {len(margin_calls) - 5} more" if len(margin_calls) > 5 else ""
         strat.notes = [n for n in strat.notes if not n.startswith("Margin call")]
@@ -720,8 +753,8 @@ def run(strat: Strategy) -> Result:
         tr.index = tr.index + 1
         tr["cum_pnl"] = tr["pnl"].cumsum()
 
-    # prepend the starting capital one day before the first bar so returns include the first bar
-    start = cal[0] - pd.Timedelta(days=1)
+    # prepend the starting capital on the previous session so returns include the first bar
+    start = _cal.anchor_day(cal[0], P["traded"])
     idx = pd.DatetimeIndex([start]).append(cal)
     eq = pd.Series(np.concatenate([[strat.capital], equity]), index=idx, name="equity")
     ex = pd.Series(np.concatenate([[0.0], exposure]), index=idx, name="exposure")
@@ -730,6 +763,17 @@ def run(strat: Strategy) -> Result:
     hw = pd.DataFrame(hold_w, index=cal, columns=tick)
     hw = hw.loc[:, (hw != 0).any()]
     if tr is not None and len(tr):
+        spun = []
+        for t in tr["ticker"].unique():
+            g = tr[tr["ticker"] == t]
+            for d in data.spinoff_days(t):
+                if ((pd.to_datetime(g["entry_date"]) < d) & (pd.to_datetime(g["exit_date"]) >= d)).any():
+                    spun.append(f"{t} {d.date()}")
+        if spun:
+            strat.notes.append(f"Distributions: {', '.join(spun[:5])}{' and more' if len(spun) > 5 else ''} paid a spin-off "
+                               "or special distribution (more than 15% of the price; e.g. shares of a spun-off company "
+                               "booked at their value). It is paid in cash like a dividend (in the trades' income) but it "
+                               "is a spin-off distribution, not a dividend.")
         for t in tr["ticker"].unique():
             days = data.corporate_action_days(t)
             if not len(days):
