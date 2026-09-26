@@ -9,7 +9,8 @@ Order of events on each bar i:
   2. INTRADAY  - limit/stop entries touched during the bar, then stop loss / ATR stop / trailing
                  stop / breakeven stop / take profit / scale-outs from the bar's high and low. If a stop
                  and a target are both touched on one bar the stop is assumed to have hit first
-                 (conservative). The stop and the target are one-cancels-other (OCA): whichever fills
+                 (conservative); with tv_compat, TradingView's path decides (open -> high -> low -> close
+                 when the open is nearer the high, else open -> low -> high -> close). The stop and the target are one-cancels-other (OCA): whichever fills
                  closes the position and cancels the other. Trailing and breakeven stops move with the
                  best price reached, using each bar's high (low for shorts) after that bar's own stop
                  check, so a level set by today's high applies from the next bar (daily bars can't tell
@@ -285,7 +286,7 @@ def run(strat: Strategy) -> Result:
     delisted: list[str] = []
     last_close = np.full(N, np.nan)
 
-    S = dict(cash=strat.capital, interest=0.0, halted=False, small=0, addon_skipped=0)
+    S = dict(cash=strat.capital, interest=0.0, halted=False, small=0, addon_skipped=0, nofunds=0, nofunds_days=[])
     slot_days: set = set()                          # days an entry signal found no free position slot
     positions: dict[int, Position] = {}
     pending_mkt_open: list[tuple[int, int]] = []    # (k, sign) market orders for the next open
@@ -339,7 +340,10 @@ def run(strat: Strategy) -> Result:
         elif strat.sizing == "fixed_shares":
             value = strat.fixed_amount * fill
         elif strat.sizing == "risk":
-            dist = fill * strat.stop_loss if strat.stop_loss else strat.stop_atr * ATR[ib, k]
+            if strat.stop_loss or strat.stop_atr:
+                dist = fill * strat.stop_loss if strat.stop_loss else strat.stop_atr * ATR[ib, k]
+            else:   # only a trailing stop: its starting distance is the risk per share
+                dist = fill * strat.trailing_stop if strat.trailing_stop else strat.trailing_atr * ATR[ib, k]
             if not np.isfinite(dist) or dist <= 0:
                 return 0.0
             value = eq * strat.risk_per_trade / dist * fill
@@ -348,6 +352,34 @@ def run(strat: Strategy) -> Result:
             if not np.isfinite(v) or v <= 0:
                 return 0.0
             value = eq * strat.target_vol / v
+        if strat.sizing in ("fixed_dollars", "fixed_shares"):
+            # a stated size is honoured exactly or not at all: like TradingView, an order the account can't pay for
+            # (cash, or the leverage allowed, including the commission) is skipped - never silently cut (counted and
+            # reported as a warning). Fixed shares are whole shares.
+            if not np.isfinite(fill) or fill <= 0:
+                return 0.0
+            if strat.sizing == "fixed_shares":
+                shares = float(strat.fixed_amount)
+                if not strat.fractional_shares:
+                    shares = float(np.floor(shares + 1e-9))
+            else:
+                shares = strat.fixed_amount / fill
+                if not strat.fractional_shares:
+                    shares = float(np.floor(shares))
+            vol_known = V[i - 1, k] if at_open else V[i, k]
+            if at_open and i == 0:
+                vol_known = np.nan
+            if strat.max_volume_pct and vol_known > 0 and shares > strat.max_volume_pct * vol_known:
+                return -1.0
+            value = shares * fill
+            room = strat.leverage * eq - gross(prices)
+            cost = value + (commission(shares, value) if sgn == 1 else 0.0)
+            avail = S["cash"] + (strat.leverage - 1) * max(eq, 0) if sgn == 1 else np.inf
+            if shares <= 0:
+                return 0.0
+            if value > room + 1e-9 or cost > avail + 1e-9:
+                return -1.0
+            return shares
         # gross exposure cap and (for longs) cash / margin availability
         room = strat.leverage * eq - gross(prices)
         value = min(value, room)
@@ -385,6 +417,10 @@ def run(strat: Strategy) -> Result:
         if shares > 0 and strat.slippage_model != "fixed":
             fill = px * (1 + sgn * slip_for(i, k, shares))  # impact of the order size, then re-size at that price
             shares = size_shares(i, k, fill, eq, prices, sgn, at_open)
+        if shares < 0:   # a fixed size the account could not pay for: skipped, as TradingView does
+            S["nofunds"] += 1
+            S["nofunds_days"].append(cal[i].date())
+            return False
         if shares <= 0 or shares * fill < max(strat.min_order or 0.0, 1e-9):
             # no dust: an order worth less than min_order (e.g. the leftover cash of a full position) is skipped
             if k in positions:
@@ -657,6 +693,14 @@ def run(strat: Strategy) -> Result:
                 adverse = lo_[k] if s == 1 else h[k]
                 best = h[k] if s == 1 else lo_[k]
                 stop, why, tgt = levels(p)
+                if (strat.tv_compat and stop is not None and tgt is not None and (adverse - stop) * s <= 0
+                        and (best - tgt) * s >= 0 and (o[k] - stop) * s > 0 and (o[k] - tgt) * s < 0):
+                    # both touched inside the bar: TradingView's path - open -> high -> low -> close when the open is
+                    # nearer the high, else open -> low -> high -> close; the level on the first leg fills
+                    high_first = abs(h[k] - o[k]) < abs(o[k] - lo_[k])
+                    if high_first == (s == 1):     # the target (above for longs, below for shorts) comes first
+                        close_part(i, p, tgt, "take profit", at_open=False)
+                        continue
                 if stop is not None and (adverse - stop) * s <= 0:
                     close_part(i, p, stop if (o[k] - stop) * s > 0 else o[k], why, at_open=False)
                     continue
@@ -768,6 +812,16 @@ def run(strat: Strategy) -> Result:
         strat.notes.append(f"Warning: pyramiding add-ons were skipped {S['addon_skipped']} time(s): the position had no "
                            f"headroom left (its size already used the capital or leverage available), or the order would "
                            f"have been worth less than the ${strat.min_order:g} minimum. Lower the size per entry to leave room.")
+    if S["nofunds"]:
+        what = (f"{strat.fixed_amount:g} shares" if strat.sizing == "fixed_shares" else f"${strat.fixed_amount:,.0f}")
+        days = ", ".join(str(d) for d in S["nofunds_days"][:5]) + (" and more" if len(S["nofunds_days"]) > 5 else "")
+        strat.notes = [n for n in strat.notes if not n.startswith("Warning: insufficient funds")]
+        strat.notes.append(f"Warning: insufficient funds: {S['nofunds']} entry order(s) of {what} were skipped ({days}): the "
+                           f"account could not pay for the stated size plus commission"
+                           f"{' within the ' + format(strat.leverage, 'g') + 'x leverage allowed' if strat.leverage != 1 else ''}"
+                           f"{' or it exceeded the volume cap' if strat.max_volume_pct else ''}. As in TradingView, a fixed size "
+                           "is filled in full or not at all (never cut to what the cash allows). Lower the size, add "
+                           "capital, or size as a percentage of equity.")
     if S["small"]:
         strat.notes = [n for n in strat.notes if not n.startswith("Min order:")]
         strat.notes.append(f"Min order: {S['small']} entry order(s) worth less than ${strat.min_order:g} were skipped.")

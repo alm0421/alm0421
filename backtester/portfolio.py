@@ -163,6 +163,17 @@ class Portfolio:
                 raise ValueError(f"{f} is None (dollars of the first day), 'flow' (of the flow's first payment) or a year")
         if self.warmup not in ("all", "first"):
             raise ValueError("warmup must be 'all' (stats start when every ranked asset has its lookback) or 'first'")
+        for f, label in (("slippage_bps", "slippage"), ("commission", "commission per order"),
+                         ("commission_pct", "commission (% of value)"), ("expense_ratio", "expense ratio"),
+                         ("borrow_fee", "borrow fee"), ("margin_rate", "margin rate")):
+            v = getattr(self, f)
+            try:
+                bad = v is not None and not float(v) >= 0
+            except (TypeError, ValueError):
+                bad = True
+            if bad:
+                raise ValueError(f"{label} cannot be negative (got {f}={v!r}): a negative cost would pay you for "
+                                 "trading or holding. Use 0 for none.")
         for f in ("short_rebate_spread", "borrow_fee"):
             if not 0 <= float(getattr(self, f)) < 1:
                 raise ValueError(f"{f} is an annual fraction between 0 and 1 (0.01 = 1% a year)")

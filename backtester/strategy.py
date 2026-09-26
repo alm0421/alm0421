@@ -16,6 +16,9 @@ COMMISSION_MODELS = {
 }
 
 
+TV_NOTE = "TradingView-compatible mode: entries and rule exits with no timing stated fill at the next bar's open (TradingView's default, process_orders_on_close = false), and when a stop and a target are both touched on one bar, the one TradingView's broker emulator reaches first is filled (open -> high -> low -> close if the open is nearer the high, else open -> low -> high -> close)."
+
+
 def broker_commission(model: str | None, shares: float, value: float) -> float:
     """Commission of one order under a broker preset (0 for None)."""
     spec = COMMISSION_MODELS.get(model)
@@ -92,6 +95,12 @@ class Strategy:
     spread_bps: float = 2.0                      # volume model: quoted bid-ask spread (half of it is paid per fill)
     impact_bps: float = 100.0                    # volume model: impact coefficient, in bps at 100% of ADV
 
+    # TradingView-compatible mode: unstated entry timing = the next open (process_orders_on_close = false; applied
+    # by the parser), and a stop and a target touched on the same bar are resolved with TradingView's OHLC path
+    # (open -> high -> low -> close when the open is nearer the high, else open -> low -> high -> close) instead of
+    # assuming the stop hit first
+    tv_compat: bool = False
+
     # period
     start: str | None = None
     end: str | None = None
@@ -160,8 +169,16 @@ class Strategy:
                 raise ValueError("limit/stop entries need entry_level (e.g. 'close * 0.98')")
             if self.entry_fill not in ("next_open", "close"):
                 self.entry_fill = "next_open"
-        if self.sizing == "risk" and not (self.risk_per_trade and (self.stop_loss or self.stop_atr)):
-            raise ValueError("risk sizing needs risk_per_trade and a stop_loss or stop_atr")
+        if self.sizing == "risk" and not (self.risk_per_trade and (self.stop_loss or self.stop_atr or self.trailing_stop
+                                                                    or self.trailing_atr)):
+            raise ValueError("risk sizing needs risk_per_trade and a stop (stop_loss, stop_atr, trailing_stop or trailing_atr)")
+        if self.sizing == "risk" and not (self.stop_loss or self.stop_atr):
+            what = (f"{self.trailing_stop:.0%} below the entry" if self.trailing_stop
+                    else f"{self.trailing_atr:g} x ATR({self.atr_period}) from the entry")
+            if not any(n.startswith("Risk sizing:") for n in self.notes):
+                self.notes.append(f"Risk sizing: there is no fixed stop, so the trailing stop's starting distance ({what}) is "
+                                  "the risk per share: a position loses about the stated risk if the trailing stop is hit "
+                                  "before the price rises.")
         if self.sizing == "volatility" and not self.target_vol:
             raise ValueError("volatility sizing needs target_vol")
         if self.sizing in ("fixed_dollars", "fixed_shares") and not self.fixed_amount:
@@ -174,6 +191,22 @@ class Strategy:
             raise ValueError("exit_when_fill 'open' needs an exit rule known at the open (e.g. gap, dow); this one uses "
                              "today's close/high/low. Use exit_when_fill 'next_open' to check it at the close and sell "
                              "at the next open.")
+        for name, label in (("commission", "commission per order"), ("commission_per_share", "commission per share"),
+                            ("commission_pct", "commission (% of value)"), ("slippage_bps", "slippage"),
+                            ("borrow_fee", "borrow fee"), ("margin_rate", "margin rate"),
+                            ("spread_bps", "bid-ask spread"), ("impact_bps", "market impact")):
+            v = getattr(self, name)
+            try:
+                bad = v is not None and not float(v) >= 0
+            except (TypeError, ValueError):
+                bad = True
+            if bad:
+                raise ValueError(f"{label} cannot be negative (got {name}={v!r}): a negative cost would pay you for "
+                                 "trading. Use 0 for none.")
+        if not isinstance(self.tv_compat, bool):
+            raise ValueError("tv_compat must be true or false")
+        if self.tv_compat and not any(n.startswith("TradingView-compatible mode") for n in self.notes):
+            self.notes.append(TV_NOTE)
         if self.commission_model not in COMMISSION_MODELS:
             raise ValueError(f"commission_model must be one of {sorted(k for k in COMMISSION_MODELS if k)} or null")
         if self.slippage_model not in ("fixed", "volume"):

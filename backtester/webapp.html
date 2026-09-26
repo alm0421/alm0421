@@ -115,6 +115,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label>Benchmark<input id="o_benchmark" list="tickerList" placeholder="SPY"></label>
         <label>Risk-free for Sharpe<select id="o_rf"><option value="tbill">3-month T-bills</option><option value="0">0%</option></select></label>
         <label>Name<input id="o_name" placeholder="optional label"></label>
+        <label title="Unstated entry timing fills at the next open (process_orders_on_close = false); a stop and a target hit on one bar follow TradingView's open-high-low-close path">TradingView-compatible<select id="o_tv_compat"><option value="">off</option><option value="true">on</option></select></label>
       </div></details>
     <div class="row" style="margin-top:12px">
       <button class="btn primary" id="runBtn">Run backtest</button>
@@ -237,6 +238,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label>Borrow fee (%/yr)<input id="s_borrow_fee" type="number" step="0.1" value="0"></label>
         <label>Starting capital ($)<input id="s_capital" type="number" value="10000"></label>
         <label>Start<input id="s_start" type="date"></label><label>End<input id="s_end" type="date"></label>
+        <label>TradingView-compatible<select id="s_tv_compat"><option value="false">off</option><option value="true">on</option></select></label>
       </div>
       <details style="margin-top:8px"><summary>Rule language reference</summary><pre class="help" id="helpExpr"></pre></details>
     </div>
@@ -492,7 +494,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   window.addEventListener('hashchange', route);
 
   // ---------- backtest
-  const opt = () => { const o = {}; ['capital', 'start', 'end', 'slippage_bps', 'commission', 'benchmark', 'name'].forEach(k => { const v = $('o_' + k).value; if (v !== '') o[k] = v; }); return o; };
+  const opt = () => { const o = {}; ['capital', 'start', 'end', 'slippage_bps', 'commission', 'benchmark', 'name', 'tv_compat'].forEach(k => { const v = $('o_' + k).value; if (v !== '') o[k] = v; }); return o; };
   let timer = null, lastSpec = null;
   let interpSeq = 0;
   // The old interpretation and notes stay until the new ones arrive (no reflow in between), and the swap waits
@@ -1049,7 +1051,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   }
   $('buildMode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setBuildMode(b.dataset.v); });
   const P_FIELDS = ['rebalance', 'drift_band', 'fill', 'capital', 'contribution', 'contribution_freq', 'withdrawal', 'withdrawal_pct', 'withdrawal_freq', 'inflation_adjust', 'slippage_bps', 'commission_pct', 'leverage', 'margin_rate', 'expense_ratio', 'target_vol', 'price_basis', 'benchmark', 'start', 'end'];
-  const S_FIELDS = ['side', 'entry_fill', 'entry_order', 'entry_level', 'entry', 'short_entry', 'exit_when', 'hold_bars', 'hold_exit_fill', 'stop_loss', 'take_profit', 'trailing_stop', 'stop_atr', 'trailing_atr', 'max_positions', 'sizing', 'position_size', 'risk_per_trade', 'target_vol', 'fixed_amount', 'leverage', 'pyramiding', 'slippage_bps', 'commission', 'commission_pct', 'borrow_fee', 'capital', 'start', 'end'];
+  const S_FIELDS = ['side', 'entry_fill', 'entry_order', 'entry_level', 'entry', 'short_entry', 'exit_when', 'hold_bars', 'hold_exit_fill', 'stop_loss', 'take_profit', 'trailing_stop', 'stop_atr', 'trailing_atr', 'max_positions', 'sizing', 'position_size', 'risk_per_trade', 'target_vol', 'fixed_amount', 'leverage', 'pyramiding', 'slippage_bps', 'commission', 'commission_pct', 'borrow_fee', 'capital', 'start', 'end', 'tv_compat'];
   const PCT = new Set(['drift_band', 'withdrawal_pct', 'commission_pct', 'stop_loss', 'take_profit', 'trailing_stop', 'position_size', 'risk_per_trade', 'target_vol', 'borrow_fee', 'margin_rate', 'expense_ratio']);
   // fields missing from the spec go back to the form's own defaults (not blank selects)
   const formDefault = e => e.tagName === 'SELECT' ? ([...e.options].find(o => o.defaultSelected) || e.options[0] || { value: '' }).value : e.defaultValue;
@@ -1075,12 +1077,14 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     return n;
   }
   $('p_price_basis').addEventListener('change', () => { if (buildMode === 'portfolio') revalidate(); });
+  // the signal form re-validates its rules as you type (debounced, like the block editor's preview)
+  ['input', 'change'].forEach(ev => $('bSignal').addEventListener(ev, () => { if (buildMode === 'signal') buildPreview(); }));
   // live interpretation of the block tree (with the server's notes: fixed price levels, identical branches, shorts)
   let prevTimer = null, prevSeq = 0;
   function buildPreview() {
     clearTimeout(prevTimer);
     prevTimer = setTimeout(async () => {
-      if (buildMode !== 'portfolio' || !location.hash.startsWith('#build')) return;
+      if (!location.hash.startsWith('#build')) return;
       const seq = ++prevSeq;
       try {
         const j = await api('/api/parse?soft=1', { spec: specFromEditor() });

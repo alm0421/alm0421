@@ -30,7 +30,9 @@ MAX_EMBED_TICKERS = 12      # tickers embedded in report.html; the others load f
 # from the rule's syntax tree (chart_layout); the regexes serve oscillator_panes / other_ticker_panes.
 PRICE_FNS = ("sma", "ma", "ema", "wma", "rma", "highest", "lowest", "bb_upper", "bb_lower", "keltner_upper",
              "keltner_lower", "donchian_upper", "donchian_lower", "supertrend", "sar", "vwap", "weekly_sma",
-             "monthly_sma", "weekly_ema", "monthly_ema", "weekly_close", "monthly_close", "cummax", "cummin")
+             "monthly_sma", "weekly_ema", "monthly_ema", "weekly_close", "monthly_close", "cummax", "cummin",
+             "hma", "vwma", "linreg", "alma", "kama", "tenkan", "kijun", "senkou_a", "senkou_b", "avwap",
+             "pivothigh", "pivotlow")
 INDICATOR_RE = re.compile(r"(?<![\w.])(" + "|".join(sorted(PRICE_FNS, key=len, reverse=True)) + r")\(([^()]*)\)")
 # Oscillators and other own-scale series, drawn in sub-panes below the price: function -> (pane, fixed y-range).
 OSCILLATORS = {
@@ -47,13 +49,18 @@ OSCILLATORS = {
     "ma_return": ("Return stats", None), "stdev_return": ("Return stats", None),
     "down_streak": ("Streak", None), "up_streak": ("Streak", None),
     "count": ("Count", None), "bars_since": ("Bars since", None),
+    "aroon_up": ("Aroon", (0, 100)), "aroon_down": ("Aroon", (0, 100)), "aroon_osc": ("Aroon oscillator", (-100, 100)),
+    "cmf": ("CMF", None), "supertrend_dir": ("Supertrend direction", (-1, 1)),
 }
 # Rule variables with their own scale (a bare name in the rule): name -> (pane, fixed y-range).
 VARIABLE_PANES = {
     "down_days": ("Streak", None), "up_days": ("Streak", None), "ibs": ("IBS", (0, 1)), "gap": ("Gap", None),
     "change": ("Change", None), "range": ("Range", None), "volume": ("Volume", None),
     "dollar_volume": ("Dollar volume", None), "market_cap": ("Market cap", None),
+    "true_range": ("True range", None),
 }
+# price-scale rule variables (Heikin Ashi bars, price averages): drawn over the price
+OVERLAY_NAMES = {"ha_open", "ha_high", "ha_low", "ha_close", "hl2", "hlc3", "ohlc4", "hlcc4"}
 OSC_RE = re.compile(r"(?<![\w.])(" + "|".join(sorted(OSCILLATORS, key=len, reverse=True)) + r")\(([^()]*)\)")
 SIMPLE_ARGS = re.compile(r"\s*(close\s*,\s*)?[\d.\s,]*")
 MAX_SERIES = 48   # a safety cap on the series one chart carries; the number of panes is not limited
@@ -464,7 +471,7 @@ def chart_layout(rules, own: str = "") -> dict:
     def base(n):
         """Where a series argument lives: ("price",), ("sym", T), ("pane", key)."""
         if isinstance(n, ast.Name):
-            if n.id in PRICE_NAMES:
+            if n.id in PRICE_NAMES or n.id in OVERLAY_NAMES:
                 return ("price",)
             if n.id in VARIABLE_PANES:
                 return ("pane", VARIABLE_PANES[n.id][0])
@@ -563,6 +570,8 @@ def chart_layout(rules, own: str = "") -> dict:
             if n.id in VARIABLE_PANES:
                 fam, rng = VARIABLE_PANES[n.id]
                 put(fam, n.id, rng)
+            elif n.id in OVERLAY_NAMES:
+                put(None, n.id)
             return
         for c in ast.iter_child_nodes(n):
             walk(c, periodic)
@@ -580,9 +589,13 @@ def chart_layout(rules, own: str = "") -> dict:
     # thresholds: numbers the rule compares a charted series with
     for t in trees:
         for n in ast.walk(t):
-            if not isinstance(n, ast.Compare):
+            if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("crossover", "crossunder", "cross")
+                    and len(n.args) == 2):
+                ops = list(n.args)       # crossover(rsi(close, 14), 50): the 50 line is a level of the RSI pane
+            elif isinstance(n, ast.Compare):
+                ops = [n.left] + list(n.comparators)
+            else:
                 continue
-            ops = [n.left] + list(n.comparators)
             for x, y in zip(ops, ops[1:]):
                 for a, b in ((x, y), (y, x)):
                     v, src = _num_node(b), _src(a)
@@ -922,6 +935,11 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
                         w["detail"] = (f"The indicator never warmed up: {seg} needs {n or 'more'} bars, and {t_long}'s data "
                                        f"has {len(res.prices[t_long])}. Shorten the look-back.")
                 break
+    if any(isinstance(n, str) and n.startswith("Warning: insufficient funds") for n in s.notes):
+        for w in warnings:
+            if w.get("code") == "no_trades":
+                w["detail"] = ("The entry condition triggered, but every order was skipped for insufficient funds: the fixed "
+                               "size costs more than the account can pay (see the warning below).")
     # notes that reinterpret the user's words ("it" resolved to the entry's indicator...) are shown as warnings
     for n in s.notes:
         if isinstance(n, str) and n.startswith("Warning:"):

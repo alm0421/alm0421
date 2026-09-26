@@ -60,6 +60,9 @@ def build_run_parser() -> argparse.ArgumentParser:
     p.add_argument("--rank-by", help="expression used to prioritise signals when slots are limited (highest first)")
     p.add_argument("--rank-ascending", action="store_true")
     p.add_argument("--whole-shares", action="store_true", help="disallow fractional shares")
+    p.add_argument("--tv-compat", action="store_true",
+                   help="TradingView-compatible mode: unstated entry timing fills at the next open, and a stop and a "
+                        "target touched on the same bar follow TradingView's open-high-low-close path")
     p.add_argument("--benchmark", help="benchmark ticker for alpha/beta (default SPY)")
     p.add_argument("--name", help="label for this run")
     _common(p)
@@ -86,6 +89,8 @@ def _overrides(a) -> dict:
         ov["rank_ascending"] = True
     if getattr(a, "whole_shares", False):
         ov["fractional_shares"] = False
+    if getattr(a, "tv_compat", False):
+        ov["tv_compat"] = True
     return ov
 
 

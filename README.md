@@ -100,16 +100,16 @@ Build page.
 
 | Idea | Examples |
 |---|---|
-| Streaks and moves | down N days in a row, after 3 down days, down *exactly* N days, drops 2% in a day, up 10% over 5 days, gaps down 1%, 10% below / within 2% of / less than 10% below its 52-week high |
+| Streaks and moves | "closed down on Friday" (the previous session was a Friday and closed lower), "closes higher than the high of the previous 3 days", "3 standard deviations below its 20 day mean" (z-score), "pulls back to the 50 day moving average" (today's low reaches it after closing above it the day before), "falls 10% from its peak" (entries: from the running all-time peak; exits: a 10% trailing stop), "the 14 day momentum is above 0" (the price change over 14 days, TradingView's `ta.mom`), down N days in a row, after 3 down days, down *exactly* N days, drops 2% in a day, up 10% over 5 days, gaps down 1%, 10% below / within 2% of / less than 10% below its 52-week high |
 | Averages | above/below/crosses its N-day (or N-week / N-month) SMA/EMA, "the 9 EMA crosses above the 21 EMA", "the 50 MA", "20 period EMA", EMA(9), 50-day MA above the 200-day MA, golden/death cross |
 | Oscillators | RSI(2) below 10, RSI crosses above 30, RSI(2) falls back below 30 / rises back above 70 (crossings), stochastic below 20, ADX above 25, CCI, Williams %R, MFI, MACD crosses its signal / turns positive, "MACD(12,26,9) crosses above signal", +DI above -DI, ATR(14) above 2% of price, "the 14 day ATR is above its 50 day average" |
 | Bands and trends | Bollinger ("the upper / middle / lower band" = 20-day SMA ± 2 sd), Keltner, Supertrend, Parabolic SAR, VWAP (rolling 20-day volume-weighted typical price on daily bars; "its 10 day VWAP"), closes above its 20-day high (breakout), new N-day low, all-time high, IBS, inside day, volume twice its 20-day average |
 | Other tickers | "…and SPY is above its 200-day moving average", "VIX is above 30", "sell when SPY closes below it" |
 | Calendar | on Mondays, in October, last / first / third / second-to-last trading day of the month, first 3 trading days of the month |
-| Ranking | "buy the 5 Nasdaq 100 stocks with the lowest RSI(2) each day, hold 3 days" (up to 5 positions; free slots go to the lowest RSI(2)) |
+| Ranking | "buy the 5 Nasdaq 100 stocks with the lowest RSI(2) each day, hold 3 days" (up to 5 positions; free slots go to the lowest RSI(2)); with no rule or exit, "buy the 3 Nasdaq 100 stocks with the highest 20 day rate of change each week" is a weekly rotation (an equal-weight allocation re-chosen each week) |
 | Entries | at the close / at the open (same day, rules must be knowable at the open) / next open; limit or stop orders ("a limit 2% below the close"); pyramiding ("pyramid up to 3 entries": with no size given, each position's share is split across the entries); a gap rule with no timing ("buy QQQ when it gaps down 2%") fills at that day's open, when it becomes known; "on QQQ, go long when …" |
 | Exits | hold N days, sell when …, "sell after 10 days or when RSI is above 70", "sell when it's over 70", "sell when it is falling", "sell when they turn down" (*it* / *they* = what the entry is about: its indicator, e.g. the 50-day MA of "buy when the 50 day moving average is rising", or the price; refused if the entry is about several things; shown as a **Warning**), a bare "RSI" takes the entry's period, "sell when it crosses back below", "sell at the open when …" (same open if the rule is known at the open, e.g. a gap; otherwise checked at the close and sold at the next open), "cover at the next open when …", % stop, ATR stop, trailing / chandelier stop, "move the stop to breakeven after +2%", take profit, sell half at +X%, "cover when it closes above it". "buy TSLA while …" / "hold TSLA when …" with no exit: in the market while the condition holds |
-| Sizing | max N positions (with a short list of k < 10 tickers and no limit: k slots at 1/k each; otherwise 10 at 10%), X% per position, risk X% per trade, target X% volatility, $X or N shares per trade, 2x leverage |
+| Sizing | max N positions (with a short list of k < 10 tickers and no limit: k slots at 1/k each; otherwise 10 at 10%), X% per position, risk X% per trade (to the stop; with only a trailing stop, to its starting distance), target X% volatility, $X or N shares per trade (filled in full or skipped, see below), 2x leverage |
 | Costs | bps or % slippage, volume-based slippage / market impact, $ per trade, $ per share, % commission, IBKR commissions (fixed or tiered), borrow fee, margin rate, short rebate X% below T-bills, 30% maintenance margin / no margin calls, cap at X% of volume |
 | Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, "when/whenever … hold X, otherwise Y", "unless … hold X, otherwise Y", top/bottom N by momentum/RSI/volatility, "the 2 of … with the highest …", "the best/worst performing of … over 10 days", "only if their 60 day return beats BIL's", rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
 | Directions in holdings | "buy/hold/go long X" = long; "short X", "go short X", "sell short X", "X short" = a short position (-100% of the slice plus the proceeds in cash); "sell X", "exit X", "cover X", "sell everything", "exit" in an if/otherwise branch = cash. "sell X" inside a list ("hold TQQQ and sell TMF") is refused as ambiguous. Two identical branches get a note; a comparison of a value with itself is refused |
@@ -126,8 +126,27 @@ Anything else can be written in the **rule language** inside backticks
 variables. TradingView (Pine) spellings are translated: `close[1]` (= `ref(close, 1)`; fixed offsets of 0 or
 more only), `ta.sma`, `ta.ema`, `ta.rsi`, `ta.atr`, `ta.highest`, `ta.lowest`, `ta.stdev`, `ta.crossover`,
 `ta.crossunder`, `ta.change` (`diff`), `ta.barssince` (`bars_since`), `ta.valuewhen` (`valuewhen`),
-`ta.macd(close, 12, 26, 9)` (the MACD line; `macd_signal` / `macd_hist` for the others), `math.abs`, `and` /
-`or` / `not`. For simple state, `bars_since(cond)` counts the bars since `cond` was last true and
+`ta.macd(close, 12, 26, 9)` (the MACD line; `macd_signal` / `macd_hist` for the others), `ta.cci`, `ta.mfi`,
+`ta.wpr`, `ta.vwma`, `ta.hma`, `ta.alma`, `ta.linreg`, `ta.cross`, `ta.obv`, `ta.tr`, `ta.sar(start, inc, max)`,
+`ta.pivothigh` / `ta.pivotlow`, `ta.stoch(close, high, low, n)` (the raw %K, `stoch_k(n, 1)`), `ta.vwap` (on daily
+bars the session VWAP is the bar's own typical price, `hlc3`; use `vwap(n)` or `avwap("2020-03-23")` for longer
+ones), `na()` / `nz()`, `hl2` / `hlc3` / `ohlc4`, `math.abs`, `and` / `or` / `not`. `request.security(syminfo.tickerid,
+"W", x)` becomes `weekly(x)` ("M": `monthly(x)`, "D": `x`), and `request.security("SPY", "D", ta.sma(close, 200))`
+becomes `sma(sym("SPY").close, 200)` (indicators must take the other ticker's series explicitly);
+`lookahead = barmerge.lookahead_on` is refused. Functions that return several values (`ta.bb`, `ta.kc`, `ta.dmi`,
+`ta.supertrend`) are refused with the equivalent: `bb_upper(20, 2)`, `bb_lower(20, 2)`, `sma(close, 20)`;
+`supertrend(10, 3)` (the line) and `supertrend_dir(10, 3)` (-1 up, +1 down, as TradingView returns it; the first bar
+starts down, as in Pine).
+
+More indicators, all causal and matching TradingView's formulas (tested against reference implementations): `hma`,
+`vwma`, `alma(x, n, offset, sigma)`, `kama(x, n, fast, slow)`, `linreg(x, n, offset)` (the least-squares moving
+average), Ichimoku `tenkan(9)`, `kijun(26)`, `senkou_a(9, 26, 26)`, `senkou_b(52, 26)` (the cloud as TradingView
+draws it on the current bar, i.e. computed displacement - 1 = 25 bars earlier; nothing from the future), `aroon_up`,
+`aroon_down`, `aroon_osc`, `cmf(20)`, Heikin Ashi bars `ha_open` / `ha_high` / `ha_low` / `ha_close`,
+`pivothigh(x, left, right)` / `pivotlow` (the pivot's value on the bar it is confirmed, `right` bars after the pivot;
+NaN otherwise, so `valuewhen(pivothigh(5, 5) > 0, pivothigh(5, 5), 0)` is the latest confirmed pivot high) and
+`avwap("2020-03-23")` (VWAP anchored at a date). The report charts them (averages, Ichimoku, Heikin Ashi and pivots
+on the price; Aroon, CMF and the Supertrend direction in panes). For simple state, `bars_since(cond)` counts the bars since `cond` was last true and
 `valuewhen(cond, x, k)` is `x` on the k-th most recent bar where `cond` was true (both causal).
 
 Notes that reinterpret one of your words (*it* resolved to the entry's indicator, a bare "RSI" given the
@@ -186,7 +205,7 @@ never quietly drops them or swaps in a different ticker.
 ## Command line
 
 ```bash
-python -m backtester "sentence" [--dry-run] [--capital 50000] [--start 2010-01-01] [--slippage-bps 5] [--benchmark QQQ] [--pdf]
+python -m backtester "sentence" [--dry-run] [--capital 50000] [--start 2010-01-01] [--slippage-bps 5] [--benchmark QQQ] [--tv-compat] [--pdf]
 python -m backtester compare "60/40 SPY/TLT rebalanced quarterly" "buy and hold QQQ" "if SPY is above its 200-day moving average hold QQQ, otherwise hold TLT"
 python -m backtester sweep "buy QQQ when RSI({2..5}) is below {5..25 step 5}, hold {1,3,5} days" --objective sharpe
 python -m backtester walkforward "buy QQQ when RSI(2) is below {5..25 step 5}, hold {1,3,5} days" --in-sample 5 --out-sample 1
@@ -268,11 +287,19 @@ python -m backtester tickers                                                 # w
   equal the engine's trades on D and D+1 (tested). The orders page turns next-open exits into SELL orders.
 - **Sizing is what the summary says.** "200% per position" raises leverage to 2x (with a note) instead of
   being capped at 100%; a long stop of 100% or more, and a starting capital of zero or less, are refused.
+  A fixed size ("100 shares per trade", "$5,000 per trade") is filled in full or not at all, as TradingView does:
+  an order the account can't pay for (cash plus the commission, within the leverage allowed, and any volume cap)
+  is skipped, never cut to what the cash allows, and a **Warning** counts the skipped orders and lists the first
+  dates. Share counts are whole shares as stated.
+- **Costs are never negative.** Negative slippage, commissions, borrow fees, margin rates or expense ratios are
+  refused (in sentences, on the command line, in the site's options and in JSON specs).
   Volume caps on fills at the open use the previous day's volume.
 - **Bar ordering.** Each bar runs overnight financing and dividends → exits at the open → entries at
   the open (market, then limit/stop) → intraday stops and targets → exits at the close → entries at
   the close.
-  - A stop and a target touched on the same bar count as the stop.
+  - A stop and a target touched on the same bar count as the stop (conservative). In TradingView-compatible
+    mode the bar's path decides instead, as TradingView's broker emulator assumes: open → high → low → close
+    when the open is nearer the high, otherwise open → low → high → close.
   - Gaps through a stop fill at the open.
   - The stop and the target are one-cancels-other (OCA): whichever fills closes the position and cancels the
     other.
@@ -281,6 +308,14 @@ python -m backtester tickers                                                 # w
     daily bar does not say whether its high came before its low. A breakeven stop ("move the stop to
     breakeven after +2%", `breakeven_after: 0.02`) is a stop at the entry price, armed once the best price is
     that far in favour.
+- **TradingView-compatible mode** (`--tv-compat`, `"tv_compat": true` in a spec, the "TradingView-compatible"
+  setting on the site). Entries and rule exits whose timing the sentence doesn't state fill at the next bar's
+  open (TradingView's default, `process_orders_on_close = false`) instead of the signal bar's close, and a stop and
+  a target touched on the same bar follow TradingView's open-high-low-close path (above). Stated timing ("at the
+  close") is kept.
+- **Partly known at the open.** For an entry at the open whose rule mixes open-time and close-time parts
+  (`` `ta.change(open) > 0 and ibs < 0.5` ``), only the close-time parts are checked on the previous bar, and a
+  **Warning** names exactly which parts were lagged and which use today's values.
 - **No dust trades.** Orders worth less than `min_order` (default $1) are skipped. When a pyramiding add-on
   finds no room left (the position already uses the capital or leverage available) it is skipped and a
   warning says how often.
