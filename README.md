@@ -179,6 +179,18 @@ python -m backtester tickers                                                 # w
 
 ## How the simulation works
 
+- **Indicator prices.** Signal strategies read indicators on quoted (split-adjusted) prices, as
+  TradingView does. Allocation portfolios read them on dividend-adjusted, total-return prices, as
+  Composer and Portfolio Visualizer do (`price_basis: "adjusted"`; say "using quoted prices" or set
+  `"quoted"` to switch). The adjusted series is built forward from the first bar, so it never changes
+  when newer data arrives. Trading always uses the quoted price plus cash dividends.
+- **Warm-up.** A portfolio holds cash until every rule, ranking and weighting has its full lookback,
+  and the statistics start that day with the starting capital. Nasdaq-100 universes start at the first
+  point-in-time membership snapshot (March 2004); nothing counts as a member before it.
+- **Target volatility and blended benchmarks.** "target 10% volatility (using 60 day volatility)"
+  scales a portfolio's exposure towards that volatility (capped at its leverage). A benchmark can be a
+  blend: "vs 60/40 SPY/AGG", `--benchmark "60 SPY 40 AGG"`.
+
 - **Prices and dividends.** Prices are daily and split-adjusted, as quoted. Dividends are paid in
   cash on the ex-date, and short positions pay them. Idle cash earns the 3-month T-bill rate;
   borrowed cash pays it plus any margin rate.
