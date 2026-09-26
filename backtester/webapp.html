@@ -61,6 +61,16 @@ td.n { text-align:right; }
 .node.dragging { opacity:.45; }
 .node.drop-before { box-shadow:0 -3px 0 0 var(--accent); } .node.drop-after { box-shadow:0 3px 0 0 var(--accent); }
 .node.drop-swap { outline:2px dashed var(--accent); outline-offset:2px; }
+#tree { max-width:100%; }
+.node select, .node input { max-width:100%; }
+@media (max-width: 600px) {   /* phones: nested blocks and pickers wrap instead of widening the page */
+  .node { padding:6px 6px; } .node .kids { margin-left:6px; }
+  .node .hd > *, .node .row, .node .row > * { min-width:0 !important; max-width:100%; }
+  .node .row { flex-wrap:wrap !important; }
+  .node input[style*="min-width"] { min-width:0 !important; flex:1 1 140px; }
+  .node select { flex:0 1 auto; }
+  .node .kids > .row > .kidbox { flex:1 1 100% !important; }   /* a weighted child goes under its % field */
+}
 .addrow { margin-top:4px; border-radius:6px; padding:2px; } .addrow.drop-before { outline:2px dashed var(--accent); }
 .nerr .err, .nerr .note { font-size:12px; margin-top:3px; }
 .orders { margin-top:12px; } .orders textarea { min-height:60px; font:12px ui-monospace,monospace; }
@@ -177,8 +187,12 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label>Leverage (x)<input id="p_leverage" type="number" step="0.1" min="0.1" max="10" value="1"></label>
         <label>Margin rate (% above T-bills)<input id="p_margin_rate" type="number" step="0.1" value="0"></label>
         <label>Expense ratio (%/yr)<input id="p_expense_ratio" type="number" step="0.01" value="0"></label>
+        <label>Volatility target (%/yr)<input id="p_target_vol" type="number" step="0.5" min="0" placeholder="off" title="scale the holdings so the mix's 60-day realised volatility matches this; the rest is cash (above 100% only with leverage above 1x)"></label>
+        <label>Indicator prices<select id="p_price_basis" title="what the rules' indicators (RSI, moving averages, returns) are computed on; trades always use real prices plus dividends"><option value="adjusted" selected>total return (Composer, PV)</option><option value="quoted">as quoted (TradingView)</option></select></label>
+        <label>Benchmark<input id="p_benchmark" placeholder="SPY" title="a ticker, or a blend such as 60 SPY 40 AGG (rebalanced monthly)" list="tickerList"></label>
         <label>Start<input id="p_start" type="date"></label><label>End<input id="p_end" type="date"></label>
       </div>
+      <div class="note" id="rebalNote"></div>
     </div>
     <div id="bSignal" class="hide">
       <div class="grid">
@@ -470,7 +484,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     const dl = $('dlLinks'); dl.replaceChildren();
     [['Excel', 'report.xlsx'], ['Trades CSV', 'trades.csv'], ['Equity CSV', 'equity.csv'], ['Strategy JSON', 'strategy.json']].forEach(([n, f]) => { const a = el('a', { class: 'btn small', href: `/r/${id}/${f}`, download: '' }, n); dl.append(a); });
   }
-  const metaLine = s => `${s.start} → ${s.end} · CAGR ${pct(s.cagr)} · Sharpe ${num(s.sharpe)} · max drawdown ${pct(s.max_drawdown, 1)} · final ${usd(s.final)}`
+  const metaLine = s => `${s.start} → ${s.end} · CAGR ${pct(s.cagr)} · Sharpe ${num(s.sharpe)} · max drawdown ${pct(s.max_drawdown, 1)} · ${s.start_value != null ? usd(s.start_value) + ' → ' : 'final '}${usd(s.final)}`
     + (s.rebalances != null ? ` · ${s.rebalances} rebalance${s.rebalances === 1 ? '' : 's'}` : '');
   let lastShare = null, shareText = null;   // token of the last run (full spec incl. settings) and the text it was run from
   const curShare = () => (lastShare && $('text').value === shareText ? lastShare : null);
@@ -893,7 +907,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       n.children.forEach((c, i) => {
         const row = el('div', { class: 'row', style: 'align-items:flex-start;flex-wrap:nowrap' });
         if (t === 'weights' && n.weights === 'specified') row.append(field('%', inp(Math.round((n.w[i] || 0) * 1e6) / 1e4, v => { n.w[i] = (+v) / 100; revalidate(); }, { type: 'number', step: 'any', style: 'width:76px' })));
-        const holder = el('div', { style: 'flex:1;min-width:0' });
+        const holder = el('div', { class: 'kidbox', style: 'flex:1;min-width:0' });
         holder.append(renderNode(c, { kind: 'list', owner: n, i }));
         row.append(holder); kids.append(row);
       });
@@ -913,12 +927,27 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     box.append(kids);
     return box;
   }
+  // Rebalancing follows the tree until it is set by hand (or comes with a loaded spec): a tree that switches, ranks
+  // or weighs on data (if/else, filters, look-back weightings) is re-evaluated daily, as Composer does and as the
+  // sentence parser defaults; fixed weights rebalance monthly.
+  let rebalTouched = false;
+  const isDynamic = n => !!n && typeof n === 'object' && (typeOf(n) === 'if' || typeOf(n) === 'filter' || (typeOf(n) === 'weights' && !['equal', 'specified'].includes(n.weights))
+    || kidsOf(n).some(isDynamic) || (!!n.fallback && isDynamic(n.fallback)));
+  function autoRebalance() {
+    if (rebalTouched) return;
+    const dyn = isDynamic(tree), want = dyn ? 'daily' : 'monthly', e = $('p_rebalance');
+    if (e.value === want) return;
+    e.value = want;
+    $('rebalNote').textContent = dyn ? 'Rebalance set to daily: the tree has an if/else, a filter or a look-back weighting, which Composer re-checks every day. Choose another schedule to keep it.'
+      : 'Rebalance set back to monthly: the tree only has fixed weights.';
+  }
   let drawing = false, redraw = false;
   function draw() {
     if (drawing) { redraw = true; return; }
     drawing = true;
     try {
       const a = document.activeElement; if (a && $('tree').contains(a)) a.blur();   // commit a pending edit before its input is replaced
+      autoRebalance();
       errBoxes.clear(); $('tree').replaceChildren(renderNode(tree, { kind: 'slot', owner: null, key: 'root' })); revalidate();
     } finally { drawing = false; }
     if (redraw) { redraw = false; draw(); }
@@ -932,7 +961,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       : 'Every field of a signal strategy. Rules use the rule language, e.g. rsi(2) < 10 and close > sma(close, 200).';
   }
   $('buildMode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setBuildMode(b.dataset.v); });
-  const P_FIELDS = ['rebalance', 'drift_band', 'fill', 'capital', 'contribution', 'contribution_freq', 'withdrawal', 'withdrawal_pct', 'withdrawal_freq', 'inflation_adjust', 'slippage_bps', 'commission_pct', 'leverage', 'margin_rate', 'expense_ratio', 'start', 'end'];
+  const P_FIELDS = ['rebalance', 'drift_band', 'fill', 'capital', 'contribution', 'contribution_freq', 'withdrawal', 'withdrawal_pct', 'withdrawal_freq', 'inflation_adjust', 'slippage_bps', 'commission_pct', 'leverage', 'margin_rate', 'expense_ratio', 'target_vol', 'price_basis', 'benchmark', 'start', 'end'];
   const S_FIELDS = ['side', 'entry_fill', 'entry_order', 'entry_level', 'entry', 'short_entry', 'exit_when', 'hold_bars', 'hold_exit_fill', 'stop_loss', 'take_profit', 'trailing_stop', 'stop_atr', 'trailing_atr', 'max_positions', 'sizing', 'position_size', 'risk_per_trade', 'target_vol', 'fixed_amount', 'leverage', 'pyramiding', 'slippage_bps', 'commission', 'commission_pct', 'borrow_fee', 'capital', 'start', 'end'];
   const PCT = new Set(['drift_band', 'withdrawal_pct', 'commission_pct', 'stop_loss', 'take_profit', 'trailing_stop', 'position_size', 'risk_per_trade', 'target_vol', 'borrow_fee', 'margin_rate', 'expense_ratio']);
   // fields missing from the spec go back to the form's own defaults (not blank selects)
@@ -958,7 +987,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     (n.children || []).forEach(withDefaults); ['then', 'else', 'fallback'].forEach(k => withDefaults(n[k]));
     return n;
   }
-  $('p_rebalance').addEventListener('change', () => { if (buildMode === 'portfolio') draw(); });
+  $('p_rebalance').addEventListener('change', () => { rebalTouched = true; $('rebalNote').textContent = ''; if (buildMode === 'portfolio') draw(); });
   async function importComposer(src, label) {
     $('composerNotes').replaceChildren();
     $('composerStatus').replaceChildren(el('span', { class: 'spin' }));
@@ -975,7 +1004,8 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   function loadSpec(spec) {
     if (spec && spec.spec && typeof spec.spec === 'object') spec = spec.spec;   // a gallery/export wrapper
     if (!spec || typeof spec !== 'object' || (!spec.tree && !spec.entry)) throw new Error('Not a strategy: expected a portfolio (with "tree") or a signal strategy (with "entry").');
-    if (spec.tree) { setBuildMode('portfolio'); tree = withDefaults(JSON.parse(JSON.stringify(spec.tree))); toForm('p_', P_FIELDS, spec); draw(); }
+    if (spec.tree) { setBuildMode('portfolio'); tree = withDefaults(JSON.parse(JSON.stringify(spec.tree))); if (spec.benchmark && typeof spec.benchmark === 'object') spec = { ...spec, benchmark: Object.entries(spec.benchmark).map(([t, w]) => `${+(w * 100).toFixed(4)} ${t}`).join(' ') };
+      toForm('p_', P_FIELDS, spec); rebalTouched = 'rebalance' in spec; $('rebalNote').textContent = ''; draw(); }
     else { setBuildMode('signal'); toForm('s_', S_FIELDS, spec); $('s_universe').value = spec.universe_name === 'NDX' ? 'NDX' : (spec.universe || []).join(', '); }
     $('specJson').value = JSON.stringify(spec, null, 2); buildName = spec.tree && spec.name ? spec.name : '';
     $('buildShare').classList.add('hide'); buildShare = null;
@@ -1105,7 +1135,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   async function loadData() {
     if (!STATUS) STATUS = await api('/api/status');
     const d = STATUS.data, box = $('dataStatus'); box.replaceChildren();
-    [['Last update', d.updated_utc], ['Tickers with price history', d.tickers], ['Current Nasdaq-100 members', d.nasdaq100_current],
+    [['Latest daily bar', d.last_bar || '—'], ['Last update', d.updated_utc], ['Tickers with price history', d.tickers], ['Current Nasdaq-100 members', d.nasdaq100_current],
      ['Former members with history', d.former_members_with_data], ['Former members without history', d.former_members_missing],
      ['Point-in-time membership from', d.membership_from], ['T-bill rate / CPI / factors', [d.has_tbill, d.has_cpi, d.has_factors].map(x => x ? 'yes' : 'no').join(' / ')]]
       .forEach(([k, v]) => box.append(el('div', {}, `${k}: ${v ?? '—'}`)));
@@ -1122,12 +1152,12 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     cats.forEach(c => {
       box.append(el('h3', {}, c));
       const t = el('table'); lib.filter(x => x.category === c).forEach(x => {
-        const tr = el('tr'), act = el('td');
+        const tr = el('tr'), act = el('td', { style: 'white-space:normal' });   // buttons wrap on a phone
         const run = el('button', { class: 'btn small primary' }, 'Run'); run.onclick = () => runEntry(x);
         const edit = el('button', { class: 'btn small' + (x.text ? '' : ' hide') }, 'Open'); edit.onclick = () => { $('text').value = x.text; location.hash = '#backtest'; interpret(); };
         const fk = el('button', { class: 'btn small', title: 'copy into the Build editor' }, 'Fork into editor'); fk.onclick = () => forkEntry(x).catch(e => alert(e.message));
         act.append(run, document.createTextNode(' '), edit, document.createTextNode(' '), fk);
-        const d = el('td', { style: 'white-space:normal' }); d.append(el('div', {}, x.name), el('div', { class: 'note' }, x.about), el('code', {}, x.text || 'JSON tree (open it in the Build editor)'));
+        const d = el('td', { style: 'white-space:normal;overflow-wrap:anywhere' }); d.append(el('div', {}, x.name), el('div', { class: 'note' }, x.about), el('code', {}, x.text || 'JSON tree (open it in the Build editor)'));
         tr.append(d, act); t.append(tr); });
       box.append(t);
     });
@@ -1224,7 +1254,8 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   (async () => {
     try {
       STATUS = await api('/api/status');
-      $('dataStamp').textContent = 'data to ' + (STATUS.data.updated_utc || '').slice(0, 10);
+      $('dataStamp').textContent = 'data to ' + (STATUS.data.last_bar || (STATUS.data.updated_utc || '').slice(0, 10));
+      $('dataStamp').title = 'latest daily bar' + (STATUS.data.updated_utc ? ' · fetched ' + STATUS.data.updated_utc : '');
       STATUS.examples.forEach(x => { const c = el('span', { class: 'chip', title: x }, x); c.onclick = () => { $('text').value = x; interpret(); }; $('examples').append(c); });
       const dl = $('tickerList'); [...STATUS.nasdaq100, ...STATUS.etfs, ...STATUS.indexes].forEach(t => dl.append(el('option', { value: t })));
       $('helpExpr').textContent = STATUS.help; $('helpExpr2').textContent = STATUS.help;

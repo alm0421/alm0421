@@ -48,11 +48,21 @@ COMPARATORS = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}
 REBALANCE = {"daily": "daily", "weekly": "weekly", "monthly": "monthly", "quarterly": "quarterly",
              "yearly": "yearly", "annually": "yearly", "none": "none", "threshold": "none"}
 
-# descriptive fields Composer attaches to nodes; they do not change the allocation
-META = {"id", "name", "description", "collapsed?", "suppress-description?", "exchange", "price", "dollar_volume",
-        "has_marketcap", "children-count", "asset-class", "asset-classes", "color", "version-id", "created-at",
-        "updated-at", "last-updated-at", "symphony-id", "tags", "notes", "hashtag", "hashtags", "benchmarks",
-        "share-with-everyone?", "copied-from", "sid", "hidden?", "comment", "window-days-label"}
+# The allow-list of descriptive fields Composer attaches to nodes (seen in real exports, API responses and shared
+# links). None of them changes the allocation: labels, display settings, ids, timestamps, versions, the asset
+# class and quote metadata. They are matched with "-" and "_" treated alike ("asset_class" = "asset-class"),
+# because exports use both spellings. Any other field raises ComposerImportError: an unknown field might change
+# what the symphony holds, so the importer stops rather than ignore it.
+META = {"id", "name", "description", "collapsed?", "suppress-description?", "exchange", "price", "dollar-volume",
+        "has-marketcap", "children-count", "asset-class", "asset-classes", "color", "version-id", "version",
+        "created-at", "updated-at", "last-updated-at", "last-backtest-at", "symphony-id", "tags", "notes", "hashtag",
+        "hashtags", "benchmarks", "share-with-everyone?", "copied-from", "sid", "hidden?", "comment",
+        "window-days-label", "owner", "owner-id", "user-id", "is-public?", "public?", "source", "icon", "emoji",
+        "display-name", "ticker-name", "company-name", "long-name", "short-name", "currency", "position"}
+
+
+def _norm(k: str) -> str:
+    return str(k).replace("_", "-")
 # fields each step understands (besides META and "step"/"children")
 FIELDS = {
     "root": {"rebalance", "rebalance-corridor-width", "rebalance-frequency", "corridor-width"},
@@ -129,8 +139,8 @@ def indicator(fn: str, t: str | None, window: int | None, own: str | None, where
 
 
 def _check(node: dict, step: str, where: str, extra: set = frozenset()) -> None:
-    ok = META | FIELDS.get(step, set()) | {"step", "children"} | set(extra)
-    bad = sorted(set(node) - ok)
+    ok = FIELDS.get(step, set()) | {"step", "children"} | set(extra)
+    bad = sorted(k for k in node if k not in ok and _norm(k) not in META)
     if bad:
         raise ComposerImportError(f"{where} ({step}): unknown field(s) {', '.join(bad)} — the importer does not "
                                   "know what they do, so it stops rather than ignore them")
@@ -310,10 +320,11 @@ def convert(obj) -> dict:
     """Composer symphony (dict or JSON text) -> a Portfolio spec dict (for Portfolio.from_dict)."""
     sym = _unwrap(obj)
     imp = _Importer()
-    spec: dict = {"kind": "allocation"}
+    # Composer computes every indicator on dividend-adjusted (total-return) prices
+    spec: dict = {"kind": "allocation", "price_basis": "adjusted"}
     if sym.get("step") == "root":
         _check(sym, "root", "symphony")
-        rb = sym.get("rebalance", "daily")
+        rb = sym.get("rebalance", sym.get("rebalance-frequency", "daily"))
         if isinstance(rb, dict):
             rb = rb.get("frequency") or rb.get("value")
         if rb not in REBALANCE:
@@ -321,11 +332,14 @@ def convert(obj) -> dict:
                                       "yearly, or none with a corridor width)")
         spec["rebalance"] = REBALANCE[rb]
         cw = sym.get("rebalance-corridor-width", sym.get("corridor-width"))
-        if cw not in (None, ""):
+        if cw not in (None, "") and spec["rebalance"] != "none":
+            # Composer only uses the corridor with threshold rebalancing; exports of calendar-rebalanced
+            # symphonies still carry the field (the last value set in the editor)
+            imp.note(f"The symphony rebalances {spec['rebalance']}, so its rebalance-corridor-width ({cw}) is not used "
+                     "(Composer applies it only to threshold rebalancing).")
+        elif cw not in (None, ""):
             band = _num(cw, "rebalance-corridor-width", "symphony")
             spec["drift_band"] = band / 100 if band >= 1 else band
-            if spec["rebalance"] != "none":
-                imp.note("Composer threshold rebalancing was combined with a calendar schedule.")
         elif spec["rebalance"] == "none" and rb == "threshold":
             raise ComposerImportError("symphony: threshold rebalancing needs 'rebalance-corridor-width'")
         spec["tree"] = imp.group_of(imp.kids(sym, "symphony"), "symphony")
@@ -337,7 +351,8 @@ def convert(obj) -> dict:
     spec["name"] = (name or "Composer symphony")[:80]
     spec["description"] = f"Composer symphony: {name}" if name else "Composer symphony"
     spec["notes"] = ["Imported from a Composer symphony: conditions and filters are evaluated on each "
-                     "rebalance day's close and traded at that close."] + imp.notes
+                     "rebalance day's close, on total-return (dividend-adjusted) prices as Composer does, and "
+                     "traded at that close."] + imp.notes
     return spec
 
 

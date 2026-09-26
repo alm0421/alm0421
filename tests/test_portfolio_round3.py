@@ -81,7 +81,7 @@ def test_filter_over_groups_ranks_on_the_groups_synthetic_nav(fake):
         checked += 1
     assert checked > 400
     # the evaluator's NAV is exactly the independent daily-rebalanced equal-weight NAV
-    ev = pf._Evaluator(p, h.index, {t: fake[t] for t in "ABCD"})
+    ev = pf._Evaluator(p, fake["A"].index, {t: fake[t] for t in "ABCD"})   # (the run itself starts after the warm-up)
     np.testing.assert_allclose(ev.nav(G1), n1.to_numpy() / n1.iloc[0], rtol=1e-12)
     assert "groups ranked on their simulated daily NAV" in p.summary()
 

@@ -222,7 +222,8 @@ def _probe_rules(spec) -> None:
         for t in spec.universe:
             data.load(t)  # DataError with "did you mean" suggestions
     if getattr(spec, "benchmark", None):
-        data.load(spec.benchmark)
+        from . import metrics
+        metrics.check_benchmark(spec.benchmark)   # a ticker or a blend such as "60 SPY 40 AGG"
     try:
         df = data.load("SPY").iloc[-260:]
     except data.DataError:
@@ -261,7 +262,7 @@ def _summary_row(rid: str, A: dict, kind: str, label: str, spec, extra: dict | N
     row = {"id": rid, "created": datetime.now().isoformat(timespec="seconds"), "kind": kind, "label": label,
            "text": getattr(spec, "description", ""), "spec": runner.to_dict(spec) if spec is not None else None,
            "cagr": st.get("cagr"), "sharpe": st.get("sharpe"), "max_drawdown": st.get("max_drawdown"),
-           "final": st.get("end_equity"), "start": str(start), "end": str(st.get("end")),
+           "final": st.get("end_equity"), "start_value": st.get("start_equity"), "start": str(start), "end": str(st.get("end")),
            "trades": A["trade_stats"].get("trades", 0), **(extra or {})}
     if res is not None and res.kind == "allocation":
         row["rebalances"] = res.extras.get("rebalances")
@@ -612,9 +613,26 @@ def api_paper(body, method):
     return report._clean(signals.paper_report())
 
 
+def last_bar_date() -> str | None:
+    """The date of the latest daily bar (SPY, else the latest of a few broad ETFs): what "data to" means, rather
+    than when the data was fetched."""
+    best = None
+    for t in ("SPY", "QQQ", "IWM", "TLT"):
+        try:
+            d = data.load(t).index[-1]
+        except (FileNotFoundError, data.DataError, KeyError, IndexError):
+            continue
+        best = d if best is None else max(best, d)
+        if t == "SPY":
+            break
+    return str(best.date()) if best is not None else None
+
+
 def api_status(_body=None):
     m = data.universe_meta()
-    return report._clean({"data": data.data_status(), "examples": EXAMPLES, "nasdaq100": data.nasdaq100(),
+    st = data.data_status()
+    st["last_bar"] = last_bar_date()
+    return report._clean({"data": st, "examples": EXAMPLES, "nasdaq100": data.nasdaq100(),
                           "sims": [{"ticker": t, "about": data.SIMS.get(t, "simulated long history")} for t in data.sims()],
                           "etfs": data.etfs(), "indexes": m.get("indexes", []),
                           "former": m.get("former_members", []), "help": expr.HELP,

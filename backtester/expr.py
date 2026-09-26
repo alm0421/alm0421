@@ -87,10 +87,55 @@ def rsi_wilder(x: pd.Series, n: int) -> pd.Series:
     return out.where(dn != 0, 100.0).where(d.notna())
 
 
-class Bars:
-    """Price fields of another ticker aligned to the current ticker's dates."""
+def is_crypto(ticker: str | None) -> bool:
+    """A crypto pair (BTC-USD): its daily bar closes at 00:00 UTC (8pm New York), after the US close."""
+    return bool(ticker) and str(ticker).upper().endswith("-USD")
 
-    def __init__(self, df: pd.DataFrame, index: pd.Index):
+
+CRYPTO_LAG_NOTE = ("A rule reads a crypto pair from a US-market ticker: a crypto day closes at 00:00 UTC (8pm New "
+                   "York), about 4 hours after the US close, so the rule uses the crypto bar of the previous day "
+                   "(the latest one complete at the US close).")
+
+
+def adjusted_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """The bars on a total-return (dividend-adjusted) basis, built causally.
+
+    A total-return index starts at the first close and grows by (close_t + dividend_t) / close_(t-1) each bar;
+    open/high/low/close are all scaled by index/close, so each bar keeps its shape. Volume is unchanged, the
+    dividend column becomes 0 (it is already in the prices) and adj_close (`tr`) is kept. Unlike a back-adjusted
+    series (Yahoo's adjusted close), which rescales the whole history after each new dividend, the value on a
+    date never changes when later data arrives, so indicators on it cannot see future dividends. Levels start at
+    the first bar's quoted close; returns, RSI, moving-average crossings and other ratios match Composer's and
+    Portfolio Visualizer's adjusted-price indicators. Applying it twice changes nothing."""
+    if "close" not in df or "dividend" not in df or not len(df):
+        return df
+    c = df["close"].astype(float)
+    d = df["dividend"].astype(float).fillna(0.0)
+    if not (d != 0).any():
+        return df
+    prev = c.ffill().shift(1)
+    g = ((c + d) / prev).where(c.notna() & prev.notna() & (prev > 0), 1.0)
+    first = c.first_valid_index()
+    if first is None:
+        return df
+    tri = g.cumprod() / g.loc[first] * float(c.loc[first])
+    f = (tri / c).where(c.notna())
+    out = df.copy()
+    for k in ("open", "high", "low", "close"):
+        if k in out:
+            out[k] = df[k] * f
+    out["dividend"] = 0.0
+    return out
+
+
+class Bars:
+    """Price fields of another ticker aligned to the current ticker's dates.
+
+    `lag` (a crypto pair read from a US-market ticker) uses each date's previous bar of the other ticker."""
+
+    def __init__(self, df: pd.DataFrame, index: pd.Index, lag: bool = False):
+        if lag:
+            df = df.shift(1).iloc[1:]
         a = df.reindex(index.union(df.index)).ffill().reindex(index)
         self.open, self.high, self.low, self.close = a["open"], a["high"], a["low"], a["close"]
         if "open_ok" in df:  # an open that was never quoted is unknown, not the close
@@ -103,10 +148,20 @@ class Bars:
 class Namespace(dict):
     """Evaluation namespace for one ticker; derived variables are lazy."""
 
-    def __init__(self, df: pd.DataFrame, extra: dict[str, Any] | None = None, ticker: str | None = None):
+    def __init__(self, df: pd.DataFrame, extra: dict[str, Any] | None = None, ticker: str | None = None,
+                 price_basis: str = "quoted"):
+        """price_basis "quoted": prices as quoted (split-adjusted; TradingView). "adjusted": open/high/low/close on
+        a total-return basis (dividends reinvested, see adjusted_frame; Composer, Portfolio Visualizer), for this
+        ticker and for sym() of any other."""
         super().__init__()
+        if price_basis not in ("quoted", "adjusted"):
+            raise ValueError("price_basis must be 'quoted' or 'adjusted'")
+        self.price_basis = price_basis
+        if price_basis == "adjusted":
+            df = adjusted_frame(df)
         self.df = df
         self.ticker = ticker
+        self.notes: list[str] = []
         c = df["close"]
         self.update({
             "open": df["open"].where(df["open_ok"]) if "open_ok" in df else df["open"],
@@ -160,13 +215,19 @@ class Namespace(dict):
         c, hi, lo, vol = df["close"], df["high"], df["low"], df["volume"]
 
         def pick(args, default_x, default_n):
-            """Accept f(n), f(x, n), f(n, x) or f()."""
+            """Accept f(n), f(x, n), f(n, x) or f(). A series where the lookback belongs is an error, not a swap."""
             x, n = default_x, default_n
+            series = [a for a in args if isinstance(a, pd.Series)]
+            if len(series) > 1 or len(args) > 2:
+                raise ValueError("an indicator takes one series and one lookback, e.g. sma(close, 20); the lookback "
+                                 "must be a fixed whole number, not a series (got more than one series or argument)")
             for a in args:
                 if isinstance(a, pd.Series):
                     x = a
                 else:
                     n = a
+            if isinstance(n, (bool, np.bool_)) or not isinstance(n, (int, float, np.integer, np.floating)):
+                raise ValueError(f"lookback periods must be fixed whole numbers (got {type(n).__name__})")
             if isinstance(n, float) and not float(n).is_integer():
                 raise ValueError(f"lookback periods must be whole numbers (got {n})")
             n = int(n)
@@ -175,6 +236,8 @@ class Namespace(dict):
             return x, n
 
         def nonneg(n):
+            if isinstance(n, pd.Series) or isinstance(n, (bool, np.bool_)) or not isinstance(n, (int, float, np.integer, np.floating)):
+                raise ValueError("offsets must be fixed whole numbers, e.g. ref(close, 5), not a series")
             if isinstance(n, float) and not float(n).is_integer():
                 raise ValueError(f"offsets must be whole numbers (got {n})")
             n = int(n)
@@ -547,12 +610,20 @@ class Namespace(dict):
             agg.index = pd.DatetimeIndex(known)
             agg = agg[agg.index.notna()]
             agg = agg[~agg.index.duplicated(keep="last")]
-            val = evaluate_value(src, Namespace(agg, ticker=self.ticker)) if len(agg) else pd.Series(dtype=float)
+            sub = Namespace(agg, ticker=self.ticker, price_basis=self.price_basis)
+            val = evaluate_value(src, sub) if len(agg) else pd.Series(dtype=float)
+            self.notes.extend(n for n in sub.notes if n not in self.notes)
             return val.reindex(df.index).ffill()
 
         def sym(ticker: str) -> Bars:
             other = _SYM_OVERRIDE.get(data.canonical(ticker))
-            return Bars(other if other is not None else data.load(ticker), df.index)
+            other = other if other is not None else data.load(ticker)
+            if self.price_basis == "adjusted":
+                other = adjusted_frame(other)
+            lag = is_crypto(data.canonical(ticker)) and not is_crypto(self.ticker)
+            if lag and CRYPTO_LAG_NOTE not in self.notes:
+                self.notes.append(CRYPTO_LAG_NOTE)
+            return Bars(other, df.index, lag=lag)
 
         return {
             "sma": sma, "ma": sma, "ema": ema, "rma": rma, "wma": wma, "highest": highest, "lowest": lowest,
@@ -763,6 +834,32 @@ _ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "m
                  "weekly_sma", "monthly_sma", "weekly_close", "monthly_close", "is_week_end",
                  "weekly_rsi", "monthly_rsi", "weekly_ema", "monthly_ema", "weekly_ret", "monthly_ret",
                  "is_month_end", "is_quarter_end", "is_year_end", "bars_since", "count", "weekly", "monthly"}
+
+
+def first_defined(rule, ns) -> pd.Timestamp | None:
+    """First date on which every indicator call in `rule` has a value (NaN during its look-back), or None."""
+    if not isinstance(rule, str) or not rule.strip() or ns is None:
+        return None
+    text = rule.strip()
+    try:
+        tree = ast.parse(text, mode="eval")
+    except SyntaxError:
+        return None
+    first = None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        seg = ast.get_source_segment(text, node)
+        try:
+            v = evaluate_value(seg, ns)
+        except Exception:  # noqa: BLE001 - e.g. sym("SPY") alone is not a series
+            continue
+        if not isinstance(v, pd.Series) or v.dtype == bool or not len(v):
+            continue
+        fv = v.first_valid_index()
+        if fv is not None:
+            first = fv if first is None else max(first, fv)
+    return first
 
 
 def open_safe(rule) -> bool:
