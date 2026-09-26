@@ -136,6 +136,8 @@ def preflight(spec) -> list[str]:
         except data.DataError:
             if is_pf or not getattr(spec, "universe_name", None):
                 raise
+    if not frames and is_pf and not tickers:
+        return warn  # only index-universe filters: the universe's own data is checked when it runs
     if not frames:
         raise ValueError("None of the tickers has price data.")
 
@@ -574,6 +576,13 @@ def main(argv: list[str] | None = None) -> int:
             return web.main(rest)
     except (parser.ParseError, ValueError, data.DataError) as e:
         print(f"Could not run that:\n  {e}", file=sys.stderr)
+        return 2
+    except (SyntaxError, TypeError, NameError, KeyError, ZeroDivisionError) as e:
+        # a malformed rule (unbalanced brackets, wrong argument types...): say so instead of a traceback
+        what = {"SyntaxError": "the rule has a syntax error", "TypeError": "a function got the wrong kind of argument",
+                "NameError": "the rule uses an unknown name", "KeyError": "an unknown field was referenced",
+                "ZeroDivisionError": "the rule divides by zero"}[type(e).__name__]
+        print(f"Could not run that:\n  {what}: {e}", file=sys.stderr)
         return 2
     return 0
 

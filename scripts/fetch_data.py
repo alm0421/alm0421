@@ -373,7 +373,7 @@ def update_membership() -> pd.DataFrame:
 def fetch_macro() -> None:
     MACRO.mkdir(parents=True, exist_ok=True)
     for sid in ("CPIAUCSL", "DTB3", "DGS10", "DGS20", "DGS30", "DGS5", "DGS2", "DGS1", "GS10", "TB3MS",
-                "DAAA", "DBAA", "AAA", "BAA"):
+                "DAAA", "DBAA", "AAA", "BAA", "CPIAUCNS"):
         try:
             txt = requests.get(f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={sid}", headers=UA, timeout=60).text
             df = pd.read_csv(io.StringIO(txt))
@@ -517,8 +517,18 @@ def build_sims() -> list[str]:
         print(f"sim size/value failed: {e}", file=sys.stderr)
     try:
         dev = pd.read_csv(FACTORS / "dev_ff3_daily.csv", parse_dates=["date"], index_col="date")
-        _series_file("EFASIM", _splice((dev["Mkt-RF"] + dev["RF"]).dropna(), "EFA"),
-                     "developed ex-US market (Fama-French, from 1990), then EFA")
+        daily = (dev["Mkt-RF"] + dev["RF"]).dropna()
+        try:
+            eafe = french_international_index("EAFE")          # monthly USD returns from 1975
+            early = eafe[eafe.index < daily.index[0]]
+            lvl = (1 + early).cumprod()
+            early_daily = lvl.resample("B").ffill().pct_change().dropna()
+            daily = pd.concat([early_daily[early_daily.index < daily.index[0]], daily])
+            note = "developed ex-US: Fama-French EAFE index (monthly steps) from 1975, daily from 1990, then EFA"
+        except Exception as e:  # noqa: BLE001
+            print(f"EAFE monthly failed: {e}", file=sys.stderr)
+            note = "developed ex-US market (Fama-French, from 1990), then EFA"
+        _series_file("EFASIM", _splice(daily, "EFA"), note)
         made.append("EFASIM")
     except Exception as e:  # noqa: BLE001
         print(f"sim EFASIM failed: {e}", file=sys.stderr)
@@ -554,20 +564,16 @@ def build_sims() -> list[str]:
         made.append("EEMSIM")
     except Exception as e:  # noqa: BLE001
         print(f"sim EEMSIM failed: {e}", file=sys.stderr)
+    # (no DBCSIM: free spot-price indexes overstate a commodity-futures position badly in the 1970s -
+    # 36x over 1971-82 against about 4x for the S&P GSCI total return - so commodities start with DBC)
     try:
-        c = commodity_monthly()
-        tb = pd.read_csv(MACRO / "TB3MS.csv", parse_dates=["date"], index_col="date")["value"].astype(float) / 100 / 12
-        tb.index = tb.index + pd.offsets.MonthEnd(0)
-        # spot price change only: futures indexes also earn T-bill collateral but lose the roll yield,
-        # and over 1972-2025 those two roughly offset (the S&P GSCI total return is ~7%/yr)
-        r = c.pct_change().dropna()
+        r = nareit_monthly()
         level = (1 + r).cumprod()
         daily = level.resample("B").ffill().pct_change().dropna()
-        _series_file("DBCSIM", _splice(daily, "DBC"),
-                     "commodities: World Bank energy + non-energy spot price indexes (monthly steps), then DBC")
-        made.append("DBCSIM")
+        _series_file("VNQSIM", _splice(daily, "VNQ"), "US REITs: FTSE Nareit All Equity REITs total return (monthly steps) from 1972, then VNQ")
+        made.append("VNQSIM")
     except Exception as e:  # noqa: BLE001
-        print(f"sim DBCSIM failed: {e}", file=sys.stderr)
+        print(f"sim VNQSIM failed: {e}", file=sys.stderr)
     try:
         g = gold_monthly()
         daily = g.resample("B").ffill()
@@ -577,6 +583,71 @@ def build_sims() -> list[str]:
     except Exception as e:  # noqa: BLE001
         print(f"sim GLDSIM failed: {e}", file=sys.stderr)
     return made
+
+
+def french_international_index(name: str) -> pd.Series:
+    """Monthly value-weighted market return (USD, decimal) of a Fama-French international index
+    (e.g. EAFE, Europe, Global ex US) from F-F_International_Indices.zip, 1975 onward."""
+    import zipfile
+    url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_International_Indices.zip"
+    z = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+    names = z.namelist()
+    pick = next((n for n in names if name.lower() in n.lower()), None)
+    if pick is None:
+        raise RuntimeError(f"{name} not in {names[:20]}")
+    raw = z.read(pick).decode("latin-1").splitlines()
+    hdr_i = next(i for i, l in enumerate(raw) if "mkt" in l.lower() and "," in l)
+    header = [h.strip() for h in raw[hdr_i].split(",")]
+    col = next(i for i, h in enumerate(header) if h.lower() == "mkt")
+    out = {}
+    for l in raw[hdr_i + 1:]:
+        parts = [x.strip() for x in l.split(",")]
+        if not parts or not re.fullmatch(r"\d{6}", parts[0]):
+            if out:
+                break
+            continue
+        v = float(parts[col])
+        if v <= -99:
+            continue
+        out[pd.Timestamp(parts[0][:4] + "-" + parts[0][4:] + "-01") + pd.offsets.MonthEnd(0)] = v / 100
+    print(f"french {pick}: {len(out)} months")
+    return pd.Series(out).sort_index()
+
+
+def nareit_monthly() -> pd.Series:
+    """FTSE Nareit All Equity REITs monthly total return (decimal) from 1972 (reit.com)."""
+    url = "https://www.reit.com/sites/default/files/returns/MonthlyHistoricalReturns.xls"
+    content = requests.get(url, headers=UA, timeout=120).content
+    book = pd.read_excel(io.BytesIO(content), sheet_name=None, header=None)
+    for name, raw in book.items():
+        txt = raw.astype(str)
+        hits = [(r, c) for r in range(min(len(raw), 15)) for c in range(raw.shape[1])
+                if "all equity" in txt.iat[r, c].lower()]
+        if not hits:
+            continue
+        r0, c0 = hits[0]
+        # the total-return column under "All Equity REITs": first header in the next rows mentioning return
+        cands = []
+        for c in range(c0, min(c0 + 8, raw.shape[1])):
+            head = " ".join(txt.iat[r, c].lower() for r in range(r0, min(r0 + 4, len(raw))))
+            if "total" in head and "return" in head:
+                cands.append(c)
+        if not cands:
+            print(f"nareit {name}: headers near row {r0}: {[txt.iat[r0 + 1, c] for c in range(c0, min(c0 + 8, raw.shape[1]))]}")
+            continue
+        col = cands[0]
+        dates = pd.to_datetime(raw.iloc[r0 + 1:, 0], errors="coerce")
+        vals = pd.to_numeric(raw.iloc[r0 + 1:, col], errors="coerce")
+        ser = pd.Series(vals.to_numpy(), index=dates.to_numpy()).dropna()
+        ser = ser[~ser.index.isna()].sort_index()
+        ser.index = pd.DatetimeIndex(ser.index) + pd.offsets.MonthEnd(0)
+        if ser.min() > 0 and ser.iloc[-1] > 10 * ser.iloc[0]:
+            ser = ser.pct_change().dropna()          # an index level (1971-12 = 100)
+        elif ser.abs().median() > 0.5:
+            ser = ser / 100                          # monthly returns in percent
+        print(f"nareit {name}: column {col}, {len(ser)} months {ser.index[0].date()}..{ser.index[-1].date()}")
+        return ser
+    raise RuntimeError(f"All Equity REITs column not found in sheets {list(book)}")
 
 
 def _pink_sheet(sheet: str) -> pd.DataFrame:
