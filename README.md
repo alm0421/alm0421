@@ -153,6 +153,13 @@ never quietly drops them or swaps in a different ticker.
 - The price chart also draws each trade's stop, trailing stop and target, the other tickers a rule filters on
   (e.g. SPY and its 200-day average) in their own pane, and a strip of the bars on which the entry and exit
   rules were true; it has a log scale and a date label on the crosshair.
+- Every series a rule uses is charted: moving averages, bands, channels, Supertrend, SAR and the VWAP proxy
+  over the price; RSI, stochastic, MACD, ADX/DMI, CCI, MFI, Williams %R, returns, volatility, ATR, OBV,
+  volume, IBS, streaks and other tickers' series in their own panes (as many as needed: click a pane's
+  title to fold it, drag its bottom edge to resize it). Weekly and monthly indicators are drawn as steps
+  holding each completed period's value, as the engine reads them. The legend shows every value on the bar
+  under the crosshair. Candles or a line, horizontal and trend lines (kept in your browser), and bar
+  replay (step or play through time, revealing bars and trades one at a time).
 - Returns by year (partial years flagged) and a monthly heatmap.
 - Rolling 12-month and 3-year return, Sharpe, beta and volatility, plus rolling-period best/worst.
 - The deepest drawdowns, and how the strategy did in 12 historical crises.

@@ -454,6 +454,17 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     return j;
   }
   let STATUS = null;
+  // Layout changes wait while a mouse button / finger is down. A settings field commits its value (change) on the
+  // mousedown that blurs it; re-rendering then would move the button under the pointer before mouseup, and the
+  // click would be lost. State updates stay synchronous; only the DOM work is deferred until just after the click.
+  let pressed = false;
+  const pendingUI = new Map();
+  const flushUI = () => { if (pressed) return; const q = [...pendingUI.values()]; pendingUI.clear(); q.forEach(f => f()); };
+  const afterPress = (fn, key) => { if (!pressed) return fn(); pendingUI.set(key || fn, fn); };
+  document.addEventListener('pointerdown', () => { pressed = true; }, true);
+  const unpress = () => { if (!pressed) return; pressed = false; setTimeout(flushUI, 30); };   // after the click event
+  ['pointerup', 'pointercancel', 'dragend'].forEach(t => document.addEventListener(t, unpress, true));
+  window.addEventListener('blur', unpress);
 
   // ---------- routing
   const pages = ['backtest', 'library', 'gallery', 'community', 'build', 'compare', 'research', 'montecarlo', 'factors', 'correlations', 'signals', 'history', 'data'];
@@ -484,17 +495,23 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   const opt = () => { const o = {}; ['capital', 'start', 'end', 'slippage_bps', 'commission', 'benchmark', 'name'].forEach(k => { const v = $('o_' + k).value; if (v !== '') o[k] = v; }); return o; };
   let timer = null, lastSpec = null;
   let interpSeq = 0;
+  // The old interpretation and notes stay until the new ones arrive (no reflow in between), and the swap waits
+  // while a button is being pressed (afterPress), so the Run / Share button never moves under the pointer.
+  function showInterp(text, isErr, notes) {
+    afterPress(() => {
+      $('interp').classList.toggle('err', !!isErr); $('interp').textContent = text;
+      $('interpNotes').replaceChildren(...(notes || []).map(n => el('div', { class: /survivorship|Coverage|Membership|refer|read as/.test(n) ? 'warn' : 'note' }, 'Note: ' + n)));
+    }, 'interp');
+  }
   async function interpret() {
     const seq = ++interpSeq;
     const t = $('text').value.trim();
-    $('interpNotes').replaceChildren();
-    if (!t) { $('interp').textContent = 'Type a strategy above; its interpretation appears here as you type.'; lastSpec = null; return; }
+    if (!t) { lastSpec = null; showInterp('Type a strategy above; its interpretation appears here as you type.'); return; }
     try {
       const j = await api('/api/parse?soft=1', { text: t, options: opt() });
       if (seq !== interpSeq) return;   // a newer edit is being interpreted
-      $('interp').classList.remove('err'); $('interp').textContent = j.interpretation; lastSpec = j.spec;
-      j.notes.forEach(n => $('interpNotes').append(el('div', { class: /survivorship|Coverage|Membership|refer|read as/.test(n) ? 'warn' : 'note' }, 'Note: ' + n)));
-    } catch (e) { if (seq !== interpSeq) return; $('interp').classList.add('err'); $('interp').textContent = e.message; lastSpec = null; }
+      lastSpec = j.spec; showInterp(j.interpretation, false, j.notes);
+    } catch (e) { if (seq !== interpSeq) return; lastSpec = null; showInterp(e.message, true); }
   }
   $('text').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(interpret, 450); });
   document.querySelectorAll('[id^=o_]').forEach(x => x.addEventListener('change', interpret));
@@ -909,6 +926,10 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   }
   function revalidate() {
     const errs = validateNode(tree, new Map());
+    if (pressed) {   // the messages reflow the page: they are shown just after the click (afterPress)
+      afterPress(revalidate, 'revalidate');
+      let c = 0; errBoxes.forEach((_, n) => { c += ((errs.get(n) || {}).e || []).length; }); return c;
+    }
     let count = 0;
     errBoxes.forEach((box, n) => {
       const r = errs.get(n) || { e: [], w: [] }; count += r.e.length;
@@ -1004,6 +1025,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   }
   let drawing = false, redraw = false;
   function draw() {
+    if (pressed) { autoRebalance(); afterPress(draw, 'draw'); return; }   // re-render just after the click (afterPress)
     if (drawing) { redraw = true; return; }
     drawing = true;
     try {
@@ -1064,7 +1086,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       } catch (e) { if (seq === prevSeq) { $('buildInterp').classList.remove('hide'); $('buildInterp').textContent = e.message; } }
     }, 500);
   }
-  $('p_rebalance').addEventListener('change', () => { rebalTouched = true; $('rebalNote').textContent = ''; if (buildMode === 'portfolio') draw(); });
+  $('p_rebalance').addEventListener('change', () => { rebalTouched = true; afterPress(() => { $('rebalNote').textContent = ''; }, 'rebalNote'); if (buildMode === 'portfolio') draw(); });
   async function importComposer(src, label) {
     $('composerNotes').replaceChildren();
     $('composerStatus').replaceChildren(el('span', { class: 'spin' }));
@@ -1501,7 +1523,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     if (!tks.length) { g.append(el('div', { class: 'note' }, 'Forecasts apply to the tickers-and-weights portfolio.')); return; }
     tks.forEach(t => { ['ret', 'vol'].forEach(k => { const id = `mcf_${t}_${k}`; const l = el('label'); const i = el('input', { id, type: 'number', step: '0.1', placeholder: 'historical' }); i.value = keep[id] || ''; l.append(document.createTextNode(`${t} ${k === 'ret' ? 'return' : 'volatility'} (%/yr)`), i); g.append(l); }); });
   }
-  $('mc_model').addEventListener('change', drawForecast); $('mc_weights').addEventListener('change', drawForecast);
+  $('mc_model').addEventListener('change', () => afterPress(drawForecast)); $('mc_weights').addEventListener('change', () => afterPress(drawForecast));
   $('mcRun').addEventListener('click', async () => {
     spin($('mcStatus'), 'simulating…'); $('mcRun').disabled = true;
     const body = { balance: +$('mc_balance').value, years: +$('mc_years').value, model: $('mc_model').value, block_months: +$('mc_block').value,

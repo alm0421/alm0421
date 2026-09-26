@@ -26,20 +26,37 @@ MAX_PRICE_POINTS = 200_000  # ~1.5 MB of JSON at most
 MAX_PRICE_TICKERS = 40
 MAX_EMBED_TICKERS = 12      # tickers embedded in report.html; the others load from charts/<TICKER>.js on demand
 # Price-scale indicators, drawn over the candles. The lookbehind skips sym("SPY").sma(200)-style calls on
-# another ticker, which would otherwise be evaluated on the charted one.
-INDICATOR_RE = re.compile(r"(?<![\w.])(sma|ema|wma|rma|bb_upper|bb_lower|keltner_upper|keltner_lower|donchian_upper|"
-                          r"donchian_lower|supertrend|sar|monthly_sma|weekly_sma|vwap)\(([^()]*)\)")
-# Oscillators, drawn in sub-panes below the price: function -> (pane, fixed y-range or None).
+# another ticker, which would otherwise be evaluated on the charted one. The chart payload itself is laid out
+# from the rule's syntax tree (chart_layout); the regexes serve oscillator_panes / other_ticker_panes.
+PRICE_FNS = ("sma", "ma", "ema", "wma", "rma", "highest", "lowest", "bb_upper", "bb_lower", "keltner_upper",
+             "keltner_lower", "donchian_upper", "donchian_lower", "supertrend", "sar", "vwap", "weekly_sma",
+             "monthly_sma", "weekly_ema", "monthly_ema", "weekly_close", "monthly_close", "cummax", "cummin")
+INDICATOR_RE = re.compile(r"(?<![\w.])(" + "|".join(sorted(PRICE_FNS, key=len, reverse=True)) + r")\(([^()]*)\)")
+# Oscillators and other own-scale series, drawn in sub-panes below the price: function -> (pane, fixed y-range).
 OSCILLATORS = {
-    "rsi": ("RSI", (0, 100)), "stoch_k": ("Stochastic", (0, 100)), "stoch_d": ("Stochastic", (0, 100)),
+    "rsi": ("RSI", (0, 100)), "weekly_rsi": ("RSI (weekly)", (0, 100)), "monthly_rsi": ("RSI (monthly)", (0, 100)),
+    "stoch_k": ("Stochastic", (0, 100)), "stoch_d": ("Stochastic", (0, 100)),
     "macd": ("MACD", None), "macd_signal": ("MACD", None), "macd_hist": ("MACD", None),
-    "adx": ("ADX / DI", None), "plus_di": ("ADX / DI", None), "minus_di": ("ADX / DI", None),
+    "adx": ("ADX / DMI", None), "plus_di": ("ADX / DMI", None), "minus_di": ("ADX / DMI", None),
     "cci": ("CCI", None), "willr": ("Williams %R", (-100, 0)), "mfi": ("MFI", (0, 100)),
-    "zscore": ("Z-score", None), "pct_rank": ("Percent rank", None), "atr": ("ATR", None), "natr": ("NATR", None),
+    "zscore": ("Z-score", None), "pct_rank": ("Percent rank", (0, 1)), "atr": ("ATR", None), "natr": ("NATR", None),
+    "ret": ("Return", None), "roc": ("Return", None), "tret": ("Total return", None),
+    "weekly_ret": ("Return (weekly)", None), "monthly_ret": ("Return (monthly)", None),
+    "volatility": ("Volatility", None), "stdev": ("Std dev", None), "obv": ("OBV", None),
+    "drawdown": ("Drawdown", None), "max_drawdown": ("Drawdown", None),
+    "ma_return": ("Return stats", None), "stdev_return": ("Return stats", None),
+    "down_streak": ("Streak", None), "up_streak": ("Streak", None),
+    "count": ("Count", None), "bars_since": ("Bars since", None),
+}
+# Rule variables with their own scale (a bare name in the rule): name -> (pane, fixed y-range).
+VARIABLE_PANES = {
+    "down_days": ("Streak", None), "up_days": ("Streak", None), "ibs": ("IBS", (0, 1)), "gap": ("Gap", None),
+    "change": ("Change", None), "range": ("Range", None), "volume": ("Volume", None),
+    "dollar_volume": ("Dollar volume", None), "market_cap": ("Market cap", None),
 }
 OSC_RE = re.compile(r"(?<![\w.])(" + "|".join(sorted(OSCILLATORS, key=len, reverse=True)) + r")\(([^()]*)\)")
 SIMPLE_ARGS = re.compile(r"\s*(close\s*,\s*)?[\d.\s,]*")
-MAX_PANES = 3
+MAX_SERIES = 48   # a safety cap on the series one chart carries; the number of panes is not limited
 
 
 def _nums(args: str) -> list[str]:
@@ -88,7 +105,7 @@ def oscillator_panes(rules: str) -> list[dict]:
         for lv in _levels(m.group(0), rules):
             if lv not in p["levels"]:
                 p["levels"].append(lv)
-    return list(panes.values())[:MAX_PANES]
+    return list(panes.values())
 
 
 def _values(call: str, ns, index) -> list | None:
@@ -392,14 +409,201 @@ def trim_result(res: Result, start) -> Result:
                                in_market=sl(res.in_market), holdings=hold, extras=extras)
 
 
+PRICE_NAMES = {"close", "open", "high", "low", "price", "tr"}
+_TRANSPARENT = {"ref", "crossover", "crossunder", "abs", "maximum", "minimum", "log", "sqrt"}   # plotted through
+_PAIRS = {"bb_upper": "bb_lower", "bb_lower": "bb_upper", "keltner_upper": "keltner_lower",
+          "keltner_lower": "keltner_upper", "donchian_upper": "donchian_lower", "donchian_lower": "donchian_upper"}
+
+
+def _num_node(n) -> float | None:
+    if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)) and not isinstance(n.value, bool):
+        return float(n.value)
+    if isinstance(n, ast.UnaryOp) and isinstance(n.op, (ast.USub, ast.UAdd)):
+        v = _num_node(n.operand)
+        return None if v is None else (-v if isinstance(n.op, ast.USub) else v)
+    return None
+
+
+def _sym_ticker(n) -> str | None:
+    """'SPY' for the node sym("SPY") (the call itself, not an attribute of it)."""
+    if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "sym" and n.args
+            and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)):
+        return data.canonical(n.args[0].value)
+    return None
+
+
+def chart_layout(rules, own: str = "") -> dict:
+    """Every series a rule uses, laid out for the price chart of ticker `own`, from the rules' syntax trees.
+
+    Returns {"overlays": [expr], "panes": [{name, calls, levels, range}], "step": {expr}}. Price-scale indicators
+    of the charted ticker (moving averages, bands, channels, stops, VWAP, weekly/monthly averages) are overlays;
+    oscillators, returns, volatility, volume and the other rule variables get one pane per family; another
+    ticker's series (sym("SPY")...) get that ticker's pane with its close. Weekly / monthly series (weekly_*,
+    monthly_*, weekly(...), monthly(...)) are listed in "step": they hold each completed period's value, as the
+    engine reads them, and are drawn as steps. Levels are the numbers the rule compares a series with."""
+    overlays: list[str] = []
+    panes: dict[str, dict] = {}
+    step: set[str] = set()
+    where: dict[str, str | None] = {}   # expr -> pane key (None: overlay)
+    own = data.canonical(own) if own else ""
+
+    def pane(key, rng=None):
+        return panes.setdefault(key, {"name": key, "calls": [], "levels": [], "range": list(rng) if rng else None})
+
+    def put(key, call, rng=None, periodic=False):
+        if call in where or len(where) >= MAX_SERIES:
+            return
+        where[call] = key
+        if periodic:
+            step.add(call)
+        if key is None:
+            overlays.append(call)
+        else:
+            pane(key, rng)["calls"].append(call)
+
+    def base(n):
+        """Where a series argument lives: ("price",), ("sym", T), ("pane", key)."""
+        if isinstance(n, ast.Name):
+            if n.id in PRICE_NAMES:
+                return ("price",)
+            if n.id in VARIABLE_PANES:
+                return ("pane", VARIABLE_PANES[n.id][0])
+            return None
+        if isinstance(n, ast.Attribute):
+            tk = _sym_ticker(n.value)
+            if tk:
+                if n.attr == "volume":
+                    return ("pane", "Volume" if tk == own else f"{tk} volume")
+                return ("price",) if tk == own else ("sym", tk)
+            return None
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+            fn = n.func.id
+            if fn in PRICE_FNS:
+                return base(_series_arg(n)) or ("price",)
+            if fn in OSCILLATORS:
+                b = base(_series_arg(n))
+                fam = OSCILLATORS[fn][0]
+                return ("pane", f"{b[1]} {fam}") if b and b[0] == "sym" else ("pane", fam)
+            if fn in ("weekly", "monthly") and n.args:
+                return base(n.args[0])
+        return None
+
+    def _series_arg(n):
+        for a in n.args:
+            if _num_node(a) is None:
+                return a
+        return None
+
+    def add_call(n, periodic=False):
+        fn = n.func.id
+        src = _src(n)
+        arg = _series_arg(n)
+        b = base(arg) if arg is not None else ("price",)
+        periodic = periodic or fn.startswith(("weekly_", "monthly_"))
+        if fn in PRICE_FNS:
+            if b is None or b[0] == "price":
+                calls = [src]
+                if fn in _PAIRS and all(_num_node(a) is not None for a in n.args):
+                    calls.append(f"{_PAIRS[fn]}({', '.join(_src(a) for a in n.args)})")
+                    if fn.startswith("bb_"):   # the Bollinger basis
+                        calls.append(f"sma({_src(n.args[0]) if n.args else '20'})")
+                for c in calls:
+                    put(None, c, periodic=periodic)
+            elif b[0] == "sym":
+                put(b[1], f'sym("{b[1]}").close')
+                put(b[1], src, periodic=periodic)
+            else:   # an average of an oscillator, of volume...: on that series' pane
+                put(b[1], src, periodic=periodic)
+            return
+        fam, rng = OSCILLATORS[fn]
+        key = f"{b[1]} {fam}" if b and b[0] == "sym" else fam
+        if fn in ("macd", "macd_signal", "macd_hist", "stoch_k", "stoch_d") and (b is None or b[0] == "price") \
+                and all(_num_node(a) is not None for a in n.args):
+            for c in _companions(fn, ", ".join(_src(a) for a in n.args)):
+                put(key, src if _norm(c) == _norm(src) else c, rng, periodic)
+            return
+        if fn in ("adx", "plus_di", "minus_di") and all(_num_node(a) is not None for a in n.args):
+            args = ", ".join(_src(a) for a in n.args)
+            for f in ("adx", "plus_di", "minus_di"):
+                c = f"{f}({args})"
+                put(key, src if f == fn else c, rng, periodic)
+            return
+        put(key, src, rng, periodic)
+
+    def walk(n, periodic=False):
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+            fn = n.func.id
+            if fn in ("weekly", "monthly") and len(n.args) == 1:
+                inner = n.args[0]
+                src = _src(n)
+                if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name) and inner.func.id in PRICE_FNS \
+                        and (base(inner) or ("price",))[0] == "price":
+                    put(None, src, periodic=True)
+                else:
+                    b = base(inner)
+                    ifn = inner.func.id if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name) else ""
+                    rng = OSCILLATORS[ifn][1] if ifn in OSCILLATORS else None
+                    put(f"{b[1]} ({fn})" if b and b[0] in ("pane", "sym") else src, src, rng, periodic=True)
+                return
+            if fn == "sym":
+                return
+            if fn in PRICE_FNS or fn in OSCILLATORS:
+                add_call(n, periodic)
+            for a in n.args:
+                walk(a, periodic)
+            return
+        if isinstance(n, ast.Attribute):
+            tk = _sym_ticker(n.value)
+            if tk and tk != own and n.attr in PRICE_FIELDS:
+                put(tk, f'sym("{tk}").close')
+            elif tk and n.attr == "volume":
+                put("Volume" if tk == own else f"{tk} volume", _src(n))
+            return
+        if isinstance(n, ast.Name):
+            if n.id in VARIABLE_PANES:
+                fam, rng = VARIABLE_PANES[n.id]
+                put(fam, n.id, rng)
+            return
+        for c in ast.iter_child_nodes(n):
+            walk(c, periodic)
+
+    trees = []
+    for r in ([rules] if isinstance(rules, str) else rules or []):
+        if not isinstance(r, str) or not r.strip():
+            continue
+        try:
+            t = ast.parse(r.strip(), mode="eval")
+        except SyntaxError:
+            continue
+        trees.append(t)
+        walk(t.body)
+    # thresholds: numbers the rule compares a charted series with
+    for t in trees:
+        for n in ast.walk(t):
+            if not isinstance(n, ast.Compare):
+                continue
+            ops = [n.left] + list(n.comparators)
+            for x, y in zip(ops, ops[1:]):
+                for a, b in ((x, y), (y, x)):
+                    v, src = _num_node(b), _src(a)
+                    key = where.get(src, "?")
+                    if v is not None and key not in ("?", None) and v not in panes[key]["levels"]:
+                        panes[key]["levels"].append(v)
+    return {"overlays": overlays, "panes": list(panes.values()), "step": step}
+
+
+def _src(n) -> str:
+    """The node as rule text, with sym("X") in double quotes as the rules are written."""
+    return re.sub(r"sym\('([^'\"]*)'\)", r'sym("\1")', ast.unparse(n))
+
+
+def _norm(call: str) -> str:
+    return re.sub(r"\s+", "", call)
+
+
 def _chart_setup(res: Result) -> tuple[list[str], list[dict], int]:
-    rules = " ".join(r for r in (res.strategy.entry, getattr(res.strategy, "short_entry", None),
-                                 res.strategy.exit_when) if isinstance(r, str) and r)
-    calls = [m.group(0) for m in INDICATOR_RE.finditer(rules) if SIMPLE_ARGS.fullmatch(m.group(2))]
-    calls = list(dict.fromkeys(calls))[:6]
-    panes = oscillator_panes(rules)
-    others = other_ticker_panes(rules, "")
-    return calls, panes, 6 + len(calls) + sum(len(p["calls"]) for p in panes + others)
+    L = chart_layout(_rules_list(res))
+    return L["overlays"], L["panes"], 6 + len(L["overlays"]) + sum(len(p["calls"]) for p in L["panes"])
 
 
 def chart_tickers(res: Result) -> list[str]:
@@ -468,7 +672,7 @@ def other_ticker_panes(rules: str, own: str) -> list[dict]:
                 panes.append({"name": tk, "calls": p["calls"], "levels": [], "range": None})
         else:
             panes.append({"name": tk, "calls": p["calls"], "levels": [], "range": None})
-    return panes[:2]
+    return panes
 
 
 def _label(call: str) -> str:
@@ -498,24 +702,29 @@ def rule_state(res: Result, t: str, index: pd.DatetimeIndex) -> str | None:
 
 
 def ticker_chart(res: Result, t: str, setup=None, seg: pd.DataFrame | None = None) -> dict:
-    """OHLC + the rule's indicators for one ticker: overlays on the price, oscillators in panes, other tickers the
-    rule filters on in their own panes, and the bar-by-bar entry / exit rule state."""
-    calls, panes, _ = setup or _chart_setup(res)
+    """OHLC + every series the rules use, for one ticker (see chart_layout): overlays on the price, one pane per
+    oscillator family and per other ticker, "step" for weekly / monthly series (drawn as steps), and the
+    bar-by-bar entry / exit rule state. Values come from the same Namespace the engine evaluates the rules on."""
+    L = chart_layout(_rules_list(res), t)
     if seg is None:
         seg = _chart_segment(res, t, res.trades["ticker"].nunique() > 1)
     ns = expr.Namespace(res.prices[t], ticker=t)
-    overlays = {}
-    for c in calls:
+    overlays, step = {}, []
+    for c in L["overlays"]:
         v = _values(c, ns, seg.index)
         if v is not None:
             overlays[c] = v
+            if c in L["step"]:
+                step.append(c)
     tpanes = []
-    for p in panes + other_ticker_panes(_rules_text(res), t):
+    for p in L["panes"]:
         series = {}
         for c in p["calls"]:
             v = _values(c, ns, seg.index)
             if v is not None:
                 series[_label(c)] = v
+                if c in L["step"]:
+                    step.append(_label(c))
         if series:
             tpanes.append({"name": p["name"], "series": series, "levels": p["levels"], "range": p["range"]})
     out = {
@@ -524,6 +733,8 @@ def ticker_chart(res: Result, t: str, setup=None, seg: pd.DataFrame | None = Non
         "l": seg["low"].round(4).tolist(), "c": seg["close"].round(4).tolist(),
         "overlays": overlays, "panes": tpanes,
     }
+    if step:
+        out["step"] = step
     rs = rule_state(res, t, seg.index)
     if rs is not None:
         out["rs"] = rs
@@ -531,9 +742,14 @@ def ticker_chart(res: Result, t: str, setup=None, seg: pd.DataFrame | None = Non
     return out
 
 
-def _rules_text(res: Result) -> str:
+def _rules_list(res: Result) -> list[str]:
     s = res.strategy
-    return " ".join(r for r in (s.entry, getattr(s, "short_entry", None), s.exit_when) if isinstance(r, str) and r)
+    return [r for r in (s.entry, getattr(s, "short_entry", None), s.exit_when, getattr(s, "entry_level", None))
+            if isinstance(r, str) and r]
+
+
+def _rules_text(res: Result) -> str:
+    return " ".join(_rules_list(res))
 
 
 def price_payload(res: Result, budget: int = MAX_PRICE_POINTS, max_tickers: int = MAX_PRICE_TICKERS) -> dict:
