@@ -77,6 +77,20 @@ code { background:var(--surface-2); padding:2px 6px; border-radius:6px; font-siz
   if (D.kind === 'sweep') {
     root.append(el('div', { class: 'note' }, `${D.rows.length} combinations of ${D.text}, ranked by ${D.objective}.`));
     const ok = D.rows.filter(r => r.ok);
+    const mt = D.multiple_testing || {};
+    if (mt.n_trials >= 2 && isNum(mt.expected_max_sharpe)) {
+      const c = card('Multiple testing: is the best result better than luck?');
+      const sig = isNum(mt.dsr) && mt.dsr >= 0.95;
+      const t = el('table'); const tb = el('tbody');
+      [['Combinations tried (that traded)', `${mt.n_trials} of ${mt.n_combinations}`],
+       ['Best Sharpe', `${num(mt.best_sharpe)} ${JSON.stringify(mt.best_params || [])}`],
+       ['Spread (sd) of Sharpe across combinations', num(mt.sd_sharpe)],
+       ['Expected best Sharpe from luck alone', `${num(mt.expected_max_sharpe)} (rough rule sd × √(2 ln N): ${num(mt.expected_max_sharpe_simple)})`],
+       ['Deflated Sharpe Ratio', isNum(mt.dsr) ? { t: pct(mt.dsr, 1) + (sig ? ' — significant at 95%' : ' — not significant'), c: sig ? 'pos' : 'neg' } : '—'],
+      ].forEach(([k, v]) => { const tr = el('tr'); tr.append(el('td', {}, k)); const td = el('td', {}, v && typeof v === 'object' ? v.t : v); if (v && v.c) td.className = v.c; tr.append(td); tb.append(tr); });
+      t.append(tb); c.append(t);
+      c.append(el('p', { class: 'note' }, 'Trying many combinations and keeping the best inflates its Sharpe. The Deflated Sharpe Ratio (Bailey & López de Prado, 2014) is the probability that the best combination\'s true Sharpe is above zero once the number of tries, the spread of results, the sample length and the skew/fat tails of its daily returns are allowed for. It treats the combinations as independent; neighbouring parameters are correlated, so the real number of independent tries is smaller.'));
+    }
     if (D.labels.length === 2) {
       const c = card(`Heatmap of ${D.objective}`);
       const xs = [...new Set(ok.map(r => r.params[0]))].sort((a, b) => a - b), ys = [...new Set(ok.map(r => r.params[1]))].sort((a, b) => a - b);

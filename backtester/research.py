@@ -47,6 +47,28 @@ def _values(spec: str) -> list:
     return out
 
 
+def _label(text: str, m: re.Match) -> str:
+    """A readable column label for one placeholder, with the placeholder written out in full.
+
+    A placeholder glued to the word before it is labelled by that whole word ("RSI({2..5})"); otherwise the
+    previous word is prefixed ("below {5..25 step 5}", "hold {1,3,5}", "at {1..3}%").
+    """
+    a, b = m.start(), m.end()
+    while a > 0 and not text[a - 1].isspace():
+        a -= 1
+    while b < len(text) and not text[b].isspace():
+        b += 1
+    while b > m.end() and (text[b - 1] in ",.;:!?" or (text[b - 1] == ")" and text[a:b].count(")") > text[a:b].count("("))):
+        b -= 1  # trailing punctuation and unmatched closing brackets are not part of the word
+    while a < m.start() and text[a] == "(" and text[a:b].count("(") > text[a:b].count(")"):
+        a += 1  # likewise an unmatched opening bracket
+    word = text[a:b]
+    if a < m.start():  # glued on the left: "RSI({2..5})" names itself
+        return word
+    before = text[:a].split()  # free-standing or only a suffix ("{1..3}%"): prefix the previous word
+    return f"{before[-1].rstrip(',.;:')} {word}" if before else word
+
+
 def expand(text: str) -> tuple[list[str], list[str], list[tuple]]:
     """-> (parameter labels, filled-in texts, value tuples)."""
     specs = PLACEHOLDER.findall(text)
@@ -55,8 +77,11 @@ def expand(text: str) -> tuple[list[str], list[str], list[tuple]]:
     grids = [_values(s) for s in specs]
     labels = []
     for m in PLACEHOLDER.finditer(text):
-        before = text[max(0, m.start() - 18): m.start()].strip().split()
-        labels.append(((before[-1] if before else "p") + f" {{{m.group(1)}}}").strip())
+        lab = _label(text, m)
+        k, base = 2, lab
+        while lab in labels:  # labels key the CSV columns, so keep them unique
+            lab, k = f"{base} #{k}", k + 1
+        labels.append(lab)
     combos = list(itertools.product(*grids))
     if len(combos) > MAX_COMBOS:
         raise ValueError(f"{len(combos)} combinations; the limit is {MAX_COMBOS}. Use coarser steps.")
@@ -78,6 +103,7 @@ def _one(args) -> dict:
         return {"ok": True, "cagr": st["cagr"], "sharpe": st["sharpe"], "sortino": st["sortino"], "calmar": st["calmar"],
                 "max_drawdown": st["max_drawdown"], "total_return": st["total_return"], "final": st["end_equity"],
                 "trades": ts.get("trades", 0), "win_rate": ts.get("win_rate"), "profit_factor": ts.get("profit_factor"),
+                "skew": st["skew"], "kurtosis": st["kurtosis"], "n_obs": max(len(res.equity) - 1, 0),
                 "equity": res.equity}
     except Exception as e:  # noqa: BLE001 - one bad combination shouldn't sink the sweep
         return {"ok": False, "error": str(e).splitlines()[0]}
@@ -108,9 +134,23 @@ def sweep(text: str, objective: str = "sharpe", overrides: dict | None = None, k
     for r in best:
         i = rows.index(r)
         curves[" / ".join(str(p) for p in r["params"])] = outs[i]["equity"]
-    # stability: share of the neighbourhood around the best that is also good
     return {"labels": labels, "objective": objective, "rows": rows, "ranked": ok, "curves": curves,
-            "errors": [r for r in rows if not r["ok"]]}
+            "errors": [r for r in rows if not r["ok"]], "multiple_testing": multiple_testing(rows)}
+
+
+def multiple_testing(rows: list[dict]) -> dict:
+    """How impressive the best Sharpe is, given how many combinations were tried (Deflated Sharpe Ratio).
+
+    Only combinations that traded count as trials: a combination that never trades has no Sharpe.
+    """
+    trials = [r for r in rows if r.get("ok") and r.get("trades") and metrics._finite(r.get("sharpe"))]
+    if not trials:
+        return {"n_trials": 0, "n_combinations": len(rows)}
+    best = max(trials, key=lambda r: r["sharpe"])
+    out = metrics.deflated_sharpe(best["sharpe"], [r["sharpe"] for r in trials], best.get("n_obs") or 0,
+                                  best.get("skew") or 0.0, best.get("kurtosis") or 0.0)
+    out.update({"n_combinations": len(rows), "best_params": list(best["params"])})
+    return out
 
 
 def walk_forward(text: str, objective: str = "sharpe", in_sample_years: float = 5, out_sample_years: float = 1,

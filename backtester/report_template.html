@@ -47,6 +47,18 @@ h3 { font-size: 13px; margin: 14px 0 8px; font-weight: 600; color: var(--text-2)
 .interp { margin: 10px 0 0; padding: 10px 12px; background: var(--surface-2); border-radius: 8px; font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-2); white-space: pre-wrap; overflow-x: auto; }
 .note { color: var(--text-2); font-size: 12.5px; margin-top: 6px; }
 .warn { border-left: 3px solid var(--s4); padding: 6px 10px; background: var(--surface); border-radius: 0 8px 8px 0; margin-top: 8px; font-size: 12.5px; color: var(--text-2); }
+.banner { border: 1px solid var(--border); border-left: 4px solid var(--s4); border-radius: 8px; padding: 9px 12px; margin-top: 10px; background: var(--surface); font-size: 13px; }
+.banner b { display: block; font-size: 14px; margin-bottom: 2px; }
+.banner span { color: var(--text-2); }
+.banner.error { border-color: var(--bad); border-left-color: var(--bad); background: color-mix(in srgb, var(--bad) 9%, var(--surface)); }
+.banner.error b { color: var(--bad); }
+.banner.warn { border-left-color: var(--s4); background: color-mix(in srgb, var(--s4) 10%, var(--surface)); }
+.banner.info { border-left-color: var(--s1); }
+.pxwrap { position: relative; width: 100%; user-select: none; -webkit-user-select: none; contain: layout paint; }
+.pxwrap canvas, .pxwrap .tip { will-change: transform; }
+.pxwrap canvas { display: block; position: absolute; left: 0; top: 0; }
+.pxwrap canvas.top { cursor: crosshair; touch-action: pan-y; }
+.pxwrap canvas.top.drag { cursor: grabbing; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 16px; min-width: 0; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 16px; }
 .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; min-width: 0; }
@@ -116,6 +128,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       <button class="btn" onclick="window.print()">Save as PDF</button>
     </div>
   </div>
+  <div id="warnings"></div>
   <div class="interp" id="interp"></div>
   <div id="notes"></div>
 
@@ -157,10 +170,10 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     <div class="row"><h2>Price and trades <span class="pill runName"></span></h2>
       <div class="ctrls"><select id="pxTicker"></select>
         <div class="seg" id="pxRange"><button data-v="126">6M</button><button data-v="252" class="on">1Y</button><button data-v="1260">5Y</button><button data-v="0">All</button></div>
-        <button class="btn" id="pxPrev">◀</button><button class="btn" id="pxNext">▶</button></div></div>
+        <button class="btn" id="pxPrev" title="Earlier">◀</button><button class="btn" id="pxNext" title="Later">▶</button></div></div>
     <div class="legend" id="pxLegend"></div>
-    <div class="chart" id="pxChart"></div>
-    <p class="note">▲ entries and ▼ exits (short trades are drawn the other way round). Click a row in the trade list to jump to it.</p>
+    <div class="pxwrap" id="pxChart"></div>
+    <p class="note">Scroll to zoom, drag to pan, double-click to reset. Hover for prices, indicator values and trades on that day. ▲ entries and ▼ exits (short trades are drawn the other way round), with faint vertical lines through every pane. Click a row in the trade list to jump to it.</p>
   </div>
 
   <div class="card" id="allocCard">
@@ -267,6 +280,11 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     $('notes').replaceChildren();
     const notes = multi ? D.runs.flatMap(x => x.notes.map(n => x.name + ': ' + n)) : r.notes;
     notes.forEach(n => $('notes').appendChild(el('div', { class: /survivorship|Coverage|Membership/.test(n) ? 'warn' : 'note' }, 'Note: ' + n)));
+    $('warnings').replaceChildren();
+    const order = { error: 0, warn: 1, info: 2 };
+    const ws = (multi ? D.runs.flatMap(x => (x.warnings || []).map(w => ({ ...w, run: x.name }))) : (r.warnings || []).slice())
+      .sort((p, q) => (order[p.level] ?? 1) - (order[q.level] ?? 1));
+    ws.forEach(w => { const b = el('div', { class: 'banner ' + (w.level || 'warn'), role: w.level === 'error' ? 'alert' : 'status' }); b.append(el('b', {}, (w.run ? w.run + ': ' : '') + w.message), el('span', {}, w.detail || '')); $('warnings').append(b); });
     document.querySelectorAll('.runName').forEach(e => { e.textContent = multi ? r.name : ''; e.classList.toggle('hide', !multi); });
   }
 
@@ -300,7 +318,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
         rows.forEach(r => { const row = el('div', { class: 'r' }); const i = el('i'); i.style.background = r.color; row.append(i, el('b', {}, r.value), el('span', {}, r.name)); tip.appendChild(row); });
         tip.style.display = 'block';
         const w = tip.offsetWidth, cw = container.clientWidth;
-        tip.style.left = Math.min(Math.max(0, x + 14), cw - w) + 'px';
+        tip.style.left = (x + 14 + w > cw && x - 14 - w >= 0 ? x - 14 - w : Math.min(Math.max(0, x + 14), cw - w)) + 'px';
         tip.style.top = Math.max(0, y - 10) + 'px';
       },
       hide() { tip.style.display = 'none'; }
@@ -533,7 +551,66 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   }
 
   // ---------- price chart with trades
-  let pxRange = 252, pxEnd = null;
+  // Canvas, so it stays smooth for 10k+ bars: only the visible window is drawn and, when there are more bars
+  // than pixels, each pixel column is reduced to its min/max. Wheel zooms around the cursor, drag pans,
+  // double-click resets; oscillators used by the rules get their own panes with the rule's thresholds.
+  let pxRange = 252;
+  const PX = { a: 0, b: 0, key: null, P: null, trades: [], byBar: new Map(), geo: null, hover: null, drag: null, raf: 0, series: [] };
+  const PX_MIN_BARS = 10, PANE_H = 118, PANE_GAP = 12, PRICE_H = 340, AXIS_H = 24;
+  let pxBase, pxTop, pxTip;
+  function pxDom() {
+    if (pxBase) return;
+    const box = $('pxChart');
+    pxBase = el('canvas'); pxTop = el('canvas', { class: 'top', 'aria-label': 'Price chart: scroll to zoom, drag to pan, double-click to reset' });
+    box.append(pxBase, pxTop); pxTip = tipFor(box);
+    pxTop.addEventListener('wheel', ev => {
+      const g = PX.geo; if (!g) return;
+      ev.preventDefault();
+      const dy = Math.max(-300, Math.min(300, ev.deltaMode === 1 ? ev.deltaY * 33 : ev.deltaY));
+      const f = Math.exp(dy * 0.0015), p = pxLocal(ev);
+      const at = PX.a + Math.min(1, Math.max(0, (p.x - g.l) / g.iw)) * (PX.b - PX.a);
+      pxSetWindow(at - (at - PX.a) * f, at + (PX.b - at) * f);
+      pxCustom(); pxSchedule(p);
+    }, { passive: false });
+    pxTop.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0 || !PX.geo) return;
+      PX.drag = { x: ev.clientX, a: PX.a, b: PX.b, moved: false };
+      pxTop.setPointerCapture(ev.pointerId);
+    });
+    pxTop.addEventListener('pointermove', ev => {
+      const p = pxLocal(ev);
+      if (PX.drag) {
+        const dx = ev.clientX - PX.drag.x;
+        if (Math.abs(dx) > 2) { PX.drag.moved = true; pxTop.classList.add('drag'); }
+        if (PX.drag.moved) {
+          const di = -dx * (PX.width / (pxTop.getBoundingClientRect().width || 1)) / PX.geo.iw * (PX.drag.b - PX.drag.a);
+          pxSetWindow(PX.drag.a + di, PX.drag.b + di); pxCustom(); pxSchedule(null); return;
+        }
+      }
+      PX.hover = p; pxSchedule(p, true);
+    });
+    const end = () => { PX.drag = null; pxTop.classList.remove('drag'); };
+    pxTop.addEventListener('pointerup', end); pxTop.addEventListener('pointercancel', end);
+    pxTop.addEventListener('pointerleave', () => { if (PX.drag) return; PX.hover = null; pxSchedule(null, true); });
+    pxTop.addEventListener('dblclick', ev => { ev.preventDefault(); pxReset(); pxSchedule(pxLocal(ev)); });
+  }
+  function pxLocal(ev) { const bb = pxTop.getBoundingClientRect(), k = PX.width / (bb.width || 1); return { x: (ev.clientX - bb.left) * k, y: (ev.clientY - bb.top) * k }; }
+  function pxSetWindow(a, b) {
+    const n = PX.P ? PX.P.dates.length : 0; if (!n) return;
+    let w = Math.min(n, Math.max(Math.min(PX_MIN_BARS, n), b - a));
+    if (a < 0) { a = 0; b = w; } else b = a + w;
+    if (b > n) { b = n; a = n - w; }
+    PX.a = a; PX.b = b;
+  }
+  function pxRangeWindow() { const n = PX.P.dates.length, w = pxRange ? Math.min(pxRange, n) : n; const b = pxRange ? Math.min(n, Math.max(w, PX.b || n)) : n; pxSetWindow(b - w, b); }
+  function pxCustom() { [...$('pxRange').children].forEach(x => x.classList.remove('on')); }
+  function pxReset() { pxRange = 252; [...$('pxRange').children].forEach(x => x.classList.toggle('on', x.dataset.v === '252')); PX.b = PX.P.dates.length; pxRangeWindow(); }
+  function pxSchedule(p, overlayOnly) {
+    if (p !== undefined) PX.hover = p;
+    PX.needBase = PX.needBase || !overlayOnly;
+    if (PX.raf) return;
+    PX.raf = requestAnimationFrame(() => { PX.raf = 0; if (PX.needBase) pxDraw(); PX.needBase = false; pxOverlay(); });
+  }
   function drawPrice() {
     const r = R(), P = r.prices || {};
     const tks = Object.keys(P);
@@ -544,59 +621,281 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     if (tks.includes(sel0)) $('pxTicker').value = sel0;
     renderPrice();
   }
+  function lowerBound(arr, v) { let a = 0, b = arr.length; while (a < b) { const c = (a + b) >> 1; if (arr[c] < v) a = c + 1; else b = c; } return a; }
   function renderPrice(focus) {
+    pxDom();
     const r = R(), t = $('pxTicker').value, P = r.prices[t]; if (!P) return;
-    const n = P.dates.length;
-    if (focus) { const i = P.dates.findIndex(d => d >= focus.from); const j = P.dates.findIndex(d => d >= focus.to); const span = Math.max(40, (j < 0 ? n : j) - i + 30); pxRange = Math.max(pxRange && pxRange < span ? span : pxRange || span, 40); pxEnd = Math.min(n, (j < 0 ? n : j) + Math.round(pxRange * 0.3)); }
-    if (pxEnd == null || pxEnd > n) pxEnd = n;
-    const a = pxRange ? Math.max(0, pxEnd - pxRange) : 0, b = pxRange ? pxEnd : n;
-    const box = $('pxChart'); box.replaceChildren();
-    const W = box.clientWidth || 800, H = 360, m = { l: 56, r: 12, t: 10, b: 24 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
-    let lo = Infinity, hi = -Infinity;
-    for (let i = a; i < b; i++) { lo = Math.min(lo, P.l[i]); hi = Math.max(hi, P.h[i]); Object.values(P.overlays).forEach(o => { if (isNum(o[i])) { lo = Math.min(lo, o[i]); hi = Math.max(hi, o[i]); } }); }
-    const pad = (hi - lo) * 0.06; lo -= pad; hi += pad;
-    const X = i => m.l + (i - a + 0.5) / (b - a) * iw, Y = v => m.t + (1 - (v - lo) / (hi - lo)) * ih;
-    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, height: H });
-    niceTicks(lo, hi, 5).forEach(v => { svg.append(svgEl('line', { x1: m.l, x2: m.l + iw, y1: Y(v), y2: Y(v), stroke: css('--grid') })); const tx = svgEl('text', { x: m.l - 8, y: Y(v) + 4, 'text-anchor': 'end' }); tx.textContent = v.toFixed(v < 10 ? 2 : 0); svg.append(tx); });
-    const times = P.dates.slice(a, b).map(d => Date.parse(d));
-    timeTicks(times[0], times[times.length - 1], iw).forEach(([tt, lab]) => { let k = times.findIndex(x => x >= tt); if (k < 0) return; const tx = svgEl('text', { x: X(a + k), y: H - 6, 'text-anchor': 'middle' }); tx.textContent = lab; svg.append(tx); });
-    const cw = Math.max(1, iw / (b - a) * 0.6), candles = (b - a) <= 400;
-    let d = '';
-    for (let i = a; i < b; i++) {
-      if (candles) {
-        const up = P.c[i] >= P.o[i], col = up ? css('--up') : css('--down');
-        svg.append(svgEl('line', { x1: X(i), x2: X(i), y1: Y(P.h[i]), y2: Y(P.l[i]), stroke: col, 'stroke-width': 1 }));
-        svg.append(svgEl('rect', { x: X(i) - cw / 2, y: Y(Math.max(P.o[i], P.c[i])), width: cw, height: Math.max(1, Math.abs(Y(P.o[i]) - Y(P.c[i]))), fill: col }));
-      } else d += (i === a ? 'M' : 'L') + X(i).toFixed(1) + ',' + Y(P.c[i]).toFixed(1);
+    const key = sel + '|' + t, n = P.dates.length;
+    if (PX.key !== key) {
+      PX.key = key; PX.P = P; PX.a = 0; PX.b = n;
+      if (!P._t) P._t = P.dates.map(d => Date.parse(d));
+      const idx = new Map(P.dates.map((d, i) => [d, i]));
+      PX.trades = r.trades.filter(tr => tr.ticker === t).map(tr => ({ tr, ei: idx.get(tr.entry_date), xi: idx.get(tr.exit_date) }));
+      PX.byBar = new Map();
+      const add = (i, v) => { if (i == null) return; if (!PX.byBar.has(i)) PX.byBar.set(i, []); PX.byBar.get(i).push(v); };
+      PX.trades.forEach(x => { add(x.ei, { ...x, entry: true }); add(x.xi, { ...x, entry: false }); });
+      // colours: overlays first, then pane series, in one sequence so every line is distinct
+      let ci = 0; PX.series = [];
+      Object.keys(P.overlays || {}).forEach(k => PX.series.push({ name: k, values: P.overlays[k], color: color(ci++), pane: -1 }));
+      (P.panes || []).forEach((pn, pi) => Object.keys(pn.series).forEach(k => PX.series.push({ name: k, values: pn.series[k], color: /^macd_hist/.test(k) ? css('--neutral') : color(ci++), pane: pi, hist: /^macd_hist/.test(k) })));
+      pxRangeWindow();
     }
-    if (!candles) svg.append(svgEl('path', { d, fill: 'none', stroke: css('--text-2'), 'stroke-width': 1.5 }));
-    const ov = Object.keys(P.overlays), leg = [];
-    ov.forEach((k, j) => { const o = P.overlays[k]; let dd = '', pen = false; for (let i = a; i < b; i++) { if (!isNum(o[i])) { pen = false; continue; } dd += (pen ? 'L' : 'M') + X(i).toFixed(1) + ',' + Y(o[i]).toFixed(1); pen = true; } svg.append(svgEl('path', { d: dd, fill: 'none', stroke: color(j), 'stroke-width': 1.6 })); leg.push({ name: k, color: color(j) }); });
-    legend($('pxLegend'), leg.concat([{ name: 'entry', color: css('--up') }, { name: 'exit', color: css('--down') }]), 'box');
-    const idx = {}; P.dates.forEach((dt, i) => idx[dt] = i);
-    const tip = tipFor(box);
-    r.trades.filter(tr => tr.ticker === t).forEach(tr => {
-      const ei = idx[tr.entry_date], xi = idx[tr.exit_date];
-      const mk = (i, price, entry, isLong) => {
-        if (i == null || i < a || i >= b || !isNum(price)) return;
-        const pointsUp = entry ? isLong : !isLong, x = X(i), y = pointsUp ? Y(price) + 10 : Y(price) - 10, s = 6;
-        const path = pointsUp ? `M${x},${y - s}L${x - s},${y + s}L${x + s},${y + s}Z` : `M${x},${y + s}L${x - s},${y - s}L${x + s},${y - s}Z`;
-        const p = svgEl('path', { d: path, fill: entry ? css('--up') : css('--down'), stroke: css('--surface'), 'stroke-width': 1.5 });
-        const hitc = svgEl('circle', { cx: x, cy: y, r: 12, fill: 'transparent' });
-        const show = () => { const bb = svg.getBoundingClientRect(); tip.show(x * bb.width / W, 10, `#${tr.trade} ${tr.side} ${entry ? 'entry' : 'exit'} ${entry ? tr.entry_date : tr.exit_date}`, [{ name: entry ? tr.entry_fill : tr.exit_reason, value: num(entry ? tr.entry_price : tr.exit_price, 2), color: entry ? css('--up') : css('--down') }, { name: 'trade return', value: pct(tr.return), color: 'transparent' }]); };
-        hitc.addEventListener('pointerenter', show); hitc.addEventListener('pointerleave', () => tip.hide());
-        svg.append(p, hitc);
-      };
-      mk(ei, tr.entry_price, true, tr.side === 'long');
-      mk(xi, tr.exit_price, false, tr.side === 'long');
-      if (ei != null && xi != null && xi >= a && ei < b) svg.append(svgEl('line', { x1: X(Math.max(ei, a)), x2: X(Math.min(xi, b - 1)), y1: Y(tr.entry_price), y2: Y(tr.exit_price), stroke: tr.pnl > 0 ? css('--up') : css('--down'), 'stroke-dasharray': '3 3', 'stroke-width': 1 }));
-    });
-    box.append(svg);
+    if (focus) {
+      const i = Math.max(0, lowerBound(P.dates, focus.from)), j = Math.min(n - 1, lowerBound(P.dates, focus.to || focus.from));
+      const w = Math.max(PX.b - PX.a, j - i + 30, 40), mid = (i + j + 1) / 2;
+      pxSetWindow(mid - w / 2, mid + w / 2);
+    }
+    legend($('pxLegend'), PX.series.map(s => ({ name: s.name, color: s.color })).concat([{ name: 'entry', color: css('--up') }, { name: 'exit', color: css('--down') }]), 'box');
+    PX.hover = null; pxTip.hide();
+    pxSchedule(null);
   }
-  $('pxTicker').addEventListener('change', () => { pxEnd = null; renderPrice(); });
-  $('pxRange').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; pxRange = +b.dataset.v; [...$('pxRange').children].forEach(x => x.classList.toggle('on', x === b)); renderPrice(); });
-  $('pxPrev').addEventListener('click', () => { if (!pxRange) return; pxEnd = Math.max(pxRange, (pxEnd || 0) - Math.round(pxRange * 0.8)); renderPrice(); });
-  $('pxNext').addEventListener('click', () => { if (!pxRange) return; pxEnd = (pxEnd || 0) + Math.round(pxRange * 0.8); renderPrice(); });
+  function pxDraw() {
+    const P = PX.P; if (!P) return;
+    const box = $('pxChart'), W = box.clientWidth || 800, panes = P.panes || [];
+    const l = 56, rgt = 44, top = 8, iw = W - l - rgt;
+    const H = top + PRICE_H + panes.length * (PANE_H + PANE_GAP) + AXIS_H;
+    const dpr = window.devicePixelRatio || 1;
+    if (PX.size !== W + 'x' + H + '@' + dpr) {  // resizing a canvas reallocates it, so only when needed
+      PX.size = W + 'x' + H + '@' + dpr;
+      box.style.height = H + 'px';
+      [pxBase, pxTop].forEach(c => { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); c.style.width = W + 'px'; c.style.height = H + 'px'; });
+    }
+    PX.width = W;
+    const tStart = performance.now();
+    const ctx = pxBase.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+    const n = P.dates.length, a = PX.a, b = PX.b;
+    const i0 = Math.max(0, Math.floor(a)), i1 = Math.min(n - 1, Math.ceil(b) - 1);
+    const X = i => l + (i - a + 0.5) / (b - a) * iw, bpp = (b - a) / iw;
+    // regions: price pane, then one per oscillator family
+    const regions = [{ y: top, h: PRICE_H }].concat(panes.map((_, k) => ({ y: top + PRICE_H + PANE_GAP + k * (PANE_H + PANE_GAP), h: PANE_H })));
+    const bottom = regions[regions.length - 1].y + regions[regions.length - 1].h;
+    // price scale from the visible bars and overlays
+    let lo = Infinity, hi = -Infinity;
+    for (let i = i0; i <= i1; i++) { if (isNum(P.l[i])) lo = Math.min(lo, P.l[i]); if (isNum(P.h[i])) hi = Math.max(hi, P.h[i]); }
+    PX.series.forEach(s => { if (s.pane !== -1) return; for (let i = i0; i <= i1; i++) { const v = s.values[i]; if (isNum(v)) { if (v < lo) lo = v; if (v > hi) hi = v; } } });
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    const pad = (hi - lo) * 0.06 || Math.abs(hi) * 0.02 || 1; lo -= pad; hi += pad;
+    const rp = regions[0];
+    const scales = [{ lo, hi, Y: v => rp.y + (1 - (v - lo) / (hi - lo)) * rp.h }];
+    panes.forEach((pn, k) => {
+      const rg = regions[k + 1];
+      let plo = Infinity, phi = -Infinity;
+      PX.series.forEach(s => { if (s.pane !== k) return; for (let i = i0; i <= i1; i++) { const v = s.values[i]; if (isNum(v)) { if (v < plo) plo = v; if (v > phi) phi = v; } } });
+      (pn.levels || []).forEach(v => { plo = Math.min(plo, v); phi = Math.max(phi, v); });
+      if (pn.range) { plo = Math.min(plo, pn.range[0]); phi = Math.max(phi, pn.range[1]); }
+      if (PX.series.some(s => s.pane === k && s.hist)) { plo = Math.min(plo, 0); phi = Math.max(phi, 0); }
+      if (!isFinite(plo)) { plo = 0; phi = 1; }
+      const pp = pn.range ? 0 : (phi - plo) * 0.08 || 1; plo -= pp; phi += pp;
+      scales.push({ lo: plo, hi: phi, Y: v => rg.y + 4 + (1 - (v - plo) / (phi - plo || 1)) * (rg.h - 8) });
+    });
+    PX.geo = { l, iw, W, H, X, regions, scales, i0, i1, bottom };
+    const grid = css('--grid'), axis = css('--axis'), text3 = css('--text-3'), up = css('--up'), down = css('--down');
+    ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    // horizontal grid + y labels
+    regions.forEach((rg, k) => {
+      const sc = scales[k];
+      ctx.strokeStyle = axis; ctx.lineWidth = 1; ctx.strokeRect(l + 0.5, rg.y + 0.5, iw - 1, rg.h - 1);
+      niceTicks(sc.lo, sc.hi, k ? 3 : 6).forEach(v => {
+        const y = Math.round(sc.Y(v)) + 0.5; if (y < rg.y + 2 || y > rg.y + rg.h - 2) return;
+        ctx.strokeStyle = grid; ctx.beginPath(); ctx.moveTo(l, y); ctx.lineTo(l + iw, y); ctx.stroke();
+        ctx.fillStyle = text3; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.fillText(Math.abs(v) >= 1000 ? compact(v) : v.toFixed(Math.abs(v) < 10 && v !== Math.round(v) ? 2 : 0), l - 8, y);
+      });
+    });
+    // x axis: time labels + vertical grid through every pane
+    const tt = timeTicks(P._t[i0], P._t[i1], iw);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    tt.forEach(([t, lab]) => {
+      const k = lowerBound(P._t, t); if (k < i0 || k > i1) return;
+      const x = Math.round(X(k)) + 0.5;
+      ctx.strokeStyle = grid; regions.forEach(rg => { ctx.beginPath(); ctx.moveTo(x, rg.y + 1); ctx.lineTo(x, rg.y + rg.h - 1); ctx.stroke(); });
+      ctx.fillStyle = text3; ctx.fillText(lab, x, bottom + 16);
+    });
+    // clip each region while drawing data
+    const clip = rg => { ctx.save(); ctx.beginPath(); ctx.rect(l + 1, rg.y + 1, iw - 2, rg.h - 2); ctx.clip(); };
+    // threshold level labels (the dashed lines are drawn over the series below)
+    panes.forEach((pn, k) => {
+      const sc = scales[k + 1];
+      ctx.fillStyle = text3; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      (pn.levels || []).forEach(v => ctx.fillText(String(+v.toFixed(4)), l + iw + 4, sc.Y(v)));
+    });
+    // trade verticals through every pane (skipped when so many are visible that they would be a wash)
+    const vis = PX.trades.filter(x => (x.ei != null && x.ei >= i0 && x.ei <= i1) || (x.xi != null && x.xi >= i0 && x.xi <= i1));
+    const dense = vis.length > iw / 4;
+    if (!dense) {
+      ctx.globalAlpha = Math.max(0.1, Math.min(0.28, 12 / Math.max(1, vis.length))); ctx.lineWidth = 1;
+      vis.forEach(x => [[x.ei, up], [x.xi, down]].forEach(([i, c]) => {
+        if (i == null || i < i0 || i > i1) return; const px = Math.round(X(i)) + 0.5; ctx.strokeStyle = c;
+        regions.forEach(rg => { ctx.beginPath(); ctx.moveTo(px, rg.y + 1); ctx.lineTo(px, rg.y + rg.h - 1); ctx.stroke(); });
+      }));
+      ctx.globalAlpha = 1;
+    }
+    // price: candles when there is room, else a close line reduced to min/max per pixel column
+    clip(rp);
+    const Yp = scales[0].Y;
+    if (bpp <= 0.34) {
+      const cw = Math.max(1, 0.62 / bpp), wick = { true: new Path2D(), false: new Path2D() }, body = { true: new Path2D(), false: new Path2D() };
+      for (let i = i0; i <= i1; i++) {
+        const o = P.o[i], c = P.c[i]; if (!isNum(c)) continue;
+        const k = c >= o, x = X(i), xr = Math.round(x) + 0.5;
+        wick[k].moveTo(xr, Yp(P.h[i])); wick[k].lineTo(xr, Yp(P.l[i]));
+        const y1 = Yp(Math.max(o, c)), y2 = Yp(Math.min(o, c));
+        body[k].rect(x - cw / 2, y1, cw, Math.max(1, y2 - y1));
+      }
+      ctx.lineWidth = 1;
+      [[true, up], [false, down]].forEach(([k, col]) => { ctx.strokeStyle = col; ctx.fillStyle = col; ctx.stroke(wick[k]); ctx.fill(body[k]); });
+    } else if (bpp <= 1.2) {
+      // OHLC range sticks + close line
+      ctx.strokeStyle = css('--neutral'); ctx.lineWidth = 1; ctx.beginPath();
+      for (let i = i0; i <= i1; i++) { const x = Math.round(X(i)) + 0.5; ctx.moveTo(x, Yp(P.h[i])); ctx.lineTo(x, Yp(P.l[i])); }
+      ctx.stroke();
+      strokeSeries(ctx, P.c, i0, i1, X, Yp, bpp, css('--text-2'), 1.4);
+    } else {
+      // zoomed out: high/low envelope per pixel column + decimated close
+      ctx.strokeStyle = css('--neutral'); ctx.globalAlpha = 0.45; ctx.lineWidth = 1; ctx.beginPath();
+      let col = -1, mn = Infinity, mx = -Infinity;
+      const flush = () => { if (col >= 0 && isFinite(mn)) { ctx.moveTo(col + 0.5, Yp(mx)); ctx.lineTo(col + 0.5, Yp(mn) + 0.5); } };
+      for (let i = i0; i <= i1; i++) { const c = Math.floor(X(i)); if (c !== col) { flush(); col = c; mn = Infinity; mx = -Infinity; } if (isNum(P.l[i])) mn = Math.min(mn, P.l[i]); if (isNum(P.h[i])) mx = Math.max(mx, P.h[i]); }
+      flush(); ctx.stroke(); ctx.globalAlpha = 1;
+      strokeSeries(ctx, P.c, i0, i1, X, Yp, bpp, css('--text-2'), 1.4);
+    }
+    PX.series.forEach(s => { if (s.pane === -1) strokeSeries(ctx, s.values, i0, i1, X, Yp, bpp, s.color, 1.6); });
+    // trade markers and entry→exit connectors
+    const ms = dense ? 3 : 6;
+    if (!dense) {  // entry→exit connectors, green for winners and red for losers
+      ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+      [[true, up], [false, down]].forEach(([win, c]) => {
+        ctx.strokeStyle = c; ctx.beginPath();
+        vis.forEach(x => { const tr = x.tr; if ((tr.pnl > 0) !== win || x.ei == null || x.xi == null || !isNum(tr.entry_price) || !isNum(tr.exit_price)) return; ctx.moveTo(X(x.ei), Yp(tr.entry_price)); ctx.lineTo(X(x.xi), Yp(tr.exit_price)); });
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+    }
+    // markers: one path per colour, filled once
+    const tri = { true: new Path2D(), false: new Path2D() };
+    vis.forEach(x => {
+      const tr = x.tr, isLong = tr.side === 'long';
+      [[x.ei, tr.entry_price, true], [x.xi, tr.exit_price, false]].forEach(([i, price, entry]) => {
+        if (i == null || i < i0 || i > i1 || !isNum(price)) return;
+        const pointsUp = entry ? isLong : !isLong, cx = X(i), cy = pointsUp ? Yp(price) + ms + 4 : Yp(price) - ms - 4, pth = tri[entry];
+        if (pointsUp) { pth.moveTo(cx, cy - ms); pth.lineTo(cx - ms, cy + ms); pth.lineTo(cx + ms, cy + ms); }
+        else { pth.moveTo(cx, cy + ms); pth.lineTo(cx - ms, cy - ms); pth.lineTo(cx + ms, cy - ms); }
+        pth.closePath();
+      });
+    });
+    [[tri.true, up], [tri.false, down]].forEach(([pth, c]) => {
+      if (!dense) { ctx.strokeStyle = css('--surface'); ctx.lineWidth = 2; ctx.stroke(pth); }
+      ctx.fillStyle = c; ctx.fill(pth);
+    });
+    ctx.restore();
+    // oscillator series
+    panes.forEach((pn, k) => {
+      const rg = regions[k + 1], Y = scales[k + 1].Y;
+      clip(rg);
+      PX.series.forEach(s => {
+        if (s.pane !== k) return;
+        if (s.hist) {
+          const y0 = Y(0), bw = Math.max(1, 0.62 / bpp), pos = new Path2D(), neg = new Path2D();
+          let col = -1, best = null;
+          const bar = (x, v) => { const y = Y(v); (v >= 0 ? pos : neg).rect(x - bw / 2, Math.min(y, y0), bw, Math.max(1, Math.abs(y - y0))); };
+          if (bpp <= 1) { for (let i = i0; i <= i1; i++) if (isNum(s.values[i])) bar(X(i), s.values[i]); }
+          else {
+            for (let i = i0; i <= i1; i++) { const c = Math.floor(X(i)), v = s.values[i]; if (c !== col) { if (best != null) bar(col + 0.5, best); col = c; best = null; } if (isNum(v) && (best == null || Math.abs(v) > Math.abs(best))) best = v; }
+            if (best != null) bar(col + 0.5, best);
+          }
+          ctx.globalAlpha = 0.55; ctx.fillStyle = up; ctx.fill(pos); ctx.fillStyle = down; ctx.fill(neg); ctx.globalAlpha = 1;
+        } else strokeSeries(ctx, s.values, i0, i1, X, Y, bpp, s.color, 1.4);
+      });
+      // the rule's thresholds, on top so they stay visible over a dense trace
+      ctx.setLineDash([5, 4]); ctx.strokeStyle = css('--text'); ctx.globalAlpha = 0.7; ctx.lineWidth = 1;
+      (pn.levels || []).forEach(v => { const y = Math.round(Y(v)) + 0.5; ctx.beginPath(); ctx.moveTo(l, y); ctx.lineTo(l + iw, y); ctx.stroke(); });
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      ctx.restore();
+      // pane title on a small plate so the data never hides it
+      ctx.font = '600 11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+      const tw = ctx.measureText(pn.name).width + 10;
+      ctx.fillStyle = css('--surface'); ctx.globalAlpha = 0.85; ctx.fillRect(l + 2, rg.y + 2, tw, 16); ctx.globalAlpha = 1;
+      ctx.fillStyle = css('--text-2'); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(pn.name, l + 7, rg.y + 10);
+      ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    });
+    PX.drawMs = performance.now() - tStart;
+    pxBase.dataset.drawMs = PX.drawMs.toFixed(1);  // exposed for performance checks
+  }
+  // One path through the visible values; with more bars than pixels, each pixel column contributes its
+  // minimum and maximum (in time order), so spikes survive decimation.
+  function strokeSeries(ctx, vals, i0, i1, X, Y, bpp, colr, w) {
+    ctx.strokeStyle = colr; ctx.lineWidth = w; ctx.lineJoin = 'round'; ctx.beginPath();
+    let pen = false;
+    const pt = i => { const x = X(i), y = Y(vals[i]); if (pen) ctx.lineTo(x, y); else ctx.moveTo(x, y); pen = true; };
+    if (bpp <= 1) { for (let i = i0; i <= i1; i++) { if (isNum(vals[i])) pt(i); else pen = false; } }
+    else {
+      // One pixel-aligned rectangle per pixel column spanning that column's min..max (widened to meet the
+      // previous column's last value, so the trace stays continuous). Filling rectangles is far cheaper to
+      // rasterise than a zig-zag stroke with thousands of antialiased joins.
+      const bw = Math.max(1, Math.round(w * 0.8));
+      let col = -1, mn = 0, mx = 0, last = 0, has = false, prev = null;
+      const flush = () => {
+        if (!has) { prev = null; return; }
+        let a = mn, b = mx; if (prev != null) { a = Math.min(a, prev); b = Math.max(b, prev); }
+        const yt = Math.floor(Y(b)), yb = Math.ceil(Y(a));
+        ctx.rect(col, yt, bw, Math.max(bw, yb - yt));
+        prev = last;
+      };
+      for (let i = i0; i <= i1; i++) {
+        const c = Math.floor(X(i)); if (c !== col) { if (col >= 0) flush(); col = c; has = false; }
+        const v = vals[i]; if (!isNum(v)) continue;
+        if (!has) { has = true; mn = mx = v; } else { if (v < mn) mn = v; if (v > mx) mx = v; }
+        last = v;
+      }
+      if (col >= 0) flush();
+      ctx.fillStyle = colr; ctx.fill();
+      return;
+    }
+    ctx.stroke();
+  }
+  function pxOverlay() {
+    const g = PX.geo, P = PX.P; if (!g || !P) return;
+    const dpr = window.devicePixelRatio || 1, ctx = pxTop.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, g.W, g.H);
+    const p = PX.hover;
+    if (!p || PX.drag && PX.drag.moved || p.x < g.l || p.x > g.l + g.iw || p.y < g.regions[0].y || p.y > g.bottom) { pxTip.hide(); return; }
+    let i = Math.floor(PX.a + (p.x - g.l) / g.iw * (PX.b - PX.a)); i = Math.max(g.i0, Math.min(g.i1, i));
+    const x = Math.round(g.X(i)) + 0.5;
+    ctx.strokeStyle = css('--text-3'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    g.regions.forEach(rg => { ctx.beginPath(); ctx.moveTo(x, rg.y); ctx.lineTo(x, rg.y + rg.h); ctx.stroke(); });
+    const k = g.regions.findIndex(rg => p.y >= rg.y && p.y <= rg.y + rg.h);
+    if (k >= 0) {
+      const rg = g.regions[k], sc = g.scales[k], y = Math.round(p.y) + 0.5;
+      ctx.beginPath(); ctx.moveTo(g.l, y); ctx.lineTo(g.l + g.iw, y); ctx.stroke();
+      const v = sc.lo + (1 - (p.y - (k ? rg.y + 4 : rg.y)) / (k ? rg.h - 8 : rg.h)) * (sc.hi - sc.lo);
+      const lab = Math.abs(v) >= 1000 ? compact(v) : v.toFixed(2);
+      ctx.setLineDash([]); ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+      const tw = ctx.measureText(lab).width + 8;
+      ctx.fillStyle = css('--text'); ctx.fillRect(g.l - tw - 2, y - 8, tw, 16);
+      ctx.fillStyle = css('--surface'); ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(lab, g.l - 6, y);
+    }
+    ctx.setLineDash([]);
+    // dots on each series at the hovered bar
+    PX.series.forEach(s => { const v = s.values[i]; if (!isNum(v) || s.hist) return; const Y = g.scales[s.pane + 1].Y; ctx.beginPath(); ctx.arc(g.X(i), Y(v), 3.5, 0, Math.PI * 2); ctx.fillStyle = s.color; ctx.fill(); ctx.strokeStyle = css('--surface'); ctx.lineWidth = 1.5; ctx.stroke(); });
+    const f2 = v => num(v, 2), none = 'transparent';
+    const chg = i > 0 && isNum(P.c[i - 1]) ? P.c[i] / P.c[i - 1] - 1 : null;
+    const rows = [
+      { name: 'open', value: f2(P.o[i]), color: none }, { name: 'high', value: f2(P.h[i]), color: none },
+      { name: 'low', value: f2(P.l[i]), color: none }, { name: 'close' + (isNum(chg) ? ` (${chg >= 0 ? '+' : ''}${(chg * 100).toFixed(2)}%)` : ''), value: f2(P.c[i]), color: none },
+    ];
+    PX.series.forEach(s => rows.push({ name: s.name, value: isNum(s.values[i]) ? num(s.values[i], Math.abs(s.values[i]) < 10 ? 3 : 2) : '—', color: s.color }));
+    (PX.byBar.get(i) || []).forEach(x => {
+      const tr = x.tr;
+      rows.push({ name: `#${tr.trade} ${tr.side} ${x.entry ? 'entry (' + tr.entry_fill + ')' : 'exit (' + tr.exit_reason + ', ' + pct(tr.return) + ')'}`,
+        value: num(x.entry ? tr.entry_price : tr.exit_price, 2), color: x.entry ? css('--up') : css('--down') });
+    });
+    const bb = pxTop.getBoundingClientRect(), s = bb.width / g.W;
+    pxTip.show(g.X(i) * s, Math.max(0, p.y * s - 60), P.dates[i], rows);
+  }
+  $('pxTicker').addEventListener('change', () => { PX.key = null; renderPrice(); });
+  $('pxRange').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || !PX.P) return; pxRange = +b.dataset.v; [...$('pxRange').children].forEach(x => x.classList.toggle('on', x === b)); pxRangeWindow(); pxSchedule(null); });
+  $('pxPrev').addEventListener('click', () => { if (!PX.P) return; const w = PX.b - PX.a; pxSetWindow(PX.a - w * 0.8, PX.b - w * 0.8); pxSchedule(null); });
+  $('pxNext').addEventListener('click', () => { if (!PX.P) return; const w = PX.b - PX.a; pxSetWindow(PX.a + w * 0.8, PX.b + w * 0.8); pxSchedule(null); });
 
   // ---------- allocation over time (stacked area)
   function drawAlloc() {

@@ -21,9 +21,80 @@ from .engine import Result
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = Path(__file__).with_name("report_template.html")
-MAX_PRICE_POINTS = 60_000
-INDICATOR_RE = re.compile(r"\b(sma|ema|wma|rma|bb_upper|bb_lower|keltner_upper|keltner_lower|donchian_upper|"
+MAX_PRICE_POINTS = 200_000  # ~1.5 MB of JSON at most
+MAX_PRICE_TICKERS = 40
+# Price-scale indicators, drawn over the candles. The lookbehind skips sym("SPY").sma(200)-style calls on
+# another ticker, which would otherwise be evaluated on the charted one.
+INDICATOR_RE = re.compile(r"(?<![\w.])(sma|ema|wma|rma|bb_upper|bb_lower|keltner_upper|keltner_lower|donchian_upper|"
                           r"donchian_lower|supertrend|sar|monthly_sma|weekly_sma|vwap)\(([^()]*)\)")
+# Oscillators, drawn in sub-panes below the price: function -> (pane, fixed y-range or None).
+OSCILLATORS = {
+    "rsi": ("RSI", (0, 100)), "stoch_k": ("Stochastic", (0, 100)), "stoch_d": ("Stochastic", (0, 100)),
+    "macd": ("MACD", None), "macd_signal": ("MACD", None), "macd_hist": ("MACD", None),
+    "adx": ("ADX / DI", None), "plus_di": ("ADX / DI", None), "minus_di": ("ADX / DI", None),
+    "cci": ("CCI", None), "willr": ("Williams %R", (-100, 0)), "mfi": ("MFI", (0, 100)),
+    "zscore": ("Z-score", None), "pct_rank": ("Percent rank", None), "atr": ("ATR", None), "natr": ("NATR", None),
+}
+OSC_RE = re.compile(r"(?<![\w.])(" + "|".join(sorted(OSCILLATORS, key=len, reverse=True)) + r")\(([^()]*)\)")
+SIMPLE_ARGS = re.compile(r"\s*(close\s*,\s*)?[\d.\s,]*")
+MAX_PANES = 3
+
+
+def _nums(args: str) -> list[str]:
+    return [a.strip() for a in args.split(",") if a.strip() and a.strip() != "close"]
+
+
+def _companions(fn: str, args: str) -> list[str]:
+    """The calls that belong on the same pane: MACD line/signal/histogram, stochastic %K/%D."""
+    n = _nums(args)
+    if fn.startswith("macd"):
+        if not n:
+            return ["macd()", "macd_signal()", "macd_hist()"]
+        f, s = n[0], (n[1] if len(n) > 1 else "26")
+        g = n[2] if fn != "macd" and len(n) >= 3 else "9"
+        return [f"macd({f}, {s})", f"macd_signal({f}, {s}, {g})", f"macd_hist({f}, {s}, {g})"]
+    if fn in ("stoch_k", "stoch_d"):
+        if not n:
+            return ["stoch_k()", "stoch_d()"]
+        k = n[:2]
+        d = n[2:3] if fn == "stoch_d" else []
+        return [f"stoch_k({', '.join(k)})", f"stoch_d({', '.join(k + d)})"]
+    return [f"{fn}({args})"]
+
+
+def _levels(call: str, rules: str) -> list[float]:
+    """Numeric thresholds the rule compares this call against, e.g. rsi(close, 2) < 10 -> [10]."""
+    c = re.escape(call)
+    num_ = r"(-?\d+(?:\.\d+)?)"
+    out = [float(m.group(1)) for m in re.finditer(c + r"\s*(?:<=|>=|<|>|==)\s*" + num_ + r"(?![\w.(])", rules)]
+    out += [float(m.group(1)) for m in re.finditer(r"(?<![\w.)])" + num_ + r"\s*(?:<=|>=|<|>|==)\s*" + c, rules)]
+    return out
+
+
+def oscillator_panes(rules: str) -> list[dict]:
+    """Group the oscillators a rule uses into sub-panes: [{name, calls, levels, range}]."""
+    panes: dict[str, dict] = {}
+    for m in OSC_RE.finditer(rules):
+        fn, args = m.group(1), m.group(2)
+        if not SIMPLE_ARGS.fullmatch(args):
+            continue
+        name, rng = OSCILLATORS[fn]
+        p = panes.setdefault(name, {"name": name, "calls": [], "levels": [], "range": list(rng) if rng else None})
+        for c in _companions(fn, args):
+            if c not in p["calls"] and len(p["calls"]) < 4:
+                p["calls"].append(c)
+        for lv in _levels(m.group(0), rules):
+            if lv not in p["levels"]:
+                p["levels"].append(lv)
+    return list(panes.values())[:MAX_PANES]
+
+
+def _values(call: str, ns, index) -> list | None:
+    try:
+        v = expr.evaluate_value(call, ns).reindex(index)
+    except Exception:  # noqa: BLE001 - indicator plots are best effort
+        return None
+    return [None if not np.isfinite(x) else round(float(x), 4) for x in v.to_numpy(dtype=float)]
 
 
 def slug(text: str) -> str:
@@ -109,42 +180,60 @@ def _primary_bench(res: Result, benches: dict[str, pd.Series]) -> tuple[str, pd.
 
 
 def price_payload(res: Result, budget: int = MAX_PRICE_POINTS) -> dict:
-    """OHLC + indicator overlays for the traded tickers (most-traded first), within a size budget."""
+    """OHLC + indicators for the traded tickers (most-traded first), within a size budget.
+
+    Price-scale indicators (moving averages, bands, stops) go in "overlays"; oscillators used by the rules
+    (RSI, MACD, stochastic, ADX, CCI, Williams %R, MFI...) go in "panes", one sub-pane per indicator family,
+    with the rule's numeric thresholds as "levels".
+    """
     if res.trades is None or res.trades.empty or res.kind != "signal":
         return {}
     counts = res.trades["ticker"].value_counts()
     start = res.equity.index[1]
     end = res.equity.index[-1]
     rules = " ".join(r for r in (res.strategy.entry, getattr(res.strategy, "short_entry", None),
-                                 res.strategy.exit_when) if r)
-    calls = []
-    for m in INDICATOR_RE.finditer(rules):
-        args = m.group(2)
-        if re.fullmatch(r"\s*(close\s*,\s*)?[\d.\s,]*", args):
-            calls.append(m.group(0))
+                                 res.strategy.exit_when) if isinstance(r, str) and r)
+    calls = [m.group(0) for m in INDICATOR_RE.finditer(rules) if SIMPLE_ARGS.fullmatch(m.group(2))]
     calls = list(dict.fromkeys(calls))[:6]
+    panes = oscillator_panes(rules)
+    n_series = 5 + len(calls) + sum(len(p["calls"]) for p in panes)
     out, used = {}, 0
     for t in counts.index:
         df = res.prices.get(t)
         if df is None:
             continue
         seg = df[(df.index >= start) & (df.index <= end)]
-        cost = len(seg) * (5 + len(calls))
-        if used + cost > budget and out:
+        if len(counts) > 1:
+            # many tickers: ship only the stretch around this ticker's trades so more tickers fit the budget
+            tt = res.trades[res.trades["ticker"] == t]
+            lo = seg.index.searchsorted(pd.Timestamp(min(tt["entry_date"])))
+            hi = seg.index.searchsorted(pd.Timestamp(max(tt["exit_date"])), side="right")
+            seg = seg.iloc[max(0, lo - 300): hi + 60]
+        cost = len(seg) * n_series
+        if len(out) >= MAX_PRICE_TICKERS:
             break
+        if used + cost > budget and out:
+            continue  # a less-traded ticker with a shorter stretch may still fit
         ns = expr.Namespace(df, ticker=t)
         overlays = {}
         for c in calls:
-            try:
-                v = expr.evaluate_value(c, ns).reindex(seg.index)
-                overlays[c] = [None if not np.isfinite(x) else round(float(x), 4) for x in v]
-            except Exception:  # noqa: BLE001 - overlays are best effort
-                pass
+            v = _values(c, ns, seg.index)
+            if v is not None:
+                overlays[c] = v
+        tpanes = []
+        for p in panes:
+            series = {}
+            for c in p["calls"]:
+                v = _values(c, ns, seg.index)
+                if v is not None:
+                    series[c] = v
+            if series:
+                tpanes.append({"name": p["name"], "series": series, "levels": p["levels"], "range": p["range"]})
         out[t] = {
             "dates": [d.strftime("%Y-%m-%d") for d in seg.index],
             "o": seg["open"].round(4).tolist(), "h": seg["high"].round(4).tolist(),
             "l": seg["low"].round(4).tolist(), "c": seg["close"].round(4).tolist(),
-            "overlays": overlays,
+            "overlays": overlays, "panes": tpanes,
         }
         used += cost
     return out
@@ -180,10 +269,14 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
     nv = metrics.nav(res.equity, flows) if has_flows else res.equity
     stats = metrics.equity_stats(res.equity, rf, flows if has_flows else None)
     tstats = metrics.trade_stats(res.trades, stats["years"])
+    no_trades = res.kind == "signal" and not tstats.get("trades")
+    warnings = metrics.result_warnings(res.kind, stats, tstats, res.interest, has_flows)
+    if no_trades:
+        stats = metrics.suppress_degenerate(stats)
     expo = metrics.exposure_stats(res.exposure, res.positions, res.in_market)
     benches = benchmark_series(res)
     pname, pseries = _primary_bench(res, benches)
-    rel = metrics.relative_stats(nv, pseries, rf)
+    rel = {} if no_trades else metrics.relative_stats(nv, pseries, rf)  # beta/alpha of idle cash mean nothing
     yearly = metrics.yearly_detail(nv, res.trades, res.exposure)
     yr_b = metrics.yearly_returns(benches)
     for n in yr_b:
@@ -195,10 +288,11 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
         "benchmarks": benches, "yearly": yearly, "monthly": metrics.monthly_table(nv),
         "drawdowns": metrics.drawdown_table(nv, 5), "rf": rf, "interest": res.interest,
         "turnover": res.extras.get("turnover_annual"), "rebalances": res.extras.get("rebalances"),
+        "warnings": warnings, "no_trades": no_trades,
     }
     if detail:
-        A["monte_carlo"] = metrics.monte_carlo(res.equity, flows if has_flows else None) if mc else {}
-        A["sensitivity"] = cost_sensitivity(res) if sensitivity else []
+        A["monte_carlo"] = metrics.monte_carlo(res.equity, flows if has_flows else None) if mc and not no_trades else {}
+        A["sensitivity"] = cost_sensitivity(res) if sensitivity and not no_trades else []
         A["rolling"] = metrics.rolling_series(nv, pseries, rf)
         A["rolling_summary"] = metrics.rolling_summary(nv)
         A["crises"] = metrics.crisis_table({"Strategy": nv, **benches})
@@ -215,9 +309,12 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
 
 def common_window_stats(analyses: list[dict], rf="tbill") -> dict:
     """Stats for every run and benchmark over their common period (like-for-like comparison)."""
-    series = {}
+    series, blank = {}, set()
     for i, A in enumerate(analyses):
-        series[_run_name(A["result"], i) if len(analyses) > 1 else "Strategy"] = A["nav"]
+        name = _run_name(A["result"], i) if len(analyses) > 1 else "Strategy"
+        series[name] = A["nav"]
+        if A.get("no_trades"):
+            blank.add(name)
     for k, v in analyses[0]["benchmarks"].items():
         series[k] = v
     start = max(s.index[0] for s in series.values())
@@ -228,7 +325,7 @@ def common_window_stats(analyses: list[dict], rf="tbill") -> dict:
         if len(seg) < 30:
             continue
         st = metrics.equity_stats(seg / seg.iloc[0] * 10_000, rf)
-        out["columns"][k] = st
+        out["columns"][k] = metrics.suppress_degenerate(st) if k in blank else st
     return out
 
 
@@ -251,6 +348,9 @@ def console_summary(A: dict) -> str:
     L = ["=" * 78, s.description or s.name or "(strategy)", "-" * 78, s.summary()]
     for n in s.notes:
         L.append(f"Note: {n}")
+    for w in A.get("warnings") or []:
+        tag = {"error": "WARNING", "warn": "Warning", "info": "Note"}.get(w["level"], "Warning")
+        L.append(f"{tag}: {w['message']}. {w['detail']}")
     L.append("-" * 78)
     L.append(f"Period            {st['start']} -> {st['end']}  ({st['years']:.1f} years)")
     if A.get("cash"):
@@ -350,6 +450,7 @@ def run_payload(A: dict, i: int, idx: pd.DatetimeIndex) -> dict:
         "factors": A.get("factors", {}),
         "correlation": A.get("correlation", {}),
         "interest": A["interest"], "turnover": A["turnover"], "rebalances": A["rebalances"],
+        "warnings": A.get("warnings", []),
         "trades": _trades_records(res),
         "orders": res.orders.to_dict("records") if res.orders is not None and not res.orders.empty and len(res.orders) <= 20000 else [],
         "holdings": holdings_payload(res),
@@ -409,7 +510,7 @@ def write_outputs(analyses: list[dict] | dict, out_dir: Path, excel: bool = True
         summary = {k: A.get(k) for k in ("stats", "cash", "trade_stats", "exposure", "relative", "monte_carlo",
                                          "sensitivity", "rolling_summary", "crises", "factors")}
         summary.update({"description": A["strategy"].description, "interpretation": A["strategy"].summary(),
-                        "notes": A["strategy"].notes, "kind": res.kind,
+                        "notes": A["strategy"].notes, "kind": res.kind, "warnings": A.get("warnings", []),
                         "drawdowns": A["drawdowns"].to_dict("records")})
         (out_dir / f"{pre}summary.json").write_text(json.dumps(_clean(summary), indent=2))
         if excel:
