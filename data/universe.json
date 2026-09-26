@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-09-26T10:23:40+00:00",
+ "updated_utc": "2026-09-26T11:10:06+00:00",
  "constituent_source": "stockanalysis.com",
  "nasdaq100": [
   "AAPL",
@@ -196,6 +196,7 @@
   "CHTR",
   "CPWR",
   "CSGP",
+  "CTRP",
   "CTSH",
   "DELL",
   "DISCA",
@@ -205,6 +206,7 @@
   "ENPH",
   "EQIX",
   "ERIC",
+  "ERICY",
   "EXPD",
   "EXPE",
   "FB",
@@ -220,6 +222,7 @@
   "GNTX",
   "GOLD",
   "GRMN",
+  "HANS",
   "HAS",
   "HSIC",
   "ILMN",
@@ -228,7 +231,11 @@
   "JAVA",
   "JBHT",
   "JD",
+  "JDSU",
+  "JDSUD",
+  "KFT",
   "KHC",
+  "KLA",
   "LAMR",
   "LBTYA",
   "LBTYK",
@@ -242,6 +249,8 @@
   "MICC",
   "MRNA",
   "MTCH",
+  "MYL",
+  "NLOK",
   "NTAP",
   "NTES",
   "NWSA",
@@ -254,6 +263,7 @@
   "PTEN",
   "PTON",
   "QGEN",
+  "RIMM",
   "RIVN",
   "RYAAY",
   "SANM",
@@ -267,6 +277,7 @@
   "SSCC",
   "STLD",
   "SWKS",
+  "SYMC",
   "TCOM",
   "TEAM",
   "TEVA",
@@ -275,6 +286,7 @@
   "TSCO",
   "TTD",
   "UAL",
+  "UAUA",
   "ULTA",
   "URBN",
   "VIP",
@@ -282,6 +294,7 @@
   "VRSK",
   "VRSN",
   "VRTS",
+  "WLTW",
   "WYNN",
   "XRAY",
   "ZM",
@@ -310,13 +323,11 @@
   "CHIR",
   "CKFR",
   "CMVT",
-  "CTRP",
   "CTRX",
   "CTXS",
   "DISH",
   "DTV",
   "EA",
-  "ERICY",
   "ERTS",
   "ESRX",
   "FHCC",
@@ -324,17 +335,12 @@
   "FMCN",
   "FWLT",
   "GMCR",
-  "HANS",
   "HOLX",
   "IACI",
   "ISIL",
   "IVGN",
-  "JDSU",
-  "JDSUD",
   "JNPR",
   "JOYG",
-  "KFT",
-  "KLA",
   "KRFT",
   "LEAP",
   "LINTA",
@@ -348,10 +354,8 @@
   "MLNM",
   "MOLX",
   "MXIM",
-  "MYL",
   "NELV",
   "NIHD",
-  "NLOK",
   "NTLI",
   "NUAN",
   "NVLS",
@@ -366,7 +370,6 @@
   "QRTEA",
   "QVCA",
   "RHAT",
-  "RIMM",
   "SEBL",
   "SEPR",
   "SGEN",
@@ -376,18 +379,15 @@
   "SRCL",
   "STRZA",
   "SUNW",
-  "SYMC",
   "TFCF",
   "TFCFA",
   "TLAB",
-  "UAUA",
   "VIAB",
   "VMED",
   "WBA",
   "WCRX",
   "WFM",
   "WFMI",
-  "WLTW",
   "XLNX",
   "XMSR",
   "YHOO"
@@ -1313,6 +1313,11 @@
    "last": "2026-09-25",
    "rows": 7103
   },
+  "CTRP": {
+   "first": "2003-12-09",
+   "last": "2026-09-25",
+   "rows": 5735
+  },
   "CTSH": {
    "first": "1998-06-19",
    "last": "2026-09-25",
@@ -1354,6 +1359,11 @@
    "rows": 6569
   },
   "ERIC": {
+   "first": "1981-08-24",
+   "last": "2026-09-25",
+   "rows": 11364
+  },
+  "ERICY": {
    "first": "1981-08-24",
    "last": "2026-09-25",
    "rows": 11364
@@ -1433,6 +1443,11 @@
    "last": "2026-09-25",
    "rows": 6486
   },
+  "HANS": {
+   "first": "1985-12-09",
+   "last": "2026-09-25",
+   "rows": 10278
+  },
   "HAS": {
    "first": "1980-03-17",
    "last": "2026-09-25",
@@ -1473,10 +1488,30 @@
    "last": "2026-09-25",
    "rows": 3105
   },
+  "JDSU": {
+   "first": "1993-11-17",
+   "last": "2026-09-25",
+   "rows": 8269
+  },
+  "JDSUD": {
+   "first": "1993-11-17",
+   "last": "2026-09-25",
+   "rows": 8269
+  },
+  "KFT": {
+   "first": "2001-06-13",
+   "last": "2026-09-25",
+   "rows": 6359
+  },
   "KHC": {
    "first": "2015-07-06",
    "last": "2026-09-25",
    "rows": 2824
+  },
+  "KLA": {
+   "first": "1980-10-08",
+   "last": "2026-09-25",
+   "rows": 11584
   },
   "LAMR": {
    "first": "1996-08-02",
@@ -1543,6 +1578,16 @@
    "last": "2026-09-25",
    "rows": 8480
   },
+  "MYL": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "NLOK": {
+   "first": "1989-06-23",
+   "last": "2026-09-25",
+   "rows": 9383
+  },
   "NTAP": {
    "first": "1995-11-21",
    "last": "2026-09-25",
@@ -1602,6 +1647,11 @@
    "first": "1996-06-28",
    "last": "2026-09-25",
    "rows": 7609
+  },
+  "RIMM": {
+   "first": "1999-02-04",
+   "last": "2026-09-25",
+   "rows": 6953
   },
   "RIVN": {
    "first": "2021-11-10",
@@ -1663,6 +1713,11 @@
    "last": "2026-09-25",
    "rows": 10594
   },
+  "SYMC": {
+   "first": "1989-06-23",
+   "last": "2026-09-25",
+   "rows": 9383
+  },
   "TCOM": {
    "first": "2003-12-09",
    "last": "2026-09-25",
@@ -1694,6 +1749,11 @@
    "rows": 2517
   },
   "UAL": {
+   "first": "2006-02-06",
+   "last": "2026-09-25",
+   "rows": 5192
+  },
+  "UAUA": {
    "first": "2006-02-06",
    "last": "2026-09-25",
    "rows": 5192
@@ -1732,6 +1792,11 @@
    "first": "2009-01-02",
    "last": "2026-09-25",
    "rows": 4460
+  },
+  "WLTW": {
+   "first": "2001-06-12",
+   "last": "2026-09-25",
+   "rows": 6360
   },
   "WYNN": {
    "first": "2002-10-25",
