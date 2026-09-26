@@ -76,7 +76,15 @@ SIMS = {"SPYSIM": "US stock market (Fama-French market return) spliced into SPY"
         "TLTSIM": "20-year Treasuries priced from FRED yields, spliced into TLT",
         "IEFSIM": "~9-year Treasuries from the 10-year yield, spliced into IEF",
         "SHYSIM": "2-year Treasuries from the 2-year yield, spliced into SHY",
-        "BILSIM": "1-month T-bills (Fama-French RF), spliced into BIL"}
+        "BILSIM": "1-month T-bills (Fama-French RF), spliced into BIL",
+        "IEISIM": "5-year Treasuries from the 5-year yield, spliced into IEI",
+        "VBSIM": "US small caps (Fama-French small portfolios) from 1926, spliced into VB",
+        "VBRSIM": "US small-cap value (Fama-French small/high B/M) from 1926, spliced into VBR",
+        "VTVSIM": "US large-cap value (Fama-French big/high B/M) from 1926, spliced into VTV",
+        "VUGSIM": "US large-cap growth (Fama-French big/low B/M) from 1926, spliced into VUG",
+        "VNQSIM": "US real estate (Fama-French 49-industry RlEst) from 1926, spliced into VNQ",
+        "EFASIM": "Developed ex-US stocks (Fama-French) from 1990, spliced into EFA",
+        "GLDSIM": "Gold (World Bank monthly average price, stepped daily) from 1960, spliced into GLD"}
 
 
 def is_sim(ticker: str) -> bool:
@@ -90,7 +98,16 @@ def sims() -> list[str]:
 
 
 # symbols that show up in old revisions of the Wikipedia article but were never index members
-NOT_MEMBERS = {"NDX", "QQQ", "QQQQ", "TQQQ", "SQQQ", "QLD", "QID", "PSQ", "ONEQ", "NASDAQ", "ETF", "NQ", "ND"}
+NOT_MEMBERS = {"NDX", "QQQ", "QQQQ", "TQQQ", "SQQQ", "QLD", "QID", "PSQ", "ONEQ", "NASDAQ", "ETF", "NQ", "ND",
+               "NXP"}  # NXP is a Nuveen municipal fund (a typo for NXPI in one stretch of revisions)
+
+# Symbols reused by a different company. The price file holds the current company, so it only stands
+# for the index member from this date on (earlier member-months count as missing data).
+IDENTITY_FROM = {
+    "MNST": "2012-01-09",   # Monster Worldwide until 2011; the file is Monster Beverage (ex-HANS)
+}
+# the same company listed under two symbols in some revisions: keep the second
+DUPLICATES = {"KLA": "KLAC", "WFMI": "WFM", "ERTS": "EA"}
 
 # a member's series must look like a large Nasdaq stock: this catches recycled tickers (a small
 # company that later took over a former member's symbol) and junk series with no trading
@@ -107,8 +124,8 @@ def quality(ticker: str) -> pd.Series:
         df = load(ticker)
     except DataError:
         return pd.Series(dtype=bool)
-    dv = (df["close"] * df["volume"]).rolling(20, min_periods=5).median()
-    zero = (df["volume"] <= 0).astype(float).rolling(20, min_periods=5).mean()
+    dv = (df["close"] * df["volume"]).rolling(20, min_periods=5).median().shift(1)
+    zero = (df["volume"] <= 0).astype(float).rolling(20, min_periods=5).mean().shift(1)
     ok = (dv >= MIN_DOLLAR_VOLUME) & (zero <= 0.5)
     return ok.fillna(False)
 
@@ -175,9 +192,15 @@ def coverage_note(start, end) -> str | None:
     tot = (c["members"]).sum()
     got = (c["with_data"]).sum()
     worst = c.loc[c["coverage"].idxmin()]
-    return (f"Survivorship: {got / tot:.0%} of index member-months in this period have usable price data "
+    note = (f"Survivorship: {got / tot:.0%} of index member-months in this period have usable price data "
             f"(lowest {worst['coverage']:.0%} in {int(worst['year'])}). The rest are mostly companies that were acquired "
             f"or went bankrupt; free data sources no longer carry them, so results lean optimistic.")
+    gaps = [g for g in _membership_gaps(membership())
+            if pd.Timestamp(g.split(" .. ")[1]) >= pd.Timestamp(start) and pd.Timestamp(g.split(" .. ")[0]) <= pd.Timestamp(end)]
+    if gaps:
+        note += (" Membership snapshots are missing for " + ", ".join(gaps)
+                 + "; the last known list is carried forward across those gaps.")
+    return note
 
 
 @lru_cache(maxsize=1)
@@ -190,11 +213,20 @@ def membership() -> pd.DataFrame | None:
         return None
     bad = NOT_MEMBERS | set(etfs())
     rows = {pd.Period(m, "M").to_timestamp(): set(t.split()) - bad for m, t in zip(raw["month"], raw["tickers"])}
+    for d, syms in rows.items():
+        for old, new in DUPLICATES.items():
+            if old in syms and new in syms:
+                syms.discard(old)
     names = sorted(set().union(*rows.values()))
     df = pd.DataFrame(False, index=sorted(rows), columns=names)
-    for d, s in rows.items():
-        df.loc[d, list(s)] = True
-    return df
+    for d, syms in rows.items():
+        df.loc[d, list(syms)] = True
+    # a name missing from one snapshot but present before and after is a transcription slip, not a
+    # removal and re-addition
+    v = df.to_numpy(copy=True)
+    blip = ~v[1:-1] & v[:-2] & v[2:]
+    v[1:-1] |= blip
+    return pd.DataFrame(v, index=df.index, columns=df.columns)
 
 
 def nasdaq100_ever() -> list[str]:
@@ -224,6 +256,8 @@ def member_mask(tickers: list[str], index: pd.DatetimeIndex) -> tuple[np.ndarray
     out[:] = aligned
     # never treat a junk or recycled-ticker series as the index member
     for j, t in enumerate(tickers):
+        if t in IDENTITY_FROM:
+            out[:, j] &= np.asarray(index >= pd.Timestamp(IDENTITY_FROM[t]))
         q = quality(t)
         out[:, j] &= q.reindex(index).fillna(False).to_numpy(dtype=bool) if not q.empty else False
     before = index < first
@@ -264,6 +298,10 @@ def load(ticker: str) -> pd.DataFrame:
     adj = raw["adj_close"] if "adj_close" in raw else raw["close"]
     df["adj_close"] = adj.where(adj > 0, raw["close"]).ffill()
     df["quote_close"] = df["close"]
+    # opening prices that were never quoted: missing, or a flat bar (open = high = low = close), as
+    # for mutual funds, simulated series and very old index data. Such an "open" is really the close.
+    flat = (raw["open"] == raw["close"]) & (raw["high"] == raw["low"]) & (raw["high"] == raw["close"])
+    df["open_ok"] = (raw["open"] > 0).fillna(False) & ~flat.fillna(False)
     return df
 
 
