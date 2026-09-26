@@ -16,6 +16,19 @@ cash-flow schedule. Return models:
 Cash flows are applied at the start of each period, pro rata to the current holdings (so they do
 not change the mix); that makes the portfolio's monthly return independent of the flows, and the
 balance follows B[m+1] = (B[m] + F[m]) * (1 + r[m]). A path fails when the balance reaches zero.
+The first period's flow is made at the very start, like Portfolio Visualizer and like the backtest
+(portfolio.py): "add $1,000 a month for 20 years" is 240 contributions, the first one on day one.
+
+History: monthly returns run month end to month end; a month still in progress at the end of the data is
+left out, and the history is labelled with the last trading day actually used.
+
+Stress tests (Settings.stress):
+  worst_sequence  every path starts with the worst historical run of `stress_years` years (the lowest
+                  compounded return of the portfolio over any window of that length), then continues with
+                  the chosen model: sequence-of-returns risk for someone retiring into a bad decade
+  shock           every path's first year returns `stress_shock` (default -30%), spread evenly over its
+                  twelve months, then continues with the model
+Horizon: `years`, or `until_age - age` when both ages are given ("withdraw until age 95").
 """
 from __future__ import annotations
 
@@ -75,6 +88,11 @@ class Settings:
     success_target: float = 0.95                  # for the safe withdrawal rate
     series: pd.Series | None = None               # monthly returns of a whole strategy (instead of weights)
     series_name: str = "Portfolio"
+    stress: str | None = None                     # None, "worst_sequence" or "shock"
+    stress_years: int = 10                        # length of the worst historical sequence placed first
+    stress_shock: float = -0.30                   # first-year return of the "shock" stress test
+    age: float | None = None                      # current age: with until_age, the horizon is until_age - age
+    until_age: float | None = None
 
 
 # ------------------------------------------------------------------ history
@@ -86,10 +104,15 @@ def monthly_asset_returns(tickers: list[str], start=None, end=None) -> pd.DataFr
         px = px[px.index >= pd.Timestamp(start)]
     if end:
         px = px[px.index <= pd.Timestamp(end)]
-    me = px.resample("ME").last()
-    # drop a first month-end that is only a partial month
+    me = complete_months(px)
+    # the first month-end is the base of the first return (a partial first month has no return)
     r = me.pct_change().iloc[1:]
     return r.dropna()
+
+
+def complete_months(px):
+    from .metrics import complete_months as cm
+    return cm(px)
 
 
 def monthly_inflation(index: pd.DatetimeIndex | None = None) -> pd.Series:
@@ -255,8 +278,17 @@ def _history(s: Settings) -> tuple[pd.DataFrame, np.ndarray, list[str]]:
 def run(s: Settings) -> dict:
     if s.model not in MODELS:
         raise ValueError(f"model must be one of {MODELS}")
+    notes = []
+    if s.age is not None and s.until_age is not None:
+        yrs = int(round(float(s.until_age) - float(s.age)))
+        if yrs < 1:
+            raise ValueError(f"The final age ({s.until_age:g}) must be above the current age ({s.age:g}).")
+        s.years = yrs
+        notes.append(f"Horizon: {yrs} years, from age {s.age:g} until age {s.until_age:g}.")
     if not (1 <= s.years <= 100):
         raise ValueError("Horizon must be between 1 and 100 years.")
+    if s.stress not in (None, "", "none", "worst_sequence", "shock"):
+        raise ValueError("stress must be 'worst_sequence' or 'shock'")
     if not (100 <= s.sims <= 50_000):
         raise ValueError("Number of simulations must be between 100 and 50,000.")
     hist, w, tick = _history(s)
@@ -269,7 +301,6 @@ def run(s: Settings) -> dict:
     n = H.shape[1]
     if sims * months * n > 60_000_000:
         raise ValueError(f"{sims:,} simulations x {months} months x {n} assets is too large; use fewer simulations.")
-    notes = []
     hist_infl = monthly_inflation(hist.index)
     fixed_infl = None if s.inflation == "historical" else float(s.inflation)
     if fixed_infl is None and hist_infl.isna().all():
@@ -316,10 +347,39 @@ def run(s: Settings) -> dict:
             I = full[_draw_blocks(rng, len(full), months, sims, max(s.block_months, 1))]
     if fixed_infl is not None:
         I = np.full((sims, months), (1 + fixed_infl) ** (1 / 12) - 1)
+    stress = None
+    if s.stress == "worst_sequence":
+        k = int(min(max(1, s.stress_years) * 12, months, len(H)))
+        hp = H @ w if n > 1 else H[:, 0]
+        logg = np.log1p(np.maximum(hp, -0.999999))
+        c = np.concatenate([[0.0], np.cumsum(logg)])
+        tot = c[k:] - c[:-k]
+        j = int(np.argmin(tot))
+        A[:, :k, :] = H[j:j + k][None, :, :]
+        if fixed_infl is None:
+            hi_ = hist_infl.to_numpy()
+            hi_ = np.where(np.isnan(hi_), np.nanmean(hi_), hi_) if np.isfinite(hi_).any() else np.zeros(len(hi_))
+            I[:, :k] = hi_[j:j + k][None, :]
+        stress = {"kind": "worst_sequence", "months": k, "from": hist.index[j].date(), "to": hist.index[j + k - 1].date(),
+                  "return": float(np.expm1(tot[j]))}
+        notes.append(f"Stress test: every path starts with the worst {k // 12 if k % 12 == 0 else round(k / 12, 1)}-year "
+                     f"stretch of this history ({hist.index[j].strftime('%Y-%m')} to {hist.index[j + k - 1].strftime('%Y-%m')}, "
+                     f"{np.expm1(tot[j]):.1%} in total), then continues with the {s.model} model.")
     cum_infl = np.concatenate([np.ones((sims, 1)), np.cumprod(1 + I, axis=1)], axis=1)
 
     rb = STEPS.get(s.rebalance, 12)
     P = _portfolio_returns(A, w, rb) if n > 1 else A[:, :, 0]
+    if s.stress == "shock":
+        k = min(12, months)
+        shock = float(s.stress_shock)
+        if not -1 < shock < 1:
+            raise ValueError("The shock is a first-year return between -100% and +100% (e.g. -0.30).")
+        P = P.copy()
+        P[:, :k] = (1 + shock) ** (1 / k) - 1
+        stress = {"kind": "shock", "months": k, "return": shock}
+        notes.append(f"Stress test: every path loses {-shock:.0%} in its first year" if shock < 0 else
+                     f"Stress test: every path returns {shock:.0%} in its first year")
+        notes[-1] += f" (evenly over {k} months), then continues with the {s.model} model."
     B = simulate_balances(P, cum_infl, s.start_balance, s.flows)
     R = B / cum_infl
 
@@ -337,6 +397,7 @@ def run(s: Settings) -> dict:
     final = B[:, -1]
     q = lambda a: {str(p): float(np.percentile(a, p)) for p in PERCENTILES}  # noqa: E731
     has_wd = any(cf.amount < 0 or cf.pct < 0 for cf in s.flows)
+    has_contrib = any(cf.amount > 0 or cf.pct > 0 for cf in s.flows)
     out = {
         "settings": {"mode": "strategy" if s.series is not None else "assets", "name": s.series_name if s.series is not None else None,
                      "weights": {t: float(x) for t, x in zip(tick, w)}, "start_balance": s.start_balance,
@@ -345,7 +406,8 @@ def run(s: Settings) -> dict:
                      "rebalance": s.rebalance, "sims": sims,
                      "flows": [cf.describe() for cf in s.flows] or ["no cash flows"],
                      "history_start": hist.index[0].date(), "history_end": hist.index[-1].date(),
-                     "history_months": len(hist), "t_df": t_df, "success_target": s.success_target},
+                     "history_months": len(hist), "t_df": t_df, "success_target": s.success_target,
+                     "age": s.age, "until_age": s.until_age, "stress": s.stress or None},
         "years": yrs.tolist(),
         "bands": bands, "bands_real": bands_real,
         "success_by_year": alive.tolist(),
@@ -356,7 +418,10 @@ def run(s: Settings) -> dict:
         "mean_final": float(final.mean()),
         "safe_withdrawal_rate": safe_withdrawal_rate(P, cum_infl, s.start_balance, s.success_target),
         "perpetual_withdrawal_rate": perpetual_withdrawal_rate(P, cum_infl, s.start_balance),
-        "has_withdrawals": has_wd,
+        "has_withdrawals": has_wd, "has_contributions": has_contrib,
+        # safe / perpetual withdrawal rates answer a retirement question; with contributions only they are noise
+        "show_withdrawal_rates": has_wd or not has_contrib,
+        "stress": stress,
         "notes": notes,
         "hist_stats": {"mean_annual": (hist.mean() * 12).to_dict(), "vol_annual": (hist.std() * np.sqrt(12)).to_dict(),
                        "correlation": hist.corr().round(3).to_numpy().tolist(), "tickers": tick},
@@ -390,16 +455,33 @@ def weights_from_tree(tree: dict) -> dict[str, float] | None:
     return out
 
 
+def _years(v, end: bool):
+    """A Portfolio flow bound as a year number of the simulation (years of the backtest map one to one;
+    calendar dates cannot be placed in a simulated future and are ignored)."""
+    if v in (None, ""):
+        return None
+    try:
+        k = int(v)
+    except (TypeError, ValueError):
+        return None
+    return k if 1 <= k < 1900 else None
+
+
 def flows_from_portfolio(p) -> list[CashFlow]:
-    """The cash-flow schedule of a Portfolio spec, as Monte Carlo cash flows."""
+    """The cash-flow schedule of a Portfolio spec, as Monte Carlo cash flows (frequency, inflation indexing and
+    'for N years' / 'from year N' windows carry over; the first flow is at the start, as in the backtest)."""
     out = []
+    cs, ce = _years(p.contribution_start, False) or 1, _years(p.contribution_end, True)
+    ws, we = _years(p.withdrawal_start, False) or 1, _years(p.withdrawal_end, True)
     if p.contribution:
-        out.append(CashFlow(amount=p.contribution, freq=p.contribution_freq, inflation_adjusted=p.inflation_adjust))
+        out.append(CashFlow(amount=p.contribution, freq=p.contribution_freq, inflation_adjusted=p.inflation_adjust,
+                            start_year=cs, end_year=ce))
     if p.withdrawal:
-        out.append(CashFlow(amount=-p.withdrawal, freq=p.withdrawal_freq, inflation_adjusted=p.inflation_adjust))
+        out.append(CashFlow(amount=-p.withdrawal, freq=p.withdrawal_freq, inflation_adjusted=p.inflation_adjust,
+                            start_year=ws, end_year=we))
     if p.withdrawal_pct:
         per_year = 12 / (STEPS.get(p.withdrawal_freq, 12) or 12)
-        out.append(CashFlow(pct=-p.withdrawal_pct * per_year, freq=p.withdrawal_freq))
+        out.append(CashFlow(pct=-p.withdrawal_pct * per_year, freq=p.withdrawal_freq, start_year=ws, end_year=we))
     return out
 
 
@@ -449,8 +531,9 @@ def console(R: dict) -> str:
     L.append(f"{'Annual return (real)':>28s} " + " ".join(f"{pc(v):>13s}" for v in R["annual_return_real"].values()))
     L.append(f"{'Max drawdown':>28s} " + " ".join(f"{pc(v):>13s}" for v in R["max_drawdown"].values()))
     L.append(f"Chance of success (money left after {st['years']} years): {R['prob_success']:.1%}")
-    L.append(f"Safe withdrawal rate ({st['success_target']:.0%} success, inflation-adjusted, from the start balance): "
-             f"{pc(R['safe_withdrawal_rate'])}   perpetual withdrawal rate: {pc(R['perpetual_withdrawal_rate'])}")
+    if R.get("show_withdrawal_rates", True):
+        L.append(f"Safe withdrawal rate ({st['success_target']:.0%} success, inflation-adjusted, from the start balance): "
+                 f"{pc(R['safe_withdrawal_rate'])}   perpetual withdrawal rate: {pc(R['perpetual_withdrawal_rate'])}")
     return "\n".join(L)
 
 
@@ -459,7 +542,11 @@ def strategy_monthly_returns(spec) -> pd.Series:
     from . import metrics, runner
     res = runner.run(spec)
     nv = metrics.nav(res.equity, res.extras.get("flows"))
-    return metrics.monthly_returns(nv)
+    me = complete_months(nv.iloc[1:])          # without the synthetic starting point; complete months only
+    base = pd.concat([nv.iloc[:1], me])
+    r = (base / base.shift(1) - 1).iloc[1:]
+    # a first month holding only a few days is still a return (from the starting capital); keep it
+    return r.dropna()
 
 
 def historical_withdrawal_rates(monthly: pd.Series, start: float = 1.0) -> dict:

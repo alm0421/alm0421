@@ -20,9 +20,10 @@ python -m backtester "buy at the close Microsoft when it trades down 5 days in a
 | **Build** | A block editor for portfolios (weighted groups, if/else switches and top-N filters, nested as deep as you like), like a Composer symphony: indicator pickers for conditions and rankings, eight weightings (equal, specified, inverse volatility, risk parity, min variance, max Sharpe, max diversification, market cap), drag and drop, duplicate, inline checks, leverage and expense ratio. It also has a form for every field of a signal strategy. Both convert to and from JSON files and from sentences, and both offer "Today's orders". |
 | **Gallery** | Library strategies and saved runs with their headline numbers. Fork one into the editor, or export/import a strategy JSON file. |
 | **Compare** | Put several strategies (from history or typed) in one report. Every column is compared over the same period. |
-| **Research** | A parameter sweep (`hold {1..5} days`) with a heatmap. Walk-forward optimisation (rolling or anchored). A portfolio optimiser: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity, max diversification, target return, target volatility, inverse volatility and equal weight, with per-asset and group limits (`SPY+QQQ <= 70%`), the efficient frontier, an out-of-sample check and rolling (walk-forward) re-optimisation compared with the static weights. |
-| **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates, return and drawdown percentiles. |
-| **Factors** | Regress a ticker, portfolio, sentence or saved run on CAPM, Fama-French 3, Carhart 4, Fama-French 5 or FF5 + momentum (monthly or daily): loadings with t-stats, R², annualised alpha and rolling 36-month loadings. |
+| **Research** | A parameter sweep (`hold {1..5} days`) with a heatmap. Walk-forward optimisation (rolling or anchored). A portfolio optimiser: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity, max diversification, max return / max drawdown, max Omega (at a threshold return), target return, target volatility, inverse volatility and equal weight (pick any subset), with per-asset and group limits (`SPY+QQQ <= 70%`), the efficient frontier, an out-of-sample check and rolling (walk-forward) re-optimisation compared with the static weights. A target that can't be reached says what can ("the minimum achievable volatility is 9.1%"). |
+| **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first, or a -30% first year) and a horizon set by age ("until age 95"). |
+| **Factors** | Regress a ticker, portfolio, sentence or saved run on CAPM, Fama-French 3, Carhart 4, Fama-French 5, FF5 + momentum, developed-markets Fama-French 3 (`dev_ff3`, alias `intl`), the bond factors TERM and DEF (`bonds`) or FF3 + bond factors (`ff3+bonds`), monthly or daily: loadings with t-stats, R², annualised alpha and rolling 36-month loadings. |
+| **Correlations** | The correlation matrix of daily or monthly total returns over a chosen period, a rolling correlation of any pair, and per-asset statistics (CAGR, volatility, Sharpe, max drawdown, best/worst year, first date of data), like Portfolio Visualizer's asset correlations. |
 | **Signals & paper** | Shows what a strategy says to do on the latest bar: new entries, open positions and target weights. You can also start a forward test ("paper trading") that only uses data arriving after you saved it. |
 | **History** | Saved runs, with open, edit, share and delete. |
 | **Data** | Data freshness, coverage and a ticker browser. |
@@ -128,7 +129,12 @@ never quietly drops them or swaps in a different ticker.
 - When indicators need a warm-up (a 200-day average on the first bars of the data), the statistics start
   on the first day every rule has a value, and the notes say so.
 - Allocation over time and current holdings for portfolios. A cash-flow summary with money-weighted
-  IRR.
+  IRR. Trailing returns (3 months, YTD, 1, 3, 5, 10 years and the full period) for the portfolio and each
+  benchmark, and per-asset statistics of the holdings. Trade distribution and excursion charts are only
+  shown for signal strategies.
+- The price chart also draws each trade's stop, trailing stop and target, the other tickers a rule filters on
+  (e.g. SPY and its 200-day average) in their own pane, and a strip of the bars on which the entry and exit
+  rules were true; it has a log scale and a date label on the crosshair.
 - Returns by year (partial years flagged) and a monthly heatmap.
 - Rolling 12-month and 3-year return, Sharpe, beta and volatility, plus rolling-period best/worst.
 - The deepest drawdowns, and how the strategy did in 12 historical crises.
@@ -154,7 +160,11 @@ python -m backtester optimize SPY QQQ TLT GLD --max-weight 0.6 --test-start 2018
 python -m backtester optimize SPY QQQ TLT GLD --constraint "SPY+QQQ <= 70%" --constraint "GLD <= 20%" --target-vol 0.10 --rolling 12 --lookback 60
 python -m backtester montecarlo --weights "SPY 60 TLT 40" --balance 1000000 --years 30 --withdrawal 40000 [--model historical|normal|t|forecast]
 python -m backtester montecarlo "hold 60% SPY and 40% AGG, withdraw 4% per year adjusted for inflation, starting with $1,000,000" --model t
+python -m backtester montecarlo --weights "SPY 60 TLT 40" --withdrawal 40000 --age 65 --until-age 95 --stress worst_sequence
 python -m backtester factors QQQ --model ff5 --freq monthly          # or --weights "SPY 60 TLT 40", a sentence, --run ID
+python -m backtester factors AGG --model ff3+bonds                   # models: capm ff3 carhart ff5 ff6 dev_ff3 (intl) bonds ff3+bonds
+python -m backtester correlation SPY TLT GLD EFASIM --window 36 --freq monthly [--pair SPY,TLT] [--start 2000-01-01]
+python -m backtester optimize SPY TLT GLD --methods omega,max_return_over_maxdd --omega-threshold 0.03
 python -m backtester signals "buy Nasdaq 100 stocks when RSI(2) is below 5, hold 3 days" [--webhook URL]
 python -m backtester paper add "hold the top 5 Nasdaq 100 stocks by 6 month momentum" --name mom5 ; python -m backtester paper report
 python -m backtester --tickers MSFT --entry "down_days >= 5" --hold 1        # explicit rules
@@ -216,6 +226,21 @@ python -m backtester tickers                                                 # w
   - Before 2004 the earliest known list is used.
 - **Portfolios.** Targets are re-evaluated on the schedule (month-end close by default) and traded at
   the close or next open. Only the differences are traded, and new contributions buy the target mix.
+  - A period ends on the last *scheduled* NYSE session of the week/month/quarter as known that day: after an
+    unscheduled closure (9/11) the rebalance happens on the first bar after it, not in hindsight on the bar
+    before.
+  - Cash flows are made on the first trading day of each period, the first day of the backtest included (as
+    Portfolio Visualizer and the Monte Carlo simulation do): "add $1,000 a month for 20 years" is 240
+    contributions, the first on day one; "withdraw 4% a year" takes the first withdrawal on day one.
+  - Short positions (negative weights): the proceeds earn the cash rate less `short_rebate_spread` (default
+    0.25%/yr) and pay `borrow_fee` (annual, default 0) on their market value, charged daily.
+  - Rules that rank or weigh assets need their look-back: the statistics start once *every* ranked asset has it
+    (`warmup: "all"`, the default; `"first"` starts once enough assets can fill the slots), and the notes name
+    the assets that were waited for.
+  - trades.csv of a portfolio lists holding periods: `position_value` is the average market value while held,
+    `entry_value` the first purchase, `bought`/`sold` every purchase/sale (a daily-rebalanced holding makes
+    many), `pnl` sales − purchases − costs + dividends (+ value still held), and `return` the ticker's own
+    total return over the period.
 - **Returns and costs.** Returns are time-weighted, so cash flows don't distort CAGR or Sharpe. The
   money-weighted IRR is reported separately. Costs default to zero, and the report always shows a
   cost-sensitivity table.
@@ -274,7 +299,7 @@ specs) for many more market regimes than the ETFs alone. Keep in mind:
 
 ## Monte Carlo
 
-Monthly steps. Return models: **historical** (block bootstrap: whole months are drawn together for
+Monthly steps over complete months (a month still in progress at the end of the data is left out). Return models: **historical** (block bootstrap: whole months are drawn together for
 every asset and CPI, in blocks of consecutive months, so correlations, the link with inflation
 and short-term momentum are kept), **normal** and **Student-t** (historical mean and covariance;
 the t's degrees of freedom are fitted by maximum likelihood), and **forecast** (your expected
@@ -286,6 +311,11 @@ the start of each period, pro rata, and the portfolio is rebalanced on its sched
   starting balance, that succeeds in at least the target share of paths (95% by default).
 - *Perpetual withdrawal rate*: the largest such withdrawal that keeps the median final balance, in
   today's dollars, at the starting balance.
+- The first flow is at the very start, as in the backtest, so a portfolio sentence gives the same number of
+  contributions in both.
+- Stress tests: `worst_sequence` puts the worst historical run of N years (default 10) at the start of every
+  path; `shock` makes the first year return -30% (or your figure). A horizon can be given by age
+  (`--age 65 --until-age 95`).
 
 A sentence or saved run with fixed weights is simulated from its assets; one with rules resamples
 the strategy's own monthly returns.

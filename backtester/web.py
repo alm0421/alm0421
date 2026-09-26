@@ -180,8 +180,12 @@ def _spec(body: dict):
             spec.universe = data.nasdaq100_ever()
         spec.validate()  # fills defaults (e.g. position_size) before the summary uses them
         if not spec.description:
-            lines = [ln.strip() for ln in spec.summary().splitlines() if ln.strip() and ln.strip() != "Portfolio:"]
-            spec.description = ("Portfolio: " if spec.__class__.__name__ == "Portfolio" else "") + (lines[0] if lines else "")
+            if spec.__class__.__name__ == "Portfolio":
+                from .portfolio import short_name
+                spec.description = short_name(spec.tree)   # e.g. "If TQQQ RSI(10) > 79: UVXY, else TQQQ"
+            else:
+                lines = [ln.strip() for ln in spec.summary().splitlines() if ln.strip()]
+                spec.description = lines[0] if lines else ""
     elif body.get("text"):
         spec = parser.parse(body["text"], **ov)
     else:
@@ -253,9 +257,7 @@ def _new_id(label: str) -> str:
 def _summary_row(rid: str, A: dict, kind: str, label: str, spec, extra: dict | None = None, res=None,
                  rf="tbill") -> dict:
     st = A["stats"]
-    start = st.get("start")
-    if res is not None and len(res.equity) > 1:
-        start = res.equity.index[1].date()  # first real trading day (index 0 is the starting-capital point)
+    start = st.get("start")  # the first day of the statistics: after any indicator warm-up, never the synthetic point
     row = {"id": rid, "created": datetime.now().isoformat(timespec="seconds"), "kind": kind, "label": label,
            "text": getattr(spec, "description", ""), "spec": runner.to_dict(spec) if spec is not None else None,
            "cagr": st.get("cagr"), "sharpe": st.get("sharpe"), "max_drawdown": st.get("max_drawdown"),
@@ -345,7 +347,23 @@ def api_gallery():
         c = cache.get(x["id"]) or {}
         lib.append({**x, "stats": c.get("stats") if c.get("data") == stamp else None})
     runs = [r for r in _index() if r.get("kind") in ("signal", "allocation")]
+    for r in runs:
+        _readable_label(r)
     return {"library": lib, "runs": runs, "tags": list(TAGS)}
+
+
+def _readable_label(row: dict) -> dict:
+    """Older saved runs of unnamed Build-page portfolios are labelled with the first line of the interpretation
+    ("Portfolio: if rsi(close, 10) > 79 (on TQQQ):"); show the readable default name instead."""
+    lab = str(row.get("label") or "")
+    spec = row.get("spec") or {}
+    if lab.startswith("Portfolio: ") and isinstance(spec.get("tree"), dict) and not spec.get("name"):
+        from .portfolio import short_name
+        try:
+            row["label"] = short_name(spec["tree"])
+        except Exception:  # noqa: BLE001 - a label is cosmetic
+            pass
+    return row
 
 
 def api_gallery_stats(body):
@@ -358,10 +376,13 @@ def api_gallery_stats(body):
     text = x["id"]
     spec = entry_spec(x)
     res = runner.run(spec)
-    st = metrics.equity_stats(res.equity, flows=res.extras.get("flows"))
+    warm, _ = report.warmup(res)   # the same period as the report's statistics (after any indicator warm-up)
+    tr = report.trim_result(res, warm)
+    fb = tr.equity.index[1] if len(tr.equity) > 1 else None
+    st = metrics.equity_stats(tr.equity, flows=tr.extras.get("flows"), first_bar=fb)
     stats = report._clean({"cagr": st.get("cagr"), "sharpe": st.get("sharpe"), "max_drawdown": st.get("max_drawdown"),
-                           "start": str(res.equity.index[min(1, len(res.equity) - 1)].date()),
-                           "end": str(res.equity.index[-1].date()), "share": share_token(spec)})
+                           "start": str(st.get("start")),
+                           "end": str(tr.equity.index[-1].date()), "share": share_token(spec)})
     with LOCK:
         f = _gallery_cache_file()
         cache = json.loads(f.read_text()) if f.exists() else {}
@@ -425,6 +446,14 @@ def api_compare(body):
     return {"id": rid, "url": f"/r/{rid}/report.html", "common": report._clean(C)}
 
 
+def _method_list(v) -> list[str] | None:
+    if not v:
+        return None
+    items = v if isinstance(v, list) else str(v).replace(";", ",").split(",")
+    out = [str(x).strip() for x in items if str(x).strip()]
+    return out or None
+
+
 def api_research(body, kind):
     from . import research, research_report
     rid = _new_id(kind)
@@ -453,7 +482,9 @@ def api_research(body, kind):
                               target_return=num("target_return"), target_vol=num("target_vol"),
                               rolling_months=int(num("rolling_months")) if num("rolling_months") else None,
                               lookback_months=int(num("lookback_months") or 60),
-                              rebalance=body.get("rebalance") or "quarterly")
+                              rebalance=body.get("rebalance") or "quarterly",
+                              methods=_method_list(body.get("methods")),
+                              omega_threshold=num("omega_threshold") or 0.0)
         research_report.write_optimize(R, out)
         label = "Optimise: " + " ".join(tickers)
     row = {"id": rid, "created": datetime.now().isoformat(timespec="seconds"), "kind": kind, "label": label[:120],
@@ -501,6 +532,13 @@ def api_montecarlo(body):
         s.success_target = float(body.get("success_target") or 0.95)
         infl = body.get("inflation", "historical")
         s.inflation = "historical" if infl in (None, "", "historical") else float(infl)
+        st = body.get("stress")
+        s.stress = None if st in (None, "", "none") else str(st)
+        s.stress_years = int(body.get("stress_years") or 10)
+        if body.get("stress_shock") not in (None, ""):
+            s.stress_shock = float(body["stress_shock"])
+        if body.get("age") not in (None, "") and body.get("until_age") not in (None, ""):
+            s.age, s.until_age = float(body["age"]), float(body["until_age"])
     except (TypeError, ValueError) as e:
         raise ClientError(f"Bad number: {e}")
     s.model = body.get("model") or "historical"
@@ -580,7 +618,28 @@ def api_status(_body=None):
                           "sims": [{"ticker": t, "about": data.SIMS.get(t, "simulated long history")} for t in data.sims()],
                           "etfs": data.etfs(), "indexes": m.get("indexes", []),
                           "former": m.get("former_members", []), "help": expr.HELP,
-                          "tickers": data.available_tickers()})
+                          "tickers": data.available_tickers(), "factor_models": _factor_models()})
+
+
+def _factor_models() -> list[dict]:
+    from . import factors
+    return factors.model_list()
+
+
+def api_correlation(body):
+    from . import correlation
+    raw = body.get("tickers") or ""
+    tickers = [t for t in (raw if isinstance(raw, list) else str(raw).replace(",", " ").split()) if str(t).strip()]
+    pair = body.get("pair")
+    if isinstance(pair, str):
+        pair = pair.replace(",", " ").split()
+    try:
+        window = int(body["window"]) if body.get("window") not in (None, "") else None
+    except (TypeError, ValueError):
+        raise ClientError(f"Bad window {body.get('window')!r}: give a number of periods.")
+    R = correlation.analyze(tickers, body.get("freq") or "monthly", window, body.get("start") or None,
+                            body.get("end") or None, pair or None)
+    return report._clean(R)
 
 
 def api_fetch(body):
@@ -691,7 +750,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/status":
                 return self._json(200, api_status())
             if path == "/api/runs":
-                return self._json(200, _index())
+                return self._json(200, [_readable_label(r) for r in _index()])
             if path == "/api/library":
                 from .library import LIBRARY
                 return self._json(200, LIBRARY)
@@ -725,7 +784,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/paper": lambda b: api_paper(b, "POST"),
                 "/api/fetch": api_fetch, "/api/share": api_share, "/api/orders": api_orders,
                 "/api/gallery/stats": api_gallery_stats, "/api/import/composer": api_import_composer,
-                "/api/montecarlo": api_montecarlo, "/api/factors": api_factors,
+                "/api/montecarlo": api_montecarlo, "/api/factors": api_factors, "/api/correlation": api_correlation,
             }
             if path in handlers:
                 return self._json(200, handlers[path](body))
