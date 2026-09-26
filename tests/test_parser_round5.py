@@ -632,3 +632,27 @@ def test_share_class_with_a_dot():
     assert sig("buy BRK-B when RSI(2) is below 10, hold 3 days").universe == ["BRK-B"]
     p = port("hold 50% BRK.B and 50% SPY")
     assert [c["asset"] for c in p.tree["children"]] == ["BRK-B", "SPY"]
+
+
+@pytest.mark.parametrize("text,rule", [
+    ("buy SPY when the ma over 50 days crosses above the ma over 200 days, hold 3 days", "(crossover(sma(close, 50), sma(close, 200)))"),
+    ("buy SPY when the sma over 50 days is above the sma over 200 days, hold 3 days", "(sma(close, 50) > sma(close, 200))"),
+    ("buy SPY when the ATR over 10 days is above 5, hold 3 days", "(atr(10) > 5)"),
+    ("buy SPY when RSI is above 70 for the last 10 days, hold 3 days", "count(((rsi(close, 14) > 70)), 10) == 10"),
+])
+def test_lookback_after_other_indicators(text, rule):
+    assert sig(text).entry == rule
+
+
+@pytest.mark.parametrize("text", [
+    "buy SPY when RSI is below 10 over 5 days, hold 3 days",
+    "buy SPY when RSI(2) < 10 days, hold 3 days",
+    "if QQQ 10 day RSI is above 79 days then hold UVXY else hold TQQQ",
+    "buy SPY when the 10 day ATR is above 5 days, hold 3 days",
+    "buy SPY when the vix is above 30 days, hold 3 days",
+    "buy SPY when the 20 day high is above 5 days, hold 3 days",
+    "if the 10 day return of QQQ over 20 days is above 5% then hold QQQ else hold BIL",
+])
+def test_units_on_thresholds_are_refused(text):
+    with pytest.raises(ParseError):
+        parser.parse(text)

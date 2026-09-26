@@ -548,7 +548,7 @@ OSC = r"(rsi|stochastic(?: %?k)?|stoch|cci|williams %?r|willr|mfi|money flow ind
 # indicators whose lookback can follow them: "the RSI over 10 days", "CCI for the last 20 sessions"
 PERIOD_IND = (r"(?:relative strength index|rsi|stochastics?(?: oscillator)?(?: %?k)?|stoch|commodity channel index|cci|williams %?r|"
               r"willr|money flow index|mfi|average directional index|adx|average true range|atr|rate of change|roc|"
-              r"(?:simple |exponential |weighted )?(?:moving average|sma|ema|wma))")
+              r"(?:simple |exponential |weighted )?(?:moving average|sma|ema|wma|ma))")
 UNIT_WORDS = r"(?:trading )?(?:day|week|month|year|bar|session|period)s?"
 
 
@@ -2880,8 +2880,9 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
             if not look:
                 notes.append(f"No lookback given for '{w} volatile': using 20 trading days.")
                 look = "20 day "
-            notes.append(f"'{w} volatile' ranks by {look.strip()} volatility (the annualised standard deviation of daily returns, "
-                         "the same ranking as the daily standard deviation of return).")
+            notes.append(f"'{w} volatile' ranks by {look.strip()} volatility: the annualised standard deviation of daily price "
+                         "returns, as in '60 day volatility' elsewhere (say 'by 60 day standard deviation of return' to rank by "
+                         "the daily figure of total returns, as Composer does).")
         s = f"{'top' if top else 'bottom'} {n_sel} of {m.group('uni')} by {look}{'volatility' if vol else 'return'}{m.group('rest') or ''}"
         low = s.lower()
     m = re.match(r"(?is)(?:the )?(\d+) (best|worst|top|bottom)[- ]perform(?:ing|ers)(?: (?:of|among|from|in))? (?:the )?(.+?) over (?:the )?(?:last |past )?(\d+) (day|week|month|year)s?(,.*)?$", s)
