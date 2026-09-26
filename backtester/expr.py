@@ -96,6 +96,117 @@ def rsi_wilder(x: pd.Series, n: int) -> pd.Series:
     return pd.Series(out, index=x.index)
 
 
+def wma_tv(x: pd.Series, n: int) -> pd.Series:
+    """Linearly weighted moving average (TradingView's ta.wma): weights 1..n, the latest bar weighted n."""
+    n = int(n)
+    v = x.to_numpy(dtype=float)
+    out = np.full(len(v), np.nan)
+    if len(v) >= n:
+        w = np.arange(1, n + 1, dtype=float)
+        out[n - 1:] = np.lib.stride_tricks.sliding_window_view(v, n) @ w / w.sum()
+    return pd.Series(out, index=x.index)
+
+
+def hma_tv(x: pd.Series, n: int) -> pd.Series:
+    """Hull moving average as TradingView's ta.hma: wma(2 * wma(x, n / 2) - wma(x, n), floor(sqrt(n))), with the
+    half length rounded down."""
+    n = int(n)
+    return wma_tv(2 * wma_tv(x, max(n // 2, 1)) - wma_tv(x, n), max(int(np.floor(np.sqrt(n))), 1))
+
+
+def linreg_tv(x: pd.Series, n: int, offset: int = 0) -> pd.Series:
+    """TradingView's ta.linreg(x, n, offset): the least-squares line through the last n values, evaluated
+    `offset` bars before the latest (intercept + slope * (n - 1 - offset)). offset 0 is the least-squares
+    moving average. Only the last n values are used, so it is causal for any offset."""
+    n = int(n)
+    v = x.to_numpy(dtype=float)
+    out = np.full(len(v), np.nan)
+    if len(v) >= n:
+        w = np.lib.stride_tricks.sliding_window_view(v, n)
+        t = np.arange(n, dtype=float)
+        tm = t.mean()
+        ym = w.mean(axis=1)
+        den = ((t - tm) ** 2).sum()
+        slope = ((w - ym[:, None]) @ (t - tm)) / den if den > 0 else np.zeros(len(w))
+        intercept = ym - slope * tm
+        out[n - 1:] = intercept + slope * (n - 1 - offset)
+    return pd.Series(out, index=x.index)
+
+
+def alma_tv(x: pd.Series, n: int = 9, offset: float = 0.85, sigma: float = 6.0) -> pd.Series:
+    """Arnaud Legoux moving average as TradingView's ta.alma: Gaussian weights exp(-(i - m)^2 / (2 s^2)) over the
+    window (i = 0 the oldest bar), m = offset * (n - 1), s = n / sigma."""
+    n = int(n)
+    m = offset * (n - 1)
+    sd = n / sigma
+    w = np.exp(-((np.arange(n) - m) ** 2) / (2 * sd * sd))
+    v = x.to_numpy(dtype=float)
+    out = np.full(len(v), np.nan)
+    if len(v) >= n:
+        out[n - 1:] = np.lib.stride_tricks.sliding_window_view(v, n) @ w / w.sum()
+    return pd.Series(out, index=x.index)
+
+
+def kama_tv(x: pd.Series, n: int = 10, fast: int = 2, slow: int = 30) -> pd.Series:
+    """Kaufman's adaptive moving average, as TradingView's built-in KAMA script: efficiency ratio
+    er = |x - x[n]| / sum(|x - x[1]|, n) (0 when the sum is 0), alpha = (er * (2/(fast+1) - 2/(slow+1)) +
+    2/(slow+1))^2, kama = alpha * x + (1 - alpha) * kama[1], starting from x on the first bar with a value."""
+    n = int(n)
+    v = x.to_numpy(dtype=float)
+    mom = np.abs(x - x.shift(n)).to_numpy()
+    vol = x.diff().abs().rolling(n, min_periods=n).sum().to_numpy()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        er = np.where(vol != 0, mom / vol, 0.0)
+    er[np.isnan(mom) | np.isnan(vol)] = np.nan
+    fa, sa = 2 / (fast + 1), 2 / (slow + 1)
+    alpha = (er * (fa - sa) + sa) ** 2
+    out = np.full(len(v), np.nan)
+    prev = np.nan
+    for i in range(len(v)):
+        if np.isnan(alpha[i]) or np.isnan(v[i]):
+            prev = np.nan if np.isnan(alpha[i]) else prev
+            continue
+        base = v[i] if np.isnan(prev) else prev
+        prev = alpha[i] * v[i] + (1 - alpha[i]) * base
+        out[i] = prev
+    return pd.Series(out, index=x.index)
+
+
+def pivot_tv(x: pd.Series, left: int, right: int, high: bool) -> pd.Series:
+    """TradingView's ta.pivothigh / ta.pivotlow: on bar t, the value of bar t - right if that bar is strictly
+    above (below) the `left` bars before it and the `right` bars after it, else NaN. A pivot is only known once
+    its `right` bars have closed, so the value appears `right` bars after the pivot bar (never earlier)."""
+    left, right = int(left), int(right)
+    v = x.to_numpy(dtype=float)
+    n = left + right + 1
+    out = np.full(len(v), np.nan)
+    if len(v) >= n:
+        w = np.lib.stride_tricks.sliding_window_view(v, n)      # oldest .. newest; the candidate at index left
+        mid = w[:, left]
+        others = np.delete(w, left, axis=1)
+        ok = (mid[:, None] > others).all(axis=1) if high else (mid[:, None] < others).all(axis=1)
+        ok &= np.isfinite(mid) & np.isfinite(others).all(axis=1)
+        out[n - 1:] = np.where(ok, mid, np.nan)
+    return pd.Series(out, index=x.index)
+
+
+def heikin_ashi(df: pd.DataFrame) -> pd.DataFrame:
+    """Heikin Ashi bars as TradingView draws them: ha_close = (o + h + l + c) / 4, ha_open = (previous ha_open +
+    previous ha_close) / 2 (the first bar: (open + close) / 2), ha_high = max(high, ha_open, ha_close),
+    ha_low = min(low, ha_open, ha_close)."""
+    o, h, l, c = (df[k].to_numpy(dtype=float) for k in ("open", "high", "low", "close"))
+    hc = (o + h + l + c) / 4
+    ho = np.full(len(o), np.nan)
+    for i in range(len(o)):
+        if i == 0 or np.isnan(ho[i - 1]) or np.isnan(hc[i - 1]):
+            ho[i] = (o[i] + c[i]) / 2
+        else:
+            ho[i] = (ho[i - 1] + hc[i - 1]) / 2
+    hh = np.fmax(h, np.fmax(ho, hc))
+    hl = np.fmin(l, np.fmin(ho, hc))
+    return pd.DataFrame({"ha_open": ho, "ha_high": hh, "ha_low": hl, "ha_close": hc}, index=df.index)
+
+
 def is_crypto(ticker: str | None) -> bool:
     """A crypto pair (BTC-USD): its daily bar closes at 00:00 UTC (8pm New York), after the US close."""
     return bool(ticker) and str(ticker).upper().endswith("-USD")
@@ -200,6 +311,14 @@ class Namespace(dict):
             "month": lambda: pd.Series(idx.month, index=idx),
             "year": lambda: pd.Series(idx.year, index=idx),
             "dollar_volume": lambda: c * df["volume"],
+            "hl2": lambda: (df["high"] + df["low"]) / 2,
+            "hlc3": lambda: (df["high"] + df["low"] + c) / 3,
+            "ohlc4": lambda: (df["open"] + df["high"] + df["low"] + c) / 4,
+            "hlcc4": lambda: (df["high"] + df["low"] + 2 * c) / 4,
+            "true_range": lambda: pd.concat([df["high"] - df["low"], (df["high"] - c.shift()).abs(),
+                                             (df["low"] - c.shift()).abs()], axis=1).max(axis=1),
+            "ha_open": lambda: self._ha()["ha_open"], "ha_high": lambda: self._ha()["ha_high"],
+            "ha_low": lambda: self._ha()["ha_low"], "ha_close": lambda: self._ha()["ha_close"],
             "market_cap": lambda: self._market_cap(),
             "trading_day_of_month": lambda: pd.Series(idx.to_period("M"), index=idx).groupby(idx.to_period("M")).cumcount() + 1,
             # counted on the NYSE calendar, so the latest bar knows the sessions still to come this month
@@ -211,6 +330,12 @@ class Namespace(dict):
             self[key] = v
             return v
         raise NameError(f"unknown name {key!r} in expression (see --help-expr)")
+
+    def _ha(self) -> pd.DataFrame:
+        ha = getattr(self, "_ha_frame", None)
+        if ha is None:
+            ha = self._ha_frame = heikin_ashi(self.df)
+        return ha
 
     def _market_cap(self) -> pd.Series:
         # quoted close x point-in-time shares (data.market_cap), never the total-return price basis
@@ -450,11 +575,16 @@ class Namespace(dict):
             dx = 100 * (pdi - mdi).abs() / (pdi + mdi)
             return wilder(dx, int(n))
 
-        def cci(n=20):
-            tp = (hi + lo + c) / 3
-            m = tp.rolling(int(n)).mean()
-            md = tp.rolling(int(n)).apply(lambda v: np.mean(np.abs(v - v.mean())), raw=True)
-            return (tp - m) / (0.015 * md)
+        def cci(*a):
+            """TradingView's ta.cci: (x - sma(x, n)) / (0.015 * mean absolute deviation); x defaults to hlc3."""
+            x, n = pick(a, (hi + lo + c) / 3, 20)
+            v = x.to_numpy(dtype=float)
+            md = np.full(len(v), np.nan)
+            if len(v) >= n:
+                w = np.lib.stride_tricks.sliding_window_view(v, n)
+                md[n - 1:] = np.abs(w - w.mean(axis=1, keepdims=True)).mean(axis=1)
+            m = x.rolling(n, min_periods=n).mean()
+            return (x - m) / (0.015 * pd.Series(md, index=x.index))
 
         def willr(n=14):
             hh, ll = hi.rolling(int(n)).max(), lo.rolling(int(n)).min()
@@ -463,11 +593,12 @@ class Namespace(dict):
         def obv():
             return (np.sign(c.diff()).fillna(0) * vol).cumsum()
 
-        def mfi(n=14):
-            tp = (hi + lo + c) / 3
+        def mfi(*a):
+            """TradingView's ta.mfi: money flow index of x (default hlc3) and volume over n bars."""
+            tp, n = pick(a, (hi + lo + c) / 3, 14)
             mf = tp * vol
-            pos = mf.where(tp.diff() > 0, 0.0).rolling(int(n)).sum()
-            neg = mf.where(tp.diff() < 0, 0.0).rolling(int(n)).sum()
+            pos = mf.where(tp.diff() > 0, 0.0).rolling(n).sum()
+            neg = mf.where(tp.diff() < 0, 0.0).rolling(n).sum()
             return 100 - 100 / (1 + pos / neg)
 
         def vwap(n=20):
@@ -488,29 +619,46 @@ class Namespace(dict):
         def keltner_lower(n=20, k=2.0):
             return ema(c, n) - k * ema(true_range(), n)
 
-        def supertrend(n=10, k=3.0):
-            """Supertrend line (below price in an uptrend, above in a downtrend)."""
+        def _supertrend(n=10, k=3.0):
+            """(line, direction) bar for bar as TradingView's ta.supertrend(k, n): direction +1 = downtrend (the
+            line is the upper band), -1 = uptrend (the lower band). The first bar with an ATR starts in a downtrend,
+            as Pine's reference implementation does (direction := 1 while atr[1] is na)."""
             a = atr(n).to_numpy()
             mid = ((hi + lo) / 2).to_numpy()
             cl = c.to_numpy()
             ub, lb = mid + k * a, mid - k * a
             st = np.full(len(cl), np.nan)
-            up = True
+            dr = np.full(len(cl), np.nan)
+            up = False
             fub, flb = np.nan, np.nan
+            first = True
             for i in range(len(cl)):
                 if np.isnan(a[i]):
                     continue
                 fub = ub[i] if np.isnan(fub) or ub[i] < fub or cl[i - 1] > fub else fub
                 flb = lb[i] if np.isnan(flb) or lb[i] > flb or cl[i - 1] < flb else flb
-                if up and cl[i] < flb:
+                if first:
+                    up, first = False, False
+                elif up and cl[i] < flb:
                     up = False
                 elif not up and cl[i] > fub:
                     up = True
                 st[i] = flb if up else fub
-            return pd.Series(st, index=c.index)
+                dr[i] = -1.0 if up else 1.0
+            return pd.Series(st, index=c.index), pd.Series(dr, index=c.index)
 
-        def sar(step=0.02, max_step=0.2):
-            """Parabolic SAR, bar for bar as TradingView's ta.sar reference implementation."""
+        def supertrend(n=10, k=3.0):
+            """Supertrend line (below price in an uptrend, above in a downtrend)."""
+            return _supertrend(n, k)[0]
+
+        def supertrend_dir(n=10, k=3.0):
+            """Supertrend direction as TradingView returns it: -1 in an uptrend, +1 in a downtrend."""
+            return _supertrend(n, k)[1]
+
+        def sar(step=0.02, max_step=0.2, inc=None):
+            """Parabolic SAR, bar for bar as TradingView's ta.sar(start, inc, max) reference implementation: the
+            acceleration starts at `step` and grows by `inc` (default: step) up to max_step."""
+            inc = step if inc is None else inc
             h, l, cl = hi.to_numpy(), lo.to_numpy(), c.to_numpy()
             n = len(h)
             out = np.full(n, np.nan)
@@ -537,15 +685,147 @@ class Namespace(dict):
                         res, mm, acc = min(l[i], mm), h[i], step
                 if not first_bar:
                     if below and h[i] > mm:
-                        mm, acc = h[i], min(acc + step, max_step)
+                        mm, acc = h[i], min(acc + inc, max_step)
                     elif not below and l[i] < mm:
-                        mm, acc = l[i], min(acc + step, max_step)
+                        mm, acc = l[i], min(acc + inc, max_step)
                 if below:
                     res = min(res, l[i - 1]) if i < 2 else min(res, l[i - 1], l[i - 2])
                 else:
                     res = max(res, h[i - 1]) if i < 2 else max(res, h[i - 1], h[i - 2])
                 out[i] = res
             return pd.Series(out, index=c.index)
+
+        def params(a, f, default_x, defaults):
+            """f(x, p1, p2, ...) or f(p1, p2, ...): at most one series, first; the rest numbers written in the rule."""
+            a = list(a)
+            x = default_x
+            if a and isinstance(a[0], pd.Series):
+                x = a.pop(0)
+            if any(isinstance(v, pd.Series) for v in a):
+                raise ValueError(f"{f}() takes one series first, then numbers, e.g. {f}(close, "
+                                 f"{', '.join(str(d) for d in defaults)})")
+            if len(a) > len(defaults):
+                raise ValueError(f"{f}() takes at most {len(defaults)} numbers after the series")
+            vals = []
+            for i, d in enumerate(defaults):
+                v = a[i] if i < len(a) else d
+                if isinstance(v, (bool, np.bool_)) or not isinstance(v, (int, float)):
+                    raise ValueError(f"{f}(): parameters must be numbers written in the rule (got {v!r})")
+                vals.append(v)
+            return x, vals
+
+        def length(v, f):
+            if not float(v).is_integer() or int(v) < 1:
+                raise ValueError(f"{f}(): lengths must be whole numbers of at least 1 (got {v})")
+            return int(v)
+
+        def hma(*a):
+            x, n = pick(a, c, 9)
+            return hma_tv(x, n)
+
+        def vwma(*a):
+            x, n = pick(a, c, 20)
+            return (x * vol).rolling(n, min_periods=n).sum() / vol.rolling(n, min_periods=n).sum()
+
+        def linreg(*a):
+            x, (n, off) = params(a, "linreg", c, (20, 0))
+            if not float(off).is_integer():
+                raise ValueError("linreg(): the offset must be a whole number")
+            return linreg_tv(x, length(n, "linreg"), int(off))
+
+        def alma(*a):
+            x, (n, off, sig) = params(a, "alma", c, (9, 0.85, 6))
+            if sig <= 0:
+                raise ValueError("alma(): sigma must be positive")
+            return alma_tv(x, length(n, "alma"), float(off), float(sig))
+
+        def kama(*a):
+            x, (n, fast, slow) = params(a, "kama", c, (10, 2, 30))
+            return kama_tv(x, length(n, "kama"), length(fast, "kama"), length(slow, "kama"))
+
+        def _mid(n):
+            n = int(n)
+            return (hi.rolling(n, min_periods=n).max() + lo.rolling(n, min_periods=n).min()) / 2
+
+        def tenkan(n=9):
+            """Ichimoku conversion line: the midpoint of the n-bar high/low (TradingView default 9)."""
+            return _mid(length(n, "tenkan"))
+
+        def kijun(n=26):
+            """Ichimoku base line: the midpoint of the n-bar high/low (default 26)."""
+            return _mid(length(n, "kijun"))
+
+        def senkou_a(conv=9, base=26, disp=26):
+            """Ichimoku leading span A as TradingView draws it on the current bar: (tenkan + kijun) / 2 computed
+            disp - 1 bars ago (the built-in plots it with offset = displacement - 1). Nothing from the future."""
+            return ((tenkan(conv) + kijun(base)) / 2).shift(length(disp, "senkou_a") - 1)
+
+        def senkou_b(n=52, disp=26):
+            """Ichimoku leading span B on the current bar: the n-bar high/low midpoint computed disp - 1 bars ago."""
+            return _mid(length(n, "senkou_b")).shift(length(disp, "senkou_b") - 1)
+
+        def _aroon(n, up):
+            n = length(n, "aroon")
+            v = (hi if up else lo).to_numpy(dtype=float)
+            out = np.full(len(v), np.nan)
+            if len(v) >= n + 1:
+                w = np.lib.stride_tricks.sliding_window_view(v, n + 1)[:, ::-1]    # newest first
+                ago = np.argmax(w, axis=1) if up else np.argmin(w, axis=1)         # the most recent extreme
+                val = 100.0 * (n - ago) / n
+                val[~np.isfinite(w).all(axis=1)] = np.nan
+                out[n:] = val
+            return pd.Series(out, index=c.index)
+
+        def aroon_up(n=14):
+            """TradingView's Aroon: 100 * (n - bars since the highest high of the last n + 1 bars) / n."""
+            return _aroon(n, True)
+
+        def aroon_down(n=14):
+            return _aroon(n, False)
+
+        def aroon_osc(n=14):
+            return _aroon(n, True) - _aroon(n, False)
+
+        def cmf(n=20):
+            """Chaikin money flow as TradingView: sum(money flow volume, n) / sum(volume, n), where money flow
+            volume = ((2 close - low - high) / (high - low)) x volume (0 when high = low)."""
+            n = length(n, "cmf")
+            ad = (((2 * c - lo - hi) / (hi - lo)) * vol).where(hi != lo, 0.0)
+            return ad.rolling(n, min_periods=n).sum() / vol.rolling(n, min_periods=n).sum()
+
+        def pivothigh(*a):
+            x, (left, right) = params(a, "pivothigh", hi, (5, 5))
+            return pivot_tv(x, length(left, "pivothigh"), length(right, "pivothigh"), True)
+
+        def pivotlow(*a):
+            x, (left, right) = params(a, "pivotlow", lo, (5, 5))
+            return pivot_tv(x, length(left, "pivotlow"), length(right, "pivotlow"), False)
+
+        def avwap(anchor, x=None):
+            """Anchored VWAP: sum(x * volume) / sum(volume) from the anchor date (x defaults to hlc3); NaN before."""
+            if not isinstance(anchor, str):
+                raise ValueError('avwap() takes the anchor date in quotes, e.g. avwap("2020-03-23")')
+            try:
+                d = pd.Timestamp(anchor)
+            except (ValueError, TypeError):
+                raise ValueError(f"avwap(): {anchor!r} is not a date (write e.g. avwap(\"2020-03-23\"))") from None
+            src = (hi + lo + c) / 3 if x is None else series_arg(x, "avwap")
+            on = pd.Series(c.index >= d, index=c.index)
+            pv = (src * vol).where(on, 0.0).cumsum()
+            vv = vol.where(on, 0.0).cumsum()
+            return (pv / vv).where(on & (vv > 0))
+
+        def na(x):
+            """True where x has no value (TradingView's na())."""
+            return _s(x, c).isna()
+
+        def nz(x, y=0):
+            """x with missing values replaced by y (TradingView's nz())."""
+            return _s(x, c).fillna(y)
+
+        def cross(a, b):
+            """a crosses b in either direction (TradingView's ta.cross)."""
+            return crossover(a, b) | crossunder(a, b)
 
         def crossover(a, b):
             a, b = _s(a, c), _s(b, c)
@@ -582,12 +862,16 @@ class Namespace(dict):
             out[ok] = xv[occ[k[ok]]]
             return pd.Series(out, index=c.index)
 
-        def diff(x=None, n=1):
-            """x - x n bars ago (TradingView's ta.change)."""
-            if not isinstance(x, pd.Series) and x is not None:
-                x, n = c, x
-            base = c if x is None else _s(x, c)
-            return base - base.shift(nonneg(n))
+        def diff(*a):
+            """x - x n bars ago (TradingView's ta.change / ta.mom): diff(), diff(n), diff(x), diff(x, n) or diff(n, x)."""
+            series = [v for v in a if isinstance(v, pd.Series)]
+            if len(a) > 2 or len(series) > 1 or (len(a) == 2 and not series):
+                raise ValueError("diff takes a series and an offset, e.g. diff(close, 14); the offset must be a whole "
+                                 "number written in the rule")
+            base = series[0] if series else c
+            nums = [v for v in a if not isinstance(v, pd.Series)]
+            n = nonneg(nums[0]) if nums else 1
+            return base - base.shift(n)
 
         def down_streak(x=None):
             return streak(c if x is None else series_arg(x, "down_streak"), -1)
@@ -713,7 +997,11 @@ class Namespace(dict):
             "cci": cci, "willr": willr, "obv": obv, "mfi": mfi, "vwap": vwap,
             "donchian_upper": donchian_upper, "donchian_lower": donchian_lower,
             "keltner_upper": keltner_upper, "keltner_lower": keltner_lower,
-            "supertrend": supertrend, "sar": sar,
+            "supertrend": supertrend, "supertrend_dir": supertrend_dir, "sar": sar,
+            "hma": hma, "vwma": vwma, "linreg": linreg, "alma": alma, "kama": kama,
+            "tenkan": tenkan, "kijun": kijun, "senkou_a": senkou_a, "senkou_b": senkou_b,
+            "aroon_up": aroon_up, "aroon_down": aroon_down, "aroon_osc": aroon_osc, "cmf": cmf,
+            "pivothigh": pivothigh, "pivotlow": pivotlow, "avwap": avwap, "na": na, "nz": nz, "cross": cross,
             "crossover": crossover, "crossunder": crossunder, "count": count, "bars_since": bars_since,
             "valuewhen": valuewhen, "diff": diff,
             "down_streak": down_streak, "up_streak": up_streak,
@@ -747,21 +1035,32 @@ Variables (per bar; prices are split-adjusted, as quoted):
   dow month day year                calendar (dow: 0=Mon .. 4=Fri)
   trading_day_of_month, trading_days_left_in_month
   dollar_volume                     close * volume
+  hl2 hlc3 ohlc4 hlcc4              price averages (hlc3 = typical price)   true_range
+  ha_open ha_high ha_low ha_close   Heikin Ashi bars (as TradingView draws them)
+  na(x) nz(x,y)                     x is missing / x with missing values replaced by y
 Position variables (exit rules only):
   bars_held  entry_price  pnl (open trade return, 0.05 = +5%)
   highest_since_entry  lowest_since_entry
 Functions (x defaults to close; n = lookback in bars, a number written in the rule - not a calculation):
-  averages     sma(x,n) ema(x,n) rma(x,n) wma(x,n) vwap(n)
+  averages     sma(x,n) ema(x,n) rma(x,n) wma(x,n) hma(x,n) vwma(x,n) alma(x,n,offset,sigma) kama(x,n,fast,slow)
+               linreg(x,n,offset)  least-squares moving average (TradingView's ta.linreg; offset 0 = latest)
+               vwap(n)  rolling n-bar VWAP of the typical price   avwap("2020-03-23")  anchored VWAP from a date
   ranges       highest(x,n) lowest(x,n) donchian_upper(n) donchian_lower(n) atr(n) natr(n)
   bands        bb_upper(n,k) bb_lower(n,k) keltner_upper(n,k) keltner_lower(n,k)
   momentum     ret(x,n) rsi(x,n) macd(fast,slow) macd_signal(f,s,sig) macd_hist(f,s,sig)
                stoch_k(n,smooth) stoch_d(n,smooth,d) cci(n) willr(n) mfi(n) obv()
-  trend        adx(n) plus_di(n) minus_di(n) supertrend(n,k) sar(step,max)
+  trend        adx(n) plus_di(n) minus_di(n) supertrend(n,k) supertrend_dir(n,k) (-1 up, +1 down, as TradingView)
+               sar(start,max,inc) aroon_up(n) aroon_down(n) aroon_osc(n) cmf(n)
+  ichimoku     tenkan(9) kijun(26) senkou_a(9,26,26) senkou_b(52,26): the cloud as drawn on the current bar
+                 (computed displacement-1 bars ago, as TradingView plots it; no future data)
+  pivots       pivothigh(x,left,right) pivotlow(x,left,right): the pivot's value on the bar it is confirmed
+                 (right bars after the pivot), NaN otherwise, as ta.pivothigh; e.g.
+                 valuewhen(pivothigh(5,5) > 0, pivothigh(5,5), 0) is the latest confirmed pivot high
   statistics   stdev(x,n) zscore(x,n) volatility(n) pct_rank(x,n) drawdown(x,n) max_drawdown(x,n)
                stdev_return(x,n) ma_return(x,n)
   total return tr (dividend-reinvested price)  tret(n) total return over n bars
                tbill_ret(n) compounded T-bill return over n bars   market_cap
-  timing       ref(x,n) (n >= 0; also written x[n]) crossover(a,b) crossunder(a,b) count(cond,n)
+  timing       ref(x,n) (n >= 0; also written x[n]) crossover(a,b) crossunder(a,b) cross(a,b) count(cond,n)
                bars_since(cond)  bars since cond was last true (0 on a bar where it is true)
                valuewhen(cond,x,k)  x on the k-th most recent bar where cond was true (k=0: the latest)
                diff(x,n)  x - x n bars ago   down_streak(x) up_streak(x) cummax(x) cummin(x)
@@ -778,10 +1077,18 @@ Functions (x defaults to close; n = lookback in bars, a number written in the ru
                  quoted(close) > 400 in a portfolio whose indicators use total-return prices
 Operators: + - * / < <= > >= == != and or not, e.g. 0.1 < ibs < 0.3
 TradingView (Pine) spellings are accepted and translated: close[1] -> ref(close, 1) (literal offsets >= 0 only),
-  ta.sma ta.ema ta.rma ta.wma ta.rsi ta.atr ta.highest ta.lowest ta.stdev ta.crossover ta.crossunder
-  ta.change (-> diff) ta.mom (-> diff) ta.roc (-> 100 * ret) ta.barssince (-> bars_since) ta.valuewhen
+  ta.sma ta.ema ta.rma ta.wma ta.hma ta.vwma ta.alma ta.linreg ta.rsi ta.atr ta.highest ta.lowest ta.stdev
+  ta.crossover ta.crossunder ta.cross ta.cci ta.mfi ta.wpr (-> willr) ta.obv ta.sar(start, inc, max) ta.tr
+  ta.pivothigh ta.pivotlow ta.change (-> diff) ta.mom (-> diff) ta.roc (-> 100 * ret) ta.barssince ta.valuewhen
+  ta.stoch(close, high, low, n) (-> stoch_k(n, 1), the raw %K) ta.vwap (-> hlc3: on daily bars the
+  session VWAP is the bar's own typical price; use vwap(n) or avwap("date") for longer ones)
   ta.macd(src, fast, slow, signal) (-> the MACD line only; use macd_signal / macd_hist for the others)
-  math.abs math.max math.min math.log math.sqrt, true / false
+  ta.bb / ta.supertrend / ta.dmi return several values and are refused with the equivalent:
+  bb_upper(n, k) bb_lower(n, k) sma(close, n); supertrend(n, k) supertrend_dir(n, k); adx plus_di minus_di
+  request.security(syminfo.tickerid, "W" / "M" / "D", x) -> weekly(x) / monthly(x) / x
+  request.security("SPY", "D", close) -> sym("SPY").close (x may use SPY's open/high/low/close/volume
+  with indicators that take the series explicitly); lookahead = barmerge.lookahead_on is refused
+  math.abs math.max math.min math.log math.sqrt, na() nz() hl2 hlc3 ohlc4, true / false
 """
 
 
@@ -867,8 +1174,86 @@ class _Timeframes(ast.NodeTransformer):
 _PINE_TA = {"sma": "sma", "ema": "ema", "rma": "rma", "wma": "wma", "rsi": "rsi", "atr": "atr", "highest": "highest",
             "lowest": "lowest", "stdev": "stdev", "crossover": "crossover", "crossunder": "crossunder",
             "change": "diff", "mom": "diff", "barssince": "bars_since", "valuewhen": "valuewhen", "macd": "macd",
-            "roc": "roc"}
+            "roc": "roc", "cci": "cci", "stoch": "stoch", "vwma": "vwma", "hma": "hma", "linreg": "linreg",
+            "mfi": "mfi", "wpr": "willr", "obv": "obv", "vwap": "vwap", "sar": "sar", "cross": "cross",
+            "alma": "alma", "pivothigh": "pivothigh", "pivotlow": "pivotlow", "cum": None, "bb": None,
+            "supertrend": None, "dmi": None, "kc": None}
 _PINE_MATH = {"abs": "abs", "max": "maximum", "min": "minimum", "log": "log", "sqrt": "sqrt"}
+# ta.* functions that return several values (a tuple): not expressible in one rule, refused with the equivalent
+_PINE_TUPLES = {
+    "bb": "ta.bb returns [middle, upper, lower]; write sma(close, 20), bb_upper(20, 2) or bb_lower(20, 2)",
+    "supertrend": "ta.supertrend(factor, atrPeriod) returns [line, direction]; write supertrend(atrPeriod, factor) for "
+                  "the line or supertrend_dir(atrPeriod, factor) for the direction (-1 up, +1 down)",
+    "dmi": "ta.dmi returns [+DI, -DI, ADX]; write plus_di(14), minus_di(14) or adx(14)",
+    "kc": "ta.kc returns [middle, upper, lower]; write ema(close, 20), keltner_upper(20, 2) or keltner_lower(20, 2)",
+    "cum": "ta.cum (a running total from the first bar) is not supported: it depends on where the data starts",
+}
+# ta.* built-in variables (no call)
+_PINE_VARS = {"obv": "obv()", "vwap": "hlc3", "tr": "true_range"}
+_TF = {"D": None, "1D": None, "W": "weekly", "1W": "weekly", "M": "monthly", "1M": "monthly"}
+_OTHER_OK = {"open", "high", "low", "close", "volume"}
+
+
+def _is_name(n, *ids) -> bool:
+    return isinstance(n, ast.Name) and n.id in ids
+
+
+def _security(node) -> ast.AST:
+    """request.security(symbol, timeframe, expr) -> expr / weekly(expr) / monthly(expr), on this ticker or another."""
+    for k in node.keywords:
+        if k.arg == "lookahead":
+            if not (isinstance(k.value, ast.Attribute) and _is_name(k.value.value, "barmerge")
+                    and k.value.attr == "lookahead_off"):
+                raise ValueError("request.security(..., lookahead = barmerge.lookahead_on) reads a higher timeframe bar "
+                                 "before it closes (lookahead) and is refused; leave lookahead off.")
+        elif k.arg not in ("gaps", "ignore_invalid_symbol", "symbol", "timeframe", "expression"):
+            raise ValueError(f"request.security(): the argument {k.arg} is not supported")
+    kw = {k.arg: k.value for k in node.keywords}
+    args = list(node.args) + [kw[k] for k in ("symbol", "timeframe", "expression") if k in kw]
+    if len(args) < 3:
+        raise ValueError('request.security takes (symbol, timeframe, expression), e.g. '
+                         'request.security(syminfo.tickerid, "W", close)')
+    if len(args) > 3:
+        if not (isinstance(args[3], ast.Attribute) and _is_name(args[3].value, "barmerge")):
+            raise ValueError("request.security(): only (symbol, timeframe, expression[, gaps, lookahead]) is supported")
+        for extra in args[3:]:
+            if isinstance(extra, ast.Attribute) and extra.attr == "lookahead_on":
+                raise ValueError("request.security(..., barmerge.lookahead_on) reads a higher timeframe bar before it "
+                                 "closes (lookahead) and is refused; leave lookahead off.")
+    sym_, tf, x = args[:3]
+    if not (isinstance(tf, ast.Constant) and isinstance(tf.value, str) and tf.value.upper() in _TF):
+        raise ValueError('request.security(): the timeframe must be "D", "W" or "M" (daily bars only; intraday '
+                         'timeframes are not available)')
+    per = _TF[tf.value.upper()]
+    own = (isinstance(sym_, ast.Attribute) and _is_name(sym_.value, "syminfo") and sym_.attr in ("tickerid", "ticker"))
+    if not own:
+        if not (isinstance(sym_, ast.Constant) and isinstance(sym_.value, str) and sym_.value.strip()):
+            raise ValueError('request.security(): the symbol must be syminfo.tickerid or a ticker in quotes, e.g. "SPY"')
+        t = sym_.value.split(":")[-1].strip()     # "AMEX:SPY" -> SPY
+
+        class _Other(ast.NodeTransformer):
+            def visit_Name(self, n):
+                if n.id in _OTHER_OK:
+                    return ast.Attribute(value=ast.Call(func=ast.Name(id="sym", ctx=ast.Load()), args=[ast.Constant(t)],
+                                                        keywords=[]), attr=n.id, ctx=ast.Load())
+                if n.id in ("True", "False"):
+                    return n
+                raise ValueError(f"request.security({t!r}, ...): {n.id} of another ticker is not available; use its "
+                                 "open/high/low/close/volume, e.g. request.security(\"SPY\", \"D\", ta.sma(close, 200))")
+
+            def visit_Call(self, n):
+                f = n.func.id if isinstance(n.func, ast.Name) else ""
+                if f in _ALWAYS_CLOSE or f == "sym" or (f in _DEFAULTS_TO_CLOSE and not any(
+                        isinstance(a, (ast.Name, ast.Attribute, ast.Call, ast.BinOp, ast.UnaryOp)) and _literal(a) is None
+                        for a in n.args)):
+                    raise ValueError(f"request.security({t!r}, ...): {f}() would read this chart's own bars, not "
+                                     f"{t}'s; write the series explicitly, e.g. ta.sma(close, 200) or ta.rsi(close, 14)")
+                n.args = [self.visit(a) for a in n.args]
+                return n
+        x = _Other().visit(x)
+    if per is None:
+        return x
+    return ast.Call(func=ast.Name(id=per, ctx=ast.Load()), args=[x], keywords=[])
 
 
 class _Pine(ast.NodeTransformer):
@@ -896,10 +1281,32 @@ class _Pine(ast.NodeTransformer):
             return ast.Name(id=node.id.capitalize(), ctx=ast.Load())
         return node
 
-    def visit_Call(self, node):
+    def visit_Attribute(self, node):
+        # ta.obv / ta.vwap / ta.tr used as variables (no call)
+        if _is_name(node.value, "ta"):
+            if node.attr in _PINE_VARS:
+                return ast.parse(_PINE_VARS[node.attr], mode="eval").body
+            raise ValueError(f"ta.{node.attr} is not supported; see --help-expr for the functions available")
         self.generic_visit(node)
+        return node
+
+    def visit_Call(self, node):
+        f = node.func
+        if isinstance(f, ast.Attribute) and _is_name(f.value, "request") and f.attr == "security":
+            node.args = [self.visit(a) if i == 2 else a for i, a in enumerate(node.args)]
+            for k in node.keywords:
+                if k.arg == "expression":
+                    k.value = self.visit(k.value)
+            return _security(node)
+        if isinstance(f, ast.Attribute) and _is_name(f.value, "ta"):
+            node.args = [self.visit(a) for a in node.args]
+            node.keywords = [ast.keyword(arg=k.arg, value=self.visit(k.value)) for k in node.keywords]
+        else:
+            self.generic_visit(node)
         f = node.func
         if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in ("ta", "math"):
+            if f.value.id == "ta" and f.attr in _PINE_TUPLES:
+                raise ValueError(_PINE_TUPLES[f.attr])
             table = _PINE_TA if f.value.id == "ta" else _PINE_MATH
             name = table.get(f.attr)
             if name is None:
@@ -907,6 +1314,32 @@ class _Pine(ast.NodeTransformer):
             if node.keywords:
                 raise ValueError(f"{f.value.id}.{f.attr}(): write the arguments in order, without names")
             args = list(node.args)
+            if name == "stoch":
+                # ta.stoch(source, high, low, length): the raw (unsmoothed) %K
+                if len(args) != 4 or not (_is_name(args[0], "close") and _is_name(args[1], "high")
+                                          and _is_name(args[2], "low")):
+                    raise ValueError("ta.stoch is supported as ta.stoch(close, high, low, length) (-> stoch_k(length, 1)); "
+                                     "other sources are not")
+                return ast.Call(func=ast.Name(id="stoch_k", ctx=ast.Load()), args=[args[3], ast.Constant(1)], keywords=[])
+            if name == "cci" and len(args) == 2 and _is_name(args[0], "hlc3"):
+                args = [args[1]]
+            if name == "mfi" and len(args) == 2 and _is_name(args[0], "hlc3"):
+                args = [args[1]]
+            if name == "vwap":
+                # session VWAP on daily bars: the bar's own source value
+                if len(args) > 1:
+                    raise ValueError("ta.vwap(source) with anchors or bands is not supported; use avwap(\"date\") or "
+                                     "vwap(n)")
+                return args[0] if args else ast.parse("hlc3", mode="eval").body
+            if name == "willr" and len(args) == 1:
+                return ast.Call(func=ast.Name(id="willr", ctx=ast.Load()), args=args, keywords=[])
+            if name == "sar":
+                # ta.sar(start, inc, max) -> sar(start, max, inc)
+                if len(args) != 3:
+                    raise ValueError("ta.sar takes (start, inc, max), e.g. ta.sar(0.02, 0.02, 0.2)")
+                return ast.Call(func=ast.Name(id="sar", ctx=ast.Load()), args=[args[0], args[2], args[1]], keywords=[])
+            if name == "obv" and args:
+                raise ValueError("ta.obv is a variable: write ta.obv, not ta.obv(...)")
             if name == "macd":
                 # ta.macd(source, fast, slow, signal) -> the MACD line
                 if len(args) not in (3, 4):
@@ -923,7 +1356,7 @@ class _Pine(ast.NodeTransformer):
 
 def pine_to_rule(text):
     """Translate TradingView (Pine) spellings to the rule language; other text is returned unchanged."""
-    if not isinstance(text, str) or not re.search(r"\[|\bta\.|\bmath\.|\btrue\b|\bfalse\b", text):
+    if not isinstance(text, str) or not re.search(r"\[|\bta\.|\bmath\.|\btrue\b|\bfalse\b|\brequest\.", text):
         return text
     try:
         tree = ast.parse(text.strip(), mode="eval")
@@ -940,7 +1373,8 @@ def pine_to_rule(text):
 # the runtime can never read the same argument differently.
 
 _VALUE_FUNCS = {"abs", "maximum", "minimum", "log", "sqrt"}          # element-wise maths on values
-_FREE_ARG_FUNCS = _VALUE_FUNCS | {"crossover", "crossunder", "sym", "weekly", "monthly", "_tf"}
+_FREE_ARG_FUNCS = _VALUE_FUNCS | {"crossover", "crossunder", "cross", "sym", "weekly", "monthly", "_tf", "avwap",
+                                  "nz", "na"}
 _SERIES_ONLY_FUNCS = {"cummax", "cummin", "down_streak", "up_streak", "bars_since"}
 _SCALAR_NAMES = {"entry_price"}                                       # position variable that is a number
 
@@ -1059,6 +1493,7 @@ OPEN_SAFE_NAMES = {"gap", "dow", "month", "day", "year", "trading_day_of_month",
                    "trading_days_left_in_month", "open", "True", "False"}
 # functions whose series argument defaults to today's close/high/low when omitted
 _DEFAULTS_TO_CLOSE = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "stdev", "zscore", "ret", "roc", "diff",
+                      "hma", "vwma", "linreg", "alma", "kama", "cci", "mfi",
                       "rsi", "pct_rank", "down_streak", "up_streak", "drawdown", "cummax", "cummin", "tret",
                       "max_drawdown", "ma_return", "stdev_return"}
 # functions that always read today's close/high/low
@@ -1068,7 +1503,8 @@ _ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "m
                  "weekly_sma", "monthly_sma", "weekly_close", "monthly_close", "is_week_end",
                  "weekly_rsi", "monthly_rsi", "weekly_ema", "monthly_ema", "weekly_ret", "monthly_ret",
                  "is_month_end", "is_quarter_end", "is_year_end", "bars_since", "count", "weekly", "monthly",
-                 "valuewhen"}
+                 "valuewhen", "vwma", "tenkan", "kijun", "senkou_a", "senkou_b", "aroon_up", "aroon_down",
+                 "aroon_osc", "cmf", "pivothigh", "pivotlow", "avwap", "supertrend_dir"}
 
 
 def first_defined(rule, ns) -> pd.Timestamp | None:
@@ -1099,9 +1535,10 @@ def first_defined(rule, ns) -> pd.Timestamp | None:
 
 # f(x, n): reads only its series argument x (close/high/low when x is left out)
 _OPEN_SERIES_FUNCS = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "stdev", "zscore", "ret", "roc", "rsi",
-                      "tret", "pct_rank", "max_drawdown", "ma_return", "stdev_return", "drawdown"}
+                      "tret", "pct_rank", "max_drawdown", "ma_return", "stdev_return", "drawdown", "diff", "hma",
+                      "linreg", "alma", "kama"}
 _OPEN_ONE_SERIES = {"cummax", "cummin", "down_streak", "up_streak", "quoted"}   # quoted(x): x on the quoted basis
-_OPEN_ELEMENTWISE = _VALUE_FUNCS | {"crossover", "crossunder"}
+_OPEN_ELEMENTWISE = _VALUE_FUNCS | {"crossover", "crossunder", "cross", "nz", "na"}
 
 
 def _is_sym(node) -> bool:

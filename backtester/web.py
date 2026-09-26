@@ -47,8 +47,18 @@ EXAMPLES = [
     "buy and hold SPY, add $500 every month",
 ]
 
+def _flag(v) -> bool:
+    if isinstance(v, bool):
+        return v
+    if str(v).strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    if str(v).strip().lower() in ("0", "false", "no", "off"):
+        return False
+    raise ValueError(v)
+
+
 OPTION_KEYS = {"capital": float, "start": str, "end": str, "slippage_bps": float, "commission": float,
-               "benchmark": str, "name": str}
+               "benchmark": str, "name": str, "tv_compat": _flag}
 
 
 class ClientError(Exception):

@@ -371,7 +371,7 @@ def test_pine_spellings(pine, rule):
     assert expr.pine_to_rule(pine) == rule
 
 
-@pytest.mark.parametrize("bad", ["close[-1] > 0", "close[n] > 0", "ta.vwma(close, 5) > 0"])
+@pytest.mark.parametrize("bad", ["close[-1] > 0", "close[n] > 0", "ta.vwmacd(close, 5) > 0"])
 def test_pine_lookahead_and_unknowns_are_refused(bad):
     with pytest.raises(ValueError):
         expr.compile_expr(bad)

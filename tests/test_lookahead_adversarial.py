@@ -93,7 +93,8 @@ REFUSED = [
     # rolling functions with the default (today's close/high/low) series
     "open > sma(20)", "open > rsi(2)", "ret(1) < 0", "open > highest(5)", "open < lowest(5)", "open > ema(5)",
     "open > drawdown(252)", "open > stdev(20)", "zscore(20) < -2", "pct_rank(20) > 0.5", "tret(5) > 0",
-    "down_streak() >= 2", "up_streak() >= 2",
+    "down_streak() >= 2", "up_streak() >= 2", "diff() > 0", "diff(5) > 0", "diff(close) > 0", "diff(high, 2) > 0",
+    "diff(open, abs(1)) > 0", "diff(open * 0 + close) > 0", "ta.change(close) > 0", "ta.mom(close, 3) > 0",
     # today's bar, directly or through variables / other indicators
     "gap < -0.01 and close > open", "open < close", "high > open", "low < open", "volume > 0", "ibs < 0.2",
     "range > 0.01", "change < 0", "down_days >= 1", "dollar_volume > 0", "tr > 0", "price > open", "market_cap > 0",
@@ -137,6 +138,8 @@ SAFE = [
     "open / ref(close, 1) - 1 < -0.01 or day == 15", "ret(open, 3) < -0.05", "zscore(ref(close, 1), 20) < -1",
     "cummax(open) > open * 1.2", "drawdown(ref(close, 1), 60) < -0.1", "gap > 0",
     'sym("ZZZ").open > ref(sym("ZZZ").close, 1)', 'open > ref(sym("ZZZ").high, 1) and gap < 0',
+    "diff(open) > 0", "diff(open, 3) < 0", "diff(2, open) > 0", "ta.change(open) > 0", "ta.mom(open, 5) < 0",
+    "diff(ref(close, 1), 5) > 0", "diff(gap, 1) > 0", 'diff(sym("ZZZ").open) > 0',
 ]
 
 
@@ -218,7 +221,7 @@ def _gen(rng, depth=0, bias=False) -> str:
         f"cummax({x})", f"down_streak({x})", f"abs({x})", f"maximum({x}, {y})", f"minimum({x}, {y})",
         f"({x} + {y})", f"({x} - {y})", f"({x} * {y})", f"({x} / ({y}))", f"sma({n})", f"rsi({n})", f"highest({n})",
         f"atr({n})", f"crossover({x}, {y})", f"weekly({x})", f"count({x} > {y}, {n})", f"-{x}",
-        f"sma({x}, abs({n}))", f"ref({x}, {k} + 0)", f"sqrt(abs({x}))",
+        f"sma({x}, abs({n}))", f"ref({x}, {k} + 0)", f"sqrt(abs({x}))", f"diff({x}, {k})", f"diff({n})",
     ]
     return str(rng.choice(choices))
 

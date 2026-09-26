@@ -514,6 +514,11 @@ def load(ticker: str) -> pd.DataFrame:
     raw = pd.read_csv(path, parse_dates=["date"], index_col="date").sort_index()
     raw = raw[~raw.index.duplicated(keep="last")]
     raw = raw[(raw["close"] > 0) & raw["close"].notna()]
+    if raw.empty:
+        # a header-only (or all-invalid) file is treated as missing data, never as an empty series that later
+        # code would index into
+        raise DataError(f"No price data for {t}: its price file ({path.name}) has no valid rows (empty, or no positive "
+                        "closes). Re-run the 'Fetch price data' workflow (or delete the file so it is downloaded again).")
     raw, _ = reconcile_actions(t, raw)
     raw, repaired = repair_bars(t, raw)
     df = pd.DataFrame(index=raw.index)
