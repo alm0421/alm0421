@@ -5,24 +5,9 @@ import json
 from dataclasses import asdict, dataclass, field, fields
 from typing import Literal
 
+from .costs import COMMISSION_MODELS, broker_commission  # noqa: F401 - re-exported (older imports)
+
 Fill = Literal["close", "open", "next_open", "next_close"]
-
-# broker presets: (per share, minimum per order, maximum as a fraction of trade value, pass-through fees per share)
-COMMISSION_MODELS = {
-    None: None,
-    "ibkr_fixed": (0.005, 1.00, 0.01, 0.0),       # IBKR Pro Fixed: $0.005/share, min $1, max 1% of trade value
-    "ibkr_tiered": (0.0035, 0.35, 0.01, 0.0002),  # IBKR Pro Tiered (first tier) plus ~$0.0002/share exchange,
-                                                  # clearing and regulatory fees (an approximation)
-}
-
-
-def broker_commission(model: str | None, shares: float, value: float) -> float:
-    """Commission of one order under a broker preset (0 for None)."""
-    spec = COMMISSION_MODELS.get(model)
-    if not spec or shares <= 0:
-        return 0.0
-    per_share, lo, cap, fees = spec
-    return min(max(lo, per_share * shares), cap * abs(value)) + fees * shares
 
 
 @dataclass
@@ -87,6 +72,8 @@ class Strategy:
     short_rebate_spread: float = 0.0025          # short sale proceeds earn the cash rate minus this (floored at 0)
     maintenance_margin: float = 0.25             # with leverage or shorts: if equity / gross exposure is below this
                                                  # at a close, positions are cut pro rata back to 1/leverage
+    margin_account: Literal["reg_t", "portfolio"] = "reg_t"   # "reg_t": at most 2x overnight (US stocks, Regulation T);
+                                                 # "portfolio": portfolio margin, up to 4x (maintenance below 1/leverage)
     commission_model: str | None = None          # None, "ibkr_fixed" or "ibkr_tiered" (added to the fields above)
     slippage_model: Literal["fixed", "volume"] = "fixed"   # "volume": adds spread_bps/2 + impact_bps*sqrt(shares/ADV20)
     spread_bps: float = 2.0                      # volume model: quoted bid-ask spread (half of it is paid per fill)
@@ -182,9 +169,7 @@ class Strategy:
             raise ValueError("short_rebate_spread cannot be negative")
         if not 0 <= self.maintenance_margin < 1:
             raise ValueError("maintenance_margin must be at least 0 and below 1")
-        if self.maintenance_margin > 1 / self.leverage + 1e-12:
-            raise ValueError(f"maintenance_margin ({self.maintenance_margin:.0%}) is above the initial margin of "
-                             f"{self.leverage:g}x leverage ({1 / self.leverage:.0%}); lower one of them.")
+        self._check_margin()
         if self.position_size is None:
             per = self.leverage / self.max_positions
             if (self.pyramiding or 1) > 1 and self.sizing == "percent":
@@ -203,10 +188,30 @@ class Strategy:
             self.notes.append(f"Leverage: {need:.0%} per position needs {need:g}x leverage: using {need:g}x "
                               f"(raised from {self.leverage:g}x).")
             self.leverage = need
-            if self.maintenance_margin > 1 / self.leverage + 1e-12:
-                raise ValueError(f"{need:.0%} per position needs {need:g}x leverage, whose initial margin "
-                                 f"({1 / need:.0%}) is below the {self.maintenance_margin:.0%} maintenance margin; "
-                                 "lower the position size or set a lower maintenance margin.")
+            self._check_margin(f"{need:.0%} per position needs {need:g}x leverage: ")
+
+    MAX_LEVERAGE = {"reg_t": 2.0, "portfolio": 4.0}
+
+    def _check_margin(self, why: str = "") -> None:
+        """Leverage a broker would allow: Regulation T lends at most 2x overnight on US stocks (50% initial margin);
+        a portfolio-margin account up to 4x. The maintenance margin must be below the initial margin (1/leverage):
+        at or above it, the first close at or below the entry price is a margin call (4x with the default 25%
+        maintenance cut positions on nearly every down day)."""
+        if self.margin_account not in self.MAX_LEVERAGE:
+            raise ValueError("margin_account must be 'reg_t' (at most 2x overnight) or 'portfolio' (portfolio margin, up to 4x)")
+        cap = self.MAX_LEVERAGE[self.margin_account]
+        if self.leverage > cap + 1e-12:
+            if self.margin_account == "reg_t":
+                raise ValueError(f"{why}{self.leverage:g}x leverage is more than Regulation T allows overnight on stocks "
+                                 "(2x: 50% initial margin). With a portfolio-margin account up to 4x is possible: say "
+                                 "'with portfolio margin' (margin_account 'portfolio') and a maintenance margin below "
+                                 f"{1 / self.leverage:.0%}, e.g. 'a 15% maintenance margin'.")
+            raise ValueError(f"{why}{self.leverage:g}x leverage is more than a portfolio-margin account allows (4x).")
+        if self.leverage > 1 + 1e-12 and self.maintenance_margin >= 1 / self.leverage - 1e-12:
+            raise ValueError(f"{why or 'T'}{'t' if why else ''}he {self.maintenance_margin:.0%} maintenance margin is not below the initial margin of "
+                             f"{self.leverage:g}x leverage ({1 / self.leverage:.0%}): every close below the entry price would "
+                             f"be a margin call. Use a maintenance margin below {1 / self.leverage:.0%} (e.g. 'a "
+                             f"{max(1, int(100 / self.leverage * 0.6))}% maintenance margin'), less leverage, or 'no margin calls'.")
 
     def enters_before_close(self) -> bool:
         """True when entries fill before the close of their bar (at the open or intraday)."""
@@ -328,12 +333,15 @@ class Strategy:
             costs.append(f"volume slippage ({f((self.spread_bps or 0) / 2, 'g')} bps + {f(self.impact_bps, 'g')} bps x sqrt(shares/ADV20))")
         if self.max_volume_pct:
             costs.append(f"orders capped at {f(self.max_volume_pct, '.1%')} of volume")
+        if self.margin_rate:
+            costs.append(f"borrowing at the T-bill rate + {f(self.margin_rate, '.2%')}")
         if self.borrow_fee:
             costs.append(f"{f(self.borrow_fee, '.2%')}/yr borrow fee")
         if self.side != "long" and self.short_rebate_spread and self.cash_rate not in (None, 0, 0.0, False, ""):
             costs.append(f"short proceeds earn the cash rate less {f(self.short_rebate_spread, '.2%')}")
         if (self.side != "long" or (self.leverage or 1) > 1) and self.maintenance_margin:
-            costs.append(f"{f(self.maintenance_margin, '.0%')} maintenance margin")
+            costs.append(f"{f(self.maintenance_margin, '.0%')} maintenance margin"
+                         + (" (portfolio margin account)" if self.margin_account == "portfolio" else ""))
         lines.append("Costs: " + (", ".join(costs) if costs else "none"))
         cr = self.cash_rate
         lines.append("Cash: " + ("earns the 3-month T-bill rate" if cr == "tbill" else

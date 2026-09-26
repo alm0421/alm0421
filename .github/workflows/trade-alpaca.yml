@@ -1,0 +1,63 @@
+name: Trade (Alpaca paper)
+
+# Sends today's orders for one strategy to Alpaca: the PAPER account unless the ALPACA_LIVE variable is "1"
+# (python -m backtester trade ... --broker alpaca; see the README's "Broker trading" section).
+#
+# Disabled by default: it only runs when started by hand (Actions > Trade (Alpaca paper) > Run workflow).
+# To run it on a schedule, uncomment the `schedule` block. It does nothing unless the repository secrets
+# ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY are set; the strategy is the repository variable ALPACA_STRATEGY
+# (a sentence) or the manual run's input.
+#
+# Timing: 19:40 UTC is 15:40 New York in summer (14:40 in winter), before Alpaca's 15:50 cut-off for
+# market-on-close orders. The price data is the previous session's (the data job runs after the close).
+
+on:
+  workflow_dispatch:
+    inputs:
+      sentence:
+        description: "Strategy sentence (default: the ALPACA_STRATEGY repository variable)"
+        required: false
+      dry_run:
+        description: "Dry run: print the orders, send nothing"
+        type: boolean
+        default: true
+  # schedule:
+  #   - cron: "40 19 * * 1-5"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trade-alpaca
+  cancel-in-progress: false
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy scipy requests
+      - name: Send orders
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          ALPACA_LIVE: ${{ vars.ALPACA_LIVE }}
+          SENTENCE: ${{ github.event.inputs.sentence || vars.ALPACA_STRATEGY }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true' }}
+        run: |
+          if [ -z "$ALPACA_API_KEY_ID" ] || [ -z "$ALPACA_API_SECRET_KEY" ]; then
+            echo "Alpaca secrets are not set: nothing to do."; exit 0
+          fi
+          if [ -z "$SENTENCE" ]; then
+            echo "No strategy: set the ALPACA_STRATEGY repository variable or give a sentence."; exit 1
+          fi
+          args=(trade "$SENTENCE" --broker alpaca)
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          if [ "$ALPACA_LIVE" = "1" ]; then args+=(--live); fi
+          python -m backtester "${args[@]}"

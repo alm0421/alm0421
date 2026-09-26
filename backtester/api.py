@@ -18,7 +18,8 @@
         return {"QQQ": 1.0} if spy.iloc[-1] > spy.tail(200).mean() else {"TLT": 0.5, "GLD": 0.5}
     r = api.backtest(Portfolio(tree={"custom": risk_on, "tickers": ["SPY", "QQQ", "TLT", "GLD"]}, rebalance="monthly"))
 
-Rules written as functions are trusted code: they must only use data up to each row (no .shift(-1)).
+Rules written as functions must only use data up to each row (no .shift(-1), no centred windows): each run
+probes them on data cut at ~20 dates and refuses one whose past output changes (expr.callable_lookahead_probe).
 """
 from __future__ import annotations
 

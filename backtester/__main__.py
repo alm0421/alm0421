@@ -28,7 +28,7 @@ from . import data, expr, parser, report, runner
 from .montecarlo import parse_weights
 
 SUBCOMMANDS = {"run", "compare", "sweep", "walkforward", "optimize", "signals", "paper", "web", "tickers", "library", "montecarlo",
-               "factors", "style", "import-composer", "correlation", "correlations"}
+               "factors", "style", "import-composer", "correlation", "correlations", "trade"}
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -538,6 +538,50 @@ def cmd_paper(argv: list[str]) -> int:
     return 0
 
 
+def cmd_trade(argv: list[str]) -> int:
+    from . import broker
+    p = argparse.ArgumentParser(prog="python -m backtester trade",
+                                description="Send today's orders for a strategy to a broker (Alpaca; the paper account unless "
+                                            "ALPACA_LIVE=1 and --live). Keys: ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY.")
+    p.add_argument("text", nargs="?")
+    p.add_argument("--spec")
+    p.add_argument("--broker", default="alpaca", choices=["alpaca"])
+    p.add_argument("--dry-run", action="store_true", help="print the orders, send nothing")
+    p.add_argument("--live", action="store_true", help="trade the live account (also needs ALPACA_LIVE=1)")
+    p.add_argument("--account-value", type=float, help="size to this $ amount instead of the account's equity "
+                                                         "(needed for a dry run without keys)")
+    p.add_argument("--whole-shares", action="store_true", help="whole shares only (keeps market-on-close/-open timing)")
+    p.add_argument("--keep-open-orders", action="store_true", help="don't cancel orders this tool placed earlier")
+    a = p.parse_args(argv)
+    if not (a.text or a.spec):
+        p.error("give the strategy sentence or --spec")
+    spec = runner.load(a.spec) if a.spec else parser.parse(a.text)
+    spec.validate()
+    try:
+        client = broker.client_for(a.live, a.live)
+    except broker.BrokerError as e:
+        raise ValueError(str(e)) from None
+    print(f"Broker: {client}")
+    positions: dict[str, float] = {}
+    if client.has_keys:
+        positions = broker.broker_positions(client)
+        value = a.account_value or broker.account_equity(client)
+    elif a.dry_run:
+        value = a.account_value or 10_000.0
+        print(f"No Alpaca keys: dry run for a ${value:,.0f} account with no positions.")
+    else:
+        raise ValueError(f"Alpaca keys are not set: export {broker.KEY_ENV} and {broker.SECRET_ENV}, or use --dry-run.")
+    pl = broker.plan(spec, value, positions, fractional=not a.whole_shares)
+    print(f"As of {pl.as_of}: {len(pl.orders)} order(s) for a ${value:,.0f} account")
+    for n in pl.notes:
+        print("Note:", n)
+    if client.live and not a.dry_run:
+        print("*** LIVE ACCOUNT: these orders use real money ***")
+    res = broker.submit(client, pl, dry_run=a.dry_run, cancel_stale=not a.keep_open_orders)
+    bad = [r for r in res if r["status"] == "error"]
+    return 1 if bad else 0
+
+
 def cmd_tickers(argv: list[str]) -> int:
     st = data.data_status()
     m = data.universe_meta()
@@ -618,6 +662,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_paper(rest)
         if cmd == "tickers":
             return cmd_tickers(rest)
+        if cmd == "trade":
+            return cmd_trade(rest)
         if cmd == "library":
             from .library import LIBRARY
             for x in LIBRARY:

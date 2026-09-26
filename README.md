@@ -206,6 +206,7 @@ python -m backtester correlation SPY TLT GLD EFASIM --window 36 --freq monthly [
 python -m backtester optimize SPY TLT GLD --methods omega,max_return_over_maxdd --omega-threshold 0.03
 python -m backtester signals "buy Nasdaq 100 stocks when RSI(2) is below 5, hold 3 days" [--webhook URL]
 python -m backtester paper add "hold the top 5 Nasdaq 100 stocks by 6 month momentum" --name mom5 ; python -m backtester paper report
+python -m backtester trade "hold 60% SPY and 40% TLT, rebalance monthly" --broker alpaca --dry-run   # see "Broker trading"
 python -m backtester --tickers MSFT --entry "down_days >= 5" --hold 1        # explicit rules
 python -m backtester --spec reports/<run>/strategy.json                      # re-run exactly
 python -m backtester tickers                                                 # what data exists
@@ -239,9 +240,14 @@ python -m backtester tickers                                                 # w
   - With leverage above 1x or any short, `maintenance_margin` (default 25%) is checked at every
     close: if equity / gross exposure is below it, every position is cut pro rata at that close back
     to the initial margin (1/leverage). The trades are marked "margin call" and the notes list the
-    dates. Leverage above 4x needs a lower maintenance margin ("with a 15% maintenance margin");
-    "no margin calls" turns the check off.
-- **Broker costs (signal strategies).**
+    dates. "no margin calls" turns the check off.
+  - Leverage is what a broker would lend: under Regulation T (`margin_account: "reg_t"`, the default) at
+    most 2x overnight on stocks. Up to 4x needs a portfolio-margin account ("with portfolio margin",
+    `margin_account: "portfolio"`). The maintenance margin must be below the initial margin (1/leverage):
+    4x with the default 25% maintenance is refused (every close below the entry would be a margin call);
+    say e.g. "4x leverage, with portfolio margin and a 15% maintenance margin".
+- **Broker costs (signal strategies and portfolios).** Both engines charge them through one module,
+  `backtester/costs.py` ("IBKR commissions" and "volume-based slippage" work in portfolio sentences too).
   - `commission_model: "ibkr_fixed"` ("IBKR commissions"): $0.005/share, min $1, max 1% of the
     trade value per order.
   - `"ibkr_tiered"` ("IBKR tiered"): $0.0035/share, min $0.35, max 1% of trade value, plus about
@@ -298,6 +304,14 @@ python -m backtester tickers                                                 # w
     - Lookbacks, lengths and offsets must be numbers written in the rule: `sma(close, abs(20))` or
       `ref(close, 2-1)` is an error everywhere, so the check and the calculation can't read a rule
       differently.
+  - Rules written as Python functions (the Python API: `entry=lambda df, ns: ...`, also exits, rankings and
+    order levels) can't be checked statically, so they are probed: the function is run on the data cut at
+    about 20 dates spread over the history (half of them days an entry fires) and its output up to each cut
+    must equal its output on the full data. `df.close.shift(-1)`, `rolling(..., center=True)` or
+    `df.close.mean()` change when later rows are removed, and the run is refused ("Lookahead: the entry
+    function uses future data: its result on D changes when the data after D is removed"). A function used
+    at the open must be marked `f.open_safe = True` and is also run with that day's close/high/low/volume
+    perturbed. Portfolio `custom` functions only ever receive the history up to each date.
     - Behind it, every run at the open replays the rule on dates across the whole history with that
       day's close/high/low/volume replaced by other valid values (tiny to large), for every ticker the
       rule reads; any change in the decision rejects the spec.
@@ -322,6 +336,10 @@ python -m backtester tickers                                                 # w
   weekend or holiday), so the first bar's return counts; that row has no year or month of its own.
 - **Portfolios.** Targets are re-evaluated on the schedule (month-end close by default) and traded at
   the close or next open. Only the differences are traded, and new contributions buy the target mix.
+  - "Trade at the next open" needs real opening prices. A ticker with none in the period (a SIM series or a
+    mutual fund: only a daily close) is refused, as in signal strategies ("SPYSIM has no real opening
+    prices ... Trade at the close instead"). A day on which a ticker's open was not quoted (old data) fills
+    that ticker at the day's close, with a note ("Opens: ...").
   - A period ends on the last *scheduled* NYSE session of the week/month/quarter as known that day: after an
     unscheduled closure (9/11) the rebalance happens on the first bar after it, not in hindsight on the bar
     before.
@@ -356,6 +374,42 @@ python -m backtester tickers                                                 # w
 - **Returns and costs.** Returns are time-weighted, so cash flows don't distort CAGR or Sharpe. The
   money-weighted IRR is reported separately. Costs default to zero, and the report always shows a
   cost-sensitivity table.
+
+## Broker trading (Alpaca)
+
+`python -m backtester trade "<sentence>" --broker alpaca` sends today's orders for a strategy to
+[Alpaca](https://alpaca.markets). It uses the **paper** account unless the environment has `ALPACA_LIVE=1`
+**and** `--live` is given (both, so a typo can't send real orders).
+
+```bash
+export ALPACA_API_KEY_ID=...   ALPACA_API_SECRET_KEY=...        # paper keys from app.alpaca.markets
+python -m backtester trade "hold 60% SPY and 40% TLT, rebalance monthly" --dry-run    # print, send nothing
+python -m backtester trade "hold 60% SPY and 40% TLT, rebalance monthly"              # paper account
+python -m backtester trade "buy QQQ when RSI(2) is below 10, sell when RSI(2) is above 70, 5% stop loss" --whole-shares
+```
+
+- **What is sent.** The target is the Orders page's reconciliation: what the strategy holds after the latest
+  bar (a portfolio's tree evaluated today; a signal strategy's open positions plus new entries), sized to the
+  account's equity, minus the positions the broker reports. Sells go first.
+- **Order types.** Fills at the close are market-on-close (`time_in_force: "cls"`), at the (next) open
+  market-on-open (`"opg"`). Limit/stop entries are limit/stop orders at the rule's level, with the stop loss
+  and take profit attached as a bracket. Open positions of a signal strategy get the next session's exit
+  orders: stop + target as one-cancels-other, or a single stop / limit, and scale-out limits, at the
+  backtest's levels. Orders this tool placed earlier (client ids starting `bt-`) are cancelled first, so
+  yesterday's levels are replaced (`--keep-open-orders` keeps them).
+- **Fractional shares.** Portfolios are rebalanced to exact weights with fractional shares, which Alpaca only
+  takes as day market orders; `--whole-shares` keeps the close/open timing.
+- **Idempotent.** Each order's `client_order_id` is built from the strategy, the date, the symbol and its role,
+  so a second run on the same day is rejected by Alpaca instead of doubling the orders.
+- **Timing.** The data is end-of-day: a strategy that fills "at the close of the signal day" is executed at the
+  next close, a day after the backtest's fill (a note says so). Next-open strategies trade as tested.
+- **Dry run.** `--dry-run` prints the order payloads and sends nothing; without keys it sizes a
+  `--account-value` (default $10,000) account with no positions.
+- **Secrets.** Keys are read from the environment only and never printed or logged (errors are scrubbed).
+- **Scheduled trading.** `.github/workflows/trade-alpaca.yml` is a template: it runs only when started by hand
+  (with a dry-run switch) until you uncomment its `schedule`, and does nothing unless the repository secrets
+  `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` are set. The strategy sentence is the repository variable
+  `ALPACA_STRATEGY`; the variable `ALPACA_LIVE=1` switches it to the live account.
 
 ## Data
 

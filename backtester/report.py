@@ -122,6 +122,13 @@ def slug(text: str) -> str:
 
 
 def _clean(o):
+    t = type(o)       # fast paths for the exact built-in types that make up most of a report payload
+    if t is float:
+        return None if o != o else (o if math.isfinite(o) else ("inf" if o > 0 else "-inf"))
+    if t is str or t is int:
+        return o
+    if t is list:
+        return [_clean(v) for v in o]
     if isinstance(o, dict):
         return {str(k): _clean(v) for k, v in o.items()}
     if isinstance(o, (list, tuple)):

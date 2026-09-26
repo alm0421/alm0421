@@ -81,12 +81,19 @@ def ema_tv(x: pd.Series, n: int) -> pd.Series:
 
 
 def rsi_wilder(x: pd.Series, n: int) -> pd.Series:
-    d = x.diff()
-    up = wilder(d.clip(lower=0), n)
-    dn = wilder(-d.clip(upper=0), n)
-    rs = up / dn
-    out = 100 - 100 / (1 + rs)
-    return out.where(dn != 0, 100.0).where(d.notna())
+    # numpy for the element-wise steps (the same values as Series.diff / clip / where, a lot faster)
+    v = x.to_numpy(dtype=float)
+    d = np.full(len(v), np.nan)
+    if len(v) > 1:
+        d[1:] = v[1:] - v[:-1]
+    with np.errstate(invalid="ignore"):
+        up = wilder(pd.Series(np.where(np.isnan(d), np.nan, np.maximum(d, 0.0)), index=x.index), n).to_numpy()
+        dn = wilder(pd.Series(np.where(np.isnan(d), np.nan, -np.minimum(d, 0.0)), index=x.index), n).to_numpy()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out = 100 - 100 / (1 + up / dn)
+    out = np.where(dn != 0, out, 100.0)
+    out[np.isnan(d)] = np.nan
+    return pd.Series(out, index=x.index)
 
 
 def is_crypto(ticker: str | None) -> bool:
@@ -312,9 +319,16 @@ class Namespace(dict):
             x, n = pick(a, c, 1)
             return x / x.shift(n) - 1
 
+        rsi_memo: dict = {}
+        c_ns = self.get("close")      # the namespace's `close` (the same bars as c)
+
         def rsi(*a):
             x, n = pick(a, c, 14)
-            return rsi_wilder(x, n)
+            if x is not c and x is not c_ns:
+                return rsi_wilder(x, n)
+            if n not in rsi_memo:      # of the close: computed once per ticker (entry and exit rules often share it)
+                rsi_memo[n] = rsi_wilder(x, n)
+            return rsi_memo[n].copy()
 
         trs = df["adj_close"] if "adj_close" in df else c
 
@@ -354,7 +368,12 @@ class Namespace(dict):
             return x.pct_change(fill_method=None).rolling(n, min_periods=n).std()
 
         def true_range():
-            return pd.concat([hi - lo, (hi - c.shift()).abs(), (lo - c.shift()).abs()], axis=1).max(axis=1)
+            h_, l_, c_ = hi.to_numpy(dtype=float), lo.to_numpy(dtype=float), c.to_numpy(dtype=float)
+            pc = np.full(len(c_), np.nan)
+            pc[1:] = c_[:-1]
+            with np.errstate(invalid="ignore"):   # the largest of the three, ignoring missing ones (as DataFrame.max)
+                tr = np.fmax(np.fmax(h_ - l_, np.abs(h_ - pc)), np.abs(l_ - pc))
+            return pd.Series(tr, index=c.index)
 
         def atr(n=14):
             n = int(n)
@@ -1225,7 +1244,7 @@ def open_time_probe(rule, df: pd.DataFrame, ticker: str | None = None, samples: 
     open (sizes from 0.01% to ~20%, random wicks), for this ticker and every sym() ticker, together and
     separately. A rule knowable at the open gives the same answer on every variant, and the same answer on
     the cut data as on the full data. Returns a description of the first violation, or None."""
-    if callable(rule) or df is None or len(df) < 60:
+    if df is None or len(df) < 60:
         return None
     base = evaluate(rule, Namespace(df, ticker=ticker)).reindex(df.index, fill_value=False).to_numpy()
     idx = df.index
@@ -1281,3 +1300,80 @@ def open_time_probe(rule, df: pd.DataFrame, ticker: str | None = None, samples: 
     finally:
         _SYM_OVERRIDE.clear()
     return None
+
+
+# ---------------------------------------------------------------- Python-function rules
+
+_CALLABLE_PROBES: dict = {}     # (function, ticker, kind, id(bars)) -> (bars, verdict): each function is probed once
+
+
+def callable_lookahead_probe(fn, df: pd.DataFrame, ticker: str | None = None, kind: str = "bool",
+                             samples: int = 20, seed: int = 0) -> str | None:
+    """Empirical lookahead check for a rule written as a Python function f(df, ns) (the Python API).
+
+    A text rule is checked statically (the whitelist, no negative offsets); a function can do anything, e.g.
+    df.close.shift(-1) or a centred rolling window. So it is run on the data cut at ~`samples` dates D spread over
+    the whole history (for a yes/no rule, half of them days it fires) and its output on every date up to D is
+    compared with its output on the full data. A causal function gives the same values; one that reads later
+    rows changes when they are removed. `kind` is "bool" (entry/exit rules) or "value" (ranking, order level).
+    Returns a description of the first difference, or None. Cached per function and data."""
+    if not callable(fn) or df is None or len(df) < 30:
+        return None
+    try:
+        key = (fn, ticker, kind, id(df))
+        hit = _CALLABLE_PROBES.get(key)
+    except TypeError:      # an unhashable callable object: not cached
+        key, hit = None, None
+    if hit is not None and hit[0] is df:
+        return hit[1]
+
+    def run(frame: pd.DataFrame) -> np.ndarray:
+        ns = Namespace(frame, ticker=ticker)
+        if kind == "bool":
+            return evaluate(fn, ns).to_numpy(dtype=bool)
+        return evaluate_value(fn, ns).reindex(frame.index).to_numpy(dtype=float)
+
+    def same(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        if kind == "bool":
+            return a == b
+        both_nan = np.isnan(a) & np.isnan(b)
+        with np.errstate(invalid="ignore"):
+            close = np.abs(a - b) <= 1e-9 * np.maximum(1.0, np.maximum(np.abs(a), np.abs(b)))
+        return both_nan | np.nan_to_num(close, nan=0.0).astype(bool)
+
+    full = run(df)
+    n = len(df)
+    lo = min(max(20, n // 50), n - 2)
+    rng = np.random.default_rng(seed)
+    cand = np.arange(lo, n - 1)
+    picks: list[int] = []
+    if kind == "bool":
+        pools = ((cand[full[cand]], samples // 2), (cand[~full[cand]], samples - samples // 2))
+    else:
+        pools = ((cand, samples),)
+    for pool, k in pools:
+        if len(pool) and k:
+            for part in np.array_split(pool, min(k, len(pool))):   # stratified over the whole history
+                if len(part):
+                    picks.append(int(rng.choice(part)))
+    picks.append(n - 2)
+    verdict = None
+    for i in sorted(set(picks)):
+        cut = df.iloc[: i + 1]
+        try:
+            got = run(cut)
+        except Exception:  # noqa: BLE001 - e.g. a function that needs more rows than the cut has
+            continue
+        if len(got) != i + 1:
+            continue
+        ok = same(got, full[: i + 1])
+        if not ok.all():
+            j = int(np.flatnonzero(~ok)[0])
+            d, cut_day = df.index[j].date(), df.index[i].date()
+            verdict = f"its result on {d} changes when the data after {cut_day} is removed"
+            break
+    if key is not None:
+        if len(_CALLABLE_PROBES) > 256:
+            _CALLABLE_PROBES.clear()
+        _CALLABLE_PROBES[key] = (df, verdict)
+    return verdict

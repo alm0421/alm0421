@@ -43,8 +43,8 @@ import numpy as np
 import pandas as pd
 
 from . import calendar as _cal
-from . import data, expr
-from .strategy import Strategy, broker_commission
+from . import costs, data, expr
+from .strategy import Strategy
 
 INTRADAY_REASONS = ("stop loss", "ATR stop", "trailing stop", "chandelier stop", "breakeven stop", "take profit", "scale out")
 
@@ -79,7 +79,10 @@ class Position:
 
     @property
     def shares(self) -> float:
-        return sum(l.shares for l in self.lots)
+        lots = self.lots
+        if len(lots) == 1:      # the usual case, without the generator (the same value as sum)
+            return 0 + lots[0].shares
+        return sum(l.shares for l in lots)
 
     @property
     def avg_price(self) -> float:
@@ -118,6 +121,60 @@ def _daily_rate(index: pd.DatetimeIndex, spec) -> np.ndarray:
     return np.full(len(index), float(spec) / 252.0)
 
 
+_NS_CACHE: dict = {}      # (ticker, id(bars)) -> (bars, Namespace): indicators are reused by the next run on the same data
+
+
+def _namespace(df: pd.DataFrame, t: str) -> expr.Namespace:
+    """The rule namespace of a ticker's bars, cached across runs (sweeps, the optimiser and the site re-run the same
+    tickers). Keyed on the DataFrame object itself (data.load caches it), so fresh or changed data gets a new one."""
+    hit = _NS_CACHE.get((t, id(df)))
+    if hit is not None and hit[0] is df:
+        return hit[1]
+    if len(_NS_CACHE) > 1500:
+        _NS_CACHE.clear()
+    ns = expr.Namespace(df, ticker=t)
+    _NS_CACHE[(t, id(df))] = (df, ns)
+    return ns
+
+
+_CORP_CACHE: dict = {}
+
+
+def _corp_days(kind: str, t: str, df) -> pd.DatetimeIndex:
+    """data.spinoff_days / corporate_action_days of a ticker, cached per data object (re-runs, e.g. the report's cost
+    sensitivity, ask again for the same tickers)."""
+    fn = data.spinoff_days if kind == "spin" else data.corporate_action_days
+    if df is None:
+        return fn(t)
+    key = (kind, t, id(df))
+    hit = _CORP_CACHE.get(key)
+    if hit is not None and hit[0] is df:
+        return hit[1]
+    if len(_CORP_CACHE) > 3000:
+        _CORP_CACHE.clear()
+    days = fn(t)
+    _CORP_CACHE[key] = (df, days)
+    return days
+
+
+def _union_index(indexes: list[pd.DatetimeIndex]) -> pd.DatetimeIndex | None:
+    """The sorted union of many date indexes (as repeated Index.union, without its per-step frequency inference)."""
+    if not indexes:
+        return None
+    if len(indexes) == 1:
+        return indexes[0]
+    first = indexes[0]
+    if all(isinstance(ix, pd.DatetimeIndex) and ix.tz is None and ix.dtype == first.dtype for ix in indexes):
+        out = pd.DatetimeIndex(np.unique(np.concatenate([ix.values for ix in indexes])))
+        names = {ix.name for ix in indexes}
+        out.name = names.pop() if len(names) == 1 else None
+        return out
+    cal = first
+    for ix in indexes[1:]:
+        cal = cal.union(ix)
+    return cal
+
+
 def _prepare(strat: Strategy):
     tickers = [data.canonical(t) for t in strat.universe]
     dfs = data.load_many(tickers)
@@ -137,9 +194,7 @@ def _prepare(strat: Strategy):
                     "member list from hindsight.")
                 start = first_snap
     end = pd.Timestamp(strat.end) if strat.end else None
-    cal = None
-    for df in dfs.values():
-        cal = df.index if cal is None else cal.union(df.index)
+    cal = _union_index([df.index for df in dfs.values()])
     traded = cal
     if start is not None:
         cal = cal[cal >= start]
@@ -160,6 +215,19 @@ def _prepare(strat: Strategy):
     namespaces = {}
     # the static open-time check (Strategy.validate) is backed by an empirical one on the longest history
     t0 = max(tick, key=lambda t: len(dfs[t]))
+    # rules written as Python functions have no static check: cut the data at sampled dates and compare
+    for what, rule, kind in (("entry", strat.entry, "bool"), ("short entry", strat.short_entry, "bool"),
+                             ("exit", strat.exit_when, "bool"), ("order level", strat.entry_level, "value"),
+                             ("ranking", strat.rank_by, "value")):
+        if callable(rule):
+            bad = expr.callable_lookahead_probe(rule, dfs[t0], t0, kind)
+            if bad:
+                nm = getattr(rule, "__name__", "")
+                label = f"{what} function {nm}()" if nm and not nm.startswith("<") else f"{what} function"
+                raise ValueError(f"Lookahead: the {label} uses future data: {bad} "
+                                 f"({t0}). A rule may only use each row and the rows before it: no .shift(-n), "
+                                 "centred rolling windows (center=True) or whole-series statistics such as "
+                                 "df.close.mean().")
     if strat.entry_fill == "open":
         for rule in (strat.entry, strat.short_entry):
             if rule:
@@ -172,26 +240,50 @@ def _prepare(strat: Strategy):
         if bad:
             raise ValueError(f"Lookahead: the exit rule is filled at the open but {bad} ({t0}). "
                              "Use exit_when_fill 'next_open' instead.")
+    # series only some settings read are skipped otherwise (a Nasdaq-100 run computes hundreds of them)
+    need_atr = bool(strat.stop_atr or strat.take_profit_atr or strat.trailing_atr or strat.sizing == "risk"
+                    or strat.stop_loss or strat.take_profit or strat.trailing_stop or strat.scale_out
+                    or strat.breakeven_after)          # any stop: the trades report the ATR at entry
+    need_vol = strat.sizing == "volatility"
+    need_adv = strat.slippage_model == "volume"
     for j, t in enumerate(tick):
         df = dfs[t]
-        ns = expr.Namespace(df, ticker=t)
+        ns = _namespace(df, t)
         namespaces[t] = ns
-        a = df.reindex(cal)
-        O[:, j], H[:, j], L[:, j], C[:, j] = a["open"], a["high"], a["low"], a["close"]
-        V[:, j] = a["volume"]
+        pos = df.index.get_indexer(cal)            # row of each calendar day in the ticker's data (-1: none)
+        have = pos >= 0
+
+        def on_cal(values, _pos=pos, _have=have):
+            v = np.asarray(values, dtype=float)
+            out = np.full(len(_pos), np.nan)
+            out[_have] = v[_pos[_have]]
+            return out
+
+        O[:, j], H[:, j], L[:, j], C[:, j] = (on_cal(df[k].to_numpy()) for k in ("open", "high", "low", "close"))
+        V[:, j] = on_cal(df["volume"].to_numpy())
         # average daily volume of the 20 bars before the order's bar (known when it is placed)
-        ADV[:, j] = df["volume"].rolling(20, min_periods=1).mean().shift(1).reindex(cal)
-        DIV[:, j] = a["dividend"].fillna(0.0)
-        ATR[:, j] = ns["atr"](strat.atr_period).reindex(cal)
-        VOL[:, j] = ns["volatility"](20).reindex(cal)
+        if need_adv:
+            ADV[:, j] = on_cal(df["volume"].rolling(20, min_periods=1).mean().shift(1).to_numpy())
+        DIV[:, j] = np.nan_to_num(on_cal(df["dividend"].to_numpy()), nan=0.0)
+        if need_atr:
+            ATR[:, j] = on_cal(ns["atr"](strat.atr_period).to_numpy())
+        if need_vol:
+            VOL[:, j] = on_cal(ns["volatility"](20).to_numpy())
+
+        def on_cal_bool(rule, _pos=pos, _have=have):
+            v = expr.evaluate(rule, ns).to_numpy(dtype=bool)     # indexed like the ticker's data
+            out = np.zeros(len(_pos), bool)
+            out[_have] = v[_pos[_have]]
+            return out
+
         if strat.side in ("long", "both"):
-            long_sig[:, j] = expr.evaluate(strat.entry, ns).reindex(cal, fill_value=False).to_numpy()
+            long_sig[:, j] = on_cal_bool(strat.entry)
         if strat.side == "short":
-            short_sig[:, j] = expr.evaluate(strat.entry, ns).reindex(cal, fill_value=False).to_numpy()
+            short_sig[:, j] = on_cal_bool(strat.entry)
         if strat.side == "both":
-            short_sig[:, j] = expr.evaluate(strat.short_entry, ns).reindex(cal, fill_value=False).to_numpy()
+            short_sig[:, j] = on_cal_bool(strat.short_entry)
         if strat.exit_when and not per_trade_exit:
-            exit_[:, j] = expr.evaluate(strat.exit_when, ns).reindex(cal, fill_value=False).to_numpy()
+            exit_[:, j] = on_cal_bool(strat.exit_when)
         if strat.entry_level:
             LEVEL[:, j] = expr.evaluate_value(strat.entry_level, ns).reindex(cal)
         if strat.rank_by:
@@ -307,27 +399,34 @@ def run(strat: Strategy) -> Result:
     def mark(prices: np.ndarray) -> float:
         v = S["cash"]
         for p in positions.values():
-            v += p.sign * p.shares * price_or_last(p.k, prices)
+            px = prices[p.k]
+            if px != px:          # NaN: no bar today, the last close
+                px = last_close[p.k]
+            v += p.sign * p.shares * px
         return v
 
     def gross(prices: np.ndarray) -> float:
-        return sum(p.shares * price_or_last(p.k, prices) for p in positions.values())
+        g = 0
+        for p in positions.values():
+            px = prices[p.k]
+            if px != px:
+                px = last_close[p.k]
+            g += p.shares * px
+        return g
 
     def note_gross(prices: np.ndarray) -> None:
         bar_gross[0] = max(bar_gross[0], gross(prices))
 
     def commission(shares: float, value: float) -> float:
-        return (strat.commission + strat.commission_per_share * shares + strat.commission_pct * abs(value)
-                + broker_commission(strat.commission_model, shares, value))
+        return costs.order_commission(shares, value, per_order=strat.commission, per_share=strat.commission_per_share,
+                                      pct=strat.commission_pct, model=strat.commission_model)
 
     def slip_for(i: int, k: int, shares: float) -> float:
         """Slippage per side as a fraction: fixed bps, plus (volume model) half the spread and a square-root
         market impact, impact_bps * sqrt(shares / ADV20)."""
         if strat.slippage_model != "volume":
             return slip
-        adv = ADV[i, k]
-        impact = strat.impact_bps * np.sqrt(shares / adv) if np.isfinite(adv) and adv > 0 else 0.0
-        return slip + (strat.spread_bps / 2 + impact) / 1e4
+        return costs.volume_slippage(slip, shares, float(ADV[i, k]), strat.spread_bps, strat.impact_bps)
 
     def size_shares(i: int, k: int, fill: float, eq: float, prices: np.ndarray, sgn: int, at_open: bool) -> float:
         # indicators used for sizing must be known when the order is placed
@@ -815,7 +914,7 @@ def run(strat: Strategy) -> Result:
         spun = []
         for t in tr["ticker"].unique():
             g = tr[tr["ticker"] == t]
-            for d in data.spinoff_days(t):
+            for d in _corp_days("spin", t, P["dfs"].get(t)):
                 if ((pd.to_datetime(g["entry_date"]) < d) & (pd.to_datetime(g["exit_date"]) >= d)).any():
                     spun.append(f"{t} {d.date()}")
         if spun:
@@ -824,7 +923,7 @@ def run(strat: Strategy) -> Result:
                                "booked at their value). It is paid in cash like a dividend (in the trades' income) but it "
                                "is a spin-off distribution, not a dividend.")
         for t in tr["ticker"].unique():
-            days = data.corporate_action_days(t)
+            days = _corp_days("action", t, P["dfs"].get(t))
             if not len(days):
                 continue
             g = tr[tr["ticker"] == t]

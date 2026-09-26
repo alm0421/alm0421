@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 
 from . import calendar as _cal
+from . import costs as _costs
 from . import data, expr
 from .engine import Result, _daily_rate
 
@@ -53,6 +54,10 @@ class Portfolio:
     slippage_bps: float = 0.0
     commission: float = 0.0                      # $ per order
     commission_pct: float = 0.0
+    commission_model: str | None = None          # None, "ibkr_fixed" or "ibkr_tiered" (added to the fields above)
+    slippage_model: Literal["fixed", "volume"] = "fixed"   # "volume": adds spread_bps/2 + impact_bps*sqrt(shares/ADV20)
+    spread_bps: float = 2.0                      # volume model: quoted bid-ask spread (half of it is paid per fill)
+    impact_bps: float = 100.0                    # volume model: impact coefficient, in bps at 100% of ADV
     cash_rate: str | float | None = "tbill"
     reinvest_dividends: bool = True
     fractional_shares: bool = True
@@ -112,6 +117,10 @@ class Portfolio:
         check_tree(self)
         if not (0 < self.leverage <= 10):
             raise ValueError("leverage must be between 0 and 10")
+        if self.commission_model not in _costs.COMMISSION_MODELS:
+            raise ValueError(f"commission_model must be one of {sorted(k for k in _costs.COMMISSION_MODELS if k)} or null")
+        if self.slippage_model not in _costs.SLIPPAGE_MODELS:
+            raise ValueError("slippage_model must be 'fixed' or 'volume'")
         if not 0 <= self.maintenance_margin < 1:
             raise ValueError("maintenance_margin must be at least 0 and below 1")
         if self.price_basis not in ("adjusted", "quoted"):
@@ -235,8 +244,14 @@ class Portfolio:
             costs.append(f"${self.commission:g}/order")
         if self.commission_pct:
             costs.append(f"{self.commission_pct:.3%} of value")
+        if self.commission_model:
+            costs.append({"ibkr_fixed": "IBKR fixed ($0.005/share, min $1, max 1%)",
+                          "ibkr_tiered": "IBKR tiered (~$0.0037/share incl. fees, min $0.35, max 1%)"}.get(
+                              self.commission_model, str(self.commission_model)))
         if self.slippage_bps:
             costs.append(f"{self.slippage_bps:g} bps slippage/side")
+        if self.slippage_model == "volume":
+            costs.append(f"volume slippage ({self.spread_bps / 2:g} bps + {self.impact_bps:g} bps x sqrt(shares/ADV20))")
         if self.expense_ratio:
             costs.append(f"{self.expense_ratio:.2%}/yr expense ratio")
         if self.leverage != 1:
@@ -1582,6 +1597,33 @@ def run(p: Portfolio) -> Result:
     fees = 0.0
     sched = _schedule(cal, p.rebalance)
     slip = p.slippage_bps / 1e4
+    # volume-based slippage: average daily volume of the 20 bars before each bar (known when the order is placed)
+    vol_slip = p.slippage_model == "volume"
+    ADV = (np.column_stack([dfs[t]["volume"].rolling(20, min_periods=1).mean().shift(1).reindex(cal).to_numpy(dtype=float)
+                            for t in tick]) if vol_slip and N else None)
+
+    def slip_of(j: int, i: int, q: float) -> float:
+        """Slippage per side of an order of q shares of ticker j on bar i (see costs.volume_slippage)."""
+        if not vol_slip:
+            return slip
+        return _costs.volume_slippage(slip, q, float(ADV[i, j]), p.spread_bps, p.impact_bps)
+
+    def order_fee(j: int, i: int, q: float, fill: float) -> float:
+        """Commission of one order: $ per order, % of value and any broker preset (per-share fees go through
+        costs.traded_shares)."""
+        com = p.commission + p.commission_pct * abs(q) * fill
+        if p.commission_model:
+            com += _costs.broker_commission(p.commission_model, _costs.traded_shares(abs(q), tick[j], cal[i]), abs(q) * fill)
+        return com
+
+    # opens that were never quoted (simulated series, mutual funds, old index data): a next-open fill there is
+    # not possible. A ticker with no real open at all in the period is refused (as the signal engine does);
+    # a day without one fills that ticker at the day's close instead, with a note.
+    OPEN_OK = np.column_stack([(dfs[t]["open_ok"] if "open_ok" in dfs[t] else pd.Series(True, index=dfs[t].index))
+                               .reindex(cal).fillna(False).to_numpy(dtype=bool) for t in tick]) if N else np.zeros((T, 0), bool)
+    has_px = ~np.isnan(np.column_stack([dfs[t]["close"].reindex(cal).to_numpy(dtype=float) for t in tick])) if N else OPEN_OK
+    no_opens = {j for j in range(N) if has_px[:, j].any() and not OPEN_OK[has_px[:, j], j].any()}
+    open_fallback: set = set()
 
     no_flows = (np.zeros(T, bool), np.ones(T))
     contrib_days, contrib_mult = (_flow_schedule(cal, p.contribution_freq, p.contribution_start, p.contribution_end,
@@ -1653,7 +1695,13 @@ def run(p: Portfolio) -> Result:
         for sgn in (-1, 1):
             js = [j for j in range(N) if delta[j] * sgn > 1e-12 and np.isfinite(pv[j]) and i < gone[j]]
             if sgn == 1 and js:
-                need = sum(delta[j] * pv[j] * (1 + slip) * (1 + p.commission_pct) + p.commission for j in js)
+                if vol_slip or p.commission_model:
+                    need = 0.0
+                    for j in js:
+                        f_ = pv[j] * (1 + slip_of(j, i, delta[j]))
+                        need += delta[j] * f_ + order_fee(j, i, delta[j], f_)
+                else:
+                    need = sum(delta[j] * pv[j] * (1 + slip) * (1 + p.commission_pct) + p.commission for j in js)
                 scale = min(1.0, max(cash + borrow_ok, 0) / need) if need > 0 else 1.0
             else:
                 scale = 1.0
@@ -1665,8 +1713,8 @@ def run(p: Portfolio) -> Result:
                     q = np.floor(q) if q > 0 else -np.floor(-q)
                 if q == 0:
                     continue
-                fill = pv[j] * (1 + np.sign(q) * slip)
-                com = p.commission + p.commission_pct * abs(q) * fill
+                fill = pv[j] * (1 + np.sign(q) * slip_of(j, i, q))
+                com = order_fee(j, i, q, fill)
                 cash -= q * fill + com
                 shares[j] += q
                 tcash[j] -= q * fill + com
@@ -1750,7 +1798,20 @@ def run(p: Portfolio) -> Result:
             flows[i] = f
         # next-open execution of yesterday's decision
         if pending_target is not None and p.fill == "next_open":
-            trade_to(pending_target, o, i, "rebalance")
+            po = o
+            need_px = [j for j in range(N) if (shares[j] != 0 or abs(pending_target.get(tick[j], 0.0)) > 1e-12)
+                       and not OPEN_OK[i, j] and np.isfinite(c[j])]
+            if need_px:
+                dead = [tick[j] for j in need_px if j in no_opens]
+                if dead and not _has_ndx(p.tree):
+                    raise ValueError(f"{', '.join(dead)} {'has' if len(dead) == 1 else 'have'} no real opening prices (only a daily close, e.g. a simulated "
+                                     "series or a mutual fund), so it can't be traded at the next open. Trade at the close "
+                                     "instead (drop 'at the next open').")
+                po = o.copy()
+                for j in need_px:
+                    po[j] = c[j]
+                    open_fallback.add(tick[j])
+            trade_to(pending_target, po, i, "rebalance")
             pending_target = None
         # withdrawals that overdraw cash: sell proportionally at the close
         np.copyto(last_px, c, where=np.isfinite(c))
@@ -1758,8 +1819,8 @@ def run(p: Portfolio) -> Result:
         for j in np.flatnonzero(gone == i):
             if shares[j] and np.isfinite(c[j]):
                 q = -shares[j]
-                fill = c[j] * (1 + np.sign(q) * slip)
-                com = p.commission + p.commission_pct * abs(q) * fill
+                fill = c[j] * (1 + np.sign(q) * slip_of(j, i, q))
+                com = order_fee(j, i, q, fill)
                 eq_d = value(c)
                 cash -= q * fill + com
                 shares[j] = 0.0
@@ -1783,8 +1844,8 @@ def run(p: Portfolio) -> Result:
                 if not np.isfinite(pv[j]):
                     continue
                 q = -shares[j]
-                fill = pv[j] * (1 + np.sign(q) * slip)
-                com = p.commission + p.commission_pct * abs(q) * fill
+                fill = pv[j] * (1 + np.sign(q) * slip_of(j, i, q))
+                com = order_fee(j, i, q, fill)
                 cash -= q * fill + com
                 tcash[j] -= q * fill + com
                 tcom[j] += com
@@ -1812,11 +1873,17 @@ def run(p: Portfolio) -> Result:
                 for t, w in live.items():
                     j = idx[t]
                     amt = budget * w / tot * (1 - p.commission_pct) / (1 + slip)
+                    if vol_slip or p.commission_model:
+                        # the impact and broker fee of this order, estimated at its size, come out of its budget
+                        q0 = amt / pv[j]
+                        f0 = pv[j] * (1 + slip_of(j, i, q0))
+                        amt = max(0.0, (budget * w / tot - (order_fee(j, i, q0, f0) - p.commission_pct * q0 * f0))
+                                  * (1 - p.commission_pct) / (f0 / pv[j]))
                     q = amt / pv[j] if p.fractional_shares else np.floor(amt / pv[j])
                     if q <= 0:
                         continue
-                    fill = pv[j] * (1 + slip)
-                    com = p.commission + p.commission_pct * q * fill
+                    fill = pv[j] * (1 + slip_of(j, i, q))
+                    com = order_fee(j, i, q, fill)
                     cash -= q * fill + com
                     shares[j] += q
                     tcash[j] -= q * fill + com
@@ -1912,6 +1979,10 @@ def run(p: Portfolio) -> Result:
         p.notes.append(f"Distributions: {', '.join(spun[:5])}{' and more' if len(spun) > 5 else ''} paid a spin-off or "
                        "special distribution (more than 15% of the price; e.g. shares of a spun-off company booked at their "
                        "value). It is paid in cash like a dividend but labelled 'spin-off distribution', not a dividend.")
+    if open_fallback:
+        p.notes.append(f"Opens: {', '.join(sorted(open_fallback)[:8])}{' and more' if len(open_fallback) > 8 else ''} had no "
+                       "quoted opening price on some next-open rebalance days (old or simulated data), so those orders "
+                       "filled at that day's close instead.")
     if margin_days:
         more = f" and {len(margin_days) - 5} more" if len(margin_days) > 5 else ""
         p.notes.append(f"Margin call on {', '.join(str(d) for d in margin_days[:5])}{more}: equity fell below "

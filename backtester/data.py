@@ -187,19 +187,46 @@ def coverage(start=None, end=None) -> pd.DataFrame:
     if end is not None:
         m = m[m.index <= pd.Timestamp(end)]
     rows = []
+    cols_all = [c for c in m.columns if c in have]
+    # usable[d, c]: member c's price data passes the quality rules in snapshot month d (only asked of members)
+    member = m[cols_all].to_numpy(dtype=bool)
+    usable = np.zeros(member.shape, bool)
+    month_starts = bool(len(m)) and bool(((m.index.day == 1) & (m.index == m.index.normalize())).all())
+    months = m.index.year * 12 + m.index.month - 1
+    for j, c in enumerate(cols_all):
+        rows_j = np.flatnonzero(member[:, j])
+        if not len(rows_j):
+            continue
+        if month_starts:     # calendar-month snapshots (the usual case): one table lookup per member-month
+            share = _quality_by_month(c)
+            usable[rows_j, j] = [share.get(int(months[i]), -1.0) >= 0.5 for i in rows_j]
+        else:
+            for i in rows_j:
+                usable[i, j] = _quality_month(c, m.index[i])
+    usable_by_date = pd.Series(usable.sum(axis=1), index=m.index)
     for y, g in m.groupby(m.index.year):
         tot = g.sum(axis=1).mean()
-        cols = [c for c in g.columns if c in have]
-        ok = 0.0
-        for d, row in g[cols].iterrows():
-            names = [c for c in cols if row[c]]
-            ok += sum(1 for c in names if _quality_month(c, d))
+        ok = float(usable_by_date.loc[g.index].sum())
         rows.append({"year": int(y), "members": round(float(tot), 1), "with_data": round(ok / len(g), 1),
                      "coverage": ok / len(g) / tot if tot else 0.0})
     return pd.DataFrame(rows)
 
 
+@lru_cache(maxsize=None)
+def _quality_by_month(t: str) -> dict:
+    """{calendar month as year * 12 + month - 1: share of the ticker's bars in it that pass `quality`}, computed once."""
+    q = quality(t)
+    if q.empty:
+        return {}
+    key = q.index.year * 12 + q.index.month - 1
+    per = q.astype(float).groupby(np.asarray(key)).mean()
+    return dict(zip(per.index.tolist(), per.to_numpy().tolist()))
+
+
 def _quality_month(t: str, month_start: pd.Timestamp) -> bool:
+    if month_start.day == 1 and month_start == month_start.normalize():   # a calendar month: the cached table
+        v = _quality_by_month(t).get(month_start.year * 12 + month_start.month - 1)
+        return v is not None and v >= 0.5
     q = quality(t)
     if q.empty:
         return False

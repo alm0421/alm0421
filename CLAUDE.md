@@ -36,6 +36,8 @@ user guide. The site is `python -m backtester web`.
 - `backtester/research.py` and `research_report.py` with `research_template.html`: sweep,
   walk-forward and optimiser.
 - `backtester/signals.py`: today's signals and paper trading.
+- `backtester/costs.py`: commissions (IBKR presets) and volume slippage for both engines.
+- `backtester/broker.py`: Alpaca paper/live orders (`python -m backtester trade ... --dry-run`).
 - `backtester/web.py` with `webapp.html`: the site (standard library HTTP server).
 - `scripts/fetch_data.py` with `.github/workflows/fetch-data.yml`: data. The sandbox can't reach
   Yahoo or Wikipedia; the Action can. Push, or run the workflow, then `git pull`.
