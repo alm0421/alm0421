@@ -48,9 +48,9 @@ XEL ZS
 TICKER_RE = r"^[A-Z]{1,5}([.-][A-Z])?$"
 
 
-def tickers_from_html(url: str) -> list[str]:
+def tickers_from_html(url: str, headers: dict | None = None) -> list[str]:
     """Find a column of ~100 ticker-shaped strings (including MSFT) in any table on the page."""
-    html = requests.get(url, headers=UA, timeout=30).text
+    html = requests.get(url, headers=headers or UA, timeout=30).text
     for t in pd.read_html(io.StringIO(html)):
         for col in t.columns:
             vals = t[col].astype(str).str.strip()
@@ -67,7 +67,7 @@ def ndx_from_nasdaq() -> list[str]:
 
 
 SOURCES = (
-    ("wikipedia", lambda: tickers_from_html("https://en.wikipedia.org/wiki/Nasdaq-100")),
+    ("wikipedia", lambda: tickers_from_html("https://en.wikipedia.org/wiki/Nasdaq-100", WIKI_UA)),
     ("stockanalysis.com", lambda: tickers_from_html("https://stockanalysis.com/list/nasdaq-100-stocks/")),
     ("slickcharts.com", lambda: tickers_from_html("https://www.slickcharts.com/nasdaq100")),
     ("nasdaq.com", ndx_from_nasdaq),
@@ -118,6 +118,10 @@ RENAMES = {"FB": "META", "PCLN": "BKNG", "DISCA": "WBD", "GOOG": "GOOG", "BRCM":
 RENAMES.pop("BRCM")
 
 WIKI_API = "https://en.wikipedia.org/w/api.php"
+# Wikimedia asks automated clients for a descriptive user agent with a contact URL (browser-like
+# agents from cloud IPs get blocked).
+WIKI_UA = {"User-Agent": "BacktesterDataBot/1.0 (https://github.com/alm0421/alm0421) python-requests",
+           "Accept": "application/json"}
 MEMBERSHIP = ROOT / "data" / "ndx_membership.csv"
 MACRO = ROOT / "data" / "macro"
 FACTORS = ROOT / "data" / "factors"
@@ -161,10 +165,12 @@ def wiki_tickers(wikitext: str) -> set[str]:
 
 
 def wiki_revision_at(ts: str) -> tuple[int, str, str] | None:
-    r = requests.get(WIKI_API, headers=UA, timeout=30, params={
+    r = requests.get(WIKI_API, headers=WIKI_UA, timeout=30, params={
         "action": "query", "prop": "revisions", "titles": "Nasdaq-100", "rvlimit": 1, "rvstart": ts,
         "rvdir": "older", "rvprop": "ids|timestamp|content", "rvslots": "main", "format": "json",
-        "formatversion": 2})
+        "formatversion": 2, "maxlag": 5})
+    if r.status_code != 200 or "json" not in r.headers.get("content-type", ""):
+        raise RuntimeError(f"HTTP {r.status_code} {r.headers.get('content-type')}: {r.text[:200]!r}")
     pages = r.json()["query"]["pages"]
     revs = pages[0].get("revisions") if pages else None
     if not revs:
@@ -179,7 +185,11 @@ def update_membership() -> pd.DataFrame:
     done = set(have["month"])
     months = pd.period_range("2003-01", pd.Timestamp.today().to_period("M"), freq="M")
     rows = []
+    fails = 0
     for m in months:
+        if fails >= 5:
+            print("membership: 5 consecutive failures, giving up for this run", file=sys.stderr)
+            break
         key = str(m)
         if key in done and key != str(months[-1]):
             continue
@@ -188,7 +198,11 @@ def update_membership() -> pd.DataFrame:
             got = wiki_revision_at(ts)
         except Exception as e:  # noqa: BLE001
             print(f"membership {key}: {e}", file=sys.stderr)
+            fails += 1
+            time.sleep(2)
             continue
+        fails = 0
+        time.sleep(0.2)
         if not got:
             continue
         revid, stamp, text = got

@@ -102,7 +102,7 @@ class Namespace(dict):
 
     def _functions(self) -> dict[str, Callable]:
         df = self.df
-        c = df["close"]
+        c, hi, lo, vol = df["close"], df["high"], df["low"], df["volume"]
 
         def pick(args, default_x, default_n):
             """Accept f(n), f(x, n), f(n, x) or f()."""
@@ -112,7 +112,16 @@ class Namespace(dict):
                     x = a
                 else:
                     n = a
-            return x, int(n)
+            n = int(n)
+            if n < 1:
+                raise ValueError("lookback periods must be at least 1")
+            return x, n
+
+        def nonneg(n):
+            n = int(n)
+            if n < 0:
+                raise ValueError("negative offsets would look into the future and are not allowed")
+            return n
 
         def sma(*a):
             x, n = pick(a, c, 20)
@@ -122,12 +131,21 @@ class Namespace(dict):
             x, n = pick(a, c, 20)
             return x.ewm(span=n, adjust=False, min_periods=n).mean()
 
+        def rma(*a):  # Wilder's moving average
+            x, n = pick(a, c, 14)
+            return x.ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+
+        def wma(*a):
+            x, n = pick(a, c, 20)
+            w = np.arange(1, n + 1, dtype=float)
+            return x.rolling(n, min_periods=n).apply(lambda v: np.dot(v, w) / w.sum(), raw=True)
+
         def highest(*a):
-            x, n = pick(a, df["high"], 20)
+            x, n = pick(a, hi, 20)
             return x.rolling(n, min_periods=n).max()
 
         def lowest(*a):
-            x, n = pick(a, df["low"], 20)
+            x, n = pick(a, lo, 20)
             return x.rolling(n, min_periods=n).min()
 
         def stdev(*a):
@@ -140,9 +158,10 @@ class Namespace(dict):
 
         def ref(x, n=1):
             x = _s(x, c)
+            n = nonneg(n)
             if x.dtype == bool:
-                return x.shift(int(n), fill_value=False)
-            return x.shift(int(n))
+                return x.shift(n, fill_value=False)
+            return x.shift(n)
 
         def ret(*a):
             x, n = pick(a, c, 1)
@@ -152,16 +171,21 @@ class Namespace(dict):
             x, n = pick(a, c, 14)
             return rsi_wilder(x, n)
 
+        def true_range():
+            return pd.concat([hi - lo, (hi - c.shift()).abs(), (lo - c.shift()).abs()], axis=1).max(axis=1)
+
         def atr(n=14):
             n = int(n)
-            tr = pd.concat([df["high"] - df["low"], (df["high"] - c.shift()).abs(), (df["low"] - c.shift()).abs()], axis=1).max(axis=1)
-            return tr.ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+            return true_range().ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
 
         def natr(n=14):
             return atr(n) / c
 
-        def volatility(n=20):
-            return c.pct_change(fill_method=None).rolling(int(n)).std() * np.sqrt(252)
+        def volatility(n=20, x=None):
+            base = c if x is None else _s(x, c)
+            if isinstance(n, pd.Series):
+                base, n = n, (20 if x is None else x)
+            return base.pct_change(fill_method=None).rolling(int(n)).std() * np.sqrt(252)
 
         def bb_upper(n=20, k=2.0):
             return sma(c, n) + k * stdev(c, n)
@@ -172,6 +196,138 @@ class Namespace(dict):
         def pct_rank(*a):
             x, n = pick(a, c, 252)
             return x.rolling(n, min_periods=n).rank(pct=True)
+
+        def drawdown(*a):
+            """x / highest(x, n) - 1 (<= 0); n defaults to all history."""
+            x, n = c, None
+            for v in a:
+                if isinstance(v, pd.Series):
+                    x = v
+                else:
+                    n = int(v)
+            peak = x.cummax() if n is None else x.rolling(n, min_periods=1).max()
+            return x / peak - 1
+
+        def macd(fast=12, slow=26, x=None):
+            base = c if x is None else _s(x, c)
+            return base.ewm(span=int(fast), adjust=False).mean() - base.ewm(span=int(slow), adjust=False).mean()
+
+        def macd_signal(fast=12, slow=26, sig=9):
+            return macd(fast, slow).ewm(span=int(sig), adjust=False).mean()
+
+        def macd_hist(fast=12, slow=26, sig=9):
+            return macd(fast, slow) - macd_signal(fast, slow, sig)
+
+        def stoch_k(n=14, smooth=3):
+            ll, hh = lo.rolling(int(n)).min(), hi.rolling(int(n)).max()
+            k = 100 * (c - ll) / (hh - ll)
+            return k.rolling(int(smooth)).mean() if int(smooth) > 1 else k
+
+        def stoch_d(n=14, smooth=3, d=3):
+            return stoch_k(n, smooth).rolling(int(d)).mean()
+
+        def _dm(n):
+            n = int(n)
+            up, dn = hi.diff(), -lo.diff()
+            pdm = up.where((up > dn) & (up > 0), 0.0)
+            mdm = dn.where((dn > up) & (dn > 0), 0.0)
+            trn = true_range().ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+            pdi = 100 * pdm.ewm(alpha=1 / n, adjust=False, min_periods=n).mean() / trn
+            mdi = 100 * mdm.ewm(alpha=1 / n, adjust=False, min_periods=n).mean() / trn
+            return pdi, mdi
+
+        def plus_di(n=14):
+            return _dm(n)[0]
+
+        def minus_di(n=14):
+            return _dm(n)[1]
+
+        def adx(n=14):
+            pdi, mdi = _dm(n)
+            dx = 100 * (pdi - mdi).abs() / (pdi + mdi)
+            return dx.ewm(alpha=1 / int(n), adjust=False, min_periods=int(n)).mean()
+
+        def cci(n=20):
+            tp = (hi + lo + c) / 3
+            m = tp.rolling(int(n)).mean()
+            md = tp.rolling(int(n)).apply(lambda v: np.mean(np.abs(v - v.mean())), raw=True)
+            return (tp - m) / (0.015 * md)
+
+        def willr(n=14):
+            hh, ll = hi.rolling(int(n)).max(), lo.rolling(int(n)).min()
+            return -100 * (hh - c) / (hh - ll)
+
+        def obv():
+            return (np.sign(c.diff()).fillna(0) * vol).cumsum()
+
+        def mfi(n=14):
+            tp = (hi + lo + c) / 3
+            mf = tp * vol
+            pos = mf.where(tp.diff() > 0, 0.0).rolling(int(n)).sum()
+            neg = mf.where(tp.diff() < 0, 0.0).rolling(int(n)).sum()
+            return 100 - 100 / (1 + pos / neg)
+
+        def vwap(n=20):
+            """Rolling volume-weighted average of the typical price (daily-bar VWAP proxy)."""
+            tp = (hi + lo + c) / 3
+            return (tp * vol).rolling(int(n)).sum() / vol.rolling(int(n)).sum()
+
+        def donchian_upper(n=20):
+            return hi.rolling(int(n)).max()
+
+        def donchian_lower(n=20):
+            return lo.rolling(int(n)).min()
+
+        def keltner_upper(n=20, k=2.0):
+            return ema(c, n) + k * atr(n)
+
+        def keltner_lower(n=20, k=2.0):
+            return ema(c, n) - k * atr(n)
+
+        def supertrend(n=10, k=3.0):
+            """Supertrend line (below price in an uptrend, above in a downtrend)."""
+            a = atr(n).to_numpy()
+            mid = ((hi + lo) / 2).to_numpy()
+            cl = c.to_numpy()
+            ub, lb = mid + k * a, mid - k * a
+            st = np.full(len(cl), np.nan)
+            up = True
+            fub, flb = np.nan, np.nan
+            for i in range(len(cl)):
+                if np.isnan(a[i]):
+                    continue
+                fub = ub[i] if np.isnan(fub) or ub[i] < fub or cl[i - 1] > fub else fub
+                flb = lb[i] if np.isnan(flb) or lb[i] > flb or cl[i - 1] < flb else flb
+                if up and cl[i] < flb:
+                    up = False
+                elif not up and cl[i] > fub:
+                    up = True
+                st[i] = flb if up else fub
+            return pd.Series(st, index=c.index)
+
+        def sar(step=0.02, max_step=0.2):
+            """Parabolic SAR."""
+            h, l = hi.to_numpy(), lo.to_numpy()
+            out = np.full(len(h), np.nan)
+            if len(h) < 2:
+                return pd.Series(out, index=c.index)
+            up, af, ep, s = True, step, h[0], l[0]
+            for i in range(1, len(h)):
+                s = s + af * (ep - s)
+                if up:
+                    s = min(s, l[i - 1], l[i - 2] if i > 1 else l[i - 1])
+                    if l[i] < s:
+                        up, s, ep, af = False, ep, l[i], step
+                    elif h[i] > ep:
+                        ep, af = h[i], min(af + step, max_step)
+                else:
+                    s = max(s, h[i - 1], h[i - 2] if i > 1 else h[i - 1])
+                    if h[i] > s:
+                        up, s, ep, af = True, ep, h[i], step
+                    elif l[i] < ep:
+                        ep, af = l[i], min(af + step, max_step)
+                out[i] = s
+            return pd.Series(out, index=c.index)
 
         def crossover(a, b):
             a, b = _s(a, c), _s(b, c)
@@ -184,30 +340,77 @@ class Namespace(dict):
         def count(cond, n):
             return _s(cond, c).astype(float).rolling(int(n), min_periods=1).sum()
 
+        def bars_since(cond):
+            s = _s(cond, c).astype(bool).to_numpy()
+            out = np.full(len(s), np.nan)
+            last = None
+            for i, v in enumerate(s):
+                if v:
+                    last = i
+                out[i] = np.nan if last is None else i - last
+            return pd.Series(out, index=c.index)
+
         def down_streak(x=None):
             return streak(c if x is None else _s(x, c), -1)
 
         def up_streak(x=None):
             return streak(c if x is None else _s(x, c), +1)
 
+        def _period_close(freq):
+            per = c.index.to_period(freq)
+            last = pd.Series(c.index, index=c.index).groupby(per).transform("max")
+            return per, last
+
+        def _periodic_sma(freq, n, x=None):
+            base = c if x is None else _s(x, c)
+            per = base.index.to_period(freq)
+            ends = base.groupby(per).tail(1)                 # value at each period's last bar
+            m = ends.rolling(int(n), min_periods=int(n)).mean()
+            # known from the period's last bar onward
+            return m.reindex(base.index).ffill()
+
+        def _periodic_close(freq, x=None):
+            base = c if x is None else _s(x, c)
+            per = base.index.to_period(freq)
+            ends = base.groupby(per).tail(1)
+            return ends.reindex(base.index).ffill()
+
+        def is_period_end(freq):
+            per = c.index.to_period(freq)
+            s = pd.Series(False, index=c.index)
+            s.loc[pd.Series(c.index, index=c.index).groupby(per).max().to_numpy()] = True
+            return s
+
         def sym(ticker: str) -> Bars:
             return Bars(data.load(ticker), df.index)
 
         return {
-            "sma": sma, "ma": sma, "ema": ema, "highest": highest, "lowest": lowest,
+            "sma": sma, "ma": sma, "ema": ema, "rma": rma, "wma": wma, "highest": highest, "lowest": lowest,
             "stdev": stdev, "zscore": zscore, "ref": ref, "ret": ret, "roc": ret,
-            "rsi": rsi, "atr": atr, "natr": natr, "volatility": volatility,
+            "rsi": rsi, "atr": atr, "natr": natr, "volatility": volatility, "drawdown": drawdown,
             "bb_upper": bb_upper, "bb_lower": bb_lower, "pct_rank": pct_rank,
-            "crossover": crossover, "crossunder": crossunder, "count": count,
+            "macd": macd, "macd_signal": macd_signal, "macd_hist": macd_hist,
+            "stoch_k": stoch_k, "stoch_d": stoch_d, "adx": adx, "plus_di": plus_di, "minus_di": minus_di,
+            "cci": cci, "willr": willr, "obv": obv, "mfi": mfi, "vwap": vwap,
+            "donchian_upper": donchian_upper, "donchian_lower": donchian_lower,
+            "keltner_upper": keltner_upper, "keltner_lower": keltner_lower,
+            "supertrend": supertrend, "sar": sar,
+            "crossover": crossover, "crossunder": crossunder, "count": count, "bars_since": bars_since,
             "down_streak": down_streak, "up_streak": up_streak,
             "cummax": lambda x: _s(x, c).cummax(), "cummin": lambda x: _s(x, c).cummin(),
+            "weekly_sma": lambda n, x=None: _periodic_sma("W-FRI", n, x),
+            "monthly_sma": lambda n, x=None: _periodic_sma("M", n, x),
+            "weekly_close": lambda x=None: _periodic_close("W-FRI", x),
+            "monthly_close": lambda x=None: _periodic_close("M", x),
+            "is_week_end": lambda: is_period_end("W-FRI"), "is_month_end": lambda: is_period_end("M"),
+            "is_quarter_end": lambda: is_period_end("Q"), "is_year_end": lambda: is_period_end("Y"),
             "sym": sym, "abs": np.abs, "maximum": np.maximum, "minimum": np.minimum,
-            "log": np.log,
+            "log": np.log, "sqrt": np.sqrt,
         }
 
 
 HELP = """
-Variables (per bar, adjusted prices):
+Variables (per bar; prices are split-adjusted, as quoted):
   open high low close volume        OHLCV
   change                            1-day % change of close (0.01 = 1%)
   down_days / up_days               consecutive down / up closes ending today
@@ -219,13 +422,20 @@ Variables (per bar, adjusted prices):
   dollar_volume                     close * volume
 Position variables (exit rules only):
   bars_held  entry_price  pnl (open trade return, 0.05 = +5%)
+  highest_since_entry  lowest_since_entry
 Functions (x defaults to close; n = lookback in bars):
-  sma(x,n) ema(x,n) highest(x,n) lowest(x,n) stdev(x,n) zscore(x,n)
-  ret(x,n) ref(x,n) rsi(x,n) atr(n) natr(n) volatility(n) pct_rank(x,n)
-  bb_upper(n,k) bb_lower(n,k) crossover(a,b) crossunder(a,b) count(cond,n)
-  down_streak(x) up_streak(x)       consecutive down/up count of any series
-  cummax(x) cummin(x)               running max/min (all-time high/low)
-  sym("SPY").close  -> another ticker's series aligned to this one
+  averages     sma(x,n) ema(x,n) rma(x,n) wma(x,n) vwap(n)
+  ranges       highest(x,n) lowest(x,n) donchian_upper(n) donchian_lower(n) atr(n) natr(n)
+  bands        bb_upper(n,k) bb_lower(n,k) keltner_upper(n,k) keltner_lower(n,k)
+  momentum     ret(x,n) rsi(x,n) macd(fast,slow) macd_signal(f,s,sig) macd_hist(f,s,sig)
+               stoch_k(n,smooth) stoch_d(n,smooth,d) cci(n) willr(n) mfi(n) obv()
+  trend        adx(n) plus_di(n) minus_di(n) supertrend(n,k) sar(step,max)
+  statistics   stdev(x,n) zscore(x,n) volatility(n) pct_rank(x,n) drawdown(x,n)
+  timing       ref(x,n) (n >= 0) crossover(a,b) crossunder(a,b) count(cond,n) bars_since(cond)
+               down_streak(x) up_streak(x) cummax(x) cummin(x)
+  timeframes   weekly_sma(n) monthly_sma(n) weekly_close() monthly_close()
+               is_week_end() is_month_end() is_quarter_end() is_year_end()
+  other ticker sym("SPY").close, sym("^VIX").close  -> another ticker aligned to this one
 Operators: + - * / < <= > >= == != and or not, e.g. 0.1 < ibs < 0.3
 """
 
@@ -317,10 +527,14 @@ def evaluate_value(text: str, ns: Namespace) -> pd.Series:
 OPEN_SAFE_NAMES = {"gap", "dow", "month", "day", "year", "trading_day_of_month",
                    "trading_days_left_in_month", "open", "True", "False"}
 # functions whose series argument defaults to today's close/high/low when omitted
-_DEFAULTS_TO_CLOSE = {"sma", "ma", "ema", "highest", "lowest", "stdev", "zscore", "ret", "roc", "rsi",
-                      "pct_rank", "down_streak", "up_streak"}
+_DEFAULTS_TO_CLOSE = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "stdev", "zscore", "ret", "roc",
+                      "rsi", "pct_rank", "down_streak", "up_streak", "drawdown", "cummax", "cummin"}
 # functions that always read today's close/high/low
-_ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower"}
+_ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "macd_signal", "macd_hist",
+                 "stoch_k", "stoch_d", "adx", "plus_di", "minus_di", "cci", "willr", "obv", "mfi", "vwap",
+                 "donchian_upper", "donchian_lower", "keltner_upper", "keltner_lower", "supertrend", "sar",
+                 "weekly_sma", "monthly_sma", "weekly_close", "monthly_close", "is_week_end",
+                 "is_month_end", "is_quarter_end", "is_year_end", "bars_since", "count"}
 
 
 def open_safe(rule: str) -> bool:

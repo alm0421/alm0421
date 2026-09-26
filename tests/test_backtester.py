@@ -36,7 +36,7 @@ def fake(monkeypatch):
 
 def test_hold_one_day_close_to_close(fake):
     fake["X"] = synthetic([(10, 10, 10, 10), (10, 10, 9, 9), (9, 12, 9, 11), (11, 11, 11, 11)])
-    s = Strategy(universe=["X"], entry="change < 0", hold_bars=1)
+    s = Strategy(cash_rate=None, universe=["X"], entry="change < 0", hold_bars=1)
     r = engine.run(s)
     assert len(r.trades) == 1
     t = r.trades.iloc[0]
@@ -47,7 +47,7 @@ def test_hold_one_day_close_to_close(fake):
 def test_stop_loss_intraday_and_gap(fake):
     # entry at 100 close; next bar trades down to 94 -> 5% stop fills at 95
     fake["X"] = synthetic([(100, 100, 100, 100), (100, 100, 100, 100), (99, 99, 94, 96), (96, 96, 96, 96)])
-    s = Strategy(universe=["X"], entry="dow == 1", stop_loss=0.05, hold_bars=5)  # 2020-01-02 is a Thursday
+    s = Strategy(cash_rate=None, universe=["X"], entry="dow == 1", stop_loss=0.05, hold_bars=5)  # 2020-01-02 is a Thursday
     fake["X"].index = pd.bdate_range("2019-12-30", periods=4)  # Mon..Thu; entry on Tue close
     r = engine.run(s)
     t = r.trades.iloc[0]
@@ -64,7 +64,7 @@ def test_stop_loss_intraday_and_gap(fake):
 def test_take_profit_and_short(fake):
     fake["X"] = synthetic([(100, 100, 100, 100), (100, 100, 100, 100), (100, 101, 89, 95), (95, 95, 95, 95)])
     fake["X"].index = pd.bdate_range("2019-12-30", periods=4)
-    s = Strategy(universe=["X"], entry="dow == 1", side="short", take_profit=0.10, hold_bars=5)
+    s = Strategy(cash_rate=None, universe=["X"], entry="dow == 1", side="short", take_profit=0.10, hold_bars=5)
     r = engine.run(s)
     t = r.trades.iloc[0]
     assert t.exit_reason == "take profit" and t.exit_price == pytest.approx(90)
@@ -73,7 +73,7 @@ def test_take_profit_and_short(fake):
 
 def test_slippage_and_commission(fake):
     fake["X"] = synthetic([(10, 10, 10, 10), (10, 10, 9, 10), (10, 10, 10, 10), (10, 10, 10, 10)])
-    s = Strategy(universe=["X"], entry="dow == 1", hold_bars=1, slippage_bps=10, commission=1)
+    s = Strategy(cash_rate=None, universe=["X"], entry="dow == 1", hold_bars=1, slippage_bps=10, commission=1)
     fake["X"].index = pd.bdate_range("2019-12-30", periods=4)
     r = engine.run(s)
     t = r.trades.iloc[0]
@@ -85,7 +85,7 @@ def test_slippage_and_commission(fake):
 def test_max_positions_and_no_leverage(fake):
     for k in "ABC":
         fake[k] = synthetic([(10, 10, 10, 10)] * 3 + [(10, 10, 9, 9), (9, 9, 9, 10), (10, 10, 10, 10)])
-    s = Strategy(universe=list("ABC"), entry="change < 0", hold_bars=1, max_positions=2)
+    s = Strategy(cash_rate=None, universe=list("ABC"), entry="change < 0", hold_bars=1, max_positions=2)
     r = engine.run(s)
     assert len(r.trades) == 2
     assert r.exposure.max() <= 1.0 + 1e-9
@@ -151,18 +151,23 @@ def test_parser_exits_and_sizing():
 @needs_data
 def test_msft_example_matches_vectorised():
     s = parser.parse("buy at the close Microsoft when it trades down 5 days in a row, hold for 1 day, and sell at the close")
+    s.cash_rate = None
     r = engine.run(s)
-    c = data.load("MSFT")["close"]
+    df = data.load("MSFT")
+    c, div = df["close"], df["dividend"]
     down = (c.diff() < 0).astype(int)
     streak = down.groupby((down == 0).cumsum()).cumsum()
-    nxt = (c.shift(-1) / c - 1)[streak >= 5].dropna()
+    # next-day return including a dividend paid on the exit day (ex-date while held overnight)
+    nxt = ((c.shift(-1) + div.shift(-1)) / c - 1)[streak >= 5].dropna()
     assert len(r.trades) == len(nxt)
     assert r.equity.iloc[-1] == pytest.approx(10_000 * (1 + nxt).prod())
 
 
 @needs_data
 def test_gap_short_matches_vectorised():
-    r = engine.run(parser.parse("short QQQ at the open when it gaps up 1%, cover at the close"))
+    s = parser.parse("short QQQ at the open when it gaps up 1%, cover at the close")
+    s.cash_rate = None
+    r = engine.run(s)
     q = data.load("QQQ")
     sig = q.open / q.close.shift() - 1 >= 0.01
     assert r.equity.iloc[-1] == pytest.approx(10_000 * (2 - q.close / q.open)[sig].prod())
@@ -173,6 +178,7 @@ def test_metrics_basics():
     r = engine.run(parser.parse("buy SPY at the close when it drops 2% in a day, hold 5 days"))
     st = metrics.equity_stats(r.equity)
     assert -1 < st["max_drawdown"] <= 0
-    assert st["end_equity"] == pytest.approx(10_000 + r.trades.pnl.sum())
+    assert r.interest > 0  # idle cash earns T-bill interest
+    assert st["end_equity"] == pytest.approx(10_000 + r.trades.pnl.sum() + r.interest)
     y = metrics.yearly_detail(r.equity, r.trades, r.exposure)
     assert np.prod(1 + y["return"]) == pytest.approx(r.equity.iloc[-1] / 10_000)
