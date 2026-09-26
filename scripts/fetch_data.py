@@ -197,11 +197,12 @@ def components_section(wikitext: str) -> str:
     Many revisions also carry 'Changes in 20XX' lists (dropped companies) and mention ETFs such as
     TQQQ in prose; scraping the whole article mixed those in. Take the text from the components
     heading to the next level-2 heading, and drop history subsections inside it."""
-    m = re.search(r"(?im)^==(?!=)\s*(?![^=\n]*(?:historical|former|changes|past))[^=\n]*\b(?:components?|constituents|companies)\b[^=\n]*==\s*$", wikitext)
+    m = re.search(r"(?im)^(={2,4})(?!=)(?![^\n]*(?:historical|former|changes|past))[^\n]*?\b(?:components?|constituents|companies)\b[^\n]*$", wikitext)
     if not m:
         return wikitext
+    level = len(m.group(1))
     rest = wikitext[m.end():]
-    nxt = re.search(r"(?m)^==[^=]", rest)
+    nxt = re.search(rf"(?m)^={{2,{level}}}(?!=)", rest)
     sec = rest[: nxt.start()] if nxt else rest
     # cut "===Historical components===" / "===Changes...===" subsections
     cut = re.search(r"(?im)^===+[^=\n]*\b(?:historical|former|changes?|yearly|past|removed|additions|deletions|annual)\b", sec)
