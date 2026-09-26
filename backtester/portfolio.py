@@ -593,6 +593,12 @@ def run(p: Portfolio) -> Result:
     weights = np.zeros((T, N))
     cashw = np.zeros(T)
     orders: list[dict] = []
+    # P&L attribution: every cash movement caused by a ticker (trades incl. costs, dividends,
+    # reinvestment), and a ledger of those events in simulation order for the holding periods
+    tcash = np.zeros(N)
+    tdiv = np.zeros(N)
+    tcom = np.zeros(N)
+    ledger: list[tuple] = []          # (date, ticker, kind, shares, value, commission)
     turnover = 0.0
     n_rebal = 0
 
@@ -641,6 +647,9 @@ def run(p: Portfolio) -> Result:
                 com = p.commission + p.commission_pct * abs(q) * fill
                 cash -= q * fill + com
                 shares[j] += q
+                tcash[j] -= q * fill + com
+                tcom[j] += com
+                ledger.append((cal[i], tick[j], "buy" if q > 0 else "sell", q, abs(q) * fill, com))
                 turnover += abs(q) * fill / eq
                 orders.append({"date": cal[i].date(), "ticker": tick[j], "side": "buy" if q > 0 else "sell",
                                "shares": abs(q), "price": fill, "value": abs(q) * fill, "commission": com,
@@ -671,6 +680,10 @@ def run(p: Portfolio) -> Result:
         got = float(np.nansum(div_cash))
         if got:
             cash += got
+            for j in np.flatnonzero(div_cash != 0):
+                tcash[j] += div_cash[j]
+                tdiv[j] += div_cash[j]
+                ledger.append((cal[i], tick[j], "dividend", 0.0, float(div_cash[j]), 0.0))
         # cash flows at the start of the day
         f = 0.0
         if contrib_days[i]:
@@ -709,6 +722,9 @@ def run(p: Portfolio) -> Result:
                     com = p.commission + p.commission_pct * q * fill
                     cash -= q * fill + com
                     shares[j] += q
+                    tcash[j] -= q * fill + com
+                    tcom[j] += com
+                    ledger.append((cal[i], t, "buy", q, q * fill, com))
                     orders.append({"date": cal[i].date(), "ticker": t, "side": "buy", "shares": q, "price": fill,
                                    "value": q * fill, "commission": com, "reason": "contribution"})
         # reinvest dividends into the same holding at the close
@@ -718,6 +734,8 @@ def run(p: Portfolio) -> Result:
                     q = min(div_cash[j], cash) / c[j]
                     shares[j] += q
                     cash -= q * c[j]
+                    tcash[j] -= q * c[j]
+                    ledger.append((cal[i], tick[j], "reinvest", q, q * c[j], 0.0))
         # rebalance decision at the close
         decide = sched[i]
         if decide:
@@ -765,46 +783,79 @@ def run(p: Portfolio) -> Result:
     ex = pd.Series(np.concatenate([[0.0], gross.to_numpy()]), index=idx_all, name="exposure")
     npos = pd.Series(np.concatenate([[0], (hw.drop(columns="cash").abs() > 1e-6).sum(axis=1).to_numpy()]), index=idx_all)
     od = pd.DataFrame(orders)
-    trades = _round_trips(od, hw, dfs, cal, equity, p.reinvest_dividends)
+    end_px = np.nan_to_num(last_px)
+    trades = _round_trips(ledger, tick, end_px, cal[-1])
     res = Result(strategy=p, equity=eq, trades=trades, exposure=ex, positions=npos, prices=dfs,
                  holdings=hw, interest=interest, in_market=pd.Series(gross.reindex(idx_all).fillna(0).to_numpy() > 1e-6, index=idx_all),
                  kind="allocation", orders=od)
     res.extras.update({"fees": fees, "flows": fl, "turnover_annual": turnover / max((cal[-1] - cal[0]).days / 365.25, 1e-9),
-                       "rebalances": n_rebal})
+                       "rebalances": n_rebal,
+                       "attribution": _attribution(tick, tcash, tdiv, tcom, shares, end_px, od)})
     return res
 
 
-def _round_trips(orders: pd.DataFrame, hw: pd.DataFrame, dfs, cal, equity, reinvest: bool = True) -> pd.DataFrame:
-    """Holding periods per ticker (from the first buy to the sale that empties it) with P&L.
+def _attribution(tick, tcash, tdiv, tcom, shares, end_px, od: pd.DataFrame) -> pd.DataFrame:
+    """P&L per ticker: sales - purchases - costs + dividends (cash or reinvested) + value still held.
 
-    With dividends reinvested, the extra shares show up in the sale proceeds; otherwise the cash
-    dividends received during the holding period are added explicitly.
-    """
-    if orders is None or orders.empty:
+    sum(pnl) + interest - fees == final equity - starting capital - net cash flows (exactly, unless
+    a leveraged portfolio was wiped out and the simulation stopped)."""
+    mv = shares * end_px
+    bought = od[od.side == "buy"].groupby("ticker")["value"].sum() if not od.empty else pd.Series(dtype=float)
+    sold = od[od.side == "sell"].groupby("ticker")["value"].sum() if not od.empty else pd.Series(dtype=float)
+    rows = []
+    for j, t in enumerate(tick):
+        if not (tcash[j] or mv[j] or tdiv[j]):
+            continue
+        rows.append({"ticker": t, "pnl": float(tcash[j] + mv[j]), "dividends": float(tdiv[j]),
+                     "commissions": float(tcom[j]), "bought": float(bought.get(t, 0.0)), "sold": float(sold.get(t, 0.0)),
+                     "end_value": float(mv[j]), "end_shares": float(shares[j])})
+    df = pd.DataFrame(rows, columns=["ticker", "pnl", "dividends", "commissions", "bought", "sold", "end_value", "end_shares"])
+    if not df.empty:
+        tot = df["pnl"].abs().sum()
+        df["share_of_pnl"] = df["pnl"] / df["pnl"].sum() if abs(df["pnl"].sum()) > 1e-9 else np.nan
+        df = df.sort_values("pnl", key=lambda s: -s.abs() if tot else s).reset_index(drop=True)
+    return df
+
+
+def _round_trips(ledger: list[tuple], tick: list[str], end_px: np.ndarray, last_day) -> pd.DataFrame:
+    """Holding periods per ticker, from the trade that opens a position to the one that closes it.
+
+    The ledger holds every event in simulation order (dividends at the start of the day, trades,
+    dividend reinvestment at the close), so the share count is exact, dividends are income of the
+    holding period they were paid in and reinvested dividends add to its cost. The holding-period
+    P&Ls of a ticker add up to its P&L in the attribution table."""
+    if not ledger:
         return pd.DataFrame()
     rows = []
-    for t, g in orders.groupby("ticker", sort=False):
-        div = dfs[t]["dividend"]
-        pos, spent, got, com, start, held = 0.0, 0.0, 0.0, 0.0, None, []
-        for _, o in g.sort_values("date", kind="stable").iterrows():
-            q = o["shares"] if o["side"] == "buy" else -o["shares"]
-            if pos <= 1e-12 and q > 0:
-                start, spent, got, com, held = o["date"], 0.0, 0.0, 0.0, []
-            if q > 0:
-                spent += o["value"] + o["commission"]
+    px = dict(zip(tick, end_px))
+    by: dict[str, list] = {}
+    for e in ledger:
+        by.setdefault(e[1], []).append(e)
+    for t, evs in by.items():
+        pos, peak, st = 0.0, 0.0, None
+        for d, _, kind, q, v, com in evs:
+            if kind == "dividend":
+                if st is not None:
+                    st["income"] += v
+                continue
+            if st is None and kind in ("buy", "sell"):
+                st = {"start": d, "spent": 0.0, "got": 0.0, "income": 0.0, "com": 0.0, "side": "long" if q > 0 else "short"}
+                peak = 0.0
+            if st is None:
+                continue
+            if kind in ("buy", "reinvest"):
+                st["spent"] += v + com
             else:
-                got += o["value"] - o["commission"]
-            com += o["commission"]
+                st["got"] += v - com
+            st["com"] += com
             pos += q
-            held.append((pd.Timestamp(o["date"]), pos))
-            if pos <= 1e-9 and start is not None:
-                d = 0.0 if reinvest else _divs(held, div)
-                rows.append(_trip(t, start, o["date"], spent, got + d, com, d))
-                start = None
-        if start is not None and pos > 1e-9:
-            last = dfs[t]["close"].reindex(cal).ffill().iloc[-1]
-            d = 0.0 if reinvest else _divs(held + [(cal[-1] + pd.Timedelta(days=1), 0.0)], div)
-            rows.append(_trip(t, start, cal[-1].date(), spent, got + pos * last + d, com, d, open_=True))
+            peak = max(peak, abs(pos))
+            if abs(pos) <= 1e-9 * max(peak, 1.0):
+                rows.append(_trip(t, st, d.date()))
+                st, pos = None, 0.0
+        if st is not None:
+            st["got"] += pos * px[t]
+            rows.append(_trip(t, st, last_day.date(), open_=True))
     tr = pd.DataFrame(rows)
     if tr.empty:
         return tr
@@ -814,20 +865,14 @@ def _round_trips(orders: pd.DataFrame, hw: pd.DataFrame, dfs, cal, equity, reinv
     return tr
 
 
-def _divs(held: list, div: pd.Series) -> float:
-    """Cash dividends received while held: `held` is [(date, shares after that day's trade), ...]."""
-    total = 0.0
-    for (d0, q), (d1, _) in zip(held, held[1:]):
-        seg = div[(div.index > d0) & (div.index <= d1)]
-        total += q * float(seg.sum())
-    return total
-
-
-def _trip(t, start, end, spent, got, com, d, open_=False) -> dict:
-    pnl = got - spent
-    return {"ticker": t, "side": "long", "entry_date": start, "exit_date": end,
-            "entry_price": np.nan, "exit_price": np.nan, "shares": np.nan, "position_value": spent,
-            "pnl": pnl, "return": pnl / spent if spent else 0.0,
+def _trip(t, st: dict, end, open_=False) -> dict:
+    start = st["start"].date() if hasattr(st["start"], "date") else st["start"]
+    pnl = st["got"] + st["income"] - st["spent"]
+    basis = st["spent"] if st["side"] == "long" else st["got"]
+    return {"ticker": t, "side": st["side"], "entry_date": start, "exit_date": end,
+            "entry_price": np.nan, "exit_price": np.nan, "shares": np.nan, "position_value": basis,
+            "pnl": pnl, "return": pnl / basis if basis else 0.0,
             "bars_held": int(np.busday_count(pd.Timestamp(start).date(), pd.Timestamp(end).date())),
             "exit_reason": "still held" if open_ else "rebalanced out", "mae": np.nan, "mfe": np.nan,
-            "commission": com, "income": d, "entry_fill": "close", "exit_fill": "close"}
+            "commission": st["com"], "income": st["income"], "entry_fill": "close", "exit_fill": "close"}
+

@@ -81,8 +81,20 @@ def cost_sensitivity(res: Result, levels=(0, 5, 10, 25)) -> list[dict]:
     return rows
 
 
+def _aligned_buy_and_hold(t: str, idx: pd.DatetimeIndex, cap: float) -> pd.Series | None:
+    """Buy and hold bought at the close of the strategy's first real bar (idx[1]); the synthetic
+    day-before point idx[0] carries the starting capital, as it does for the strategy."""
+    if len(idx) < 2:
+        return metrics.buy_and_hold(t, idx, cap)
+    b = metrics.buy_and_hold(t, idx[1:], cap)
+    if b is not None and len(b) and b.index[0] == idx[1]:
+        b = pd.concat([pd.Series([cap], index=idx[:1]), b]).rename(t)
+    return b
+
+
 def benchmark_series(res: Result) -> dict[str, pd.Series]:
-    """Benchmark buy-and-hold curves starting from the strategy's first day with the same capital."""
+    """Benchmark buy-and-hold curves (growth of the starting capital, no cash flows), bought at the
+    close of the strategy's first bar with the same capital."""
     s = res.strategy
     idx = res.equity.index
     cap = float(res.equity.iloc[0])
@@ -97,10 +109,30 @@ def benchmark_series(res: Result) -> dict[str, pd.Series]:
             names.append(t)
     out = {}
     for t in names:
-        b = metrics.buy_and_hold(t, idx, cap)
+        b = _aligned_buy_and_hold(t, idx, cap)
         if b is not None and len(b) > 30:
             out[f"{t} buy & hold"] = b
     return out
+
+
+def benchmarks_with_flows(benches: dict[str, pd.Series], flows: pd.Series | None) -> dict[str, pd.Series]:
+    """The benchmarks' dollar values when they receive the portfolio's own contributions and
+    withdrawals (a like-for-like 'account value' comparison)."""
+    if flows is None or float(flows.abs().sum()) == 0:
+        return {}
+    return {k: metrics.with_flows(b, flows) for k, b in benches.items()}
+
+
+def real_equity(equity: pd.Series) -> pd.Series | None:
+    """Equity in dollars of the first day (deflated by CPI)."""
+    c = data.cpi()
+    if c.empty:
+        return None
+    ci = c.reindex(equity.index.union(c.index)).ffill().reindex(equity.index)
+    if ci.isna().all():
+        return None
+    base = ci.dropna().iloc[0]
+    return equity / (ci / base)
 
 
 def _primary_bench(res: Result, benches: dict[str, pd.Series]) -> tuple[str, pd.Series | None]:
@@ -178,13 +210,14 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
     flows = res.extras.get("flows")
     has_flows = flows is not None and float(flows.abs().sum()) > 0
     nv = metrics.nav(res.equity, flows) if has_flows else res.equity
-    stats = metrics.equity_stats(res.equity, rf, flows if has_flows else None)
+    first_bar = res.equity.index[1] if len(res.equity) > 1 else None
+    stats = metrics.equity_stats(res.equity, rf, flows if has_flows else None, first_bar=first_bar)
     tstats = metrics.trade_stats(res.trades, stats["years"])
     expo = metrics.exposure_stats(res.exposure, res.positions, res.in_market)
     benches = benchmark_series(res)
     pname, pseries = _primary_bench(res, benches)
     rel = metrics.relative_stats(nv, pseries, rf)
-    yearly = metrics.yearly_detail(nv, res.trades, res.exposure)
+    yearly = metrics.yearly_detail(nv, res.trades, res.exposure, first_bar=first_bar)
     yr_b = metrics.yearly_returns(benches)
     for n in yr_b:
         yearly[n] = yr_b[n].reindex(yearly.index)
@@ -193,9 +226,21 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
         "stats": stats, "cash": metrics.cashflow_stats(res.equity, flows if has_flows else None),
         "trade_stats": tstats, "exposure": expo, "relative": rel, "primary_benchmark": pname,
         "benchmarks": benches, "yearly": yearly, "monthly": metrics.monthly_table(nv),
-        "drawdowns": metrics.drawdown_table(nv, 5), "rf": rf, "interest": res.interest,
+        "drawdowns": metrics.drawdown_table(nv, 5, first_bar=first_bar), "rf": rf, "interest": res.interest,
         "turnover": res.extras.get("turnover_annual"), "rebalances": res.extras.get("rebalances"),
+        "first_bar": first_bar, "fees": res.extras.get("fees", 0.0),
+        "equity_real": real_equity(res.equity),
+        "attribution": res.extras.get("attribution"),
     }
+    bwf = benchmarks_with_flows(benches, flows if has_flows else None)
+    A["benchmarks_with_flows"] = bwf
+    A["benchmark_cash"] = {k: metrics.cashflow_stats(v, flows) for k, v in bwf.items()}
+    A["withdrawal_rates"] = {}
+    if res.kind == "allocation" and (getattr(s, "withdrawal", 0) or getattr(s, "withdrawal_pct", 0)):
+        from . import montecarlo
+        A["withdrawal_rates"] = montecarlo.historical_withdrawal_rates(metrics.monthly_returns(nv))
+        if A["withdrawal_rates"]:
+            A["withdrawal_rates"].update({"from": stats["start"], "to": stats["end"]})
     if detail:
         A["monte_carlo"] = metrics.monte_carlo(res.equity, flows if has_flows else None) if mc else {}
         A["sensitivity"] = cost_sensitivity(res) if sensitivity else []
@@ -222,12 +267,13 @@ def common_window_stats(analyses: list[dict], rf="tbill") -> dict:
         series[k] = v
     start = max(s.index[0] for s in series.values())
     end = min(s.index[-1] for s in series.values())
-    out = {"start": start.date(), "end": end.date(), "columns": {}}
+    fb = next((A.get("first_bar") for A in analyses if A.get("first_bar") is not None and A["result"].equity.index[0] == start), None)
+    out = {"start": metrics.display_date(start, fb).date(), "end": end.date(), "columns": {}}
     for k, s in series.items():
         seg = s[(s.index >= start) & (s.index <= end)]
         if len(seg) < 30:
             continue
-        st = metrics.equity_stats(seg / seg.iloc[0] * 10_000, rf)
+        st = metrics.equity_stats(seg / seg.iloc[0] * 10_000, rf, first_bar=fb)
         out["columns"][k] = st
     return out
 
@@ -281,9 +327,21 @@ def console_summary(A: dict) -> str:
     L.append("-" * 78)
     L.append(f"{'':24s} {'Final $':>14s} {'CAGR':>8s} {'Sharpe':>7s} {'MaxDD':>8s}  (each from its first date)")
     L.append(f"{'Strategy':24s} {st['end_equity']:>14,.0f} {pct(st['cagr']):>8s} {num(st['sharpe']):>7s} {pct(st['max_drawdown'], 1):>8s}")
+    bwf = A.get("benchmarks_with_flows") or {}
     for n, b in A["benchmarks"].items():
-        bs = metrics.equity_stats(b, A["rf"])
-        L.append(f"{n:24s} {bs['end_equity']:>14,.0f} {pct(bs['cagr']):>8s} {num(bs['sharpe']):>7s} {pct(bs['max_drawdown'], 1):>8s}  (from {bs['start']})")
+        bs = metrics.equity_stats(b, A["rf"], first_bar=A.get("first_bar"))
+        final = float(bwf[n].iloc[-1]) if n in bwf else bs["end_equity"]
+        L.append(f"{n:24s} {final:>14,.0f} {pct(bs['cagr']):>8s} {num(bs['sharpe']):>7s} {pct(bs['max_drawdown'], 1):>8s}  (from {bs['start']})")
+    if bwf:
+        L.append("(benchmark final values include the same contributions and withdrawals as the strategy)")
+    wr = A.get("withdrawal_rates") or {}
+    if wr:
+        L.append(f"Withdrawal rates  safe {pct(wr.get('swr'), 2)}   perpetual {pct(wr.get('pwr'), 2)}   "
+                 f"(inflation-adjusted, over this history {wr['from']} -> {wr['to']}); 95% bootstrap safe rate {pct(wr.get('swr_mc95'), 2)}")
+    at = A.get("attribution")
+    if at is not None and len(at):
+        L.append("P&L by holding  " + "   ".join(f"{r.ticker} ${r.pnl:,.0f}" for r in at.head(8).itertuples())
+                 + f"   interest ${A['interest']:,.0f}" + (f"   fees -${A['fees']:,.0f}" if A.get("fees") else ""))
     L.append("-" * 78)
     L.append("Returns by year")
     y = A["yearly"]
@@ -355,8 +413,29 @@ def run_payload(A: dict, i: int, idx: pd.DatetimeIndex) -> dict:
         "holdings": holdings_payload(res),
         "prices": price_payload(res),
         "universe_size": len(getattr(s, "universe", []) or []),
+        # account value in dollars of the first day (CPI-deflated), for a real/nominal toggle
+        "equity_real": _ser(A["equity_real"], idx, 2) if A.get("equity_real") is not None else None,
+        # per-ticker P&L (allocation runs): sum(pnl) + interest - fees == end - start - net flows
+        "attribution": _attribution_payload(A),
+        "withdrawal_rates": A.get("withdrawal_rates") or {},
+        "benchmark_cash": A.get("benchmark_cash") or {},
+        "first_bar": A.get("first_bar"),
     }
     return p
+
+
+def _attribution_payload(A: dict) -> dict:
+    at = A.get("attribution")
+    if at is None or not len(at):
+        return {}
+    res = A["result"]
+    fl = A.get("flows")
+    net_flows = float(fl.sum()) if fl is not None else 0.0
+    return {"rows": at.to_dict("records"), "interest": A["interest"], "fees": A.get("fees") or 0.0,
+            "total_pnl": float(at["pnl"].sum()), "net_flows": net_flows,
+            "start_equity": float(res.equity.iloc[0]), "end_equity": float(res.equity.iloc[-1]),
+            "check": float(res.equity.iloc[-1] - res.equity.iloc[0] - net_flows
+                           - (at["pnl"].sum() + A["interest"] - (A.get("fees") or 0.0)))}
 
 
 def build_payload(analyses: list[dict]) -> dict:
@@ -372,7 +451,11 @@ def build_payload(analyses: list[dict]) -> dict:
         "title": title,
         "dates": [d.strftime("%Y-%m-%d") for d in idx],
         "runs": [run_payload(A, i, idx) for i, A in enumerate(analyses)],
-        "benchmarks": [{"name": n, "values": _ser(b, idx, 2)} for n, b in benches.items()],
+        # values: growth of the starting capital; with_flows: the same benchmark receiving the first
+        # run's contributions/withdrawals (compare with the runs' "equity" account values)
+        "benchmarks": [{"name": n, "values": _ser(b, idx, 2),
+                        **({"with_flows": _ser(first["benchmarks_with_flows"][n], idx, 2)}
+                           if n in (first.get("benchmarks_with_flows") or {}) else {})} for n, b in benches.items()],
         "benchmark_yearly": {n: {int(y): float(v) for y, v in metrics.yearly_returns({n: b})[n].items()} for n, b in benches.items()},
         "common": common_window_stats(analyses, analyses[0]["rf"]),
         "rf": analyses[0]["rf"],
@@ -398,9 +481,15 @@ def write_outputs(analyses: list[dict] | dict, out_dir: Path, excel: bool = True
                            "exposure": res.exposure, "positions": res.positions})
         if A["flows"] is not None:
             eq["cash_flow"] = A["flows"]
+        if A.get("equity_real") is not None:
+            eq["equity_real"] = A["equity_real"]
         for n, b in A["benchmarks"].items():
             eq[n] = b
+        for n, b in (A.get("benchmarks_with_flows") or {}).items():
+            eq[n + " (with cash flows)"] = b
         eq.to_csv(out_dir / f"{pre}equity.csv", index_label="date")
+        if A.get("attribution") is not None and len(A["attribution"]):
+            A["attribution"].to_csv(out_dir / f"{pre}attribution.csv", index=False)
         if res.holdings is not None and not res.holdings.empty:
             res.holdings.to_csv(out_dir / f"{pre}holdings.csv", index_label="date")
         A["yearly"].to_csv(out_dir / f"{pre}yearly.csv")
@@ -410,7 +499,10 @@ def write_outputs(analyses: list[dict] | dict, out_dir: Path, excel: bool = True
                                          "sensitivity", "rolling_summary", "crises", "factors")}
         summary.update({"description": A["strategy"].description, "interpretation": A["strategy"].summary(),
                         "notes": A["strategy"].notes, "kind": res.kind,
-                        "drawdowns": A["drawdowns"].to_dict("records")})
+                        "drawdowns": A["drawdowns"].to_dict("records"),
+                        "withdrawal_rates": A.get("withdrawal_rates") or {},
+                        "benchmark_cash": A.get("benchmark_cash") or {},
+                        "attribution": _attribution_payload(A)})
         (out_dir / f"{pre}summary.json").write_text(json.dumps(_clean(summary), indent=2))
         if excel:
             _excel(A, out_dir / f"{pre}report.xlsx")
@@ -447,8 +539,12 @@ def _excel(A: dict, path: Path) -> None:
         eq = pd.DataFrame({"equity": res.equity, "twr_index": A["nav"], "drawdown": metrics.drawdown(A["nav"])})
         for n, b in A["benchmarks"].items():
             eq[n] = b
+        for n, b in (A.get("benchmarks_with_flows") or {}).items():
+            eq[n + " (with cash flows)"] = b
         eq.index = eq.index.tz_localize(None)
         eq.to_excel(xw, sheet_name="Equity", index_label="date")
+        if A.get("attribution") is not None and len(A["attribution"]):
+            A["attribution"].to_excel(xw, sheet_name="Attribution", index=False)
         if res.holdings is not None and not res.holdings.empty:
             res.holdings.resample("ME").last().to_excel(xw, sheet_name="Holdings (month-end)", index_label="date")
 

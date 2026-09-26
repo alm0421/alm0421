@@ -64,7 +64,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 <body>
 <header><div class="bar"><div class="brand">📈 Backtester</div>
   <nav id="nav">
-    <a href="#backtest">Backtest</a><a href="#library">Library</a><a href="#build">Build</a><a href="#compare">Compare</a><a href="#research">Research</a>
+    <a href="#backtest">Backtest</a><a href="#library">Library</a><a href="#build">Build</a><a href="#compare">Compare</a><a href="#research">Research</a><a href="#montecarlo">Monte Carlo</a><a href="#factors">Factors</a>
     <a href="#signals">Signals &amp; paper</a><a href="#history">History</a><a href="#data">Data</a>
   </nav><div class="note" id="dataStamp" style="margin-left:auto"></div></div></header>
 <main>
@@ -213,7 +213,13 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label>Min weight (%)<input id="o_min" type="number" value="0"></label>
         <label>From<input id="o_from" type="date"></label><label>To<input id="o_to" type="date"></label>
         <label>Test out of sample from<input id="o_test" type="date"></label>
+        <label>Target return (%/yr)<input id="o_tret" type="number" step="0.5" placeholder="optional"></label>
+        <label>Target volatility (%/yr)<input id="o_tvol" type="number" step="0.5" placeholder="optional"></label>
+        <label>Re-optimise every (months)<input id="o_roll" type="number" placeholder="off"></label>
+        <label>on the trailing (months)<input id="o_look" type="number" value="60"></label>
+        <label style="grid-column:1/-1">Constraints (one per line or separated by ;)<textarea id="o_cons" style="min-height:44px;font-size:13px" placeholder="e.g. SPY+QQQ <= 70%; TLT >= 10%; GLD <= 20%; 20% <= TLT+IEF <= 60%"></textarea></label>
       </div>
+      <p class="note">Objectives: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity, max diversification, inverse volatility, equal weight, plus target return / volatility when given. Long-history series such as SPYSIM and TLTSIM can be used as tickers when present.</p>
     </div>
     <div class="row" style="margin-top:10px"><button class="btn primary" id="resRun">Run</button><span class="note" id="resStatus"></span></div>
   </div>
@@ -248,6 +254,77 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     <details style="margin-top:10px"><summary>Rule language reference</summary><pre class="help" id="helpExpr2"></pre></details>
   </div>
 </section>
+<!-- MONTE CARLO -->
+<section id="p-montecarlo" class="hide">
+  <div class="card"><h2>Monte Carlo simulation</h2>
+    <p class="note">Simulate thousands of possible futures for a portfolio: the range of balances over time, the chance the money lasts, and the highest safe withdrawal rate.</p>
+    <div class="tabs2" id="mcSrc"><button data-v="weights" class="on">Tickers &amp; weights</button><button data-v="text">Sentence</button><button data-v="run">Saved run</button></div>
+    <div id="mcSrcWeights"><label class="f">Tickers and weights<input id="mc_weights" class="w" value="SPY 60, TLT 40"></label>
+      <div class="note" id="mcSims" style="margin-top:4px"></div></div>
+    <div id="mcSrcText" class="hide"><textarea id="mc_text" style="min-height:48px">hold 60% SPY and 40% AGG, rebalance annually</textarea>
+      <p class="note">A fixed-weight portfolio is simulated from its assets. Anything with rules (switches, rotations, signals) is simulated by resampling the strategy's own monthly returns.</p></div>
+    <div id="mcSrcRun" class="hide"><select id="mc_run" style="max-width:100%"></select></div>
+    <h3>Settings</h3>
+    <div class="grid">
+      <label>Starting balance ($)<input id="mc_balance" type="number" value="1000000"></label>
+      <label>Years<input id="mc_years" type="number" value="30" min="1" max="100"></label>
+      <label>Return model<select id="mc_model"><option value="historical">Historical (block bootstrap)</option><option value="normal">Parametric: normal</option><option value="t">Parametric: fat tails (Student-t)</option><option value="forecast">Forecast returns</option></select></label>
+      <label>Block length (months)<input id="mc_block" type="number" value="12" min="1"></label>
+      <label>Rebalance<select id="mc_rebalance"><option value="yearly">annually</option><option value="quarterly">quarterly</option><option value="monthly">monthly</option><option value="none">never</option></select></label>
+      <label>Inflation<select id="mc_infl"><option value="historical">Historical CPI (bootstrap)</option><option value="fixed">Fixed rate</option></select></label>
+      <label>Fixed inflation (%/yr)<input id="mc_infl_rate" type="number" step="0.1" value="2.5"></label>
+      <label>Simulations<input id="mc_sims" type="number" value="5000" step="500"></label>
+      <label>Success target for SWR (%)<input id="mc_success" type="number" value="95"></label>
+      <label>History from<input id="mc_start" type="date"></label><label>History to<input id="mc_end" type="date"></label>
+    </div>
+    <h3>Cash flows</h3>
+    <div class="grid">
+      <label>Type<select id="mc_cf_type"><option value="none">none</option><option value="withdrawal" selected>withdraw a fixed amount</option><option value="contribution">contribute a fixed amount</option><option value="pct_withdrawal">withdraw a % of the balance</option></select></label>
+      <label>Amount ($ per period)<input id="mc_cf_amount" type="number" value="40000"></label>
+      <label>% of balance per year<input id="mc_cf_pct" type="number" step="0.1" value="4"></label>
+      <label>Every<select id="mc_cf_freq"><option value="yearly">year</option><option value="quarterly">quarter</option><option value="monthly">month</option></select></label>
+      <label>Grow with inflation<select id="mc_cf_infl"><option value="true">yes</option><option value="false">no (fixed dollars)</option></select></label>
+      <label>From year<input id="mc_cf_from" type="number" value="1" min="1"></label>
+      <label>To year (blank = end)<input id="mc_cf_to" type="number" min="1"></label>
+    </div>
+    <div id="mcForecast" class="hide"><h3>Forecast (annual expected return and volatility per asset; correlations stay historical)</h3><div class="grid" id="mcForecastGrid"></div></div>
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="mcRun">Run simulation</button><span class="note" id="mcStatus"></span></div>
+  </div>
+  <div id="mcOut" class="hide">
+    <div class="card"><div class="tiles" id="mcTiles"></div><div id="mcNotes"></div></div>
+    <div class="card"><div class="row"><h2 style="margin:0">Balance over time (percentiles)</h2><span style="flex:1"></span>
+      <div class="tabs2" id="mcReal" style="margin:0"><button data-v="nominal" class="on">Nominal</button><button data-v="real">Inflation-adjusted</button></div></div>
+      <div class="lg" id="mcFanLegend"></div><div class="chart2" id="mcFan"></div></div>
+    <div class="card"><h2>Chance the money is still there</h2><div class="chart2" id="mcSuccess"></div></div>
+    <div class="card"><h2>Percentiles</h2><div class="xscroll"><table id="mcTable"></table></div>
+      <p class="note">Annual return is time-weighted (cash flows removed); max drawdown is of the time-weighted return. Final balances are after the cash flows.</p></div>
+  </div>
+</section>
+
+<!-- FACTORS -->
+<section id="p-factors" class="hide">
+  <div class="card"><h2>Factor analysis</h2>
+    <p class="note">Explain returns with the market, size, value, profitability, investment and momentum factors (Kenneth French's data): loadings with t-stats, R² and the annualised alpha left over.</p>
+    <div class="tabs2" id="fxSrc"><button data-v="ticker" class="on">Ticker</button><button data-v="weights">Tickers &amp; weights</button><button data-v="text">Sentence</button><button data-v="run">Saved run</button></div>
+    <div id="fxSrcTicker"><input id="fx_ticker" list="tickerList" value="QQQ" style="width:140px"></div>
+    <div id="fxSrcWeights" class="hide"><input id="fx_weights" class="w" value="SPY 60, TLT 40"></div>
+    <div id="fxSrcText" class="hide"><textarea id="fx_text" style="min-height:48px">hold the top 2 of QQQ, SPY, TLT and GLD by 3 month return</textarea></div>
+    <div id="fxSrcRun" class="hide"><select id="fx_run" style="max-width:100%"></select></div>
+    <div class="grid" style="margin-top:10px">
+      <label>Model<select id="fx_model"><option value="capm">CAPM</option><option value="ff3" selected>Fama-French 3</option><option value="carhart">Carhart 4 (FF3 + momentum)</option><option value="ff5">Fama-French 5</option><option value="ff6">Fama-French 5 + momentum</option></select></label>
+      <label>Returns<select id="fx_freq"><option value="monthly">monthly</option><option value="daily">daily</option></select></label>
+      <label>Rolling window (months)<input id="fx_roll" type="number" value="36"></label>
+      <label>From<input id="fx_start" type="date"></label><label>To<input id="fx_end" type="date"></label>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="fxRun">Run regression</button><span class="note" id="fxStatus"></span></div>
+  </div>
+  <div id="fxOut" class="hide">
+    <div class="card"><div class="tiles" id="fxTiles"></div><p class="note" id="fxMeta"></p></div>
+    <div class="card"><h2>Factor loadings</h2><div class="chart2" id="fxBars"></div><div class="xscroll"><table id="fxTable"></table></div>
+      <p class="note">A loading is the return's sensitivity to the factor; |t| ≥ 1.96 is significant at about 5%. Alpha is the average return the factors do not explain.</p></div>
+    <div class="card"><h2 id="fxRollTitle">Rolling loadings</h2><div class="lg" id="fxRollLegend"></div><div class="chart2" id="fxRoll"></div></div>
+  </div>
+</section>
 <datalist id="tickerList"></datalist>
 </main>
 
@@ -268,7 +345,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   let STATUS = null;
 
   // ---------- routing
-  const pages = ['backtest', 'library', 'build', 'compare', 'research', 'signals', 'history', 'data'];
+  const pages = ['backtest', 'library', 'build', 'compare', 'research', 'montecarlo', 'factors', 'signals', 'history', 'data'];
   function route() {
     const h = location.hash.replace('#', '');
     const [page, qs] = h.split('?');
@@ -445,7 +522,8 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       const o = {}; if ($('r_start').value) o.start = $('r_start').value; if ($('r_end').value) o.end = $('r_end').value; if ($('r_slip').value) o.slippage_bps = $('r_slip').value;
       if (resMode === 'sweep') j = await api('/api/sweep', { text: $('r_text').value, objective: $('r_objective').value, options: o });
       else if (resMode === 'walkforward') j = await api('/api/walkforward', { text: $('r_text').value, objective: $('r_objective').value, in_sample: $('r_is').value, out_sample: $('r_oos').value, anchored: $('r_anchored').value === 'true', options: o });
-      else j = await api('/api/optimize', { tickers: $('o_tickers').value, max_weight: $('o_max').value / 100, min_weight: $('o_min').value / 100, start: $('o_from').value, end: $('o_to').value, test_start: $('o_test').value });
+      else j = await api('/api/optimize', { tickers: $('o_tickers').value, max_weight: $('o_max').value / 100, min_weight: $('o_min').value / 100, start: $('o_from').value, end: $('o_to').value, test_start: $('o_test').value,
+        constraints: $('o_cons').value, target_return: $('o_tret').value === '' ? null : $('o_tret').value / 100, target_vol: $('o_tvol').value === '' ? null : $('o_tvol').value / 100, rolling_months: $('o_roll').value || null, lookback_months: $('o_look').value || 60 });
       $('resStatus').textContent = ''; $('resResult').classList.remove('hide'); $('resFrame').src = j.url;
     } catch (e) { $('resStatus').textContent = e.message; }
   });
@@ -536,6 +614,215 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     setBuildMode('portfolio'); draw(); $('specJson').value = JSON.stringify(specFromEditor(), null, 2);
     route();
   })();
+})();
+</script>
+<style>
+/* Monte Carlo + Factors pages: chart palette (same slots as the reports) */
+:root { --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --axis:#b9b8b2; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --axis:#4a4a45; } }
+:root[data-theme="dark"] { --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --axis:#4a4a45; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px; }
+.tile { background:var(--surface-2); border-radius:10px; padding:10px 12px; }
+.tile .k { font-size:12px; color:var(--text-2); } .tile .v { font-size:20px; font-weight:650; font-variant-numeric:tabular-nums; margin-top:2px; } .tile .s { font-size:11.5px; color:var(--text-3); }
+.chart2 { position:relative; } .chart2 svg { display:block; width:100%; overflow:visible; } .chart2 text { fill:var(--text-3); font-size:11px; }
+.lg { display:flex; flex-wrap:wrap; gap:14px; font-size:12px; color:var(--text-2); margin:6px 0; }
+.lg i { width:14px; height:10px; display:inline-block; margin-right:6px; vertical-align:middle; border-radius:2px; }
+.tip { position:absolute; pointer-events:none; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:6px 9px; font-size:12px; box-shadow:0 2px 8px rgba(0,0,0,.12); white-space:nowrap; z-index:5; }
+.tip b { font-weight:600; } .tip .r { display:flex; gap:10px; justify-content:space-between; } .tip .r span:last-child { font-variant-numeric:tabular-nums; }
+@media (max-width: 600px) { .tiles { grid-template-columns:repeat(2,1fr); } }
+</style>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const el = (t, a = {}, x) => { const e = document.createElement(t); for (const k in a) e.setAttribute(k, a[k]); if (x != null) e.textContent = x; return e; };
+  const S = (t, a = {}) => { const e = document.createElementNS('http://www.w3.org/2000/svg', t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const isNum = v => typeof v === 'number' && isFinite(v);
+  const pct = (v, d = 2) => isNum(v) ? (v * 100).toFixed(d) + '%' : '—';
+  const num = (v, d = 2) => isNum(v) ? v.toFixed(d) : '—';
+  const usd = v => isNum(v) ? '$' + Math.round(v).toLocaleString() : '—';
+  const compact = v => { const a = Math.abs(v); if (a >= 1e9) return '$' + (v / 1e9).toFixed(1) + 'B'; if (a >= 1e6) return '$' + (v / 1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M'; if (a >= 1e3) return '$' + (v / 1e3).toFixed(0) + 'k'; return '$' + v.toFixed(0); };
+  async function api(path, body) {
+    const r = await fetch(path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    const j = await r.json().catch(() => ({ error: 'Bad response from server' }));
+    if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  }
+  const spin = (box, msg) => box.replaceChildren(el('span', { class: 'spin' }), document.createTextNode(' ' + msg));
+  function tabs(id, onChange) { $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; [...$(id).children].forEach(x => x.classList.toggle('on', x === b)); onChange(b.dataset.v); }); }
+  const tabVal = id => ([...$(id).children].find(b => b.classList.contains('on')) || {}).dataset.v;
+  function niceTicks(lo, hi, n) { const span = hi - lo || Math.abs(hi) || 1, step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0))), err = step0 / mag, step = (err >= 7.5 ? 10 : err >= 3.5 ? 5 : err >= 1.5 ? 2 : 1) * mag; const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(+v.toFixed(12)); return out; }
+  function legend(box, items) { box.replaceChildren(...items.map(s => { const sp = el('span'); const i = el('i'); i.style.background = s.color; if (s.opacity) i.style.opacity = s.opacity; if (s.line) { i.style.height = '2px'; } sp.append(i, document.createTextNode(s.name)); return sp; })); }
+
+  // x: array of numbers; series: [{name, color, values, width}]; bands: [{lo, hi, color, opacity}]
+  function lineChart(box, o) {
+    box.replaceChildren();
+    const W = Math.max(320, box.clientWidth || 900), H = o.height || 320, m = { l: 64, r: 14, t: 10, b: 26 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const x = o.x, all = [];
+    (o.series || []).forEach(s => s.values.forEach(v => isNum(v) && all.push(v)));
+    (o.bands || []).forEach(b => { b.lo.forEach(v => isNum(v) && all.push(v)); b.hi.forEach(v => isNum(v) && all.push(v)); });
+    if (o.zero) all.push(0);
+    let lo = Math.min(...all), hi = Math.max(...all); if (o.yMin != null) lo = o.yMin; if (o.yMax != null) hi = o.yMax; if (lo === hi) { lo -= 1; hi += 1; }
+    const pad = (hi - lo) * 0.04; if (o.yMin == null) lo -= pad; if (o.yMax == null) hi += pad;
+    const x0 = x[0], x1 = x[x.length - 1];
+    const X = v => m.l + (v - x0) / ((x1 - x0) || 1) * iw, Y = v => m.t + (1 - (v - lo) / (hi - lo)) * ih;
+    const svg = S('svg', { viewBox: `0 0 ${W} ${H}`, height: H, role: 'img' });
+    niceTicks(lo, hi, 5).forEach(v => { svg.append(S('line', { x1: m.l, x2: m.l + iw, y1: Y(v), y2: Y(v), stroke: css('--grid') })); const t = S('text', { x: m.l - 8, y: Y(v) + 4, 'text-anchor': 'end' }); t.textContent = o.fmtY(v, true); svg.append(t); });
+    niceTicks(x0, x1, Math.min(10, Math.max(2, Math.floor(iw / 70)))).forEach(v => { if (v < x0 || v > x1) return; const t = S('text', { x: X(v), y: H - 6, 'text-anchor': 'middle' }); t.textContent = o.fmtX ? o.fmtX(v) : v; svg.append(t); });
+    svg.append(S('line', { x1: m.l, x2: m.l + iw, y1: m.t + ih, y2: m.t + ih, stroke: css('--axis') }));
+    if (o.zero && lo < 0 && hi > 0) svg.append(S('line', { x1: m.l, x2: m.l + iw, y1: Y(0), y2: Y(0), stroke: css('--axis') }));
+    (o.bands || []).forEach(b => { let d = ''; x.forEach((xv, i) => { d += (i ? 'L' : 'M') + X(xv).toFixed(1) + ',' + Y(b.hi[i]).toFixed(1); }); for (let i = x.length - 1; i >= 0; i--) d += 'L' + X(x[i]).toFixed(1) + ',' + Y(b.lo[i]).toFixed(1); svg.append(S('path', { d: d + 'Z', fill: b.color, 'fill-opacity': b.opacity, stroke: 'none' })); });
+    (o.series || []).forEach(s => { let d = '', pen = false; s.values.forEach((v, i) => { if (!isNum(v)) { pen = false; return; } d += (pen ? 'L' : 'M') + X(x[i]).toFixed(1) + ',' + Y(v).toFixed(1); pen = true; }); svg.append(S('path', { d, fill: 'none', stroke: s.color, 'stroke-width': s.width || 2, 'stroke-linejoin': 'round', 'stroke-dasharray': s.dash || '' })); });
+    const cross = S('line', { y1: m.t, y2: m.t + ih, stroke: css('--axis'), 'stroke-dasharray': '3 3', visibility: 'hidden' }); svg.append(cross);
+    const dots = (o.series || []).map(s => { const c = S('circle', { r: 4, fill: s.color, stroke: css('--surface'), 'stroke-width': 2, visibility: 'hidden' }); svg.append(c); return c; });
+    const hit = S('rect', { x: m.l, y: m.t, width: iw, height: ih, fill: 'transparent' }); svg.append(hit);
+    box.append(svg);
+    const tip = el('div', { class: 'tip' }); tip.style.display = 'none'; box.append(tip);
+    const move = ev => {
+      const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * (W / r.width);
+      let best = 0, bd = Infinity; x.forEach((xv, i) => { const d = Math.abs(X(xv) - px); if (d < bd) { bd = d; best = i; } });
+      cross.setAttribute('x1', X(x[best])); cross.setAttribute('x2', X(x[best])); cross.setAttribute('visibility', 'visible');
+      (o.series || []).forEach((s, k) => { const v = s.values[best]; if (isNum(v)) { dots[k].setAttribute('cx', X(x[best])); dots[k].setAttribute('cy', Y(v)); dots[k].setAttribute('visibility', 'visible'); } else dots[k].setAttribute('visibility', 'hidden'); });
+      tip.replaceChildren(el('b', {}, o.fmtX ? o.fmtX(x[best], true) : x[best]));
+      o.tipRows(best).forEach(([k, v]) => { const d = el('div', { class: 'r' }); d.append(el('span', {}, k), el('span', {}, v)); tip.append(d); });
+      tip.style.display = 'block';
+      const bx = box.getBoundingClientRect(), left = ev.clientX - bx.left + 14;
+      tip.style.left = Math.min(left, bx.width - tip.offsetWidth - 4) + 'px'; tip.style.top = Math.max(0, ev.clientY - bx.top - tip.offsetHeight - 10) + 'px';
+    };
+    hit.addEventListener('mousemove', move);
+    hit.addEventListener('mouseleave', () => { tip.style.display = 'none'; cross.setAttribute('visibility', 'hidden'); dots.forEach(d => d.setAttribute('visibility', 'hidden')); });
+  }
+  function tile(k, v, s) { const t = el('div', { class: 'tile' }); t.append(el('div', { class: 'k' }, k), el('div', { class: 'v' }, v)); if (s) t.append(el('div', { class: 's' }, s)); return t; }
+  function table(tbl, head, rows, left = 1) {
+    tbl.replaceChildren(); const hr = el('tr'); head.forEach(h => hr.append(el('th', {}, h))); tbl.append(hr);
+    rows.forEach(r => { const tr = el('tr'); r.forEach((c, i) => { const td = el('td', { class: i >= left ? 'n' : '' }); if (c && typeof c === 'object') { td.textContent = c.t; if (c.c) td.className += ' ' + c.c; } else td.textContent = c == null ? '—' : c; tr.append(td); }); tbl.append(tr); });
+  }
+  async function fillRuns(sel) {
+    const rows = (await api('/api/runs')).filter(r => r.kind === 'signal' || r.kind === 'allocation');
+    sel.replaceChildren(...(rows.length ? rows.map(r => el('option', { value: r.id }, `${r.created.replace('T', ' ')} · ${(r.label || r.text || '').slice(0, 90)}`)) : [el('option', { value: '' }, 'No saved runs yet: run a backtest first')]));
+  }
+
+  // ---------------------------------------------------------------- Monte Carlo
+  let mcSrc = 'weights', MC = null, mcMode = 'nominal';
+  tabs('mcSrc', v => { mcSrc = v; $('mcSrcWeights').classList.toggle('hide', v !== 'weights'); $('mcSrcText').classList.toggle('hide', v !== 'text'); $('mcSrcRun').classList.toggle('hide', v !== 'run'); if (v === 'run') fillRuns($('mc_run')); });
+  const mcFlowUi = () => { const t = $('mc_cf_type').value; $('mc_cf_amount').disabled = t === 'none' || t === 'pct_withdrawal'; $('mc_cf_pct').disabled = t !== 'pct_withdrawal'; $('mc_cf_infl').disabled = t === 'none' || t === 'pct_withdrawal'; };
+  $('mc_cf_type').addEventListener('change', mcFlowUi); mcFlowUi();
+  $('mc_infl').addEventListener('change', () => { $('mc_infl_rate').disabled = $('mc_infl').value !== 'fixed'; }); $('mc_infl_rate').disabled = true;
+  function mcTickers() { return $('mc_weights').value.replace(/[,:=%]/g, ' ').split(/\s+/).filter(t => t && isNaN(+t)).map(t => t.toUpperCase()); }
+  function drawForecast() {
+    const on = $('mc_model').value === 'forecast'; $('mcForecast').classList.toggle('hide', !on); $('mc_block').disabled = $('mc_model').value !== 'historical';
+    if (!on) return;
+    const g = $('mcForecastGrid'), keep = {}; g.querySelectorAll('input').forEach(i => keep[i.id] = i.value); g.replaceChildren();
+    const tks = mcSrc === 'weights' ? mcTickers() : [];
+    if (!tks.length) { g.append(el('div', { class: 'note' }, 'Forecasts apply to the tickers-and-weights portfolio.')); return; }
+    tks.forEach(t => { ['ret', 'vol'].forEach(k => { const id = `mcf_${t}_${k}`; const l = el('label'); const i = el('input', { id, type: 'number', step: '0.1', placeholder: 'historical' }); i.value = keep[id] || ''; l.append(document.createTextNode(`${t} ${k === 'ret' ? 'return' : 'volatility'} (%/yr)`), i); g.append(l); }); });
+  }
+  $('mc_model').addEventListener('change', drawForecast); $('mc_weights').addEventListener('change', drawForecast);
+  $('mcRun').addEventListener('click', async () => {
+    spin($('mcStatus'), 'simulating…'); $('mcRun').disabled = true;
+    const t = $('mc_cf_type').value;
+    const body = { balance: +$('mc_balance').value, years: +$('mc_years').value, model: $('mc_model').value, block_months: +$('mc_block').value,
+      rebalance: $('mc_rebalance').value, inflation: $('mc_infl').value === 'fixed' ? (+$('mc_infl_rate').value / 100) : 'historical',
+      sims: +$('mc_sims').value, success_target: +$('mc_success').value / 100, start: $('mc_start').value, end: $('mc_end').value,
+      flows: [{ type: t, amount: +$('mc_cf_amount').value, pct: +$('mc_cf_pct').value / 100, freq: $('mc_cf_freq').value, inflation_adjusted: $('mc_cf_infl').value === 'true', start_year: +$('mc_cf_from').value || 1, end_year: $('mc_cf_to').value ? +$('mc_cf_to').value : null }] };
+    if (mcSrc === 'weights') body.weights = $('mc_weights').value; else if (mcSrc === 'text') { body.text = $('mc_text').value; delete body.rebalance; } else { body.run_id = $('mc_run').value; delete body.rebalance; }
+    if (body.model === 'forecast') { body.forecast = {}; mcTickers().forEach(tk => { const r = $(`mcf_${tk}_ret`), v = $(`mcf_${tk}_vol`); if (r && v && r.value !== '' && v.value !== '') body.forecast[tk] = { ret: +r.value / 100, vol: +v.value / 100 }; }); }
+    try { MC = await api('/api/montecarlo', body); $('mcStatus').textContent = ''; drawMC(); }
+    catch (e) { $('mcStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
+    $('mcRun').disabled = false;
+  });
+  tabs('mcReal', v => { mcMode = v; if (MC) drawFan(); });
+  const P = ['10', '25', '50', '75', '90'];
+  function drawFan() {
+    const R = MC, b = mcMode === 'real' ? R.bands_real : R.bands, c = css('--s1');
+    legend($('mcFanLegend'), [{ name: 'Median', color: c, line: true }, { name: '25th–75th percentile', color: c, opacity: 0.35 }, { name: '10th–90th percentile', color: c, opacity: 0.15 }]);
+    lineChart($('mcFan'), { x: R.years, height: 340, bands: [{ lo: b['10'], hi: b['90'], color: c, opacity: 0.15 }, { lo: b['25'], hi: b['75'], color: c, opacity: 0.3 }],
+      series: [{ name: 'Median', color: c, values: b['50'], width: 2.2 }], yMin: 0, fmtY: v => compact(v), fmtX: (v, full) => full ? 'Year ' + v : v,
+      tipRows: i => P.slice().reverse().map(p => [p + 'th percentile', usd(b[p][i])]).concat([['Money left', pct(R.success_by_year[i], 1)]]) });
+  }
+  function drawMC() {
+    const R = MC, st = R.settings; $('mcOut').classList.remove('hide');
+    const tiles = $('mcTiles'); tiles.replaceChildren(
+      tile('Chance of success', pct(R.prob_success, 1), `money left after ${st.years} years`),
+      tile('Median final balance', compact(R.final['50']), `${compact(R.final_real['50'])} in today's dollars`),
+      tile('10th percentile final', compact(R.final['10']), `${compact(R.final_real['10'])} real`),
+      tile('Safe withdrawal rate', pct(R.safe_withdrawal_rate), `${pct(st.success_target, 0)} success, grows with inflation`),
+      tile('Perpetual withdrawal rate', pct(R.perpetual_withdrawal_rate), 'keeps the median real balance'),
+      tile('Median annual return', pct(R.annual_return['50']), `${pct(R.annual_return_real['50'])} after inflation`));
+    const n = $('mcNotes'); n.replaceChildren();
+    const who = st.mode === 'strategy' ? `${st.name} (its own monthly returns resampled)` : Object.entries(st.weights).map(([t, w]) => `${(w * 100).toFixed(1)}% ${t}`).join(', ') + `, rebalanced ${st.rebalance}`;
+    const model = { historical: `historical block bootstrap (${st.block_months}-month blocks)`, normal: 'multivariate normal', t: `multivariate Student-t (fitted df ${num(st.t_df, 1)})`, forecast: 'forecast returns with historical correlations' }[st.model];
+    n.append(el('p', { class: 'note' }, `${st.sims.toLocaleString()} paths of ${st.years} years from ${usd(st.start_balance)}: ${who}. Model: ${model}, fitted on ${st.history_start} → ${st.history_end} (${st.history_months} months). Inflation: ${typeof st.inflation === 'number' ? pct(st.inflation, 1) + '/yr' : st.inflation}. Cash flows: ${st.flows.join('; ')}.`));
+    R.notes.forEach(x => n.append(el('div', { class: 'warn' }, x)));
+    if (R.settings.history_months < 240) n.append(el('div', { class: 'warn' }, `Only ${Math.round(R.settings.history_months / 12)} years of history feed the simulation. Long-history series (SPYSIM, TLTSIM, IEFSIM, SHYSIM, BILSIM) give a wider range of markets when they are available.`));
+    drawFan();
+    lineChart($('mcSuccess'), { x: R.years, height: 220, series: [{ name: 'Success', color: css('--s1'), values: R.success_by_year }], yMin: 0, yMax: 1,
+      fmtY: v => (v * 100).toFixed(0) + '%', fmtX: (v, full) => full ? 'Year ' + v : v, tipRows: i => [['Money left', pct(R.success_by_year[i], 1)]] });
+    const row = (lab, o, f) => [lab].concat(P.map(p => f(o[p])));
+    table($('mcTable'), ['', '10th', '25th', '50th (median)', '75th', '90th'], [
+      row('Final balance', R.final, usd), row("Final balance (today's dollars)", R.final_real, usd),
+      row('Annual return', R.annual_return, v => pct(v)), row('Annual return after inflation', R.annual_return_real, v => pct(v)),
+      row('Max drawdown', R.max_drawdown, v => pct(v, 1))].concat(R.depletion_years && Object.keys(R.depletion_years).length ? [row('Years until money ran out (failed paths)', R.depletion_years, v => num(v, 1))] : []));
+  }
+
+  // ---------------------------------------------------------------- Factors
+  let fxSrc = 'ticker';
+  tabs('fxSrc', v => { fxSrc = v; ['Ticker', 'Weights', 'Text', 'Run'].forEach(k => $('fxSrc' + k).classList.toggle('hide', k.toLowerCase() !== v)); if (v === 'run') fillRuns($('fx_run')); });
+  $('fxRun').addEventListener('click', async () => {
+    spin($('fxStatus'), 'regressing…'); $('fxRun').disabled = true;
+    const body = { model: $('fx_model').value, freq: $('fx_freq').value, rolling_months: +$('fx_roll').value || 36, start: $('fx_start').value, end: $('fx_end').value };
+    if (fxSrc === 'ticker') body.ticker = $('fx_ticker').value; else if (fxSrc === 'weights') body.weights = $('fx_weights').value; else if (fxSrc === 'text') body.text = $('fx_text').value; else body.run_id = $('fx_run').value;
+    try { const R = await api('/api/factors', body); $('fxStatus').textContent = ''; drawFx(R); }
+    catch (e) { $('fxStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
+    $('fxRun').disabled = false;
+  });
+  const FCOL = ['--s1', '--s2', '--s3', '--s4', '--s5', '--s7'];
+  function drawFx(R) {
+    $('fxOut').classList.remove('hide');
+    const a = R.coefficients[0];
+    $('fxTiles').replaceChildren(tile('Annualised alpha', pct(R.alpha_annual), `t-stat ${num(R.alpha_t)}${Math.abs(R.alpha_t) >= 1.96 ? ' (significant)' : ' (not significant)'}`),
+      tile('R²', num(R.r_squared, 3), `adjusted ${num(R.adj_r_squared, 3)}`), tile('Market beta', num(R.coefficients[1].loading), `t-stat ${num(R.coefficients[1].t_stat, 1)}`),
+      tile('Residual volatility', pct(R.tracking_error_annual, 1), 'per year, not explained'), tile('Observations', String(R.observations), `${R.freq} · ${R.start} → ${R.end}`));
+    $('fxMeta').textContent = `${R.model_label} regression of ${R.name} on ${R.freq} excess returns (over the risk-free rate).`;
+    // horizontal bars with 95% intervals
+    const box = $('fxBars'); box.replaceChildren();
+    const rows = R.coefficients.slice(1), W = Math.max(320, box.clientWidth || 800), rh = 30, H = rows.length * rh + 30, m = { l: 70, r: 70, t: 6, b: 22 }, iw = W - m.l - m.r;
+    const lo = Math.min(0, ...rows.map(c => c.loading - 1.96 * c.std_error)), hi = Math.max(0, ...rows.map(c => c.loading + 1.96 * c.std_error));
+    const X = v => m.l + (v - lo) / ((hi - lo) || 1) * iw; const svg = S('svg', { viewBox: `0 0 ${W} ${H}`, height: H, role: 'img' });
+    niceTicks(lo, hi, W < 560 ? 3 : 6).forEach(v => { svg.append(S('line', { x1: X(v), x2: X(v), y1: m.t, y2: H - m.b, stroke: css('--grid') })); const t = S('text', { x: X(v), y: H - 6, 'text-anchor': 'middle' }); t.textContent = v.toFixed(1); svg.append(t); });
+    svg.append(S('line', { x1: X(0), x2: X(0), y1: m.t, y2: H - m.b, stroke: css('--axis') }));
+    rows.forEach((c, i) => { const y = m.t + i * rh + rh / 2, g = S('g'), x0 = X(Math.min(0, c.loading)), x1 = X(Math.max(0, c.loading));
+      g.append(S('rect', { x: x0, y: y - 9, width: Math.max(1, x1 - x0), height: 18, rx: 4, fill: css('--s1'), 'fill-opacity': c.significant ? 1 : 0.4 }));
+      g.append(S('line', { x1: X(c.loading - 1.96 * c.std_error), x2: X(c.loading + 1.96 * c.std_error), y1: y, y2: y, stroke: css('--text-2'), 'stroke-width': 1.5 }));
+      const tl = S('text', { x: m.l - 8, y: y + 4, 'text-anchor': 'end' }); tl.textContent = c.factor; tl.style.fill = css('--text-2'); g.append(tl);
+      const tv = S('text', { x: W - m.r + 8, y: y + 4 }); tv.textContent = `${c.loading.toFixed(2)} (t ${c.t_stat.toFixed(1)})`; g.append(tv);
+      const tt = S('title'); tt.textContent = `${c.factor}: ${c.about}. Loading ${c.loading.toFixed(3)}, 95% interval ${(c.loading - 1.96 * c.std_error).toFixed(3)} to ${(c.loading + 1.96 * c.std_error).toFixed(3)}, t ${c.t_stat.toFixed(2)}`; g.append(tt);
+      svg.append(g); });
+    box.append(svg);
+    table($('fxTable'), ['Factor', 'What it measures', 'Loading', 'Std. error', 't-stat', 'p-value', 'Return contribution /yr'],
+      R.coefficients.map((c, i) => [c.factor, c.about, i ? num(c.loading, 3) : pct(R.alpha_annual) + '/yr', num(c.std_error, i ? 3 : 5), { t: num(c.t_stat), c: c.significant ? (c.t_stat > 0 ? 'pos' : 'neg') : '' }, num(c.p_value, 4),
+        i ? pct(R.explained.contributions_annual[c.factor]) : pct(R.alpha_annual_simple)]), 2);
+    const ro = R.rolling; $('fxRollTitle').textContent = `Rolling ${ro.window_months}-month loadings`;
+    if (!ro.dates.length) { $('fxRoll').replaceChildren(el('p', { class: 'note' }, 'Not enough history for a rolling window.')); $('fxRollLegend').replaceChildren(); return; }
+    const ser = R.factors.map((f, i) => ({ name: f, color: css(FCOL[i]), values: ro.loadings[f], width: 1.8 }));
+    legend($('fxRollLegend'), ser.map(s => ({ ...s, line: true })));
+    const T = ro.dates.map(d => Date.parse(d)), yr = t => new Date(t).getUTCFullYear();
+    lineChart($('fxRoll'), { x: T, height: 320, series: ser, zero: true, fmtY: v => v.toFixed(1), fmtX: (v, full) => full ? ro.dates[T.indexOf(v)] || new Date(v).toISOString().slice(0, 10) : yr(v),
+      tipRows: i => ser.map(s => [s.name, num(s.values[i])]).concat([['Alpha /yr', pct(ro.loadings.Alpha[i])], ['R²', num(ro.r_squared[i], 2)]]) });
+  }
+
+  // ---------------------------------------------------------------- init
+  async function initPages() {
+    try { const st = await api('/api/status'); const sims = st.sims || [];
+      $('mcSims').textContent = sims.length ? 'Long-history series available: ' + sims.map(s => `${s.ticker} (${s.about})`).join('; ') : 'Tip: SPYSIM, TLTSIM, IEFSIM, SHYSIM and BILSIM (simulated histories back to the 1920s-60s) appear here once the data job has built them.';
+      const dl = $('tickerList'); sims.forEach(s => dl.append(el('option', { value: s.ticker })));
+    } catch (e) { /* status is optional here */ }
+  }
+  initPages();
+  let drawn = false;
+  const onRoute = () => { const p = location.hash.replace('#', '').split('?')[0]; if ((p === 'montecarlo' || p === 'factors') && !drawn) { drawn = true; drawForecast(); } };
+  window.addEventListener('hashchange', onRoute); onRoute();
+  let rs; window.addEventListener('resize', () => { clearTimeout(rs); rs = setTimeout(() => { if (MC && !$('p-montecarlo').classList.contains('hide')) drawMC(); }, 200); });
 })();
 </script>
 </body>
