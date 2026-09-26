@@ -262,6 +262,11 @@ def cmd_compare(argv: list[str]) -> int:
     print(f"\nCommon period {C['start']} -> {C['end']}:")
     for k, st in C["columns"].items():
         print(f"  {report._fit(k, 24)} CAGR {report.pct(st['cagr']):>8s}  Sharpe {report.num(st['sharpe']):>5s}  MaxDD {report.pct(st['max_drawdown'], 1):>7s}")
+    if C.get("benchmarks_own"):
+        print("Benchmarks with a shorter history (their own dates, not the common period):")
+        for k, st in C["benchmarks_own"].items():
+            print(f"  {report._fit(k, 24)} CAGR {report.pct(st['cagr']):>8s}  Sharpe {report.num(st['sharpe']):>5s}  "
+                  f"MaxDD {report.pct(st['max_drawdown'], 1):>7s}  ({C['benchmarks_own_from'][k]} -> {C['benchmarks_own_to'][k]})")
     out = Path(a.out) if a.out else report.ROOT / "reports" / ("compare-" + report.slug("-".join(n for n in names)))
     path = report.write_outputs(analyses, out, pdf=a.pdf)
     print(f"Report: {path}")

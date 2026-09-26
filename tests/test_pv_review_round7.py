@@ -417,7 +417,7 @@ def test_risk_contributions_in_outputs(sixty_forty, tmp_path):
     assert "Risk contribution" in report.console_summary(A)
     report.write_outputs(A, tmp_path)
     page = (tmp_path / "report.html").read_text()
-    assert '"risk_contributions"' in page and "riskTbl" in page
+    assert '"risk_contributions"' in page and "riskContribTbl" in page
     pytest.importorskip("openpyxl")
     x = pd.read_excel(tmp_path / "report.xlsx", sheet_name="Risk contributions")
     assert list(x["ticker"]) and "share of volatility (daily)" in x.columns

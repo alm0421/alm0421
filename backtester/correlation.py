@@ -67,12 +67,17 @@ def asset_stats(ticker: str, start, end, rf="tbill", first_date=None) -> dict:
     if len(s) < 3:
         return {"ticker": ticker, "start": str(first_date) if first_date else None}
     st = metrics.equity_stats(s / s.iloc[0] * 10_000, rf)
+    stepped = bool(data.stepped_in([ticker], s.index[0], s.index[-1]))
+    if stepped:
+        # monthly steps in this window: volatility and Sharpe from monthly returns
+        st = metrics.monthly_basis(st, s, rf)
     mr = metrics.monthly_returns(s)
     return {"ticker": ticker, "data_from": str(first_date or s.index[0].date()), "from": str(s.index[0].date()),
             "to": str(s.index[-1].date()), "cagr": st["cagr"], "volatility": st["volatility"], "sharpe": st["sharpe"],
             "sortino": st["sortino"], "max_drawdown": st["max_drawdown"], "best_year": st["best_year"],
             "worst_year": st["worst_year"], "total_return": st["total_return"],
-            "monthly_volatility": float(mr.std() * np.sqrt(12)) if len(mr) > 2 else None}
+            "monthly_volatility": float(mr.std() * np.sqrt(12)) if len(mr) > 2 else None,
+            **({"return_basis": "monthly"} if stepped else {})}
 
 
 def analyze(tickers: list[str], freq: str = "monthly", window: int | None = None, start=None, end=None,
@@ -86,6 +91,19 @@ def analyze(tickers: list[str], freq: str = "monthly", window: int | None = None
         raise ValueError("freq must be daily or monthly")
     if start and end and pd.Timestamp(start) >= pd.Timestamp(end):
         raise ValueError(f"The start {start} is not before the end {end}.")
+    notes = []
+    if freq == "daily":
+        # a series that moves in monthly steps (a monthly source spread over daily sessions) has no daily
+        # co-movement to measure: use monthly returns
+        px = pd.concat(_prices(tickers), axis=1, sort=True).dropna()
+        lo = max(px.index[0], pd.Timestamp(start)) if start and len(px) else (px.index[0] if len(px) else None)
+        hi = min(px.index[-1], pd.Timestamp(end)) if end and len(px) else (px.index[-1] if len(px) else None)
+        found = data.stepped_in(tickers, lo, hi) if lo is not None else {}
+        if found:
+            freq = "monthly"
+            window = None
+            notes.append(f"Monthly returns used: {data.stepped_text(found)} {'move' if len(found) > 1 else 'moves'} only once a month in this data (a "
+                         "monthly source), so daily correlations would be meaningless.")
     window = int(window or (36 if freq == "monthly" else 63))
     if window < 3:
         raise ValueError("The rolling window must be at least 3 periods.")
@@ -93,7 +111,6 @@ def analyze(tickers: list[str], freq: str = "monthly", window: int | None = None
     if len(r) < 3:
         raise ValueError("Not enough common history for a correlation.")
     C = r.corr()
-    notes = []
     late = max(first, key=lambda t: first[t])
     if not start:
         notes.append(f"The common period starts {r.index[0].date()}, when {late} has data (it starts {first[late]}); "

@@ -430,6 +430,29 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, 
     }
 
 
+DAILY_ONLY = ("best_day", "worst_day", "pct_positive_days", "var_95_daily", "cvar_95_daily", "tail_ratio", "gain_pain")
+
+
+def monthly_basis(stats: dict, nv: pd.Series, rf="tbill") -> dict:
+    """The statistics with every daily-return figure replaced by its monthly equivalent, for a run that holds a
+    series moving in monthly steps (a monthly source spread over daily sessions): volatility, Sharpe, Sortino,
+    skew and kurtosis from monthly returns; best / worst day, positive days, daily VaR / CVaR, tail and gain/pain
+    ratios blank (they would describe the steps, not the asset)."""
+    out = dict(stats)
+    mr = monthly_returns(nv)
+    if len(mr) < 3:
+        return out
+    out["volatility"] = float(mr.std() * np.sqrt(12))
+    out["sharpe"] = stats.get("sharpe_monthly", np.nan)
+    out["sortino"] = stats.get("sortino_monthly", np.nan)
+    out["skew"] = float(mr.skew()) if len(mr) > 3 else np.nan
+    out["kurtosis"] = float(mr.kurt()) if len(mr) > 3 else np.nan
+    for k in DAILY_ONLY:
+        out[k] = np.nan
+    out["return_basis"] = "monthly"
+    return out
+
+
 def cashflow_stats(equity: pd.Series, flows: pd.Series | None) -> dict:
     if flows is None or flows.abs().sum() == 0:
         return {}
@@ -522,21 +545,34 @@ def trade_stats(trades: pd.DataFrame, years: float) -> dict:
     }
 
 
-def relative_stats(nav_: pd.Series, bench: pd.Series | None, rf="tbill") -> dict:
-    """Regression and capture statistics vs a benchmark over the overlapping period."""
+def relative_stats(nav_: pd.Series, bench: pd.Series | None, rf="tbill", freq: str = "daily") -> dict:
+    """Regression and capture statistics vs a benchmark over the overlapping period. freq "monthly": beta, alpha,
+    correlation and tracking error from monthly returns (for series that move in monthly steps)."""
     if bench is None or len(bench.dropna()) < 30:
         return {}
     df = pd.concat([nav_.pct_change(), bench.pct_change()], axis=1, join="inner").dropna()
     if len(df) < 30:
         return {}
-    rfd = rf_daily(df.index, rf)
+    daily = df
+    k = TRADING_DAYS
+    if freq == "monthly":
+        both = pd.concat([nav_, bench], axis=1, join="inner").dropna()
+        df = monthly_returns_frame(both).dropna()
+        if len(df) < 12:
+            return {}
+        k = 12
+        rfd = rf_daily(df.index, rf) * 21
+    else:
+        rfd = rf_daily(df.index, rf)
     s, b = df.iloc[:, 0] - rfd, df.iloc[:, 1] - rfd
     beta = np.cov(s, b)[0, 1] / b.var()
-    alpha = (s.mean() - beta * b.mean()) * TRADING_DAYS
+    alpha = (s.mean() - beta * b.mean()) * k
     active = df.iloc[:, 0] - df.iloc[:, 1]
-    te = active.std() * np.sqrt(TRADING_DAYS)
-    ir = active.mean() * TRADING_DAYS / te if te > 0 else np.nan
+    te = active.std() * np.sqrt(k)
+    ir = active.mean() * k / te if te > 0 else np.nan
     corr = s.corr(b)
+    df = daily
+    rfd = rf_daily(df.index, rf)
     # capture ratios on monthly returns
     m = pd.concat([monthly_returns((1 + df.iloc[:, 0]).cumprod()), monthly_returns((1 + df.iloc[:, 1]).cumprod())], axis=1).dropna()
     up, dn = m[m.iloc[:, 1] > 0], m[m.iloc[:, 1] < 0]
@@ -550,7 +586,7 @@ def relative_stats(nav_: pd.Series, bench: pd.Series | None, rf="tbill") -> dict
     return {"beta": beta, "alpha_annual": alpha, "correlation": corr, "r_squared": corr ** 2,
             "tracking_error": te, "information_ratio": ir,
             "treynor": (ann - rf_ann) / beta if beta else np.nan,
-            "up_capture": upc, "down_capture": dnc, "period_start": df.index[0].date()}
+            "up_capture": upc, "down_capture": dnc, "period_start": df.index[0].date(), "freq": freq}
 
 
 def rolling_series(nav_: pd.Series, bench: pd.Series | None, rf="tbill") -> dict:
@@ -602,15 +638,27 @@ def crisis_table(series: dict[str, pd.Series]) -> list[dict]:
     return rows
 
 
-def factor_regression(nav_: pd.Series, rf="tbill") -> dict:
-    """Fama-French 5 factors + momentum regression on daily excess returns (OLS with t-stats)."""
+def factor_regression(nav_: pd.Series, rf="tbill", freq: str = "daily") -> dict:
+    """Fama-French 5 factors + momentum regression on daily excess returns (OLS with t-stats). freq "monthly":
+    on complete calendar months (the daily factors compounded), for series that move in monthly steps."""
     f = data.factors()
     if f.empty:
         return {}
-    r = nav_.pct_change().dropna()
-    df = pd.concat([r.rename("r"), f], axis=1, join="inner").dropna()
-    if len(df) < 120 or "RF" not in df:
-        return {}
+    if freq == "monthly":
+        m = monthly_returns_frame(nav_.to_frame("r")).dropna()
+        per = f.index.to_period("M")
+        fm = (1 + f).groupby(per).prod() - 1
+        m.index = m.index.to_period("M")
+        df = pd.concat([m, fm], axis=1, join="inner").dropna()
+        if len(df) < 24 or "RF" not in df:
+            return {}
+        k = 12
+    else:
+        r = nav_.pct_change().dropna()
+        df = pd.concat([r.rename("r"), f], axis=1, join="inner").dropna()
+        if len(df) < 120 or "RF" not in df:
+            return {}
+        k = TRADING_DAYS
     y = df["r"] - df["RF"]
     cols = [c for c in ("Mkt-RF", "SMB", "HML", "RMW", "CMA", "Mom") if c in df]
     X = np.column_stack([np.ones(len(df))] + [df[c].to_numpy() for c in cols])
@@ -624,9 +672,12 @@ def factor_regression(nav_: pd.Series, rf="tbill") -> dict:
     ss_tot = ((y - y.mean()) ** 2).sum()
     r2 = 1 - (resid @ resid) / ss_tot if ss_tot > 0 else np.nan
     names = ["alpha"] + cols
-    return {"period_start": df.index[0].date(), "period_end": df.index[-1].date(), "r_squared": r2,
-            "observations": len(df),
-            "coefficients": [{"factor": n, "loading": float(c * (TRADING_DAYS if n == "alpha" else 1)),
+    d0, d1 = df.index[0], df.index[-1]
+    if freq == "monthly":
+        d0, d1 = d0.start_time, d1.end_time
+    return {"period_start": d0.date(), "period_end": d1.date(), "r_squared": r2,
+            "observations": len(df), "freq": freq,
+            "coefficients": [{"factor": n, "loading": float(c * (k if n == "alpha" else 1)),
                               "t_stat": float(t)} for n, c, t in zip(names, coef, tstat)]}
 
 

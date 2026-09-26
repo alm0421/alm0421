@@ -247,8 +247,9 @@ def test_common_period_is_the_strategies_not_a_young_benchmark():
         runs.append({"result": res, "nav": v, "first_bar": v.index[0], "benchmarks": {}})
     runs[0]["benchmarks"] = {"QQQ buy & hold": nav("2010-01-04", 2000)}
     C = report.common_window_stats(runs, 0.0)
-    assert str(C["start"]).startswith("2001") and C["columns_from"] == {"QQQ buy & hold": "2010-01-04"}
-    assert {"A", "B", "QQQ buy & hold"} <= set(C["columns"])
+    # everything under the common period covers it; a benchmark that starts later is listed on its own dates
+    assert str(C["start"]).startswith("2001") and C["benchmarks_own_from"] == {"QQQ buy & hold": "2010-01-04"}
+    assert set(C["columns"]) == {"A", "B"} and set(C["benchmarks_own"]) == {"QQQ buy & hold"}
 
 
 def test_blended_benchmark_forms_and_monthly_rebalancing(fake):

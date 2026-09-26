@@ -789,6 +789,45 @@ def _on_sessions(level: pd.Series) -> pd.Series:
     return level.reindex(level.index.union(sess)).ffill().reindex(sess).pct_change().dropna()
 
 
+def corporate_yield(daaa: pd.Series, dbaa: pd.Series, aaa: pd.Series, baa: pd.Series,
+                    since: str = "1953-01-01") -> pd.Series:
+    """The average of Moody's Aaa and Baa yields as one series: the monthly averages (AAA, BAA; each held from
+    the last session of its month) until BOTH daily series (DAAA from 1983, DBAA from 1986) exist, then the
+    daily average. (Averaging the daily series where only one of them exists gives NaN, which once dropped
+    1983-85 entirely.)"""
+    daily = pd.concat({"a": daaa, "b": dbaa}, axis=1).dropna().mean(axis=1)
+    if daily.empty:
+        raise RuntimeError("no day with both daily Aaa and Baa yields")
+    monthly = pd.concat({"a": aaa, "b": baa}, axis=1).dropna().mean(axis=1)
+    m = monthly[(monthly.index < daily.index[0]) & (monthly.index >= since)]
+    if m.empty:
+        return daily
+    per = pd.DatetimeIndex(m.index).to_period("M")
+    at = _last_sessions(per[0].start_time, per[-1].end_time).reindex(per)
+    mm = pd.Series(m.to_numpy(), index=pd.DatetimeIndex(at.to_numpy()))
+    mm = mm[mm.index.notna() & (mm.index < daily.index[0])]
+    sess = _sessions(mm.index[0], daily.index[0] - pd.Timedelta(days=1))
+    lvl = mm.reindex(sess.union(mm.index)).ffill()
+    corp = pd.concat([lvl, daily]).sort_index()
+    return corp[~corp.index.duplicated(keep="last")]
+
+
+MAX_GAP_SESSIONS = 10
+
+
+def internal_gaps(level: pd.Series, max_sessions: int = MAX_GAP_SESSIONS) -> list[tuple[pd.Timestamp, pd.Timestamp, int]]:
+    """Holes inside a daily series after its first date: (last date before, first date after, business days
+    missing) for every gap of more than `max_sessions` business days. A SIM must have none (a missing stretch
+    is held in cash by every portfolio that owns it)."""
+    idx = pd.DatetimeIndex(pd.Series(level).dropna().index).sort_values().unique()
+    if len(idx) < 2:
+        return []
+    a = idx[:-1].values.astype("datetime64[D]")
+    b = idx[1:].values.astype("datetime64[D]")
+    missing = np.busday_count(a, b) - 1
+    return [(idx[k], idx[k + 1], int(missing[k])) for k in np.nonzero(missing > max_sessions)[0]]
+
+
 def _validate(name: str, sim_ret: pd.Series, real: str) -> None:
     """Log how the model (before splicing) compares with the real fund over their overlap (monthly)."""
     try:
@@ -844,7 +883,12 @@ def build_sims() -> list[str]:
             raise RuntimeError("empty model series")
         if validate:
             _validate(t, sim_ret, validate)
-        _series_file(t, _splice(sim_ret, *reals), note)
+        level = _splice(sim_ret, *reals)
+        for a, b, n in internal_gaps(level):
+            # a data-quality failure, logged as one (the series is still written; the loader notes the hole)
+            SIM_LOG.append(f"sim {t} data-quality failure: {n} business days missing between {a.date()} and {b.date()}")
+            print(SIM_LOG[-1], flush=True)
+        _series_file(t, level, note)
         made.append(t)
 
     def attempt(label: str, fn) -> None:
@@ -947,18 +991,8 @@ def build_sims() -> list[str]:
 
     def corporates():
         # investment-grade corporates: a 10-year par bond at the average of Moody's Aaa and Baa yields
-        # (daily from 1986; monthly averages before, held from the last session of their month)
-        daily = (_fred("DAAA") + _fred("DBAA")) / 2
-        monthly = (_fred("AAA") + _fred("BAA")) / 2
-        m = monthly[(monthly.index < daily.index[0]) & (monthly.index >= "1953-01-01")]
-        per = pd.DatetimeIndex(m.index).to_period("M")
-        at = _last_sessions(per[0].start_time, per[-1].end_time).reindex(per)
-        mm = pd.Series(m.to_numpy(), index=pd.DatetimeIndex(at.to_numpy()))
-        mm = mm[mm.index.notna()]
-        sess = _sessions(mm.index[0], daily.index[0] - pd.Timedelta(days=1))
-        lvl = mm.reindex(sess.union(mm.index)).ffill()
-        corp = pd.concat([lvl, daily]).sort_index()
-        corp = corp[~corp.index.duplicated(keep="last")]
+        # (monthly averages until both daily series exist, daily after: see corporate_yield)
+        corp = corporate_yield(_fred("DAAA"), _fred("DBAA"), _fred("AAA"), _fred("BAA"))
         bonds["corp"] = _bond_returns(corp, 10)
         build("LQDSIM", bonds["corp"], ("LQD",), "investment-grade corporates priced off Moody's Aaa/Baa yields, then LQD", "LQD")
     attempt("LQDSIM", corporates)

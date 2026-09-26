@@ -492,7 +492,9 @@ def returns_for(target) -> tuple[pd.Series, str]:
     from . import parser, portfolio, runner
     if isinstance(target, str) and target.strip() and " " not in target.strip():
         t = data.canonical(target)
-        return data.load(t)["adj_close"].pct_change().dropna(), t
+        r = data.load(t)["adj_close"].pct_change().dropna()
+        r.attrs["tickers"] = [t]
+        return r, t
     if isinstance(target, dict):
         w = {data.canonical(k): float(v) for k, v in target.items()}
         s = sum(w.values())
@@ -501,12 +503,15 @@ def returns_for(target) -> tuple[pd.Series, str]:
         p = portfolio.Portfolio(tree={"weights": "specified", "w": [v / s for v in w.values()],
                                       "children": [{"asset": k} for k in w]}, rebalance="monthly")
         res = portfolio.run(p)
-        return metrics.nav(res.equity, res.extras.get("flows")).pct_change().dropna().iloc[1:], \
-            " / ".join(f"{v / s:.0%} {k}" for k, v in w.items())
+        r = metrics.nav(res.equity, res.extras.get("flows")).pct_change().dropna().iloc[1:]
+        r.attrs["tickers"] = list(w)
+        return r, " / ".join(f"{v / s:.0%} {k}" for k, v in w.items())
     spec = parser.parse(target) if isinstance(target, str) else target
     res = runner.run(spec)
     nv = metrics.nav(res.equity, res.extras.get("flows"))
-    return nv.pct_change().dropna().iloc[1:], (spec.name or spec.description or "strategy")
+    r = nv.pct_change().dropna().iloc[1:]
+    r.attrs["tickers"] = list(getattr(spec, "universe", None) or [])
+    return r, (spec.name or spec.description or "strategy")
 
 
 def analyze(returns: pd.Series, model: str = "ff3", freq: str = "monthly", start=None, end=None,
@@ -514,6 +519,18 @@ def analyze(returns: pd.Series, model: str = "ff3", freq: str = "monthly", start
     if freq not in ("daily", "monthly"):
         raise ValueError("freq must be daily or monthly")
     notes: list[str] = []
+    if freq == "daily":
+        # a holding that moves in monthly steps (a monthly source spread over daily sessions) has no daily returns
+        # to regress: use months
+        r0 = returns.dropna()
+        lo = max(pd.Timestamp(start), r0.index[0]) if start and len(r0) else (r0.index[0] if len(r0) else None)
+        hi = min(pd.Timestamp(end), r0.index[-1]) if end and len(r0) else (r0.index[-1] if len(r0) else None)
+        found = data.stepped_in(returns.attrs.get("tickers") or [], lo, hi) if lo is not None else {}
+        if found:
+            freq = "monthly"
+            notes.append(f"Monthly regression: {data.stepped_text(found)} {'move' if len(found) > 1 else 'moves'} only once a month in this data (a "
+                         "monthly source), so daily returns would regress the steps, not the asset. Monthly returns "
+                         "are used instead.")
     m0 = str(model or "").strip()
     if m0.lower() == "auto" or m0.lower().startswith("auto+"):
         model = auto_model(name) + m0[4:]
