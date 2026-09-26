@@ -257,9 +257,10 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, 
         "sharpe_monthly": sharpe_m,
         "sortino_monthly": sortino_m,
         "max_drawdown": mdd,
-        "max_dd_peak": display_date(peak, first_bar).date(),
-        "max_dd_trough": trough.date(),
-        "max_dd_recovery": recovery.date() if recovery is not None else None,
+        # no drawdown at all (e.g. only cash interest): no peak / trough dates to show
+        "max_dd_peak": display_date(peak, first_bar).date() if mdd < 0 else None,
+        "max_dd_trough": trough.date() if mdd < 0 else None,
+        "max_dd_recovery": recovery.date() if recovery is not None and mdd < 0 else None,
         "longest_underwater_days": longest,
         "calmar": cagr / abs(mdd) if mdd < 0 else np.nan,
         "ulcer_index": ulcer,
@@ -622,6 +623,65 @@ def exposure_stats(exposure: pd.Series, positions: pd.Series, in_market: pd.Seri
         "max_positions_held": int(positions.max()),
         "avg_positions_when_invested": float(positions[positions > 0].mean()) if (positions > 0).any() else 0.0,
     }
+
+
+TRAILING = (("3M", 3, False), ("YTD", None, False), ("1Y", 12, False), ("3Y", 36, True), ("5Y", 60, True),
+            ("10Y", 120, True))
+
+
+def trailing_returns(series: pd.Series, first_bar=None, end=None) -> dict:
+    """Portfolio Visualizer's trailing returns, as of the series' last date (or `end`): 3 months, year to date
+    and 1 year (not annualised), 3, 5 and 10 years annualised, and the full period annualised. A period longer
+    than the series' history is None. `series` is a growth index (no cash flows)."""
+    s = series.dropna()
+    s = s[s > 0] if (s > 0).any() else s
+    if end is not None:
+        s = s[s.index <= pd.Timestamp(end)]
+    if len(s) < 2:
+        return {}
+    last_d, last_v = s.index[-1], float(s.iloc[-1])
+    first_d = pd.Timestamp(first_bar) if first_bar is not None else s.index[0]
+    out = {"as_of": last_d.date()}
+
+    def value_on(d):
+        x = s[s.index <= d]
+        return float(x.iloc[-1]) if len(x) else None
+    for key, months, ann in TRAILING:
+        if months is None:
+            d0 = pd.Timestamp(year=last_d.year, month=1, day=1) - pd.Timedelta(days=1)
+            if d0 < s.index[0]:
+                out[key] = None
+                continue
+        else:
+            d0 = last_d - pd.DateOffset(months=months)
+            if d0 < s.index[0] - pd.Timedelta(days=3) or d0 < first_d - pd.Timedelta(days=5):
+                out[key] = None
+                continue
+        v0 = value_on(d0)
+        if v0 is None or v0 <= 0:
+            out[key] = None
+            continue
+        g = last_v / v0
+        out[key] = annualise(g, months / 12) if ann else g - 1
+    years = (last_d - s.index[0]).days / 365.25
+    out["Full"] = annualise(last_v / float(s.iloc[0]), years) if years > 0 else None
+    out["full_ann"] = years >= 1
+    if not out["full_ann"] and years > 0:
+        out["Full"] = last_v / float(s.iloc[0]) - 1
+    return out
+
+
+def caveats(stats: dict) -> list[str]:
+    """Notes that help read the headline numbers correctly."""
+    out = []
+    cagr, sharpe, vol = stats.get("cagr"), stats.get("sharpe"), stats.get("volatility")
+    if _finite(cagr) and _finite(sharpe) and cagr < 0 < sharpe:
+        drag = f" (volatility {vol * 100:.0f}% a year costs about {vol * vol / 2 * 100:.0f} percentage points a year)" if _finite(vol) else ""
+        out.append(f"CAGR is negative ({cagr * 100:.1f}%) while the Sharpe ratio is positive ({sharpe:.2f}): Sharpe uses the "
+                   "average daily return, CAGR the compounded one. With high volatility the compounded return is roughly "
+                   f"the average minus half the variance{drag}, so a strategy can gain on an average day and still lose "
+                   "money over time (volatility drag). Judge it by CAGR and drawdown.")
+    return out
 
 
 # ------------------------------------------------------------------ sanity checks

@@ -67,6 +67,9 @@ class Position:
     pending_open_exit: bool = False
     pending_reason: str = ""
     scaled: set = field(default_factory=set)
+    init_stop: float = np.nan            # fixed stop (stop loss / ATR stop) when the position opened
+    init_trail: float = np.nan           # trailing / chandelier stop when the position opened
+    init_tgt: float = np.nan             # take-profit level when the position opened
 
     @property
     def shares(self) -> float:
@@ -372,6 +375,8 @@ def run(strat: Strategy) -> Result:
                      "highest_since_entry": np.maximum(hs.fillna(fill), fill),
                      "lowest_since_entry": np.minimum(ls.fillna(fill), fill)}
             p.exit_sig = expr.evaluate(strat.exit_when, expr.Namespace(dfk, extra, ticker=tick[k])).reindex(cal, fill_value=False).to_numpy()
+        if stops_used:
+            p.init_stop, p.init_trail, p.init_tgt = split_levels(p)
         positions[k] = p
         note_gross(prices)
         return True
@@ -406,6 +411,8 @@ def run(strat: Strategy) -> Result:
                 "exit_price": fill, "shares": q, "position_value": cost, "pnl": pnl,
                 "return": pnl / cost if cost else 0.0, "bars_held": i - lot.bar, "exit_reason": reason,
                 "mae": mae, "mfe": mfe, "commission": share_in + com, "income": inc,
+                **({"stop_level": p.init_stop, "trail_level": p.init_trail, "target_level": p.init_tgt,
+                    "atr_at_entry": p.atr_at_entry} if stops_used else {}),
             })
             if fraction < 1.0:
                 lot.shares -= q
@@ -461,6 +468,19 @@ def run(strat: Strategy) -> Result:
 
     stops_used = any([strat.stop_loss, strat.stop_atr, strat.trailing_stop, strat.trailing_atr,
                       strat.take_profit, strat.take_profit_atr, strat.scale_out])
+
+    def split_levels(p: Position):
+        """(fixed stop, trailing stop, target) at this moment, NaN where not used: the chart draws them."""
+        s, e = p.sign, p.avg_price
+        fixed = [x for x in ((e * (1 - s * strat.stop_loss)) if strat.stop_loss else None,
+                             (e - s * strat.stop_atr * p.atr_at_entry) if strat.stop_atr and np.isfinite(p.atr_at_entry) else None)
+                 if x is not None]
+        trail = [x for x in ((p.peak * (1 - s * strat.trailing_stop)) if strat.trailing_stop else None,
+                             (p.peak - s * strat.trailing_atr * p.atr_at_entry) if strat.trailing_atr and np.isfinite(p.atr_at_entry) else None)
+                 if x is not None]
+        pick = (lambda xs: max(xs) if s == 1 else min(xs))
+        _, _, tgt = levels(p)
+        return (pick(fixed) if fixed else np.nan, pick(trail) if trail else np.nan, tgt if tgt is not None else np.nan)
 
     def levels(p: Position):
         """(stop level or None, stop reason, target level or None)"""
@@ -709,5 +729,10 @@ def run(strat: Strategy) -> Result:
                 strat.notes.append(f"Data: {t}'s prices on {', '.join(str(d.date()) for d in hit)} don't reconcile with its "
                                    "total return (an unadjusted spin-off, split or special dividend); trades held over that "
                                    "day may be misstated.")
-    return Result(strategy=strat, equity=eq, trades=tr, exposure=ex, positions=npo, prices=P["dfs"],
-                  holdings=hw, interest=S["interest"], in_market=inm)
+    res = Result(strategy=strat, equity=eq, trades=tr, exposure=ex, positions=npo, prices=P["dfs"],
+                 holdings=hw, interest=S["interest"], in_market=inm)
+    # the entry / exit rules' value on every bar (what the simulation acted on), for the report's rule-state strip;
+    # an exit rule that uses the position (bars_held, entry_price...) has no per-bar value outside a trade
+    res.extras["rule_state"] = {"cal": cal, "tick": tick, "entry": long_sig | short_sig,
+                                "exit": None if P["per_trade_exit"] or not strat.exit_when else exit_sig}
+    return res

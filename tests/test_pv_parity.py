@@ -187,7 +187,7 @@ def test_ols_matches_numpy():
 def test_factor_models_on_the_market():
     from backtester import factors
     r, name = factors.returns_for("SPY")
-    for model in factors.MODELS:
+    for model in [m for m in factors.MODELS if factors.REGION.get(m, "us") == "us"]:  # US market factors
         for freq in ("monthly", "daily"):
             R = factors.analyze(r, model, freq, start="2005-01-01", name=name)
             beta = R["coefficients"][1]["loading"]

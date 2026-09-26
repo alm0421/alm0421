@@ -77,6 +77,11 @@ class Portfolio:
     maintenance_margin: float = 0.25             # with leverage or shorts: equity / gross exposure below this at
                                                  # a close -> margin call, cut pro rata back to target leverage
     expense_ratio: float = 0.0                   # annual fee on invested assets, charged daily
+    short_rebate_spread: float = 0.0025          # short sale proceeds earn the cash rate minus this (floored at 0)
+    borrow_fee: float = 0.0                      # annual fee on the market value of short positions, charged daily
+    # statistics start once every asset a filter / ranking / weighting measures has its full lookback ("all"),
+    # or once enough of them have one to fill the filter's slots ("first")
+    warmup: Literal["all", "first"] = "all"
     benchmark: str | None = None                 # comparison ticker for alpha/beta (default SPY)
     name: str = ""
     description: str = ""
@@ -110,6 +115,13 @@ class Portfolio:
                 raise ValueError(f"{f} is an annual fraction (0.03 = 3% a year)")
         if self.capital <= 0 and self.contribution <= 0:
             raise ValueError("need starting capital or contributions")
+        if self.warmup not in ("all", "first"):
+            raise ValueError("warmup must be 'all' (stats start when every ranked asset has its lookback) or 'first'")
+        for f in ("short_rebate_spread", "borrow_fee"):
+            if not 0 <= float(getattr(self, f)) < 1:
+                raise ValueError(f"{f} is an annual fraction between 0 and 1 (0.01 = 1% a year)")
+        if self.start and self.end and pd.Timestamp(self.start) >= pd.Timestamp(self.end):
+            raise ValueError(f"The start date {self.start} is not before the end date {self.end}.")
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2, default=lambda o: f"<python function {getattr(o, '__name__', 'custom')}>")
@@ -174,6 +186,9 @@ class Portfolio:
                          + (f" + {self.margin_rate:.2%}" if self.margin_rate else ""))
         elif self.margin_rate:
             costs.append(f"margin rate T-bills + {self.margin_rate:.2%} on any borrowing")
+        if _has_short(self.tree):
+            costs.append(f"short proceeds earn the cash rate less {self.short_rebate_spread:.2%}/yr"
+                         + (f", {self.borrow_fee:.2%}/yr borrow fee on shorts" if self.borrow_fee else ""))
         if self.leverage > 1 or _has_short(self.tree):
             costs.append(f"{self.maintenance_margin:.0%} maintenance margin (margin calls cut positions at the close)"
                          if self.maintenance_margin else "no margin calls")
@@ -492,6 +507,90 @@ def fixed_tickers(n: dict) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+_PRETTY = [
+    (r'sym\("([^"]+)"\)\.close', r"\1 price"),
+    (r'sym\("([^"]+)"\)\.', r"\1 "),
+    (r"\brsi\((?:close\s*,\s*)?(\d+)\)", r"RSI(\1)"),
+    (r"\b(sma|ema|wma)\((?:close\s*,\s*)?(\d+)\)", lambda m: f"{m.group(1).upper()}({m.group(2)})"),
+    (r"\btret\((?:tr\s*,\s*)?(\d+)\)", r"\1-day return"),
+    (r"\bret\((?:close\s*,\s*)?(\d+)\)", r"\1-day price return"),
+    (r"\bmax_drawdown\((?:tr\s*,\s*)?(\d+)\)", r"\1-day max drawdown"),
+    (r"\bstdev_return\((?:tr\s*,\s*)?(\d+)\)", r"\1-day stdev of return"),
+    (r"\bvolatility\((\d+)\)", r"\1-day volatility"),
+    (r"\bma_return\((?:tr\s*,\s*)?(\d+)\)", r"\1-day average return"),
+    (r"\btbill_ret\((\d+)\)", r"T-bills' \1-day return"),
+    (r"\bclose\b", "price"),
+]
+
+
+def pretty_rule(rule: str) -> str:
+    """A rule written for people: rsi(close, 10) > 79 -> RSI(10) > 79, tret(tr, 63) -> 63-day return."""
+    s = str(rule or "").strip()
+    for pat, rep in _PRETTY:
+        s = re.sub(pat, rep, s)
+    return re.sub(r"\s+", " ", s)
+
+
+def short_name(n: dict, limit: int = 80) -> str:
+    """A readable default name for an unnamed portfolio tree, e.g. "If TQQQ RSI(10) > 79: UVXY, else TQQQ"
+    or "60% SPY / 40% TLT", cut to `limit` characters."""
+    def nm(x, depth=0) -> str:
+        if not isinstance(x, dict):
+            return "?"
+        if x.get("name") and depth:
+            return str(x["name"])
+        if "asset" in x:
+            return data.canonical(x["asset"])
+        if x.get("cash"):
+            return "cash"
+        if "custom" in x:
+            return "custom weights"
+        if "weights" in x:
+            kids = x.get("children") or []
+            if x["weights"] == "specified":
+                return " / ".join(f"{fmt_weight(w)} {nm(k, depth + 1)}" for w, k in zip(x.get("w") or [], kids))
+            lab = {"equal": "Equal weight", "inverse_vol": "Inverse vol", "market_cap": "Market cap",
+                   "risk_parity": "Risk parity", "min_variance": "Min variance", "max_sharpe": "Max Sharpe",
+                   "max_diversification": "Max diversification"}.get(x["weights"], x["weights"])
+            return f"{lab} of " + ", ".join(nm(k, depth + 1) for k in kids)
+        if "if" in x:
+            on = data.canonical(x.get("on", "SPY"))
+            cond = pretty_rule(x["if"])
+            if "sym(" not in x["if"] and not cond.startswith(on):
+                cond = f"{on} {cond}"
+            return f"If {cond}: {nm(x['then'], depth + 1)}, else {nm(x['else'], depth + 1)}"
+        if "filter" in x:
+            f = x["filter"]
+            u = x.get("universe", "children")
+            what = "Nasdaq-100" if u in ("NDX", "nasdaq100") else ", ".join(
+                nm(k, depth + 1) for k in (x.get("children") or [])) if u == "children" else ", ".join(u)
+            return f"{f.get('select', 'top').title()} {f.get('n', 1)} of {what} by {pretty_rule(f.get('by'))}"
+        return "portfolio"
+    s = nm(n)
+    return s if len(s) <= limit else s[: limit - 1].rstrip(" ,/:") + "…"
+
+
+def fmt_weight(w: float) -> str:
+    """A weight as a percentage without rounding it away: 0.6 -> "60%", 0.075 -> "7.5%", 1/3 -> "33.33%"."""
+    return f"{round(float(w) * 100, 2):g}%"
+
+
+def _member_lines(k: dict, indent: int) -> list[str]:
+    """One member of a list (a weighting's or a filter's children) as its own item. A specified-weight group
+    is written on one line ("60% TECL / 40% BIL") when all its parts are single lines, otherwise under a
+    "group:" header with its parts one level deeper, so its parts never read as siblings of the list's
+    other members."""
+    pad = "  " * indent
+    if "weights" in k:
+        name = f" {k['name']}" if k.get("name") else ""
+        if k["weights"] == "specified":
+            parts = [describe(c, 0) for c in k["children"]]
+            if all(len(x) == 1 for x in parts):
+                return [pad + (f"group{name}: " if name else "") + " / ".join(f"{fmt_weight(w)} {x[0].strip()}" for w, x in zip(k["w"], parts))]
+        return [f"{pad}group{name}:"] + describe(k, indent + 1)
+    return describe(k, indent)
+
+
 def describe(n: dict, indent: int = 0) -> list[str]:
     pad = "  " * indent
     if "asset" in n:
@@ -507,9 +606,9 @@ def describe(n: dict, indent: int = 0) -> list[str]:
             for w, k in zip(n["w"], n["children"]):
                 sub = describe(k, indent + 1)
                 if len(sub) == 1:
-                    lines.append(f"{pad}{w:.0%} {sub[0].strip()}")
+                    lines.append(f"{pad}{fmt_weight(w)} {sub[0].strip()}")
                 else:
-                    lines.append(f"{pad}{w:.0%}:")
+                    lines.append(f"{pad}{fmt_weight(w)}:")
                     lines.extend(sub)
             return lines
         groups = not all(map(_is_asset, n["children"]))
@@ -521,7 +620,7 @@ def describe(n: dict, indent: int = 0) -> list[str]:
                 label += ", groups measured on their simulated daily returns"
         lines.append(f"{pad}{label} of:")
         for k in n["children"]:
-            lines.extend(describe(k, indent + 1))
+            lines.extend(_member_lines(k, indent + 1))
         return lines
     if "if" in n:
         return ([f"{pad}if {n['if']} (on {data.canonical(n.get('on', 'SPY'))}):"] + describe(n["then"], indent + 1)
@@ -539,7 +638,7 @@ def describe(n: dict, indent: int = 0) -> list[str]:
             out = [f"{pad}{f.get('select', 'top')} {f.get('n', 1)} of these by {f['by']} "
                    f"(groups ranked on their simulated daily NAV), {wl}:"]
             for k in kids:
-                out.extend(describe(k, indent + 2))
+                out.extend(_member_lines(k, indent + 2))
         else:
             uname = "Nasdaq-100 members (point-in-time)" if u in ("NDX", "nasdaq100") else ", ".join(_universe(n))
             out = [f"{pad}{f.get('select', 'top')} {f.get('n', 1)} of [{uname}] by {f['by']}, {wl}"]
@@ -883,22 +982,34 @@ def _schedule(cal: pd.DatetimeIndex, freq: str) -> np.ndarray:
     if freq == "none":
         out[0] = True
         return out
-    per = _period_ids(cal, freq)
-    last = pd.Series(np.arange(T), index=cal).groupby(np.asarray(per)).max().to_numpy()
-    out[last] = True
+    per = np.asarray(_period_ids(cal, freq))
+    # a bar ends its period when the next *scheduled* NYSE session (weekends and holidays known in advance)
+    # is in another period: what was known that day. After an unscheduled closure (2001-09-11..14) the
+    # bar before it did not know its week was over, so it is not a rebalance day.
+    out[:] = np.asarray(_period_ids(_cal.next_scheduled(cal), freq)) != per
+    # a period whose bars never reached its scheduled last session (unscheduled closure, data gap): rebalance
+    # on the first bar after it instead
+    starts = np.flatnonzero(np.r_[True, per[1:] != per[:-1]])
+    ends = np.r_[starts[1:] - 1, T - 1]
+    for a, b in zip(starts[:-1], ends[:-1]):
+        if not out[a:b + 1].any():
+            out[b + 1] = True
     # the latest bar only ends its period if the next NYSE session starts a new one
-    if _period_ids(_cal.next_sessions(cal[-1]), freq)[0] == per[-1]:
-        out[-1] = False
+    out[-1] = np.asarray(_period_ids(_cal.next_sessions(cal[-1]), freq))[0] != per[-1]
     out[0] = True  # initial allocation
     return out
 
 
 def _period_starts(cal: pd.DatetimeIndex, freq: str) -> np.ndarray:
+    """Cash-flow days: the first trading day of each period, the first day of the backtest included (as
+    Portfolio Visualizer does, and as the Monte Carlo simulation does): "add $1,000 a month for 20 years"
+    makes 240 contributions, the first on day one alongside the starting capital, and "withdraw 4% a year"
+    takes the first withdrawal on day one. A backtest that starts mid-period makes that period's flow on its
+    first day and the next one at the start of the next period."""
     per = _period_ids(cal, freq)
     first = pd.Series(np.arange(len(cal)), index=cal).groupby(np.asarray(per)).min().to_numpy()
     out = np.zeros(len(cal), bool)
     out[first] = True
-    out[0] = False  # the starting capital covers the first period
     return out
 
 
@@ -908,6 +1019,24 @@ def _flow_schedule(cal: pd.DatetimeIndex, freq: str, start, end, growth: float, 
     days = _period_starts(cal, freq)
     s = _flow_bound(start, cal[0], False, f"{what}_start")
     e = _flow_bound(end, cal[0], True, f"{what}_end")
+    # year numbers of the backtest count whole periods: "for 20 years" of monthly flows is 240 flows even when
+    # the backtest starts after the 1st of its first month (the boundary is the start of the period that
+    # contains the anniversary), and "from year 21" starts with the next one
+    def yr(v):
+        try:
+            k = int(v)
+        except (TypeError, ValueError):
+            return None
+        return k if 1 <= k < 1900 and not isinstance(v, bool) else None
+
+    def period_start(d: pd.Timestamp) -> pd.Timestamp:
+        if freq == "semiannual":
+            return pd.Timestamp(year=d.year, month=1 if d.month <= 6 else 7, day=1)
+        return pd.Period(d, {"monthly": "M", "quarterly": "Q", "yearly": "Y"}[freq]).start_time
+    if yr(end) is not None:
+        e = period_start(cal[0] + pd.DateOffset(years=yr(end))) - pd.Timedelta(days=1)
+    if yr(start) is not None and yr(start) > 1:
+        s = period_start(cal[0] + pd.DateOffset(years=yr(start) - 1))
     if s is not None:
         days &= np.asarray(cal >= s)
     if e is not None:
@@ -995,6 +1124,7 @@ def run(p: Portfolio) -> Result:
     equity = np.zeros(T)
     flows = np.zeros(T)
     weights = np.zeros((T, N))
+    mvals = np.zeros((T, N))          # market value of each holding at the close (signed), for holding periods
     cashw = np.zeros(T)
     orders: list[dict] = []
     # P&L attribution: every cash movement caused by a ticker (trades incl. costs, dividends,
@@ -1085,8 +1215,21 @@ def run(p: Portfolio) -> Result:
         if i > 0:
             r = rate[i - 1]
             earned = cash * r if cash >= 0 else cash * (r + borrow_extra)
+            short_mv = -np.nan_to_num(shares * last_px)
+            short_mv = np.where(shares < 0, short_mv, 0.0)
+            smv = float(short_mv.sum())
+            if smv > 0 and cash > 0 and r > 0 and p.short_rebate_spread:
+                # short sale proceeds (part of cash) earn the rate less the rebate spread, floored at zero
+                earned -= min(smv, cash) * min(r, p.short_rebate_spread / 252.0)
             cash += earned
             interest += earned
+            if smv > 0 and p.borrow_fee:
+                for j in np.flatnonzero(short_mv > 0):
+                    fee = float(short_mv[j]) * p.borrow_fee / 252.0
+                    cash -= fee
+                    tcash[j] -= fee
+                    tcom[j] += fee
+                    ledger.append((cal[i], tick[j], "fee", 0.0, -fee, 0.0))
             if fee_daily:
                 held = float(np.nansum(np.abs(shares) * np.nan_to_num(last_px)))
                 cash -= held * fee_daily
@@ -1198,6 +1341,7 @@ def run(p: Portfolio) -> Result:
                 if eq_now > 0 and g / eq_now > max(lev_peak[0], 1.5 * tgt_gross):
                     lev_peak = (g / eq_now, tgt_gross, cal[i].date())
         equity[i] = value(c)
+        mvals[i] = shares * np.nan_to_num(px_now(c))
         if equity[i] > 0:
             pv = np.nan_to_num(px_now(c))
             weights[i] = shares * pv / equity[i]
@@ -1233,7 +1377,9 @@ def run(p: Portfolio) -> Result:
     npos = pd.Series(np.concatenate([[0], (hw.drop(columns="cash").abs() > 1e-6).sum(axis=1).to_numpy()]), index=idx_all)
     od = pd.DataFrame(orders)
     end_px = np.nan_to_num(last_px)
-    trades = _round_trips(ledger, tick, end_px, cal[-1])
+    tri = {t: (dfs[t]["adj_close"] if "adj_close" in dfs[t] else dfs[t]["close"]).reindex(cal).ffill().to_numpy()
+           for t in tick}
+    trades = _round_trips(ledger, tick, end_px, cal[-1], mv=mvals, cal=cal, tri=tri)
     res = Result(strategy=p, equity=eq, trades=trades, exposure=ex, positions=npos, prices=dfs,
                  holdings=hw, interest=interest, in_market=pd.Series(gross.reindex(idx_all).fillna(0).to_numpy() > 1e-6, index=idx_all),
                  kind="allocation", orders=od)
@@ -1266,29 +1412,58 @@ def _attribution(tick, tcash, tdiv, tcom, shares, end_px, od: pd.DataFrame) -> p
     return df
 
 
-def _round_trips(ledger: list[tuple], tick: list[str], end_px: np.ndarray, last_day) -> pd.DataFrame:
+def _round_trips(ledger: list[tuple], tick: list[str], end_px: np.ndarray, last_day, mv: np.ndarray | None = None,
+                 cal: pd.DatetimeIndex | None = None, tri: dict | None = None) -> pd.DataFrame:
     """Holding periods per ticker, from the trade that opens a position to the one that closes it.
 
     The ledger holds every event in simulation order (dividends at the start of the day, trades,
     dividend reinvestment at the close), so the share count is exact, dividends are income of the
     holding period they were paid in and reinvested dividends add to its cost. The holding-period
-    P&Ls of a ticker add up to its P&L in the attribution table."""
+    P&Ls of a ticker add up to its P&L in the attribution table.
+
+    Columns (trades.csv of an allocation run):
+      position_value  the average market value of the holding over the period (its closes while held), so a
+                      daily-rebalanced position does not show the sum of every day's purchases
+      entry_value     the value bought (or sold short) on the first day of the period
+      bought / sold   every purchase / sale in the period (rebalancing trims and adds included)
+      pnl             sales - purchases - costs + dividends (+ the value still held, for an open period)
+      return          the ticker's own total return (adjusted close, dividends reinvested) from the close of
+                      the first purchase to the close of the final sale; negated for a short position
+    """
     if not ledger:
         return pd.DataFrame()
     rows = []
     px = dict(zip(tick, end_px))
+    col = {t: j for j, t in enumerate(tick)}
     by: dict[str, list] = {}
     for e in ledger:
         by.setdefault(e[1], []).append(e)
+
+    def extra(t, st, end, open_):
+        out = {}
+        if mv is None or cal is None:
+            return out
+        a = int(cal.searchsorted(pd.Timestamp(st["start"])))
+        b = min(int(cal.searchsorted(pd.Timestamp(end))), len(cal) - 1)
+        hi = b + 1 if (open_ or b <= a) else b     # on the exit day the holding is sold at the close
+        seg = np.abs(mv[a:hi, col[t]])
+        out["position_value"] = float(seg.mean()) if len(seg) else np.nan
+        x = (tri or {}).get(t)
+        if x is not None and np.isfinite(x[a]) and np.isfinite(x[b]) and x[a] > 0:
+            r = x[b] / x[a] - 1
+            out["return"] = float(r if st["side"] == "long" else -r)
+        return out
+
     for t, evs in by.items():
         pos, peak, st = 0.0, 0.0, None
         for d, _, kind, q, v, com in evs:
-            if kind == "dividend":
+            if kind in ("dividend", "fee"):
                 if st is not None:
                     st["income"] += v
                 continue
             if st is None and kind in ("buy", "sell"):
-                st = {"start": d, "spent": 0.0, "got": 0.0, "income": 0.0, "com": 0.0, "side": "long" if q > 0 else "short"}
+                st = {"start": d, "spent": 0.0, "got": 0.0, "income": 0.0, "com": 0.0, "side": "long" if q > 0 else "short",
+                      "entry_value": v, "bought": 0.0, "sold": 0.0}
                 peak = 0.0
             if st is None:
                 continue
@@ -1296,15 +1471,17 @@ def _round_trips(ledger: list[tuple], tick: list[str], end_px: np.ndarray, last_
                 st["spent"] += v + com
             else:
                 st["got"] += v - com
+            if kind in ("buy", "sell"):
+                st["bought" if kind == "buy" else "sold"] += v
             st["com"] += com
             pos += q
             peak = max(peak, abs(pos))
             if abs(pos) <= 1e-9 * max(peak, 1.0):
-                rows.append(_trip(t, st, d.date()))
+                rows.append(_trip(t, st, d.date(), extra=extra(t, st, d, False)))
                 st, pos = None, 0.0
         if st is not None:
             st["got"] += pos * px[t]
-            rows.append(_trip(t, st, last_day.date(), open_=True))
+            rows.append(_trip(t, st, last_day.date(), open_=True, extra=extra(t, st, last_day, True)))
     tr = pd.DataFrame(rows)
     if tr.empty:
         return tr
@@ -1314,14 +1491,17 @@ def _round_trips(ledger: list[tuple], tick: list[str], end_px: np.ndarray, last_
     return tr
 
 
-def _trip(t, st: dict, end, open_=False) -> dict:
+def _trip(t, st: dict, end, open_=False, extra: dict | None = None) -> dict:
     start = st["start"].date() if hasattr(st["start"], "date") else st["start"]
     pnl = st["got"] + st["income"] - st["spent"]
     basis = st["spent"] if st["side"] == "long" else st["got"]
-    return {"ticker": t, "side": st["side"], "entry_date": start, "exit_date": end,
-            "entry_price": np.nan, "exit_price": np.nan, "shares": np.nan, "position_value": basis,
-            "pnl": pnl, "return": pnl / basis if basis else 0.0,
-            "bars_held": int(np.busday_count(pd.Timestamp(start).date(), pd.Timestamp(end).date())),
-            "exit_reason": "still held" if open_ else "rebalanced out", "mae": np.nan, "mfe": np.nan,
-            "commission": st["com"], "income": st["income"], "entry_fill": "close", "exit_fill": "close"}
+    out = {"ticker": t, "side": st["side"], "entry_date": start, "exit_date": end,
+           "entry_price": np.nan, "exit_price": np.nan, "shares": np.nan, "position_value": basis,
+           "entry_value": st.get("entry_value", np.nan), "bought": st.get("bought", np.nan), "sold": st.get("sold", np.nan),
+           "pnl": pnl, "return": pnl / basis if basis else 0.0,
+           "bars_held": int(np.busday_count(pd.Timestamp(start).date(), pd.Timestamp(end).date())),
+           "exit_reason": "still held" if open_ else "rebalanced out", "mae": np.nan, "mfe": np.nan,
+           "commission": st["com"], "income": st["income"], "entry_fill": "close", "exit_fill": "close"}
+    out.update(extra or {})
+    return out
 

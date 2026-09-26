@@ -220,6 +220,7 @@ def walk_forward(text: str, objective: str = "sharpe", in_sample_years: float = 
 OPT_METHODS = {
     "max_sharpe": "Max Sharpe", "min_variance": "Min variance", "max_sortino": "Max Sortino",
     "min_cvar": "Min CVaR (95%)", "risk_parity": "Risk parity", "max_diversification": "Max diversification",
+    "max_return_over_maxdd": "Max return / max drawdown", "omega": "Max Omega",
     "target_return": "Target return", "target_vol": "Target volatility",
     "inverse_vol": "Inverse volatility", "equal": "Equal weight",
 }
@@ -307,8 +308,9 @@ class _Opt:
     and linear group constraints."""
 
     def __init__(self, R: np.ndarray, tickers: list[str], rf_annual: float, bounds: dict, groups: list[dict],
-                 min_weight: float = 0.0, max_weight: float = 1.0):
+                 min_weight: float = 0.0, max_weight: float = 1.0, omega_threshold: float = 0.0):
         self.R = R
+        self.omega_l = (1 + float(omega_threshold)) ** (1 / 12) - 1   # monthly threshold of the Omega ratio
         self.t = tickers
         self.n = n = len(tickers)
         self.mu = R.mean(axis=0) * 12
@@ -411,6 +413,80 @@ class _Opt:
     def max_return(self):
         return self._lp(-self.mu)
 
+    def path(self, w):
+        """(CAGR, max drawdown) of the historical monthly path of these weights, rebalanced monthly."""
+        r = np.maximum(self.R @ w, -1.0)
+        g = np.cumprod(1 + r)
+        peak = np.maximum.accumulate(np.concatenate([[1.0], g]))[1:]
+        mdd = float(min((g / peak - 1).min(), 0.0))
+        cagr = float(g[-1] ** (12 / len(r)) - 1) if g[-1] > 0 else -1.0
+        return cagr, mdd
+
+    def omega(self, w, L=None):
+        """Omega ratio of the monthly returns at the threshold L: E[(r - L)+] / E[(L - r)+]."""
+        L = self.omega_l if L is None else L
+        r = self.R @ w
+        dn = np.maximum(L - r, 0).mean()
+        return float(np.maximum(r - L, 0).mean() / dn) if dn > 0 else np.inf
+
+    def _candidates(self, k: int = 3, samples: int = 400):
+        """Feasible starting points for the path-dependent objectives: the classic portfolios plus the best of a
+        random (Dirichlet) sample of feasible weights, ranked by `self._score`."""
+        base = [self.x0, self.max_return(), self.weights("min_variance"), self.weights("max_sharpe")]
+        base = [x for x in base if x is not None]
+        rng = np.random.default_rng(3)
+        pool = [x for x in rng.dirichlet(np.ones(self.n), samples) if self.ok(x)]
+        pool.sort(key=self._score)
+        return base + pool[:k]
+
+    def max_return_over_maxdd(self):
+        """Maximise CAGR / |max drawdown| on the historical monthly path. The objective is exact but only
+        piecewise smooth (the drawdown's trough and peak switch between months), so it is searched from several
+        feasible starts (the classic portfolios and the best random feasible weights) with SLSQP on
+        finite-difference gradients, and the best result on the exact objective is kept."""
+        def score(w):
+            c, m = self.path(w)
+            return -c / max(abs(m), 1e-4)
+        self._score = score
+        best = None
+        for x0 in self._candidates():
+            w = self.solve(score, starts=[x0])
+            for cand in (w, self.clean(np.clip(x0, self.lo, self.hi))):
+                if cand is not None and self.ok(cand) and (best is None or score(cand) < score(best)):
+                    best = cand
+        return best
+
+    def max_omega(self):
+        """Maximise the Omega ratio at the threshold. (Omega - 1) = (mean - L) / E[(L - r)+] is a linear-fractional
+        programme, solved exactly as a linear programme with the Charnes-Cooper transform (y = t w,
+        E[(L - r)+] scaled to 1); if that fails (e.g. a portfolio with no month below the threshold makes it
+        unbounded) SLSQP maximises the ratio directly."""
+        from scipy.optimize import linprog
+        T, n = self.R.shape
+        L = self.omega_l
+        mu_m = self.R.mean(axis=0)
+        # variables: y (n), t (1), d (T)
+        c = np.concatenate([-mu_m, [L], np.zeros(T)])
+        A = [np.hstack([-self.R, np.full((T, 1), L), -np.eye(T)])]           # L t - R y - d <= 0
+        b = [np.zeros(T)]
+        A.append(np.hstack([-np.eye(n), self.lo[:, None], np.zeros((n, T))]))   # lo t - y <= 0
+        b.append(np.zeros(n))
+        A.append(np.hstack([np.eye(n), -self.hi[:, None], np.zeros((n, T))]))   # y - hi t <= 0
+        b.append(np.zeros(n))
+        if len(self.b):
+            A.append(np.hstack([self.A, -self.b[:, None], np.zeros((len(self.b), T))]))
+            b.append(np.zeros(len(self.b)))
+        Aeq = np.vstack([np.concatenate([np.zeros(n), [0.0], np.full(T, 1 / T)]),
+                         np.concatenate([np.ones(n), [-1.0], np.zeros(T)])])
+        r = linprog(c, A_ub=np.vstack(A), b_ub=np.concatenate(b), A_eq=Aeq, b_eq=[1.0, 0.0],
+                    bounds=[(0, None)] * (n + 1 + T), method="highs")
+        if r.status == 0 and r.x[n] > 1e-12:
+            w = self.clean(r.x[:n] / r.x[n])
+            if self.ok(w):
+                return w
+        self._score = lambda w: -min(self.omega(w), 1e6)
+        return self.solve(self._score, starts=self._candidates())
+
     # -- objectives
     def weights(self, method: str, target: float | None = None):
         n = self.n
@@ -441,6 +517,10 @@ class _Opt:
             return self.solve(fun, starts=[x for x in (p, self.x0) if x is not None])
         if method == "min_cvar":
             return self.min_cvar()
+        if method == "max_return_over_maxdd":
+            return self.max_return_over_maxdd()
+        if method == "omega":
+            return self.max_omega()
         if method == "target_return":
             if target is None:
                 return None
@@ -479,7 +559,11 @@ class _Opt:
         rc = w * (self.cov @ w) / max(v * v, 1e-16)
         ret = float(w @ self.mu)
         dd = self.downside(w)
+        cagr, mdd = self.path(w)
         return {"weights": {t: float(x) for t, x in zip(self.t, w) if x > 1e-4},
+                "hist_cagr": cagr, "hist_max_drawdown": mdd,
+                "return_over_maxdd": cagr / abs(mdd) if mdd < 0 else np.nan,
+                "omega": self.omega(w), "omega_threshold": (1 + self.omega_l) ** 12 - 1,
                 "exp_return": ret, "exp_vol": v, "exp_sharpe": (ret - self.rf) / v if v > 0 else np.nan,
                 "exp_sortino": (ret - self.rf) / dd if dd > 0 else np.nan, "cvar_95_monthly": self.cvar(w),
                 "diversification_ratio": float(w @ self.sd) / v if v > 0 else np.nan,
@@ -510,21 +594,28 @@ def _rf_monthly(index: pd.DatetimeIndex) -> pd.Series:
     return me.reindex(me.index.union(index)).ffill().reindex(index).fillna(0.0) / 12
 
 
-def _methods(target_return, target_vol) -> list[str]:
+def _methods(target_return, target_vol, methods=None) -> list[str]:
+    if methods:
+        bad = [m for m in methods if m not in OPT_METHODS]
+        if bad:
+            raise ValueError(f"Unknown objective(s) {', '.join(bad)}; choose from {', '.join(OPT_METHODS)}.")
     return [m for m in OPT_METHODS if not (m == "target_return" and target_return is None)
-            and not (m == "target_vol" and target_vol is None)]
+            and not (m == "target_vol" and target_vol is None) and (not methods or m in methods)]
 
 
 def optimize(tickers: list[str], start: str | None = None, end: str | None = None, max_weight: float = 1.0,
              min_weight: float = 0.0, test_start: str | None = None, points: int = 30,
              constraints=None, target_return: float | None = None, target_vol: float | None = None,
-             rolling_months: int | None = None, lookback_months: int = 60, rebalance: str = "quarterly") -> dict:
+             rolling_months: int | None = None, lookback_months: int = 60, rebalance: str = "quarterly",
+             methods: list[str] | None = None, omega_threshold: float = 0.0) -> dict:
     """Long-only portfolio optimisation on monthly total returns.
 
     Objectives: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity (equal risk
-    contribution), max diversification ratio, target return (min vol s.t. return >= x), target
-    volatility (max return s.t. vol <= x), inverse volatility and equal weight - all subject to
-    per-asset min/max weights and group constraints ("SPY+QQQ <= 70%").
+    contribution), max diversification ratio, max return / max drawdown (CAGR over the worst drawdown of the
+    historical monthly path), max Omega (at `omega_threshold`, an annual rate, default 0), target return
+    (min vol s.t. return >= x), target volatility (max return s.t. vol <= x), inverse volatility and equal
+    weight - all subject to per-asset min/max weights and group constraints ("SPY+QQQ <= 70%").
+    `methods` limits the run to some of them (keys of OPT_METHODS).
 
     test_start: estimate before it and evaluate after it (daily, out of sample).
     rolling_months: walk-forward - every N months re-optimise on the trailing `lookback_months` and
@@ -546,15 +637,30 @@ def optimize(tickers: list[str], start: str | None = None, end: str | None = Non
     bounds, groups = parse_constraints(constraints or [], tickers)
     rfm = _rf_monthly(mr.index)
     rf = float(rfm.mean() * 12)
-    opt = _Opt(mr.to_numpy(), tickers, rf, bounds, groups, min_weight, max_weight)
+    opt = _Opt(mr.to_numpy(), tickers, rf, bounds, groups, min_weight, max_weight, omega_threshold)
     ports = {}
     notes = []
-    for m in _methods(target_return, target_vol):
+    infeasible = {}
+    for m in _methods(target_return, target_vol, methods):
         tgt = target_return if m == "target_return" else target_vol if m == "target_vol" else None
         w = opt.weights(m, tgt)
-        name = OPT_METHODS[m] + (f" {tgt:.1%}" if tgt is not None else "")
+        name = OPT_METHODS[m] + (f" {tgt:.1%}" if tgt is not None else "") + (
+            f" (threshold {omega_threshold:.1%}/yr)" if m == "omega" and omega_threshold else "")
         if w is None:
-            notes.append(f"{name}: no portfolio meets the constraints" + (" and the target." if tgt is not None else "."))
+            msg = f"{name}: no portfolio meets the constraints" + (" and the target." if tgt is not None else ".")
+            if m == "target_vol":
+                mv = opt.weights("min_variance")
+                if mv is not None:
+                    infeasible["min_vol"] = opt.vol(mv)
+                    msg = (f"{name}: out of reach - the minimum achievable volatility is {opt.vol(mv):.1%} "
+                           f"(the minimum-variance portfolio{' under these constraints' if bounds or groups else ''}).")
+            elif m == "target_return":
+                wr = opt.max_return()
+                if wr is not None:
+                    infeasible["max_return"] = float(wr @ opt.mu)
+                    msg = (f"{name}: out of reach - the maximum achievable expected return is {float(wr @ opt.mu):.1%} "
+                           f"({', '.join(f'{x:.0%} {t}' for t, x in zip(tickers, wr) if x > 1e-4)}).")
+            notes.append(msg)
             continue
         d = opt.describe(w)
         d["method"] = m
@@ -577,7 +683,8 @@ def optimize(tickers: list[str], start: str | None = None, end: str | None = Non
     assets = [{"ticker": t, "return": float(opt.mu[i]), "vol": float(opt.sd[i])} for i, t in enumerate(tickers)]
     fin = lambda x: None if not np.isfinite(x) else float(x)  # noqa: E731
     out = {"tickers": tickers, "fit_start": mr.index[0].date(), "fit_end": mr.index[-1].date(), "rf": rf,
-           "portfolios": ports, "frontier": frontier, "assets": assets, "notes": notes,
+           "portfolios": ports, "frontier": frontier, "assets": assets, "notes": notes, "infeasible": infeasible,
+           "omega_threshold": omega_threshold,
            "constraints": {"min_weight": min_weight, "max_weight": max_weight,
                            "bounds": {t: [fin(a), fin(b)] for t, (a, b) in bounds.items()},
                            "groups": groups, "target_return": target_return, "target_vol": target_vol},
@@ -595,12 +702,14 @@ def optimize(tickers: list[str], start: str | None = None, end: str | None = Non
                 out["test"][name] = {"cagr": st["cagr"], "volatility": st["volatility"], "sharpe": st["sharpe"], "max_drawdown": st["max_drawdown"]}
     if rolling_months:
         out["rolling"] = rolling_optimize(px, tickers, int(rolling_months), int(lookback_months), bounds, groups,
-                                          min_weight, max_weight, target_return, target_vol, ports)
+                                          min_weight, max_weight, target_return, target_vol, ports, methods,
+                                          omega_threshold)
     return out
 
 
 def rolling_optimize(px: pd.DataFrame, tickers: list[str], every: int, lookback: int, bounds, groups,
-                     min_weight, max_weight, target_return, target_vol, static: dict) -> dict:
+                     min_weight, max_weight, target_return, target_vol, static: dict, methods=None,
+                     omega_threshold: float = 0.0) -> dict:
     """Walk-forward re-optimisation on monthly returns: every `every` months, fit on the trailing
     `lookback` months only and hold those weights (rebalanced monthly) until the next re-fit."""
     if every < 1 or lookback < 12:
@@ -609,14 +718,14 @@ def rolling_optimize(px: pd.DataFrame, tickers: list[str], every: int, lookback:
     if len(mr) < lookback + 6:
         raise ValueError(f"Walk-forward with a {lookback}-month lookback needs more than {lookback + 6} months of history; there are {len(mr)}.")
     rfm = _rf_monthly(mr.index)
-    methods = _methods(target_return, target_vol)
+    methods = _methods(target_return, target_vol, methods)
     R = mr.to_numpy()
     oos = {m: np.full(len(mr), np.nan) for m in methods}
     hist = {m: [] for m in methods}
     for k in range(lookback, len(mr), every):
         try:
             o = _Opt(R[k - lookback:k], tickers, float(rfm.iloc[k - lookback:k].mean() * 12), bounds, groups,
-                     min_weight, max_weight)
+                     min_weight, max_weight, omega_threshold)
         except ValueError:
             continue
         for m in methods:

@@ -6,7 +6,8 @@
     python -m backtester walkforward "buy QQQ when RSI(2) is below {5..20 step 5}, hold {1..5} days"
     python -m backtester optimize SPY QQQ TLT GLD --max-weight 0.6 --constraint "SPY+QQQ <= 70%" --rolling 12
     python -m backtester montecarlo --weights "SPY 60 TLT 40" --years 30 --withdrawal 40000 --balance 1000000
-    python -m backtester factors QQQ --model ff5 --freq monthly
+    python -m backtester factors QQQ --model ff5 --freq monthly      (models: capm ff3 carhart ff5 ff6 dev_ff3/intl bonds ff3+bonds)
+    python -m backtester correlation SPY TLT GLD EFASIM --window 36 --freq monthly
     python -m backtester signals "buy Nasdaq 100 stocks when RSI(2) is below 5, hold 3 days"
     python -m backtester paper add "..." --name rsi2 ; python -m backtester paper report
     python -m backtester import-composer symphony.json [--out spec.json] [--run]
@@ -23,7 +24,8 @@ from pathlib import Path
 from . import data, expr, parser, report, runner
 from .montecarlo import parse_weights
 
-SUBCOMMANDS = {"run", "compare", "sweep", "walkforward", "optimize", "signals", "paper", "web", "tickers", "library", "montecarlo", "factors", "import-composer"}
+SUBCOMMANDS = {"run", "compare", "sweep", "walkforward", "optimize", "signals", "paper", "web", "tickers", "library", "montecarlo",
+               "factors", "import-composer", "correlation", "correlations"}
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -109,6 +111,82 @@ def make_spec(text: str | None, a, spec_path: str | None = None):
     return spec
 
 
+def preflight(spec) -> list[str]:
+    """The checks a real run makes before simulating, so --dry-run never prints a clean interpretation for a
+    spec that will fail: the spec's own validation, the date range (reversed, or without data for the
+    tickers), unknown tickers and rule names (every rule evaluated once on real data), and rules whose
+    look-back needs more history than the period has. Returns warnings that don't stop the run."""
+    import pandas as pd
+
+    from . import portfolio as pf
+    from . import web
+    warn: list[str] = []
+    spec.validate()
+    start = pd.Timestamp(spec.start) if spec.start else None
+    end = pd.Timestamp(spec.end) if spec.end else None
+    if start is not None and end is not None and start >= end:
+        raise ValueError(f"The start date {start.date()} is not before the end date {end.date()}.")
+    web._probe_rules(spec)
+    is_pf = spec.__class__.__name__ == "Portfolio"
+    tickers = pf.fixed_tickers(spec.tree) if is_pf else [data.canonical(t) for t in spec.universe]
+    frames = {}
+    for t in tickers:
+        try:
+            frames[t] = data.load(t)
+        except data.DataError:
+            if is_pf or not getattr(spec, "universe_name", None):
+                raise
+    if not frames:
+        raise ValueError("None of the tickers has price data.")
+
+    def in_range(df):
+        ix = df.index
+        if start is not None:
+            ix = ix[ix >= start]
+        if end is not None:
+            ix = ix[ix <= end]
+        return ix
+    if is_pf:
+        first_common = max(df.index[0] for df in frames.values())
+        last_common = min(df.index[-1] for df in frames.values())
+        lo = max(first_common, start) if start is not None else first_common
+        hi = min(last_common, end) if end is not None else last_common
+        if lo >= hi:
+            late = max(frames, key=lambda t: frames[t].index[0])
+            raise ValueError(f"No price data in the requested period: the holdings trade together from {first_common.date()} "
+                             f"({late} starts then) to {last_common.date()}.")
+    elif not any(len(in_range(df)) >= 2 for df in frames.values()):
+        rng = f"{start.date() if start is not None else 'the start'} to {end.date() if end is not None else 'the end'}"
+        raise ValueError(f"No price data in the requested period ({rng}) for {', '.join(list(frames)[:5])}.")
+    # look-backs: a rule that has no value before the end of the period can never trigger
+    from .report import rule_first_defined
+    from .expr import Namespace
+    rules = web._rules(spec)
+    if is_pf:
+        def ons(n, acc):
+            if isinstance(n, dict):
+                if "if" in n:
+                    acc.append((n["if"], data.canonical(n.get("on", "SPY"))))
+                for k in pf._kids(n):
+                    ons(k, acc)
+            return acc
+        pairs = ons(spec.tree, [])
+    else:
+        t0 = min(frames, key=lambda t: frames[t].index[0])
+        pairs = [(r, t0) for r in rules if isinstance(r, str)]
+    for rule, t in pairs:
+        df = frames.get(t) if t in frames else data.load(t)
+        d = rule_first_defined(rule, Namespace(df, ticker=t))
+        stop = end if end is not None else df.index[-1]
+        if d is not None and d > stop:
+            raise ValueError(f"The rule {rule!r} needs more history than there is: on {t} its indicators first have a "
+                             f"value on {d.date()}, after the end of the period ({stop.date()}). Shorten the look-back "
+                             "or extend the period.")
+        if d is not None and start is not None and d > start:
+            warn.append(f"Warm-up: {rule!r} on {t} has no value until {d.date()}, so nothing can trigger before then.")
+    return warn
+
+
 def _rf(v):
     return "tbill" if v in (None, "tbill") else float(v)
 
@@ -119,9 +197,10 @@ def cmd_run(argv: list[str]) -> int:
         print(expr.HELP)
         return 0
     spec = make_spec(a.text, a, a.spec)
+    extra = preflight(spec)   # the same checks for a dry run and a real run: fail before printing a clean interpretation
     if a.dry_run:
         print(spec.summary())
-        for n in spec.notes:
+        for n in spec.notes + extra:
             print("Note:", n)
         print(spec.to_json())
         return 0
@@ -214,6 +293,9 @@ def cmd_optimize(argv: list[str]) -> int:
                    help="repeatable: 'SPY <= 50%%', 'TLT >= 10%%', 'SPY+QQQ <= 70%%', '20%% <= TLT+IEF <= 60%%'")
     p.add_argument("--target-return", type=float, help="annual, e.g. 0.07: minimum volatility with at least this return")
     p.add_argument("--target-vol", type=float, help="annual, e.g. 0.10: maximum return with at most this volatility")
+    p.add_argument("--methods", help="comma-separated objectives to run (default all): " + ", ".join(research.OPT_METHODS))
+    p.add_argument("--omega-threshold", type=float, default=0.0,
+                   help="annual threshold return of the Omega ratio (default 0, e.g. 0.03)")
     p.add_argument("--rolling", type=int, metavar="MONTHS", help="walk-forward: re-optimise every N months")
     p.add_argument("--lookback", type=int, default=60, metavar="MONTHS", help="trailing window for --rolling (default 60)")
     p.add_argument("--rebalance", default="quarterly", choices=["monthly", "quarterly", "yearly"],
@@ -222,7 +304,9 @@ def cmd_optimize(argv: list[str]) -> int:
     a = p.parse_args(argv)
     R = research.optimize(a.tickers, a.start, a.end, a.max_weight, a.min_weight, a.test_start,
                           constraints=a.constraint, target_return=a.target_return, target_vol=a.target_vol,
-                          rolling_months=a.rolling, lookback_months=a.lookback, rebalance=a.rebalance)
+                          rolling_months=a.rolling, lookback_months=a.lookback, rebalance=a.rebalance,
+                          methods=[m.strip() for m in a.methods.split(",") if m.strip()] if a.methods else None,
+                          omega_threshold=a.omega_threshold)
     print(research_report.optimize_console(R))
     out = Path(a.out) if a.out else report.ROOT / "reports" / ("optimize-" + report.slug("-".join(a.tickers)))
     path = research_report.write_optimize(R, out)
@@ -273,6 +357,13 @@ def cmd_montecarlo(argv: list[str]) -> int:
     p.add_argument("--start", help="history window start")
     p.add_argument("--end", help="history window end")
     p.add_argument("--seed", type=int, default=7)
+    p.add_argument("--stress", choices=["worst_sequence", "shock"],
+                   help="sequence-of-returns stress: start every path with the worst historical --stress-years years, "
+                        "or with a first-year --shock")
+    p.add_argument("--stress-years", type=int, default=10)
+    p.add_argument("--shock", type=float, default=-0.30, help="first-year return for --stress shock (default -0.30)")
+    p.add_argument("--age", type=float, help="current age; with --until-age the horizon is the difference")
+    p.add_argument("--until-age", type=float, help="e.g. 95: withdraw until this age")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     weights, spec = _load_target(a)
@@ -285,7 +376,10 @@ def cmd_montecarlo(argv: list[str]) -> int:
         flows.append(mc.CashFlow(pct=-a.withdrawal_pct, freq=a.freq))
     s = mc.Settings(start_balance=a.balance, years=a.years, model=a.model, block_months=a.block, rebalance=a.rebalance,
                     sims=a.sims, seed=a.seed, success_target=a.success, start=a.start, end=a.end,
-                    inflation=a.inflation if a.inflation == "historical" else float(a.inflation))
+                    inflation=a.inflation if a.inflation == "historical" else float(a.inflation),
+                    stress=a.stress, stress_years=a.stress_years, stress_shock=a.shock, age=a.age, until_age=a.until_age)
+    if (a.age is None) != (a.until_age is None):
+        raise ValueError("Give both --age and --until-age (the horizon is the difference).")
     for f in a.forecast:
         t, r, v = f.split(":")
         s.forecast[data.canonical(t)] = (float(r), float(v))
@@ -312,7 +406,8 @@ def cmd_factors(argv: list[str]) -> int:
     p.add_argument("--weights", help="portfolio, e.g. 'SPY 60 TLT 40' (rebalanced monthly)")
     p.add_argument("--spec")
     p.add_argument("--run", help="id of a saved run from the site")
-    p.add_argument("--model", default="ff3", choices=list(F.MODELS))
+    p.add_argument("--model", default="ff3", choices=list(F.MODELS) + list(F.ALIASES),
+                   help="; ".join(f"{m['key']}: {m['label']} ({m['about']})" for m in F.model_list()))
     p.add_argument("--freq", default="monthly", choices=["monthly", "daily"])
     p.add_argument("--rolling", type=int, default=36, help="rolling window in months (default 36)")
     p.add_argument("--start")
@@ -327,6 +422,26 @@ def cmd_factors(argv: list[str]) -> int:
     r, name = F.returns_for(target)
     R = F.analyze(r, a.model, a.freq, a.start, a.end, a.rolling, name=name)
     print(json.dumps(report._clean(R), indent=2) if a.json else F.console(R))
+    return 0
+
+
+def cmd_correlation(argv: list[str]) -> int:
+    from . import correlation as K
+    p = argparse.ArgumentParser(prog="python -m backtester correlation",
+                                description="Correlation matrix, rolling correlation of a pair and per-asset statistics "
+                                            "(total returns, adjusted close).")
+    p.add_argument("tickers", nargs="+")
+    p.add_argument("--freq", default="monthly", choices=["monthly", "daily"])
+    p.add_argument("--window", type=int, help="rolling window in periods (default 36 months or 63 days)")
+    p.add_argument("--pair", help="the pair for the rolling correlation, e.g. SPY,TLT (default: the first two)")
+    p.add_argument("--start")
+    p.add_argument("--end")
+    p.add_argument("--json", action="store_true")
+    a = p.parse_args(argv)
+    tickers = [t for x in a.tickers for t in x.replace(",", " ").split()]
+    pair = a.pair.replace(",", " ").split() if a.pair else None
+    R = K.analyze(tickers, a.freq, a.window, a.start, a.end, pair)
+    print(json.dumps(report._clean(R), indent=2) if a.json else K.console(R))
     return 0
 
 
@@ -436,6 +551,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_montecarlo(rest)
         if cmd == "factors":
             return cmd_factors(rest)
+        if cmd in ("correlation", "correlations"):
+            return cmd_correlation(rest)
         if cmd == "optimize":
             return cmd_optimize(rest)
         if cmd == "signals":
