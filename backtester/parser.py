@@ -173,9 +173,9 @@ def find_tickers(text: str, strict: bool = False) -> list[str]:
                 unknown.append(f"{name} ({sym})")
     if strict and unknown:
         raise ParseError(
-            f"No price data for: {', '.join(dict.fromkeys(unknown))}. Available tickers: Nasdaq-100 members, "
-            f"former members, SPY, QQQ and ETFs such as {', '.join(data.etfs()[:25])}... "
-            f"(run `python -m backtester --tickers-list` for all).")
+            f"No price data for: {', '.join(dict.fromkeys(unknown))}. "
+            + " ".join(f"Did you mean {', '.join(data.suggest(u.split(' (')[0]))} for {u}?" for u in dict.fromkeys(unknown))
+            + " (`python -m backtester tickers` lists all.)")
     out: list[str] = []
     for _, s in sorted(found):
         if s not in out:

@@ -9,14 +9,18 @@ optimiser), Signals & paper trading, History (saved runs with share links) and D
 from __future__ import annotations
 
 import argparse
+import base64
 import dataclasses
+import difflib
 import hashlib
 import json
 import mimetypes
+import re
 import threading
 import time
 import traceback
 import urllib.parse
+import zlib
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -72,23 +76,121 @@ def _options(body: dict) -> dict:
     return out
 
 
+def _coerce_spec_dict(d: dict) -> dict:
+    """Make a hand-edited / form-built spec forgiving: blank values fall back to the field's default and
+    numbers typed as text become numbers. Unknown fields are left for from_dict to reject."""
+    from .portfolio import Portfolio
+    from .strategy import Strategy
+    d = dict(d)
+    cls = Portfolio if (d.get("kind") == "allocation" or "tree" in d) else Strategy
+    for f in dataclasses.fields(cls):
+        if f.name not in d:
+            continue
+        v = d[f.name]
+        has_default = f.default is not dataclasses.MISSING or f.default_factory is not dataclasses.MISSING
+        if (v is None or (isinstance(v, str) and not v.strip())) and has_default:
+            del d[f.name]  # blank -> the default (e.g. position_size -> leverage / max_positions)
+            continue
+        t = str(f.type)
+        numeric = ("float" in t or "int" in t) and "str" not in t
+        if isinstance(v, str) and numeric:
+            try:
+                d[f.name] = int(v) if "float" not in t else float(v)
+            except ValueError:
+                raise ClientError(f"{f.name.replace('_', ' ')}: {v!r} is not a number")
+        elif isinstance(v, float) and numeric and "float" not in t and v.is_integer():
+            d[f.name] = int(v)
+    return d
+
+
+def share_token(spec, rf="tbill") -> str:
+    """A URL-safe token that reproduces a run exactly: the full spec (settings included) + risk-free choice."""
+    d = runner.to_dict(spec)
+    d.pop("notes", None)
+    if d.get("universe_name") == "NDX":
+        d.pop("universe", None)  # rebuilt from the membership file on load
+    raw = json.dumps({"v": 1, "spec": d, "rf": rf}, separators=(",", ":"), sort_keys=True, default=str).encode()
+    return base64.urlsafe_b64encode(zlib.compress(raw, 9)).decode().rstrip("=")
+
+
+def decode_share(token: str) -> dict:
+    try:
+        raw = zlib.decompress(base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)))
+        obj = json.loads(raw)
+        if not (isinstance(obj, dict) and isinstance(obj.get("spec"), dict)):
+            raise ValueError
+        return obj
+    except Exception:  # noqa: BLE001
+        raise ClientError("This share link is damaged or incomplete (copy the whole link and try again).")
+
+
 def _spec(body: dict):
     ov = _options(body)
+    if body.get("share"):
+        body = {**body, "spec": decode_share(str(body["share"]))["spec"]}
     if body.get("spec"):
-        spec = runner.from_dict(body["spec"])
+        if not isinstance(body["spec"], dict):
+            raise ClientError("The strategy JSON must be an object ({...}).")
+        d = _coerce_spec_dict(body["spec"])
+        if d.get("universe_name") == "NDX" and not d.get("universe") and "tree" not in d:
+            d["universe"] = data.nasdaq100_ever()
+        spec = runner.from_dict(d)
         for k, v in ov.items():
             if hasattr(spec, k):
                 setattr(spec, k, v)
         if getattr(spec, "universe_name", None) == "NDX":
             spec.universe = data.nasdaq100_ever()
+        spec.validate()  # fills defaults (e.g. position_size) before the summary uses them
         if not spec.description:
-            spec.description = spec.summary().splitlines()[0]
+            lines = [ln.strip() for ln in spec.summary().splitlines() if ln.strip() and ln.strip() != "Portfolio:"]
+            spec.description = ("Portfolio: " if spec.__class__.__name__ == "Portfolio" else "") + (lines[0] if lines else "")
     elif body.get("text"):
         spec = parser.parse(body["text"], **ov)
     else:
         raise ClientError("Describe a strategy first.")
     spec.validate()
+    _probe_rules(spec)
     return spec
+
+
+def _rules(spec) -> list[str]:
+    if spec.__class__.__name__ == "Portfolio":
+        out = []
+
+        def walk(n):
+            if not isinstance(n, dict):
+                return
+            if "if" in n:
+                out.append(n["if"])
+            if "filter" in n:
+                out.extend(x for x in (n["filter"].get("by"), n["filter"].get("require")) if x)
+            for k in ("then", "else", "fallback"):
+                walk(n.get(k))
+            for c in n.get("children") or []:
+                walk(c)
+        walk(spec.tree)
+        return out
+    return [r for r in (spec.entry, spec.short_entry, spec.exit_when, spec.entry_level, spec.rank_by) if r]
+
+
+def _probe_rules(spec) -> None:
+    """Evaluate every rule once on a short slice of real data, so unknown names and wrong arguments are
+    reported when the strategy is interpreted (not halfway through a run). Also checks the tickers."""
+    if spec.__class__.__name__ != "Portfolio" and not spec.universe_name:
+        for t in spec.universe:
+            data.load(t)  # DataError with "did you mean" suggestions
+    if getattr(spec, "benchmark", None):
+        data.load(spec.benchmark)
+    try:
+        df = data.load("SPY").iloc[-260:]
+    except data.DataError:
+        return
+    import pandas as pd
+    z = pd.Series(0.0, index=df.index)
+    pos = {k: z for k in ("bars_held", "entry_price", "pnl", "highest_since_entry", "lowest_since_entry")}
+    for rule in _rules(spec):
+        if isinstance(rule, str):
+            expr.evaluate_value(rule, expr.Namespace(df, extra=dict(pos), ticker="SPY"))
 
 
 def _new_id(label: str) -> str:
@@ -96,13 +198,22 @@ def _new_id(label: str) -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S-") + h
 
 
-def _summary_row(rid: str, A: dict, kind: str, label: str, spec, extra: dict | None = None) -> dict:
+def _summary_row(rid: str, A: dict, kind: str, label: str, spec, extra: dict | None = None, res=None,
+                 rf="tbill") -> dict:
     st = A["stats"]
-    return {"id": rid, "created": datetime.now().isoformat(timespec="seconds"), "kind": kind, "label": label,
-            "text": getattr(spec, "description", ""), "spec": runner.to_dict(spec) if spec is not None else None,
-            "cagr": st.get("cagr"), "sharpe": st.get("sharpe"), "max_drawdown": st.get("max_drawdown"),
-            "final": st.get("end_equity"), "start": str(st.get("start")), "end": str(st.get("end")),
-            "trades": A["trade_stats"].get("trades", 0), **(extra or {})}
+    start = st.get("start")
+    if res is not None and len(res.equity) > 1:
+        start = res.equity.index[1].date()  # first real trading day (index 0 is the starting-capital point)
+    row = {"id": rid, "created": datetime.now().isoformat(timespec="seconds"), "kind": kind, "label": label,
+           "text": getattr(spec, "description", ""), "spec": runner.to_dict(spec) if spec is not None else None,
+           "cagr": st.get("cagr"), "sharpe": st.get("sharpe"), "max_drawdown": st.get("max_drawdown"),
+           "final": st.get("end_equity"), "start": str(start), "end": str(st.get("end")),
+           "trades": A["trade_stats"].get("trades", 0), **(extra or {})}
+    if res is not None and res.kind == "allocation":
+        row["rebalances"] = res.extras.get("rebalances")
+    if spec is not None:
+        row["share"] = share_token(spec, rf)
+    return row
 
 
 # ------------------------------------------------------------------ API handlers
@@ -114,20 +225,87 @@ def api_parse(body):
 
 
 def api_run(body):
+    rf = body.get("rf")
+    if body.get("share") and rf in (None, ""):
+        rf = decode_share(str(body["share"])).get("rf")
+    rf = "tbill" if rf in (None, "", "tbill") else rf
+    if rf != "tbill":
+        try:
+            rf = float(rf)
+        except (TypeError, ValueError):
+            raise ClientError(f"Bad risk-free rate {rf!r}")
     spec = _spec(body)
-    rf = body.get("rf") or "tbill"
     res = runner.run(spec)
-    A = report.analyze(res, rf=rf if rf == "tbill" else float(rf), sensitivity=body.get("sensitivity", True))
+    A = report.analyze(res, rf=rf, sensitivity=body.get("sensitivity", True))
     rid = _new_id(spec.description)
     out = RUNS / rid
     report.write_outputs(A, out)
-    row = _summary_row(rid, report._clean(A), res.kind, spec.name or spec.description[:80], spec)
+    row = _summary_row(rid, report._clean(A), res.kind, spec.name or spec.description[:80], spec, res=res, rf=rf)
     with LOCK:
         idx = _index()
         idx.insert(0, report._clean(row))
         _save_index(idx)
     return {"id": rid, "url": f"/r/{rid}/report.html", "files": sorted(p.name for p in out.iterdir()),
-            "summary": report._clean(row), "interpretation": spec.summary(), "notes": spec.notes}
+            "summary": report._clean(row), "interpretation": spec.summary(), "notes": spec.notes,
+            "spec": runner.to_dict(spec), "share": row["share"]}
+
+
+def api_share(body):
+    """Decode a share token -> the spec and settings it carries (the page fills its form from these)."""
+    sh = decode_share(str(body.get("share") or ""))
+    spec = _spec({"share": body.get("share")})
+    return {"spec": runner.to_dict(spec), "rf": sh.get("rf", "tbill"), "interpretation": spec.summary(),
+            "kind": "allocation" if spec.__class__.__name__ == "Portfolio" else "signal"}
+
+
+def api_orders(body):
+    from . import orders
+    try:
+        value = float(str(body.get("account_value") or "").replace(",", "").replace("$", ""))
+    except ValueError:
+        raise ClientError("Enter the current account value as a number, e.g. 25000.")
+    spec = _spec(body)
+    return report._clean(orders.todays_orders(spec, value, str(body.get("holdings") or ""),
+                                              whole_shares=body.get("whole_shares", True) is not False))
+
+
+def _gallery_cache_file() -> Path:
+    return RUNS / "gallery_stats.json"
+
+
+def api_gallery():
+    from .library import LIBRARY
+    f = _gallery_cache_file()
+    cache = json.loads(f.read_text()) if f.exists() else {}
+    stamp = str(data.data_status().get("updated_utc"))
+    lib = []
+    for x in LIBRARY:
+        c = cache.get(x["text"]) or {}
+        lib.append({**x, "stats": c.get("stats") if c.get("data") == stamp else None})
+    runs = [r for r in _index() if r.get("kind") in ("signal", "allocation")]
+    return {"library": lib, "runs": runs}
+
+
+def api_gallery_stats(body):
+    """Headline stats for one library strategy (cached until the data is updated)."""
+    from . import metrics
+    from .library import LIBRARY
+    text = str(body.get("text") or "")
+    if text not in {x["text"] for x in LIBRARY}:
+        raise ClientError("Not a library strategy.")
+    spec = parser.parse(text)
+    res = runner.run(spec)
+    st = metrics.equity_stats(res.equity, flows=res.extras.get("flows"))
+    stats = report._clean({"cagr": st.get("cagr"), "sharpe": st.get("sharpe"), "max_drawdown": st.get("max_drawdown"),
+                           "start": str(res.equity.index[min(1, len(res.equity) - 1)].date()),
+                           "end": str(res.equity.index[-1].date()), "share": share_token(spec)})
+    with LOCK:
+        f = _gallery_cache_file()
+        cache = json.loads(f.read_text()) if f.exists() else {}
+        cache[text] = {"data": str(data.data_status().get("updated_utc")), "stats": stats}
+        RUNS.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(cache, default=str))
+    return {"text": text, "stats": stats}
 
 
 def api_compare(body):
@@ -219,7 +397,8 @@ def api_status(_body=None):
     m = data.universe_meta()
     return report._clean({"data": data.data_status(), "examples": EXAMPLES, "nasdaq100": data.nasdaq100(),
                           "etfs": data.etfs(), "indexes": m.get("indexes", []),
-                          "former": m.get("former_members", []), "help": expr.HELP})
+                          "former": m.get("former_members", []), "help": expr.HELP,
+                          "tickers": data.available_tickers()})
 
 
 def api_fetch(body):
@@ -243,6 +422,48 @@ def api_delete(rid):
     if d.exists() and d.parent == RUNS:
         shutil.rmtree(d)
     return {"deleted": rid}
+
+
+# ------------------------------------------------------------------ errors
+
+_WORDS = sorted(set(re.findall(r"\b([a-z_]{2,})\(", expr.HELP))
+                | set(re.findall(r"\b([a-z_]{3,})\b", expr.HELP.split("Functions")[0])))
+
+
+def friendly_error(e: BaseException) -> str:
+    """A readable message for anything a user's input can trigger (no raw Python exception names)."""
+    msg = str(e).strip()
+    if isinstance(e, KeyError):
+        return f"Missing field {e.args[0]!r} in the strategy." if e.args else "A required field is missing."
+    if isinstance(e, NameError):
+        m = re.search(r"unknown name '([^']+)'", msg) or re.search(r"name '([^']+)' is not defined", msg)
+        if m:
+            w = m.group(1)
+            close = difflib.get_close_matches(w, _WORDS, n=3, cutoff=0.5)
+            return (f"The rule uses '{w}', which is not a known indicator or variable."
+                    + (f" Did you mean {' or '.join(close)}?" if close else "")
+                    + " See the rule language reference (Build or Data page).")
+        return f"Unknown name in the rule: {msg}"
+    if isinstance(e, SyntaxError):
+        where = f" {e.text.strip()!r}" if getattr(e, "text", None) else ""
+        return f"Couldn't read the rule{where}: check the brackets, commas and operators (e.g. rsi(close, 2) < 10)."
+    if isinstance(e, TypeError):
+        m = re.search(r"missing \d+ required (?:positional )?arguments?: (.+)$", msg)
+        if m:
+            return f"The strategy is missing required field(s): {m.group(1)}."
+        m = re.search(r"(\w+)\(\) (takes|got|missing)(.*)", msg)
+        if m:
+            return f"Wrong arguments for {m.group(1)}(): {m.group(2)}{m.group(3)}. Check the rule language reference."
+        return f"A value has the wrong type ({msg})."
+    m = re.search(r"(?:invalid literal for \w+\(\) with base \d+|could not convert string to float): (.+)$", msg)
+    if isinstance(e, ValueError) and m:
+        return f"A number was expected, but got {m.group(1)}."
+    if isinstance(e, ZeroDivisionError):
+        return "A calculation divided by zero: check the numbers in the strategy (e.g. max positions, lookbacks)."
+    if isinstance(e, (ClientError, parser.ParseError, data.DataError, ValueError)):
+        return msg or "Invalid input."
+    return (f"Couldn't run this strategy ({msg or type(e).__name__}). Try rephrasing it, "
+            "or report it with the sentence you used.")
 
 
 # ------------------------------------------------------------------ HTTP
@@ -288,6 +509,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/library":
                 from .library import LIBRARY
                 return self._json(200, LIBRARY)
+            if path == "/api/gallery":
+                return self._json(200, api_gallery())
             if path == "/api/paper":
                 return self._json(200, api_paper({}, "GET"))
             if path.startswith("/r/"):
@@ -303,7 +526,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(500, {"error": f"Server error: {e}"})
 
     def do_POST(self):
-        path = urllib.parse.urlparse(self.path).path
+        u = urllib.parse.urlparse(self.path)
+        path = u.path
+        # ?soft=1 (live interpretation while typing): report input errors with 200 so the browser console stays quiet
+        bad = 200 if urllib.parse.parse_qs(u.query).get("soft") == ["1"] else 400
         try:
             body = self._body()
             handlers = {
@@ -311,20 +537,18 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/sweep": lambda b: api_research(b, "sweep"), "/api/walkforward": lambda b: api_research(b, "walkforward"),
                 "/api/optimize": lambda b: api_research(b, "optimize"), "/api/signals": api_signals,
                 "/api/paper": lambda b: api_paper(b, "POST"),
-                "/api/fetch": api_fetch,
+                "/api/fetch": api_fetch, "/api/share": api_share, "/api/orders": api_orders,
+                "/api/gallery/stats": api_gallery_stats,
             }
             if path in handlers:
                 return self._json(200, handlers[path](body))
             return self._json(404, {"error": "unknown endpoint"})
-        except (ClientError, parser.ParseError, ValueError, data.DataError, KeyError) as e:
-            msg = str(e)
-            if isinstance(e, KeyError):
-                msg = f"Missing field {e}"
-            return self._json(400, {"error": msg})
-        except Exception as e:  # noqa: BLE001
+        except (ClientError, parser.ParseError, ValueError, data.DataError, KeyError, NameError, SyntaxError,
+                TypeError, ZeroDivisionError) as e:
+            return self._json(bad, {"error": friendly_error(e)})
+        except Exception as e:  # noqa: BLE001 - whatever a request triggers is reported readably, never as a 500
             traceback.print_exc()
-            return self._json(500, {"error": f"Something went wrong while running this ({type(e).__name__}: {e}). "
-                                             "Try rephrasing, or report it with the sentence you used."})
+            return self._json(bad, {"error": friendly_error(e)})
 
     def do_DELETE(self):
         path = urllib.parse.urlparse(self.path).path
