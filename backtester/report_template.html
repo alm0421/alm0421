@@ -306,7 +306,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     $('interp').textContent = (multi ? D.runs.map((x, i) => x.name + ': ' + x.interpretation.join('\n   ')).join('\n\n') : r.interpretation.join('\n'));
     $('notes').replaceChildren();
     const notes = multi ? D.runs.flatMap(x => x.notes.map(n => x.name + ': ' + n)) : r.notes;
-    notes.forEach(n => $('notes').appendChild(el('div', { class: /survivorship|Coverage|Membership/.test(n) ? 'warn' : 'note' }, 'Note: ' + n)));
+    // "Warning: ..." notes (a reinterpreted word) are shown as warning banners below instead
+    notes.filter(n => !/^(?:[^:]*: )?Warning:/.test(n)).forEach(n => $('notes').appendChild(el('div', { class: /survivorship|Coverage|Membership/.test(n) ? 'warn' : 'note' }, 'Note: ' + n)));
     $('warnings').replaceChildren();
     const order = { error: 0, warn: 1, info: 2 };
     const ws = (multi ? D.runs.flatMap(x => (x.warnings || []).map(w => ({ ...w, run: x.name }))) : (r.warnings || []).slice())

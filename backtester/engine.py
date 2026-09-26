@@ -7,8 +7,13 @@ Order of events on each bar i:
                  entries at the open (yesterday's "next_open" signals or open-safe same-day rules),
                  then limit/stop entry orders whose level the open already crossed.
   2. INTRADAY  - limit/stop entries touched during the bar, then stop loss / ATR stop / trailing
-                 stop / take profit / scale-outs from the bar's high and low. If a stop and a target
-                 are both touched on one bar the stop is assumed to have hit first (conservative).
+                 stop / breakeven stop / take profit / scale-outs from the bar's high and low. If a stop
+                 and a target are both touched on one bar the stop is assumed to have hit first
+                 (conservative). The stop and the target are one-cancels-other (OCA): whichever fills
+                 closes the position and cancels the other. Trailing and breakeven stops move with the
+                 best price reached, using each bar's high (low for shorts) after that bar's own stop
+                 check, so a level set by today's high applies from the next bar (daily bars can't tell
+                 whether the high came before the low).
   3. CLOSE     - time exits, rule exits and reversals at the close, then entries at the close.
   4. MARK      - portfolio marked to market at the close; liquidation if equity is exhausted.
 
@@ -40,7 +45,7 @@ import pandas as pd
 from . import data, expr
 from .strategy import Strategy, broker_commission
 
-INTRADAY_REASONS = ("stop loss", "ATR stop", "trailing stop", "chandelier stop", "take profit", "scale out")
+INTRADAY_REASONS = ("stop loss", "ATR stop", "trailing stop", "chandelier stop", "breakeven stop", "take profit", "scale out")
 
 
 @dataclass
@@ -256,7 +261,8 @@ def run(strat: Strategy) -> Result:
     last_bar = np.array([np.flatnonzero(has[:, j])[-1] if has[:, j].any() else -1 for j in range(N)])
     last_close = np.full(N, np.nan)
 
-    S = dict(cash=strat.capital, interest=0.0, halted=False)
+    S = dict(cash=strat.capital, interest=0.0, halted=False, small=0, addon_skipped=0)
+    slot_days: set = set()                          # days an entry signal found no free position slot
     positions: dict[int, Position] = {}
     pending_mkt_open: list[tuple[int, int]] = []    # (k, sign) market orders for the next open
     pending_mkt_close: list[tuple[int, int]] = []   # (k, sign) for the next close
@@ -355,7 +361,12 @@ def run(strat: Strategy) -> Result:
         if shares > 0 and strat.slippage_model != "fixed":
             fill = px * (1 + sgn * slip_for(i, k, shares))  # impact of the order size, then re-size at that price
             shares = size_shares(i, k, fill, eq, prices, sgn, at_open)
-        if shares <= 0:
+        if shares <= 0 or shares * fill < max(strat.min_order or 0.0, 1e-9):
+            # no dust: an order worth less than min_order (e.g. the leftover cash of a full position) is skipped
+            if k in positions:
+                S["addon_skipped"] += 1
+            elif shares > 0:
+                S["small"] += 1
             return False
         com = commission(shares, shares * fill)
         S["cash"] -= sgn * shares * fill + com
@@ -454,6 +465,7 @@ def run(strat: Strategy) -> Result:
                 open_pos(i, k, prices[k], at_open, sgn, prices)
             return
         if len(positions) >= strat.max_positions:
+            slot_days.add(i)
             return
         open_pos(i, k, prices[k], at_open, sgn, prices)
 
@@ -478,7 +490,7 @@ def run(strat: Strategy) -> Result:
         return len(p.lots) < strat.pyramiding
 
     stops_used = any([strat.stop_loss, strat.stop_atr, strat.trailing_stop, strat.trailing_atr,
-                      strat.take_profit, strat.take_profit_atr, strat.scale_out])
+                      strat.take_profit, strat.take_profit_atr, strat.scale_out, strat.breakeven_after])
 
     def split_levels(p: Position):
         """(fixed stop, trailing stop, target) at this moment, NaN where not used: the chart draws them."""
@@ -506,6 +518,8 @@ def run(strat: Strategy) -> Result:
             cands.append((p.peak * (1 - s * strat.trailing_stop), "trailing stop"))
         if strat.trailing_atr and np.isfinite(p.atr_at_entry):
             cands.append((p.peak - s * strat.trailing_atr * p.atr_at_entry, "chandelier stop"))
+        if strat.breakeven_after and (p.peak - e * (1 + s * strat.breakeven_after)) * s >= 0:
+            cands.append((e, "breakeven stop"))    # armed once the best price reached +breakeven_after
         if cands:  # the tightest stop (closest to price) triggers first
             stop, why = max(cands, key=lambda c: c[0] * s)
         tgt = None
@@ -600,6 +614,7 @@ def run(strat: Strategy) -> Result:
                 still.append(od)
                 continue
             if k not in positions and len(positions) >= strat.max_positions:
+                slot_days.add(i)
                 still.append(od)
                 continue
             if open_pos(i, k, fill, True, sgn, o):
@@ -709,6 +724,40 @@ def run(strat: Strategy) -> Result:
                            f"{strat.maintenance_margin:.0%} of gross exposure, so positions were cut pro rata at the "
                            f"close back to {strat.leverage:g}x (trades marked 'margin call').")
 
+    if slot_days and N > 1 and not strat.rank_by:
+        strat.notes = [n for n in strat.notes if not n.startswith("Slots:")]
+        strat.notes.append(f"Slots: on {len(slot_days)} day(s) more tickers signalled than there were free position slots. "
+                           "No ranking was given, so the most liquid were taken first: highest 20-day average dollar "
+                           "volume (close x volume) as known when the order was placed. Say e.g. 'prefer the lowest "
+                           "RSI' to choose differently.")
+    if S["addon_skipped"]:
+        strat.notes = [n for n in strat.notes if not n.startswith("Warning: pyramiding")]
+        strat.notes.append(f"Warning: pyramiding add-ons were skipped {S['addon_skipped']} time(s): the position had no "
+                           f"headroom left (its size already used the capital or leverage available), or the order would "
+                           f"have been worth less than the ${strat.min_order:g} minimum. Lower the size per entry to leave room.")
+    if S["small"]:
+        strat.notes = [n for n in strat.notes if not n.startswith("Min order:")]
+        strat.notes.append(f"Min order: {S['small']} entry order(s) worth less than ${strat.min_order:g} were skipped.")
+
+    # the state after the last bar: what is open, and which exits / stop levels apply at the next session
+    # (signals.scan turns this into tomorrow's orders)
+    open_state = []
+    for p in positions.values():
+        stop, why, tgt = levels(p) if stops_used else (None, "", None)
+        so_levels = [{"at": float(so["at"]), "fraction": float(so["fraction"]),
+                      "level": float(p.avg_price * (1 + p.sign * so["at"]))}
+                     for j, so in enumerate(strat.scale_out or []) if j not in p.scaled]
+        open_state.append({
+            "ticker": tick[p.k], "side": "long" if p.sign == 1 else "short", "shares": float(p.shares),
+            "avg_price": float(p.avg_price), "entry_date": str(cal[p.entry_bar].date()), "entries": len(p.lots),
+            "has_last_bar": bool(last_bar[p.k] == T - 1),
+            "pending_open_exit": bool(p.pending_open_exit), "pending_reason": p.pending_reason,
+            "hold_bars_left": None if p.exit_due_bar is None else int(p.exit_due_bar - (T - 1)),
+            "hold_exit_open": bool(p.exit_due_open),
+            "stop": None if stop is None else float(stop), "stop_reason": why,
+            "target": None if tgt is None else float(tgt), "scale_out": so_levels,
+        })
+
     # close anything still open at the last bar
     for p in list(positions.values()):
         close_part(T - 1, p, last_close[p.k], "open at end", at_open=False)
@@ -744,6 +793,7 @@ def run(strat: Strategy) -> Result:
                  holdings=hw, interest=S["interest"], in_market=inm)
     # the entry / exit rules' value on every bar (what the simulation acted on), for the report's rule-state strip;
     # an exit rule that uses the position (bars_held, entry_price...) has no per-bar value outside a trade
+    res.extras["open_state"] = open_state
     res.extras["rule_state"] = {"cal": cal, "tick": tick, "entry": long_sig | short_sig,
                                 "exit": None if P["per_trade_exit"] or not strat.exit_when else exit_sig}
     return res

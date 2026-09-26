@@ -75,8 +75,23 @@ def signal_targets(s, account_value: float) -> tuple[str, dict[str, float], list
     as_of = str(res.equity.index[-1].date())
     tr = res.trades
     held: dict[str, float] = {}
+    exits, standing = signals.exit_instructions(s, res)
+    # positions the engine sells at the next open (an exit rule filled at the open, a holding period ending
+    # at the open) are not part of the target: they are SELL orders now
+    leaving = {e["ticker"] for e in exits if not e.get("done") and e["when"] == "at the next open"}
+    for e in exits:
+        if e["ticker"] in leaving and not e.get("done"):
+            notes.append(f"{e['ticker']}: {e['action'].lower()} at the next open ({e['reason']}), as the backtest does.")
+    for o in standing:
+        if o.get("price") is not None:
+            notes.append(f"{o['ticker']}: place a {o['action']} {o['order']} order at {o['price']} for the next session "
+                         f"({o['reason']}{'; one-cancels-other with the other exit order' if o.get('oca') else ''}).")
+        else:
+            notes.append(f"{o['ticker']}: {o['action'].lower()} at the next open if {o['reason']}.")
     if tr is not None and not tr.empty:
         for _, r in tr[tr["exit_reason"] == "open at end"].iterrows():
+            if r.ticker in leaving:
+                continue
             px, _ = _last_close(r.ticker)
             sign = -1 if r.side == "short" else 1
             if px and eq > 0:
@@ -87,7 +102,9 @@ def signal_targets(s, account_value: float) -> tuple[str, dict[str, float], list
         free = max(int(s.max_positions) - len(held), 0)
         new = [e for e in sc.get("entry_signals", []) if e["ticker"] not in held][:free]
         if len(sc.get("entry_signals", [])) > free + len([e for e in sc.get("entry_signals", []) if e["ticker"] in held]):
-            notes.append("More entry signals than free position slots: the first ones alphabetically were kept.")
+            notes.append("More entry signals than free position slots: kept the best-ranked ("
+                         + (f"{'lowest' if s.rank_ascending else 'highest'} {s.rank_by}" if s.rank_by else
+                            "highest 20-day average dollar volume, the default") + "), as the backtest does.")
         for e in new:
             sign = -1 if e["side"] == "short" else 1
             if s.sizing == "fixed_dollars" and s.fixed_amount:
@@ -105,8 +122,6 @@ def signal_targets(s, account_value: float) -> tuple[str, dict[str, float], list
             notes.append(f"{len(new)} new entry signal(s) fill at the {s.entry_fill.replace('_', ' ')}.")
     else:
         notes.append("Entries fill at the close of the signal day, so today's signals are already in the positions.")
-    if s.hold_exit_fill == "open" or s.exit_when_fill == "next_open":
-        notes.append("Exits scheduled for the next open are still listed as held; check them before trading.")
     return as_of, held, notes, fixed
 
 

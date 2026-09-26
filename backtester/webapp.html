@@ -471,7 +471,9 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       const j = await api('/api/parse?soft=1', { text: t, options: opt() });
       if (seq !== interpSeq) return;   // a newer edit is being interpreted
       $('interp').classList.remove('err'); $('interp').textContent = j.interpretation; lastSpec = j.spec;
-      j.notes.forEach(n => $('interpNotes').append(el('div', { class: /survivorship|Coverage|Membership|refer|read as/.test(n) ? 'warn' : 'note' }, 'Note: ' + n)));
+      // "Warning: ..." notes (a word reinterpreted, e.g. 'it' resolved to the entry's indicator) come first, flagged
+      const isW = n => /^Warning:/.test(n);
+      [...j.notes.filter(isW), ...j.notes.filter(n => !isW(n))].forEach(n => $('interpNotes').append(el('div', isW(n) ? { class: 'warn', role: 'alert' } : { class: /survivorship|Coverage|Membership|refer|read as/.test(n) ? 'warn' : 'note' },isW(n) ? '⚠ ' + n : 'Note: ' + n)));
     } catch (e) { if (seq !== interpSeq) return; $('interp').classList.add('err'); $('interp').textContent = e.message; lastSpec = null; }
   }
   $('text').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(interpret, 450); });
@@ -1097,6 +1099,9 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       $('sigStatus').textContent = 'as of ' + j.as_of;
       out.append(el('p', {}, j.action || ''));
       if (j.entry_signals) { const tb = el('table'); const hr = el('tr'); ['Signal', 'Ticker', 'Close'].forEach(h => hr.append(el('th', {}, h))); tb.append(hr); j.entry_signals.forEach(s => { const tr = el('tr'); tr.append(el('td', {}, s.side), el('td', {}, s.ticker), el('td', { class: 'n' }, num(s.close))); tb.append(tr); }); if (j.entry_signals.length) out.append(el('h3', {}, 'New entries'), tb); }
+      const exitRows = [...(j.exit_signals || []).map(e => [e.action, e.ticker, e.when + (e.done && e.order !== 'MOC' ? ' (filled)' : ''), e.order, '', e.reason]),
+                        ...(j.exit_orders || []).map(o => [o.action, o.ticker, o.valid || '', o.order, o.price == null ? '' : num(o.price), o.reason + (o.oca ? ' (one-cancels-other)' : '')])];
+      if (exitRows.length) { const tb = el('table'); const hr = el('tr'); ['Action', 'Ticker', 'When', 'Order', 'Price', 'Why'].forEach(h => hr.append(el('th', {}, h))); tb.append(hr); exitRows.forEach(r => { const tr = el('tr'); r.forEach((x, i) => tr.append(el('td', i === 4 ? { class: 'n' } : {}, x))); tb.append(tr); }); out.append(el('h3', {}, 'Exits and exit orders'), tb); }
       if (j.open_positions && j.open_positions.length) { const tb = el('table'); const hr = el('tr'); ['Ticker', 'Side', 'Since', 'Entry', 'Last', 'Unrealised'].forEach(h => hr.append(el('th', {}, h))); tb.append(hr); j.open_positions.forEach(p => { const tr = el('tr'); tr.append(el('td', {}, p.ticker), el('td', {}, p.side), el('td', {}, p.since), el('td', { class: 'n' }, num(p.entry_price)), el('td', { class: 'n' }, num(p.last_price)), el('td', { class: 'n ' + (p.unrealized_return >= 0 ? 'pos' : 'neg') }, pct(p.unrealized_return))); tb.append(tr); }); out.append(el('h3', {}, 'Positions the strategy would hold now'), tb); }
       if (j.target_weights) { const tb = el('table'); Object.entries(j.target_weights).forEach(([k, v]) => { const tr = el('tr'); tr.append(el('td', {}, k), el('td', { class: 'n' }, pct(v, 1))); tb.append(tr); }); out.append(el('h3', {}, 'Target allocation now'), tb); }
     } catch (e) { $('sigStatus').textContent = ''; out.append(el('div', { class: 'err' }, e.message)); }

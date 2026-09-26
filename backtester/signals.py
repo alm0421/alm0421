@@ -25,6 +25,70 @@ from .strategy import Strategy
 PAPER = data.ROOT / "paper"
 
 
+def _sessions_after(last: pd.Timestamp, n: int, ticker: str) -> pd.Timestamp:
+    """The n-th trading session after `last` (calendar days for crypto, NYSE sessions otherwise)."""
+    if expr.is_crypto(ticker):
+        return last + pd.Timedelta(days=n)
+    from . import calendar as _cal
+    return _cal.next_sessions(last, n)[-1]
+
+
+def exit_instructions(spec: Strategy, res) -> tuple[list[dict], list[dict]]:
+    """What the engine does with the open positions, as orders: (exits, standing orders).
+
+    exits: market exits - the ones the engine made at the latest close (MOC orders, sold "at today's close"),
+    exits scheduled for the next open (an exit rule filled at the next open, a holding period ending at an open),
+    and holding periods ending at a later close/open (with the date). standing orders: for every position still
+    open, the stop (stop order) and target / scale-out (limit orders) levels that apply at the next session, as
+    the engine uses them; a stop and a target form a one-cancels-other (OCA) pair."""
+    last = res.equity.index[-1]
+    exits: list[dict] = []
+    standing: list[dict] = []
+    tr = res.trades
+    word = {"long": ("SELL", "sell"), "short": ("BUY TO COVER", "cover")}
+    if tr is not None and not tr.empty:
+        today = tr[(pd.to_datetime(tr["exit_date"]) == last) & (tr["exit_reason"] != "open at end")]
+        for (t, side, reason, fill), g in today.groupby(["ticker", "side", "exit_reason", "exit_fill"], sort=False):
+            when = {"close": "at today's close", "open": "at today's open", "intraday": "today (intraday)"}.get(fill, fill)
+            exits.append({"ticker": t, "side": side, "action": word[side][0], "when": when,
+                          "order": {"close": "MOC", "open": "MOO"}.get(fill, "STOP/LIMIT"), "reason": reason,
+                          "date": str(last.date()), "shares": round(float(g["shares"].sum()), 6),
+                          "price": round(float(g["exit_price"].iloc[-1]), 4), "done": True})
+    for st in res.extras.get("open_state", []) or []:
+        t, side = st["ticker"], st["side"]
+        act = word[side][0]
+        base = {"ticker": t, "side": side, "action": act, "shares": round(st["shares"], 6)}
+        left = st.get("hold_bars_left")
+        if st.get("pending_open_exit"):
+            nxt = _sessions_after(last, 1, t)
+            exits.append({**base, "when": "at the next open", "order": "MOO", "reason": st.get("pending_reason") or "exit rule",
+                          "date": str(nxt.date())})
+            continue       # sold at the open, before any stop or target can act
+        if left is not None and left >= 1:
+            day = _sessions_after(last, left, t)
+            at_open = st.get("hold_exit_open")
+            when = (("at the next open" if at_open else "at the next close") if left == 1
+                    else f"at the {'open' if at_open else 'close'} on {day.date()}")
+            exits.append({**base, "when": when, "order": "MOO" if at_open else "MOC", "reason": "time exit",
+                          "date": str(day.date())})
+            if left == 1 and at_open:
+                continue
+        oca = f"{t}-exit" if (st.get("stop") is not None and st.get("target") is not None) else None
+        if st.get("stop") is not None:
+            standing.append({**base, "order": "STOP", "price": round(st["stop"], 4), "reason": st.get("stop_reason") or "stop",
+                             "valid": "next session (update after each close)", "oca": oca})
+        if st.get("target") is not None:
+            standing.append({**base, "order": "LIMIT", "price": round(st["target"], 4), "reason": "take profit",
+                             "valid": "next session (update after each close)", "oca": oca})
+        for so in st.get("scale_out") or []:
+            standing.append({**base, "order": "LIMIT", "price": round(so["level"], 4), "shares": round(st["shares"] * so["fraction"], 6),
+                             "reason": f"scale out {so['fraction']:.0%} at +{so['at']:.1%}", "valid": "next session", "oca": None})
+        if spec.exit_when and spec.exit_when_fill == "open" and isinstance(spec.exit_when, str):
+            standing.append({**base, "order": "MOO if", "price": None, "reason": f"exit rule {spec.exit_when} (checked at the open)",
+                             "valid": "next open", "oca": None})
+    return exits, standing
+
+
 def scan(spec) -> dict:
     res = runner.run(spec)
     last = res.equity.index[-1]
@@ -41,12 +105,15 @@ def scan(spec) -> dict:
         {"ticker": r.ticker, "side": r.side, "since": str(r.entry_date), "entry_price": round(float(r.entry_price), 4),
          "last_price": round(float(r.exit_price), 4), "unrealized_return": round(float(r["return"]), 4)}
         for _, r in open_now.iterrows()]
+    exits, standing = exit_instructions(spec, res)
+    out["exit_signals"] = exits
+    out["exit_orders"] = standing
     held = {r["ticker"] for r in out["open_positions"]}
     sig, assumed = [], False
     for t in spec.universe:
         t = data.canonical(t)
-        df = data.load(t)
-        if df.index[-1] != last:
+        df = data.load(t).loc[:last]   # a run that ends earlier (spec.end) is scanned as of its last day
+        if not len(df) or df.index[-1] != last:
             continue
         if spec.entry_fill == "open":
             # an "at the open" rule decides on the NEXT bar's open: evaluate it on a provisional next bar
@@ -103,8 +170,17 @@ def scan(spec) -> dict:
                        "today's close; the order only triggers if the actual open meets the condition.")
     fill = {"close": "at today's close (market-on-close)", "open": "at the next open (rule is open-time)",
             "next_open": "at the next open", "next_close": "at the next close"}[spec.entry_fill]
-    out["action"] = (f"{len(sig)} entry signal(s) {fill}" if sig else "No new entry signals") + \
-                    (f"; {len(out['open_positions'])} position(s) open" if out["open_positions"] else "") + \
+    todo = [e for e in exits if not e.get("done") and e["when"] in ("at the next open", "at the next close")]
+    # an exit at today's close is a market-on-close order (like entries at the close); earlier ones already happened
+    moc = [e for e in exits if e.get("done") and e["order"] == "MOC"]
+    exit_txt = "; ".join([f"{e['action']} {e['ticker']} {e['when']} ({e['reason']})" for e in moc + todo])
+    still_open = len(out["open_positions"]) - len({e["ticker"] for e in todo if e["when"] == "at the next open"})
+    out["action"] = ((exit_txt + "; ") if exit_txt else "") + \
+                    (f"{len(sig)} entry signal(s) {fill}" if sig else "No new entry signals") + \
+                    (f"; {still_open} position(s) open" if still_open > 0 else "") + \
+                    (f" (exit orders for the next session: " + ", ".join(
+                        f"{o['action']} {o['order']} {o['ticker']} @ {o['price']}" for o in standing if o.get("price") is not None) + ")"
+                     if any(o.get("price") is not None for o in standing) else "") + \
                     (f"; {len(over)} more signal(s) with no free slot" if over else "")
     return out
 
@@ -153,6 +229,15 @@ def format_alert(rows) -> str:
     for r in rows if isinstance(rows, list) else [rows]:
         s = r.get("today", r)
         lines.append(f"*{r.get('name', s.get('description', 'strategy'))}* ({s['as_of']}): {s.get('action', '')}")
+        for e in s.get("exit_signals", [])[:20]:
+            lines.append(f"  • {e['action']} {e['ticker']} {e['when']} ({e['reason']}"
+                         + (", already filled" if e.get("done") and e.get("order") != "MOC" else "") + ")")
+        for o in s.get("exit_orders", [])[:20]:
+            if o.get("price") is not None:
+                lines.append(f"  • {o['action']} {o['order']} {o['ticker']} @ {o['price']} ({o['reason']}"
+                             + (", OCA with the other exit order" if o.get("oca") else "") + ")")
+            else:
+                lines.append(f"  • {o['action']} {o['ticker']} at the next open if {o['reason']}")
         for e in s.get("entry_signals", [])[:20]:
             lines.append(f"  • {e['side']} {e['ticker']} @ {e['close']}")
         if s.get("target_weights"):
