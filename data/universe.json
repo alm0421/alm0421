@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-09-26T14:58:23+00:00",
+ "updated_utc": "2026-09-26T15:43:48+00:00",
  "constituent_source": "stockanalysis.com",
  "nasdaq100": [
   "AAPL",
@@ -354,6 +354,25 @@
   "PFIX",
   "RPAR",
   "NTSX",
+  "VTSAX",
+  "VTIAX",
+  "VBTLX",
+  "VGSLX",
+  "VIMAX",
+  "VSMAX",
+  "VBIAX",
+  "VWIAX",
+  "VFIAX",
+  "FXAIX",
+  "FSKAX",
+  "FTIHX",
+  "SWPPX",
+  "VTMGX",
+  "VEMAX",
+  "VSIAX",
+  "VGSTX"
+ ],
+ "stocks": [
   "JPM",
   "XOM",
   "BRK-B",
@@ -395,24 +414,7 @@
   "RTX",
   "UPS",
   "UNP",
-  "MMM",
-  "VTSAX",
-  "VTIAX",
-  "VBTLX",
-  "VGSLX",
-  "VIMAX",
-  "VSMAX",
-  "VBIAX",
-  "VWIAX",
-  "VFIAX",
-  "FXAIX",
-  "FSKAX",
-  "FTIHX",
-  "SWPPX",
-  "VTMGX",
-  "VEMAX",
-  "VSIAX",
-  "VGSTX"
+  "MMM"
  ],
  "indexes": [
   "^NDX",
@@ -443,6 +445,9 @@
   "VBSIM",
   "EFASIM",
   "IEISIM",
+  "LQDSIM",
+  "EEMSIM",
+  "DBCSIM",
   "GLDSIM"
  ],
  "former_members": [
@@ -2416,6 +2421,91 @@
    "last": "2026-09-25",
    "rows": 2048
   },
+  "VTSAX": {
+   "first": "2000-11-13",
+   "last": "2026-09-25",
+   "rows": 6504
+  },
+  "VTIAX": {
+   "first": "2010-11-29",
+   "last": "2026-09-25",
+   "rows": 3980
+  },
+  "VBTLX": {
+   "first": "2001-11-12",
+   "last": "2026-09-25",
+   "rows": 6257
+  },
+  "VGSLX": {
+   "first": "2001-11-12",
+   "last": "2026-09-25",
+   "rows": 6257
+  },
+  "VIMAX": {
+   "first": "2001-11-12",
+   "last": "2026-09-25",
+   "rows": 6257
+  },
+  "VSMAX": {
+   "first": "2000-11-13",
+   "last": "2026-09-25",
+   "rows": 6504
+  },
+  "VBIAX": {
+   "first": "2000-11-13",
+   "last": "2026-09-25",
+   "rows": 6504
+  },
+  "VWIAX": {
+   "first": "2001-05-14",
+   "last": "2026-09-25",
+   "rows": 6380
+  },
+  "VFIAX": {
+   "first": "2000-11-13",
+   "last": "2026-09-25",
+   "rows": 6504
+  },
+  "FXAIX": {
+   "first": "2011-05-04",
+   "last": "2026-09-25",
+   "rows": 3872
+  },
+  "FSKAX": {
+   "first": "2011-09-08",
+   "last": "2026-09-25",
+   "rows": 3784
+  },
+  "FTIHX": {
+   "first": "2016-06-16",
+   "last": "2026-09-25",
+   "rows": 2584
+  },
+  "SWPPX": {
+   "first": "1997-05-20",
+   "last": "2026-09-25",
+   "rows": 7384
+  },
+  "VTMGX": {
+   "first": "1999-08-17",
+   "last": "2026-09-25",
+   "rows": 6819
+  },
+  "VEMAX": {
+   "first": "2006-06-23",
+   "last": "2026-09-25",
+   "rows": 5096
+  },
+  "VSIAX": {
+   "first": "2011-09-27",
+   "last": "2026-09-25",
+   "rows": 3771
+  },
+  "VGSTX": {
+   "first": "1985-03-29",
+   "last": "2026-09-25",
+   "rows": 10453
+  },
   "JPM": {
    "first": "1980-03-17",
    "last": "2026-09-25",
@@ -2625,91 +2715,6 @@
    "first": "1962-01-02",
    "last": "2026-09-25",
    "rows": 16292
-  },
-  "VTSAX": {
-   "first": "2000-11-13",
-   "last": "2026-09-25",
-   "rows": 6504
-  },
-  "VTIAX": {
-   "first": "2010-11-29",
-   "last": "2026-09-25",
-   "rows": 3980
-  },
-  "VBTLX": {
-   "first": "2001-11-12",
-   "last": "2026-09-25",
-   "rows": 6257
-  },
-  "VGSLX": {
-   "first": "2001-11-12",
-   "last": "2026-09-25",
-   "rows": 6257
-  },
-  "VIMAX": {
-   "first": "2001-11-12",
-   "last": "2026-09-25",
-   "rows": 6257
-  },
-  "VSMAX": {
-   "first": "2000-11-13",
-   "last": "2026-09-25",
-   "rows": 6504
-  },
-  "VBIAX": {
-   "first": "2000-11-13",
-   "last": "2026-09-25",
-   "rows": 6504
-  },
-  "VWIAX": {
-   "first": "2001-05-14",
-   "last": "2026-09-25",
-   "rows": 6380
-  },
-  "VFIAX": {
-   "first": "2000-11-13",
-   "last": "2026-09-25",
-   "rows": 6504
-  },
-  "FXAIX": {
-   "first": "2011-05-04",
-   "last": "2026-09-25",
-   "rows": 3872
-  },
-  "FSKAX": {
-   "first": "2011-09-08",
-   "last": "2026-09-25",
-   "rows": 3784
-  },
-  "FTIHX": {
-   "first": "2016-06-16",
-   "last": "2026-09-25",
-   "rows": 2584
-  },
-  "SWPPX": {
-   "first": "1997-05-20",
-   "last": "2026-09-25",
-   "rows": 7384
-  },
-  "VTMGX": {
-   "first": "1999-08-17",
-   "last": "2026-09-25",
-   "rows": 6819
-  },
-  "VEMAX": {
-   "first": "2006-06-23",
-   "last": "2026-09-25",
-   "rows": 5096
-  },
-  "VSIAX": {
-   "first": "2011-09-27",
-   "last": "2026-09-25",
-   "rows": 3771
-  },
-  "VGSTX": {
-   "first": "1985-03-29",
-   "last": "2026-09-25",
-   "rows": 10453
   },
   "^NDX": {
    "first": "1985-10-01",
