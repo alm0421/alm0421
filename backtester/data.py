@@ -261,7 +261,123 @@ def coverage_note(start, end) -> str | None:
     if gaps:
         note += (" Membership snapshots are missing for " + ", ".join(gaps)
                  + "; the last known list is carried forward across those gaps.")
+    miss = missing_members(start, end)
+    if miss:
+        dl = delisted()
+        note += (" Biggest missing members (member-months without usable data): "
+                 + ", ".join(f"{t} ({n}{'; ' + dl[t]['history'] if dl.get(t, {}).get('history') else ''})" for t, n in miss)
+                 + ". " + TIINGO_HINT)
     return note
+
+
+TIINGO_HINT = ("A free Tiingo API key (repository secret TIINGO_API_KEY, see README 'Delisted former members') lets the "
+               "data job download most of them.")
+
+
+@lru_cache(maxsize=64)
+def missing_members(start=None, end=None, n: int = 6) -> tuple[tuple[str, int], ...]:
+    """The index members with the most member-months in [start, end] without usable price data (no file, a junk
+    or recycled-symbol series, or history lost - e.g. EA), largest first: ((ticker, months), ...)."""
+    mem = membership()
+    if mem is None:
+        return ()
+    m = mem
+    if start is not None:
+        m = m[m.index >= pd.Timestamp(start).to_period("M").to_timestamp()]
+    if end is not None:
+        m = m[m.index <= pd.Timestamp(end)]
+    have = set(available_tickers())
+    counts = {}
+    for t in m.columns:
+        months = m.index[m[t].to_numpy()]
+        if not len(months):
+            continue
+        k = len(months) if t not in have else sum(1 for d in months if not _quality_month(t, d))
+        if k:
+            counts[t] = k
+    # a symbol listed under two names (DUPLICATES) counts once, under the later one
+    for old, new in DUPLICATES.items():
+        if old in counts and new in counts:
+            counts[new] += counts.pop(old)
+    return tuple(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:n])
+
+
+@lru_cache(maxsize=32)
+def survivorship(start, end) -> dict | None:
+    """Headline figures for a Nasdaq-100 (point-in-time) run over [start, end]: the share of member-months with
+    data, the worst year, the biggest missing members, and a rough bias estimate (bias_estimate)."""
+    c = coverage(start, end)
+    if c.empty:
+        return None
+    tot, got = float(c["members"].sum()), float(c["with_data"].sum())
+    worst = c.loc[c["coverage"].idxmin()]
+    out = {"coverage": got / tot if tot else 0.0, "worst_coverage": float(worst["coverage"]),
+           "worst_year": int(worst["year"]), "missing": list(missing_members(start, end))}
+    out["headline"] = (f"Survivorship: {out['coverage']:.0%} of member-months have data ({out['worst_coverage']:.0%} in "
+                       f"{out['worst_year']}) - results are biased upward")
+    try:
+        out["bias"] = bias_estimate(start, end)
+    except Exception:  # noqa: BLE001 - context only
+        out["bias"] = None
+    return out
+
+
+BIAS_REFERENCES = (("QQQE", "equal-weight Nasdaq-100 fund QQQE"), ("QQQ", "Nasdaq-100 fund QQQ (cap-weighted)"))
+
+
+@lru_cache(maxsize=32)
+def bias_estimate(start, end) -> dict | None:
+    """Context for the survivorship bias: an equal-weight, monthly rebalanced portfolio of the point-in-time members
+    WITH data (what an index strategy here can choose from) against a real fund holding the whole index over the
+    same months - QQQE (equal weight, from 2012) where the period allows, else QQQ (cap weight, so the gap also
+    includes equal- vs cap-weighting). Total returns from month-end adjusted closes."""
+    mem = membership()
+    if mem is None:
+        return None
+    s, e = pd.Timestamp(start), pd.Timestamp(end)
+    for ref, label in BIAS_REFERENCES:
+        try:
+            r_px = load(ref)["adj_close"]
+        except DataError:
+            continue
+        s2 = max(s, r_px.index[0])
+        if (e - s2).days < 365:
+            continue
+        months = pd.period_range(s2.to_period("M") + 1, e.to_period("M"), freq="M")
+        if len(months) < 12:
+            continue
+        me_ref = r_px.groupby(r_px.index.to_period("M")).last()
+        names = [t for t in nasdaq100_ever() if t in mem.columns]
+        px = {t: load(t)["adj_close"] for t in names}
+        me = pd.DataFrame({t: p.groupby(p.index.to_period("M")).last() for t, p in px.items()})
+        rets = []
+        ref_rets = []
+        for mth in months:
+            prev = mth - 1
+            snap = mem[mem.index <= prev.to_timestamp()]
+            if snap.empty or prev not in me.index or mth not in me.index:
+                continue
+            row = snap.iloc[-1]
+            ok = [t for t in names if row.get(t, False) and _quality_month(t, prev.to_timestamp())
+                  and np.isfinite(me.at[prev, t]) and np.isfinite(me.at[mth, t])]
+            if not ok or prev not in me_ref.index or mth not in me_ref.index:
+                continue
+            rets.append(float(np.mean([me.at[mth, t] / me.at[prev, t] - 1 for t in ok])))
+            ref_rets.append(float(me_ref[mth] / me_ref[prev] - 1))
+        if len(rets) < 12:
+            continue
+        yrs = len(rets) / 12.0
+        a = float(np.prod(1 + np.array(rets)) ** (1 / yrs) - 1)
+        b = float(np.prod(1 + np.array(ref_rets)) ** (1 / yrs) - 1)
+        first = months[0].to_timestamp()
+        return {"reference": ref, "label": label, "from": str(first.date()), "to": str(e.date()), "months": len(rets),
+                "covered_cagr": a, "reference_cagr": b, "gap": a - b,
+                "text": (f"Context: an equal-weight portfolio of the members that have data returned {a:.1%}/yr from "
+                         f"{first:%Y-%m} to {e:%Y-%m}, against {b:.1%}/yr for the {label} holding every member "
+                         f"({a - b:+.1%}/yr; part of that gap is survivorship bias"
+                         + (", part is equal- vs cap-weighting" if ref == "QQQ" else ", part fund costs and tracking")
+                         + ").")}
+    return None
 
 
 @lru_cache(maxsize=1)
@@ -371,6 +487,7 @@ def load(ticker: str) -> pd.DataFrame:
     raw = pd.read_csv(path, parse_dates=["date"], index_col="date").sort_index()
     raw = raw[~raw.index.duplicated(keep="last")]
     raw = raw[(raw["close"] > 0) & raw["close"].notna()]
+    raw, _ = reconcile_actions(t, raw)
     raw, repaired = repair_bars(t, raw)
     df = pd.DataFrame(index=raw.index)
     opn = raw["open"].where(raw["open"] > 0, raw["close"]).fillna(raw["close"])
@@ -384,6 +501,9 @@ def load(ticker: str) -> pd.DataFrame:
     adj = raw["adj_close"] if "adj_close" in raw else raw["close"]
     df["adj_close"] = adj.where(adj > 0, raw["close"]).ffill()
     df["quote_close"] = df["close"]
+    # split ratio on its ex-date (1.0 = none), after reconcile_actions: see split_factor_after / as-traded units
+    sp = pd.to_numeric(raw["split"], errors="coerce").fillna(0.0) if "split" in raw else pd.Series(0.0, index=raw.index)
+    df["split"] = sp.where((sp > 0) & ((sp - 1).abs() > 1e-9), 1.0)
     if t.endswith("SIM") and len(df):
         # simulated series are built from sources with other calendars (Fama-French, World Bank,
         # FRED): keep only NYSE sessions so month-ends line up with every real ticker. Levels are
@@ -406,6 +526,172 @@ def load(ticker: str) -> pd.DataFrame:
         # a repaired open is an estimate, not a quote: no fills at it
         df.loc[repaired.reindex(df.index, fill_value=False).to_numpy(), "open_ok"] = False
     return df
+
+
+# ------------------------------------------------------------------ corporate actions
+#
+# Yahoo sometimes books one event twice or in inconsistent units on its ex-date, e.g.
+#  - DHR 2016-07-05 (Fortive spin-off): a $24.56 "dividend" (the FTV shares' value per DHR share - Danaher's own
+#    figure) AND a 1.319 "split" (the same spin-off as a price ratio), so a holder gained ~39% overnight;
+#  - EXPE 2011-12-21 (TripAdvisor spin-off after a 1-for-2 reverse split) and TMUS 2013-05-01 (MetroPCS: 1-for-2
+#    reverse split plus $4.06 cash per pre-split share): the payout is per PRE-split share while the prices are
+#    on the post-split basis, so the payout is counted at half its value.
+# Yahoo's adj_close is no independent check on these days: it is derived from the same two fields
+# (adj ratio = close / (prev_close - dividend) on the split-adjusted basis, verified on all three), so it
+# double-counts too (DHR +61%). reconcile_actions therefore re-reads the event: where the day's split and
+# payout together disagree with the adjusted close by more than CA_TOLERANCE, it tries the other readings
+#   "per_presplit"  the payout is per share before that day's split (divide it by the ratio)
+#   "no_split"      the "split" is the spin-off booked as a price ratio (not a whole-number-ish ratio): drop it and
+#                   keep the payout (earlier prices go back on their real, as-traded basis)
+#   "no_payout"     the split alone stands for the spin-off (drop the payout)
+# (each with the payout also scaled by later splits, which Yahoo applies inconsistently to such payouts) and
+# keeps the one whose one-day total return is closest to the market's (SPY) that day. adj_close is then
+# rescaled before the day so its total return agrees with the reconciled one. CA_FIXES records every change.
+
+CA_TOLERANCE = 0.02
+CA_MAX_GAP = 0.10          # a reconciled day must end within 10% (log) of the market's move that day
+CA_FIXES: dict[str, pd.DataFrame] = {}
+# days where the engine's (close + payout) / previous close legitimately differs from Yahoo's adjusted close by
+# more than CA_TOLERANCE: Yahoo's adjustment close / (prev_close - payout) overstates the move for a payout this
+# large, and the cash accounting is right (checked by tests/test_data_integrity.py)
+CA_WHITELIST = {
+    ("BKR", "2017-07-05"): "Baker Hughes / GE merger: $17.50 special dividend per share; cash accounting is right",
+    ("KDP", "2018-07-10"): "Dr Pepper Snapple / Keurig merger: $103.75 special dividend per share; cash accounting is right",
+    ("VIP", "2019-12-27"): "VEON ADR: a $48.31 payout on a thin (~4,000 shares/day) series; recorded as reported",
+    ("HANS", "1990-11-08"): "Hansen Natural 1990: sub-cent prices and a $0.0026 payout; too coarse to reconcile",
+    ("MNST", "1990-11-08"): "Monster Beverage (ex-Hansen) 1990: sub-cent prices and a $0.0026 payout; too coarse to reconcile",
+}
+
+
+def _whole_ratio(r: float) -> bool:
+    """A split ratio like 2, 3/2, 1/2, 7 or 1/15: p/q (or its inverse) with q <= 10 within 0.1%."""
+    for x in (r, 1.0 / r):
+        for q in range(1, 11):
+            p = round(x * q)
+            if p >= 1 and abs(p / q - x) <= 1e-3 * x:
+                return True
+    return False
+
+
+@lru_cache(maxsize=1)
+def _market_day_returns() -> pd.Series:
+    """SPY close-to-close returns (the reference market move for reconcile_actions), read from the file directly."""
+    raw = _raw_file("SPY")
+    if raw is None or raw.empty:
+        return pd.Series(dtype=float)
+    return raw["close"].pct_change()
+
+
+def reconcile_actions(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Reconcile days whose split and payout conflict (see the comment above). Returns (bars, log).
+
+    Only the event day's payout and the basis of the bars BEFORE it change; a day's value never depends on
+    later days except through a later event's rescaling of the price basis, which, like any split adjustment,
+    leaves every return unchanged."""
+    cols = ["date", "reading", "split_was", "split_now", "payout_was", "payout_now", "return_was", "return_now",
+            "adj_close_return", "market_return"]
+    empty = pd.DataFrame(columns=cols)
+    if raw.empty or not {"close", "adj_close", "dividend", "split"} <= set(raw.columns):
+        CA_FIXES[t] = empty
+        return raw, empty
+    c = raw["close"].astype(float)
+    d = pd.to_numeric(raw["dividend"], errors="coerce").fillna(0.0)
+    sp = pd.to_numeric(raw["split"], errors="coerce").fillna(0.0)
+    a = pd.to_numeric(raw["adj_close"], errors="coerce")
+    eng = (c + d) / c.shift(1)
+    adj = a / a.shift(1)
+    cand_days = raw.index[((sp > 0) & ((sp - 1).abs() > 1e-9) & (d > 0) & ((eng - adj).abs() > CA_TOLERANCE)).to_numpy()]
+    if not len(cand_days):
+        CA_FIXES[t] = empty
+        return raw, empty
+    raw = raw.copy()
+    for k in ("open", "high", "low", "close", "adj_close", "volume", "dividend", "split"):
+        if k in raw:
+            raw[k] = pd.to_numeric(raw[k], errors="coerce").astype(float)
+    raw["dividend"] = raw["dividend"].fillna(0.0)
+    raw["split"] = raw["split"].fillna(0.0)
+    mkt = _market_day_returns() if t != "SPY" else pd.Series(dtype=float)
+    log = []
+    for day in cand_days:
+        i = raw.index.get_loc(day)
+        if i == 0:
+            continue
+        cc, pc = float(raw["close"].iloc[i]), float(raw["close"].iloc[i - 1])
+        dv, r = float(raw["dividend"].iloc[i]), float(raw["split"].iloc[i])
+        later = sp[(sp.index > day) & (sp > 0) & ((sp - 1).abs() > 1e-9)]
+        f_after = float(np.prod(later.to_numpy())) if len(later) else 1.0
+        scales = [1.0] + ([1.0 / f_after] if abs(f_after - 1) > 1e-9 else [])
+        m = float(mkt.get(day, 0.0)) if len(mkt) and np.isfinite(mkt.get(day, np.nan)) else 0.0
+        opts = [("as_reported", 1.0, dv, (cc + dv) / pc)]
+        for g in scales:
+            opts.append(("per_presplit", 1.0, dv * g / r, (cc + dv * g / r) / pc))
+        if not _whole_ratio(r):
+            for g in scales:
+                opts.append(("no_split", 0.0, dv * g, (cc + dv * g) / (pc * r)))
+            opts.append(("no_payout", 1.0, 0.0, cc / pc))
+        best = min(opts, key=lambda o: abs(np.log(o[3]) - np.log1p(m)))
+        reading, keep_split, pay, tr = best
+        if reading == "as_reported":
+            continue
+        if abs(np.log(tr) - np.log1p(m)) > CA_MAX_GAP:
+            # no reading gives a plausible day: leave the data as it is and say so
+            log.append((day, "unresolved", r, r, dv, dv, float(eng.iloc[i]) - 1, float(eng.iloc[i]) - 1,
+                        float(adj.iloc[i]) - 1, m))
+            continue
+        before = raw.index < day
+        if keep_split == 0.0:
+            for k in ("open", "high", "low", "close"):
+                if k in raw:
+                    raw.loc[before, k] = raw.loc[before, k] * r
+            raw.loc[before, "dividend"] = raw.loc[before, "dividend"].fillna(0.0) * r
+            if "volume" in raw:
+                raw.loc[before, "volume"] = raw.loc[before, "volume"] / r
+            raw.iloc[i, raw.columns.get_loc("split")] = 0.0
+        raw.iloc[i, raw.columns.get_loc("dividend")] = pay
+        a_prev, a_now = float(raw["adj_close"].iloc[i - 1]), float(raw["adj_close"].iloc[i])
+        if np.isfinite(a_prev) and a_prev > 0 and np.isfinite(a_now):
+            raw.loc[before, "adj_close"] = raw.loc[before, "adj_close"] * (a_now / a_prev) / tr
+        log.append((day, reading, r, r if keep_split else 1.0, dv, pay, float(eng.iloc[i]) - 1, tr - 1,
+                    float(adj.iloc[i]) - 1, m))
+    out = pd.DataFrame(log, columns=cols)
+    CA_FIXES[t] = out
+    return raw, out
+
+
+@lru_cache(maxsize=None)
+def corporate_action_fixes(ticker: str) -> pd.DataFrame:
+    """The days reconcile_actions re-read for `ticker` (see the comment above reconcile_actions)."""
+    t = canonical(ticker)
+    raw = _raw_file(t)
+    if raw is None:
+        return pd.DataFrame(columns=["date", "reading"])
+    return reconcile_actions(t, raw)[1]
+
+
+_READING = {"per_presplit": "the payout was per pre-split share",
+            "no_split": "the 'split' was the spin-off booked a second time as a price ratio (dropped)",
+            "no_payout": "the split alone stands for the spin-off (payout dropped)",
+            "unresolved": "no consistent reading found; left as reported - trades held over it may be misstated"}
+
+
+def corporate_action_note(tickers, start=None, end=None) -> str | None:
+    """A note listing the reconciled corporate-action days of `tickers` inside [start, end]."""
+    parts = []
+    for t in tickers:
+        try:
+            fx = corporate_action_fixes(t)
+        except Exception:  # noqa: BLE001 - synthetic ticker
+            continue
+        for _, r in fx.iterrows():
+            day = pd.Timestamp(r["date"])
+            if (start is not None and day < pd.Timestamp(start)) or (end is not None and day > pd.Timestamp(end)):
+                continue
+            parts.append(f"{t} {day.date()} ({_READING.get(r['reading'], r['reading'])}: one-day total return "
+                         f"{r['return_was']:+.1%} as reported, {r['return_now']:+.1%} reconciled)")
+    if not parts:
+        return None
+    return ("Corporate actions: the data books these events inconsistently (a payout and a split for one spin-off, "
+            "or a payout per pre-split share), so they were reconciled: " + "; ".join(parts) + ".")
 
 
 # Bars whose repair needs outside knowledge: {ticker: {date: {field: value}}}. Values are split-adjusted.
@@ -635,36 +921,61 @@ SHARE_CLASSES = [("GOOG", "GOOGL"), ("FOX", "FOXA"), ("LBTYA", "LBTYK"), ("BATRA
                  ("NWS", "NWSA"), ("DISCA", "DISCK"), ("LMCA", "LMCK")]
 
 
-@lru_cache(maxsize=None)
-def shares_outstanding(ticker: str) -> pd.Series:
-    """Shares outstanding as reported (point in time: each count on the date Yahoo dates it, in the share
-    units of that date - NOT adjusted for later splits). See shares_adjusted for the split-consistent count."""
-    t = canonical(ticker)
+SHARES_SEC = DATA / "shares_sec"
+SEC_GAP_DAYS = 120
 
-    def read(sym):
-        p = DATA / "shares" / f"{sym}.csv"
-        if not p.exists():
-            return pd.Series(dtype=float)
-        s = pd.read_csv(p, parse_dates=["date"], index_col="date")["shares"]
-        s = pd.to_numeric(s, errors="coerce").dropna()
-        return s[~s.index.duplicated(keep="last")].sort_index()
-    s = read(t)
+
+def _read_shares(folder: Path, sym: str) -> pd.Series:
+    p = folder / f"{sym}.csv"
+    if not p.exists():
+        return pd.Series(dtype=float)
+    s = pd.read_csv(p, parse_dates=["date"], index_col="date")["shares"]
+    s = pd.to_numeric(s, errors="coerce").dropna()
+    return s[~s.index.duplicated(keep="last")].sort_index()
+
+
+def _shares_from(folder: Path, t: str) -> pd.Series:
+    s = _read_shares(folder, t)
     if t in RENAMED:
-        alt = read(RENAMED[t])
+        alt = _read_shares(folder, RENAMED[t])
         if len(alt):
             s = s.combine_first(alt) if len(s) else alt
     return s
 
 
 @lru_cache(maxsize=None)
+def shares_outstanding(ticker: str) -> pd.Series:
+    """Shares outstanding as reported (point in time: each count on the date it became known, in the share units
+    of that date - NOT adjusted for later splits). See shares_adjusted for the split-consistent count.
+
+    Two sources: Yahoo (data/shares, mostly from late 2015) and SEC EDGAR XBRL company facts (data/shares_sec,
+    from ~2009, dated by the filing date; scripts/fetch_data.py fetch_sec_shares). Yahoo's counts are used where
+    they exist; an SEC count fills in before Yahoo's first count and wherever Yahoo has none in the previous
+    SEC_GAP_DAYS days."""
+    t = canonical(ticker)
+    y = _shares_from(DATA / "shares", t)
+    sec = _shares_from(SHARES_SEC, t)
+    if sec.empty:
+        return y
+    if y.empty:
+        return sec
+    yd = y.index.to_numpy()
+    keep = []
+    for d in sec.index:
+        k = int(np.searchsorted(yd, d.to_datetime64(), side="right")) - 1   # latest Yahoo count on or before d
+        keep.append(k < 0 or (d - y.index[k]).days > SEC_GAP_DAYS)
+    return pd.concat([y, sec[np.array(keep, bool)]]).sort_index().pipe(lambda s: s[~s.index.duplicated(keep="first")])
+
+
+@lru_cache(maxsize=None)
 def splits(ticker: str) -> pd.Series:
-    """Stock splits on their ex-dates (ratio, e.g. 4.0 for 4-for-1), from the price file's split column."""
-    path = PRICES / f"{canonical(ticker)}.csv"
-    if not path.exists():
+    """Stock splits on their ex-dates (ratio, e.g. 4.0 for 4-for-1), from the price file's split column after
+    reconcile_actions (a spin-off also booked as a 'split' is not a split)."""
+    t = canonical(ticker)
+    raw = _raw_file(t)
+    if raw is None or "split" not in raw:
         return pd.Series(dtype=float)
-    raw = pd.read_csv(path, usecols=lambda c: c in ("date", "split"), parse_dates=["date"], index_col="date")
-    if "split" not in raw:
-        return pd.Series(dtype=float)
+    raw = reconcile_actions(t, raw)[0]
     s = pd.to_numeric(raw["split"], errors="coerce").fillna(0.0)
     s = s[(s > 0) & ((s - 1).abs() > 1e-9)]
     return s[~s.index.duplicated(keep="last")].sort_index()
@@ -672,12 +983,34 @@ def splits(ticker: str) -> pd.Series:
 
 def split_factor_after(ticker: str, dates) -> np.ndarray:
     """Product of the split ratios with an ex-date after each date: a quantity dated d in the share units of
-    that day times this is in today's units (and a split-adjusted price times it is the price as quoted)."""
+    that day times this is in today's units (and a split-adjusted price times it is the price as quoted).
+
+    As-traded units: shares as traded on d = split-adjusted shares / this factor, and the price as traded =
+    split-adjusted price x this factor. It uses later splits, but only as a unit conversion: the split-adjusted
+    series itself is defined by those later splits, while the as-traded price and share count are exactly what
+    a trader saw on d (known then), and no return, signal or equity value changes with it. Per-share
+    commissions, whole-share sizing and reported share counts use as-traded units."""
     dates = pd.DatetimeIndex(dates)
     sp = splits(ticker)
     out = np.ones(len(dates))
     for d, r in sp.items():
         out[dates < d] *= float(r)
+    return out
+
+
+def as_traded_factor(ticker: str, dates, df: pd.DataFrame | None = None) -> np.ndarray:
+    """split_factor_after for the simulators: from the price file's (reconciled) splits when the ticker has a
+    file, else from the frame's own split column (synthetic data), else 1. Taken from the file, not the frame,
+    so a frame cut at some date (the lookahead tests) keeps the same units."""
+    dates = pd.DatetimeIndex(dates)
+    t = canonical(ticker)
+    if (PRICES / f"{t}.csv").exists():
+        return split_factor_after(t, dates)
+    out = np.ones(len(dates))
+    if df is not None and "split" in df:
+        sp = pd.to_numeric(df["split"], errors="coerce").fillna(0.0)
+        for d, r in sp[(sp > 0) & ((sp - 1).abs() > 1e-9)].items():
+            out[dates < d] *= float(r)
     return out
 
 
@@ -774,10 +1107,41 @@ def market_cap(ticker: str) -> pd.Series:
 
 
 MCAP_TURNOVER = (1e-5, 1.0)
-MCAP_NOTE = ("Market cap: the close as quoted that day x the shares outstanding last reported before it (free "
-             "Yahoo share counts, mostly from late 2015 - earlier dates and tickers without counts have no market "
-             "cap). Share classes of one company (GOOG/GOOGL, FOX/FOXA, ...) each count as the company's value "
-             "divided by the number of listed classes.")
+# ranking or weighting an index universe by market cap needs a count for most of its members: with only a few,
+# the "top 10" is the top of whichever names have counts (before SEC/Yahoo coverage, 100% SYMC on 2015-06-30)
+MCAP_MIN_COVERAGE = 0.8
+
+
+def mcap_coverage(eligible: np.ndarray, tickers: list[str], index: pd.DatetimeIndex) -> np.ndarray:
+    """Per day: the share of the eligible names (T x N bool, e.g. index members with a price) with a market cap."""
+    known = np.column_stack([market_cap(t).reindex(index).notna().to_numpy() for t in tickers]) if tickers else \
+        np.zeros((len(index), 0), bool)
+    n = eligible.sum(axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(n > 0, (eligible & known).sum(axis=1) / np.maximum(n, 1), 0.0)
+
+
+def mcap_start(eligible: np.ndarray, tickers: list[str], index: pd.DatetimeIndex,
+               threshold: float = MCAP_MIN_COVERAGE) -> tuple[pd.Timestamp | None, str | None]:
+    """(first day market caps cover `threshold` of the eligible names, note). The first day is None when that is
+    never reached (the note then says so and the run keeps its start)."""
+    if not len(index):
+        return None, None
+    cov = mcap_coverage(eligible, tickers, index)
+    ok = np.flatnonzero(cov >= threshold)
+    if not len(ok):
+        return None, (f"Market cap: share counts cover at most {cov.max():.0%} of the universe on any day of this "
+                      f"period (below {threshold:.0%}), so market-cap rankings pick from a subset throughout.")
+    if ok[0] == 0:
+        return index[0], None
+    d = index[ok[0]]
+    return d, (f"Market cap: market-cap data covers too little of the universe before {d.date()} (under {threshold:.0%} "
+               f"of the members have a share count; {cov[0]:.0%} on {index[0].date()}), so the test starts on "
+               f"{d.date()}.")
+MCAP_NOTE = ("Market cap: the close as quoted that day x the shares outstanding last reported before it (Yahoo "
+             "share counts from about 2015, SEC EDGAR filings from about 2009, each used from the day after it became "
+             "public; dates and tickers without a count have no market cap). Share classes of one company "
+             "(GOOG/GOOGL, FOX/FOXA, ...) each count as the company's value divided by the number of listed classes.")
 
 
 def _membership_gaps(mem) -> list[str]:
@@ -841,6 +1205,10 @@ def identity_notes(ticker: str, start=None, end=None) -> list[str]:
                                f"illiquid stock - probably a different company that took over the symbol, or junk data. "
                                f"It is not the index member.")
     win = df[(df.index >= s) & (df.index <= e)]
+    # only bars with real trading: stale rows (no volume, or the same close carried forward - e.g. the history a
+    # data vendor pads in before a US listing, as for FER) would pull the median to zero
+    live = (win["volume"] > 0) & (win["close"] != win["close"].shift(1))
+    win = win[live.to_numpy()]
     if len(win) >= 20 and not any(n.startswith("Identity:") for n in out):
         dv = float((win["close"] * win["volume"]).median())
         if dv < MIN_DOLLAR_VOLUME:

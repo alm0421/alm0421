@@ -102,5 +102,9 @@ def test_stale_opens_are_flagged():
 
 @needs_data
 def test_unadjusted_corporate_actions_are_flagged():
-    assert pd.Timestamp("2011-12-21") in data.corporate_action_days("EXPE")
+    # EXPE 2011-12-21 (TripAdvisor spin-off) is reconciled when loaded (tests/test_corporate_actions.py), so it
+    # no longer disagrees with its total return; HANS 1990-11-08 (sub-cent prices) still does
+    assert pd.Timestamp("2011-12-21") not in data.corporate_action_days("EXPE")
+    assert pd.Timestamp("2011-12-21") in set(pd.to_datetime(data.corporate_action_fixes("EXPE")["date"]))
+    assert pd.Timestamp("1990-11-08") in data.corporate_action_days("HANS")
     assert len(data.corporate_action_days("SPY")) == 0

@@ -95,7 +95,7 @@ def signal_targets(s, account_value: float) -> tuple[str, dict[str, float], list
             px, _ = _last_close(r.ticker)
             sign = -1 if r.side == "short" else 1
             if px and eq > 0:
-                held[r.ticker] = held.get(r.ticker, 0.0) + sign * float(r.shares) * px / eq
+                held[r.ticker] = held.get(r.ticker, 0.0) + sign * float(getattr(r, "exit_shares", r.shares)) * px / eq
     fixed: dict[str, float] = {}
     if s.entry_fill != "close":
         sc = signals.scan(s)

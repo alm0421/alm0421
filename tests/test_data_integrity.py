@@ -232,6 +232,7 @@ def test_fetch_job_keeps_files_when_downloads_fail(tmp_path, monkeypatch):
     for name in ("fetch_macro", "fetch_factors"):
         monkeypatch.setattr(fd, name, lambda: None)
     monkeypatch.setattr(fd, "fetch_shares", lambda ts: None)
+    monkeypatch.setattr(fd, "fetch_sec_shares", lambda ts: None)
     monkeypatch.setattr(fd, "build_sims", lambda: [])
     monkeypatch.setattr(fd, "fetch_delisted_keyed", lambda t: None)
     monkeypatch.setattr(fd, "fetch_stooq", lambda t: None)

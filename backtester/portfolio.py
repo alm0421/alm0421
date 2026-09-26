@@ -378,6 +378,17 @@ def _has_ndx(n) -> bool:
     return any(_has_ndx(k) for k in _kids(n))
 
 
+def _ndx_by_mcap(n) -> bool:
+    """Does a Nasdaq-100 filter rank, require or weight by market cap?"""
+    if not isinstance(n, dict):
+        return False
+    if "filter" in n and n.get("universe") in ("NDX", "nasdaq100"):
+        f = n["filter"] if isinstance(n["filter"], dict) else {}
+        if any("market_cap" in str(f.get(k) or "") for k in ("by", "require")) or f.get("weights") == "market_cap":
+            return True
+    return any(_ndx_by_mcap(k) for k in _kids(n))
+
+
 def max_gross(n) -> float:
     """The largest gross exposure (sum of absolute weights, longs plus shorts) the tree can ask for, over every
     branch an if-node or filter may take."""
@@ -939,6 +950,7 @@ class _Evaluator:
         self._keep: list = []      # nodes whose id() is a cache key stay alive
         self._rate = None
         self._quiet = 0            # > 0 while simulating a NAV: no notes (the real evaluation adds its own)
+        self.thin: list = []       # (date, candidates, eligible, n, by): filters that picked from too few names
 
     # ------------------------------------------------------------ data
     def series(self, rule: str, t: str, kind: str) -> np.ndarray:
@@ -1228,6 +1240,10 @@ class _Evaluator:
                     cands.append((v, m))
             cands.sort(key=lambda x: x[0], reverse=f.get("select", "top") == "top")
             chosen = [m for _, m in cands[: int(f.get("n", 1))]]
+            if i >= self.off and not self._quiet:
+                elig = sum(1 for m in mem if not isinstance(m, str) or (self.has(m, i) and (not pit or self.is_member(m, i))))
+                if len(cands) < int(f.get("n", 1)) or (pit and elig and len(cands) < data.MCAP_MIN_COVERAGE * elig):
+                    self.thin.append((self.cal[i], len(cands), elig, int(f.get("n", 1)), f["by"]))
             if f.get("require"):
                 passed = [m for m in chosen if self.mseries(f["require"], m, "bool")[i]]
             else:
@@ -1517,6 +1533,16 @@ def run(p: Portfolio) -> Result:
     cal = cal[cal >= start]
     if p.end:
         cal = cal[cal <= pd.Timestamp(p.end)]
+    if _ndx_by_mcap(p.tree) and p.point_in_time and len(cal):
+        # market-cap rankings need share counts for most members: start where they cover MCAP_MIN_COVERAGE
+        names = [t for t in data.nasdaq100_ever() if t in dfs]
+        elig, _ = data.member_mask(names, cal)
+        elig &= np.column_stack([dfs[t]["close"].reindex(cal).notna().to_numpy() for t in names]) if names else elig
+        d, msg = data.mcap_start(elig, names, cal)
+        if msg:
+            p.notes.append(msg)
+        if d is not None and d > cal[0]:
+            cal = cal[cal >= d]
     if _has_rules(p.tree):
         basis_note = ("Indicator prices: total return (dividends reinvested; price_basis \"adjusted\", as Composer and "
                       "Portfolio Visualizer). Trades and valuation use quoted prices plus cash dividends."
@@ -1570,6 +1596,9 @@ def run(p: Portfolio) -> Result:
     O = np.column_stack([dfs[t]["open"].reindex(cal).to_numpy() for t in tick])
     C = np.column_stack([ev.close[t][base:] for t in tick])
     DIV = np.column_stack([dfs[t]["dividend"].reindex(cal).fillna(0.0).to_numpy() for t in tick])
+    # split-adjusted -> as-traded units (data.as_traded_factor): whole-share rounding and reported order sizes use
+    # the shares as traded that day
+    SF = (np.column_stack([data.as_traded_factor(t, cal, dfs[t]) for t in tick]) if N else np.ones((T, 0)))
     # a "dividend" that is really a spin-off (or special) distribution: same cash, labelled as such
     SPIN = np.column_stack([cal.isin(data.spinoff_days(t)) for t in tick]) if N else np.zeros((T, 0), bool)
     # delisted / acquired: data that ends well before the run does; sold at the last close, proceeds held in cash
@@ -1651,7 +1680,7 @@ def run(p: Portfolio) -> Result:
             if np.isfinite(pv[j]) and pv[j] > 0:
                 want[j] = eq * w / pv[j]
         if not p.fractional_shares:
-            want = np.floor(want)
+            want = np.floor(want / SF[i] + 1e-9) * SF[i]
         delta = want - shares
         # sells first, then buys (scaled to the cash available)
         for sgn in (-1, 1):
@@ -1666,7 +1695,7 @@ def run(p: Portfolio) -> Result:
                 if min_trade and abs(q) * pv[j] < p.min_trade * eq:
                     continue
                 if not p.fractional_shares:
-                    q = np.floor(q) if q > 0 else -np.floor(-q)
+                    q = (np.floor(q / SF[i, j] + 1e-9) if q > 0 else -np.floor(-q / SF[i, j] + 1e-9)) * SF[i, j]
                 if q == 0:
                     continue
                 fill = pv[j] * (1 + np.sign(q) * slip)
@@ -1678,7 +1707,7 @@ def run(p: Portfolio) -> Result:
                 ledger.append((cal[i], tick[j], "buy" if q > 0 else "sell", q, abs(q) * fill, com))
                 turnover += abs(q) * fill / eq
                 orders.append({"date": cal[i].date(), "ticker": tick[j], "side": "buy" if q > 0 else "sell",
-                               "shares": abs(q), "price": fill, "value": abs(q) * fill, "commission": com,
+                               "shares": abs(q) / SF[i, j], "price": fill * SF[i, j], "value": abs(q) * fill, "commission": com,
                                "reason": reason})
 
     bands = bool(p.drift_band or p.drift_band_relative)
@@ -1772,7 +1801,7 @@ def run(p: Portfolio) -> Result:
                 ledger.append((cal[i], tick[j], "buy" if q > 0 else "sell", q, abs(q) * fill, com))
                 turnover += abs(q) * fill / eq_d if eq_d > 0 else 0.0
                 orders.append({"date": cal[i].date(), "ticker": tick[j], "side": "buy" if q > 0 else "sell",
-                               "shares": abs(q), "price": fill, "value": abs(q) * fill, "commission": com,
+                               "shares": abs(q) / SF[i, j], "price": fill * SF[i, j], "value": abs(q) * fill, "commission": com,
                                "reason": "delisted"})
                 delisted.append(f"{tick[j]} delisted/acquired on {cal[i].date()}")
             target.pop(tick[j], None)
@@ -1794,7 +1823,7 @@ def run(p: Portfolio) -> Result:
                 tcom[j] += com
                 ledger.append((cal[i], tick[j], "buy" if q > 0 else "sell", q, abs(q) * fill, com))
                 orders.append({"date": cal[i].date(), "ticker": tick[j], "side": "buy" if q > 0 else "sell",
-                               "shares": abs(q), "price": fill, "value": abs(q) * fill, "commission": com,
+                               "shares": abs(q) / SF[i, j], "price": fill * SF[i, j], "value": abs(q) * fill, "commission": com,
                                "reason": "withdrawal (money ran out)"})
                 shares[j] = 0.0
             paid = max(w_req + cash, 0.0)     # cash is negative: the part of the withdrawal the account could not pay
@@ -1816,7 +1845,7 @@ def run(p: Portfolio) -> Result:
                 for t, w in live.items():
                     j = idx[t]
                     amt = budget * w / tot * (1 - p.commission_pct) / (1 + slip)
-                    q = amt / pv[j] if p.fractional_shares else np.floor(amt / pv[j])
+                    q = amt / pv[j] if p.fractional_shares else np.floor(amt / pv[j] / SF[i, j] + 1e-9) * SF[i, j]
                     if q <= 0:
                         continue
                     fill = pv[j] * (1 + slip)
@@ -1826,7 +1855,7 @@ def run(p: Portfolio) -> Result:
                     tcash[j] -= q * fill + com
                     tcom[j] += com
                     ledger.append((cal[i], t, "buy", q, q * fill, com))
-                    orders.append({"date": cal[i].date(), "ticker": t, "side": "buy", "shares": q, "price": fill,
+                    orders.append({"date": cal[i].date(), "ticker": t, "side": "buy", "shares": q / SF[i, j], "price": fill * SF[i, j],
                                    "value": q * fill, "commission": com, "reason": "contribution"})
         # reinvest dividends into the same holding at the close
         if got and p.reinvest_dividends:
@@ -1945,6 +1974,11 @@ def run(p: Portfolio) -> Result:
     gross = hw.drop(columns="cash").abs().sum(axis=1)
     ex = pd.Series(np.concatenate([[0.0], gross.to_numpy()]), index=idx_all, name="exposure")
     npos = pd.Series(np.concatenate([[0], (hw.drop(columns="cash").abs() > 1e-6).sum(axis=1).to_numpy()]), index=idx_all)
+    if ev.thin:
+        d0, c0, e0, n0, by0 = ev.thin[0]
+        p.notes.append(f"Thin ranking: on {len(ev.thin)} rebalance date(s) a top/bottom-{n0} filter by {by0} ranked fewer "
+                       f"than {n0} candidates or under {data.MCAP_MIN_COVERAGE:.0%} of its eligible universe (first "
+                       f"{d0.date()}: {c0} of {e0} names had a value), so its picks there come from a subset.")
     od = pd.DataFrame(orders)
     end_px = np.nan_to_num(last_px)
     tri = {t: (dfs[t]["adj_close"] if "adj_close" in dfs[t] else dfs[t]["close"]).reindex(cal).ffill().to_numpy()

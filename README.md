@@ -268,6 +268,12 @@ python -m backtester tickers                                                 # w
 - **Broker costs (signal strategies).**
   - `commission_model: "ibkr_fixed"` ("IBKR commissions"): $0.005/share, min $1, max 1% of the
     trade value per order.
+  - Per-share fees, minimums and caps, whole-share sizing, `fixed_shares` sizing and the share counts and
+    prices in the trade list use shares **as traded** that day, not split-adjusted ones: AAPL in 1995
+    traded around $40, not the split-adjusted $0.38, so $10,000 bought ~240 shares, not ~26,000.
+    (As-traded shares = split-adjusted shares / the product of later splits. That uses later splits only
+    as a unit conversion - the as-traded price is what was quoted that day - and changes no return or
+    signal.) A split while a trade is open changes its share count: `exit_shares` is the count at exit.
   - `"ibkr_tiered"` ("IBKR tiered"): $0.0035/share, min $0.35, max 1% of trade value, plus about
     $0.0002/share of exchange, clearing and regulatory fees (an approximation of the first tier).
   - `slippage_model: "volume"` ("volume-based slippage", "market impact"): each fill pays, on top of
@@ -331,8 +337,14 @@ python -m backtester tickers                                                 # w
   of the index list). A stock is only bought while it was in the index, and former members are
   included where price history exists.
   - About 90 former members (mostly acquired companies) have no free price history, so some bias
-    remains (member-month coverage about 48% in 2004, about 75% over 2004-2026). The report says so; a
-    free Tiingo key fills most of the gap (see Data).
+    remains (member-month coverage about 48% in 2004, about 75% over 2004-2026). The report and the
+    console summary put the coverage in the headline ("Survivorship: 75% of member-months have data (48%
+    in 2004) - results are biased upward"), with the biggest missing members by member-months and, as
+    context, an equal-weight portfolio of the members with data against a fund holding the whole index
+    (QQQE, else QQQ) over the same months. A free Tiingo key fills most of the gap (see Data).
+  - Market-cap rankings and weights ("top 10 Nasdaq 100 stocks by market cap") start on the first day
+    share counts cover at least 80% of the members (a note says so), and a note lists any rebalance where
+    a top-N filter ranked fewer than N names or under 80% of its universe.
   - Before 2004 the earliest known list is used.
 - **Delistings.** When a held ticker's data ends more than a week before the backtest does (acquired or
   delisted), the position is sold at its last close on its last day (trades/orders marked `delisted`, and a
@@ -342,6 +354,15 @@ python -m backtester tickers                                                 # w
 - **Spin-offs.** A "dividend" worth more than 15% of the price (the data books spun-off shares at their
   value, e.g. MDLZ on 2012-10-02) is paid in cash like a dividend but labelled a spin-off/special
   distribution in the notes and the portfolio ledger.
+- **Corporate actions booked twice.** Yahoo sometimes records one event in two ways on its ex-date: DHR on
+  2016-07-05 (Fortive spin-off) has both a $24.56 payout and a 1.319 "split", which together gave a phantom
+  +39% day; EXPE 2011-12-21 (TripAdvisor) and TMUS 2013-05-01 (MetroPCS) pay per pre-split share on a
+  post-split price basis (phantom -25% and -13%). Yahoo's adjusted close is built from the same two fields,
+  so it is no independent check. When a day's split and payout disagree with the adjusted close by more than
+  2%, `data.reconcile_actions` tries the other readings (payout per pre-split share; the "split" is the
+  spin-off itself and is dropped; the split alone stands for it) and keeps the one whose one-day return is
+  closest to the market's that day: DHR +2.6% (Danaher's own figures: $101.91 before, $78.94 + $24.56 of
+  Fortive after), EXPE +1.8%, TMUS +4.1%. Both engines use the reconciled data and a note lists the days.
 - **Equity curve.** The curve starts with the starting capital on the previous trading session (never a
   weekend or holiday), so the first bar's return counts; that row has no year or month of its own.
 - **Portfolios.** Targets are re-evaluated on the schedule (month-end close by default) and traded at
@@ -400,8 +421,11 @@ close and commits updates, so `git pull` gets fresh data. It downloads:
 - AQR's Quality Minus Junk and Betting Against Beta factors (monthly spreadsheets, every country and
   aggregate). Each file is parsed on its own (`backtester/sources.py`); a failure is logged in
   `data/factors/fetch_log.txt` and the rest of the job carries on
-- share counts for market-cap weighting (Yahoo, mostly from late 2015; merged into the saved files, so
-  the history grows)
+- share counts for market-cap weighting: Yahoo (mostly from late 2015; merged into the saved files, so
+  the history grows) and SEC EDGAR XBRL company facts (`data/shares_sec`, from about 2009; keyless, one
+  count per 10-Q/10-K - the cover-page shares outstanding, else the balance-sheet or weighted-average count -
+  dated by the filing date, so it is only used once public). SEC counts fill the dates before Yahoo's
+  first count and any gap of more than 120 days in Yahoo's.
 
 **Market cap** is the close as quoted that day times the shares outstanding last reported before that day
 (each count is used from the next session). Yahoo's share counts are in the share units of their date, so
@@ -435,7 +459,9 @@ leveraged and inverse funds common in Composer symphonies, indexes), the job dow
 also starts it), then pull. A sentence or tree that names a ticker without data says so and points to
 this file.
 
-**Delisted former members.** Yahoo drops companies that were acquired or went bankrupt (Celgene,
+**Delisted former members.** `data/delisted.json` marks a symbol whose saved history is too short to use
+(`"history": "history unavailable - needs TIINGO_API_KEY"`): EA was taken private in August 2026 and Yahoo
+now serves a single bar, and its full history was never saved. Yahoo drops companies that were acquired or went bankrupt (Celgene,
 Xilinx, Activision, Yahoo, …), which is the main survivorship gap: about 90 former members have no free
 history, and member-month coverage is about 48% in 2004-05 and about 75% over 2004-2026. No keyless source
 reachable from a GitHub Action carries them (checked in September 2026: Yahoo's chart API and Nasdaq's

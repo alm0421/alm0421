@@ -277,6 +277,10 @@ DELISTED_REASONS = {
 }
 
 
+HISTORY_MIN_ROWS = 250
+HISTORY_UNAVAILABLE = "history unavailable - needs TIINGO_API_KEY (see README: delisted former members)"
+
+
 def load_delisted() -> dict:
     try:
         return json.loads(DELISTED_FILE.read_text()) if DELISTED_FILE.exists() else {}
@@ -641,6 +645,114 @@ def fetch_shares(tickers: list[str]) -> None:
             s.to_csv(path, index_label="date")
         except Exception as e:  # noqa: BLE001
             print(f"shares {t} failed: {e}", file=sys.stderr)
+
+
+# ------------------------------------------------------------------ SEC EDGAR share counts
+
+# SEC asks automated clients for a descriptive User-Agent with a contact; the repository is the contact
+SEC_UA = {"User-Agent": "backtester-data-job https://github.com/alm0421/alm0421", "Accept-Encoding": "gzip, deflate"}
+SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+SEC_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
+# delisted former members, absent from company_tickers.json (each checked against data.sec.gov/submissions:
+# name and former names)
+SEC_CIKS = {"EA": 712515,      # ELECTRONIC ARTS INC.
+            "ATVI": 718877,    # Activision Blizzard, Inc. (formerly ACTIVISION INC /NY)
+            "CELG": 816284,    # CELGENE CORP /DE/
+            "XLNX": 743988,    # XILINX INC
+            "YHOO": 1011006,   # ALTABA INC. (formerly YAHOO INC)
+            "BRCM": 1054374}   # BROADCOM CORP
+# cover-page count first (as of a date just before the filing), then the balance-sheet count, then the
+# period's weighted average (the weakest: an average, not a count on a date)
+SEC_CONCEPTS = [("dei", "EntityCommonStockSharesOutstanding"), ("us-gaap", "CommonStockSharesOutstanding"),
+                ("us-gaap", "WeightedAverageNumberOfSharesOutstandingBasic")]
+
+
+def sec_ticker_map(raw: dict) -> dict[str, int]:
+    """company_tickers.json ({"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}, ...}) ->
+    {ticker: cik}, with class suffixes as in the price files (BRK-B)."""
+    out = {}
+    for v in raw.values():
+        t = str(v.get("ticker", "")).upper().replace(".", "-")
+        if t and v.get("cik_str") is not None:
+            out.setdefault(t, int(v["cik_str"]))
+    return out
+
+
+def sec_share_counts(facts: dict) -> pd.Series:
+    """Point-in-time shares outstanding from a companyfacts document: one count per filing, dated by the
+    filing date (when it became public), in the share units reported then (NOT adjusted for later splits;
+    backtester/data.py applies the same split basis as for Yahoo counts). Per filing, the first concept of
+    SEC_CONCEPTS it reports is used, at the latest period end in that filing (later filings restate earlier
+    periods, often on a new split basis - those restatements are ignored)."""
+    per: dict[str, tuple[int, str, float, str]] = {}   # accn -> (concept rank, period end, value, filed)
+    f = facts.get("facts") or {}
+    for rank, (tax, name) in enumerate(SEC_CONCEPTS):
+        units = ((f.get(tax) or {}).get(name) or {}).get("units") or {}
+        for x in units.get("shares") or []:
+            try:
+                accn, end, filed, val = x["accn"], x["end"], x["filed"], float(x["val"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if val <= 0:
+                continue
+            if rank == 2 and x.get("start"):
+                # a weighted average: only the filing's own quarter or year (not a restated older period)
+                days = (pd.Timestamp(end) - pd.Timestamp(x["start"])).days
+                if days > 370:
+                    continue
+            cur = per.get(accn)
+            if cur is None or rank < cur[0] or (rank == cur[0] and end > cur[1]):
+                per[accn] = (rank, end, val, filed)
+    if not per:
+        return pd.Series(dtype=float, name="shares")
+    rows = sorted((v[3], v[2]) for v in per.values())
+    s = pd.Series([v for _, v in rows], index=pd.DatetimeIndex([d for d, _ in rows]), name="shares", dtype=float)
+    return s[~s.index.duplicated(keep="last")]
+
+
+def fetch_sec_shares(tickers: list[str]) -> None:
+    """Share counts back to ~2009 (XBRL) from SEC EDGAR company facts, saved per ticker in data/shares_sec/
+    (date = filing date, shares, as reported). data.shares_outstanding merges them with the Yahoo counts in
+    data/shares. Keyless; SEC's fair-access limit is 10 requests a second."""
+    import time
+    folder = ROOT / "data" / "shares_sec"      # (from ROOT at call time, like the other outputs)
+    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        r = requests.get(SEC_TICKERS_URL, headers=SEC_UA, timeout=60)
+        r.raise_for_status()
+        ciks = sec_ticker_map(r.json())
+    except Exception as e:  # noqa: BLE001
+        print(f"sec tickers failed: {e}", file=sys.stderr)
+        ciks = {}
+    ciks.update(SEC_CIKS)
+    got, missing = 0, []
+    for t in tickers:
+        cik = ciks.get(t) or ciks.get(RENAMES.get(t, ""))
+        if not cik:
+            missing.append(t)
+            continue
+        try:
+            time.sleep(0.15)
+            r = requests.get(SEC_FACTS_URL.format(cik=cik), headers=SEC_UA, timeout=60)
+            if r.status_code == 404:
+                missing.append(t)
+                continue
+            r.raise_for_status()
+            s = sec_share_counts(r.json())
+            if s.empty:
+                missing.append(t)
+                continue
+            path = folder / f"{t}.csv"
+            if path.exists():
+                old = pd.read_csv(path, parse_dates=["date"], index_col="date")["shares"]
+                s = s.combine_first(old[~old.index.duplicated(keep="last")]).sort_index().rename("shares")
+            s.to_csv(path, index_label="date", float_format="%.0f")
+            got += 1
+        except Exception as e:  # noqa: BLE001
+            print(f"sec shares {t} failed: {e}", file=sys.stderr)
+            missing.append(t)
+    (folder / "fetch_log.txt").write_text(f"{got} tickers with SEC share counts\n"
+                                              + ("no CIK or no counts: " + " ".join(missing) + "\n" if missing else ""))
 
 
 # ------------------------------------------------------------------ main
@@ -1493,6 +1605,11 @@ def main() -> None:
             continue
         entry = delisted.get(t, {})
         entry.update({"last_date": info["last"], "first_date": info["first"], "rows": info["rows"]})
+        if info["rows"] < HISTORY_MIN_ROWS:
+            # Yahoo drops a delisted symbol's history; only what the repository saved survives
+            entry["history"] = HISTORY_UNAVAILABLE
+        else:
+            entry.pop("history", None)
         if t in DELISTED_REASONS:
             entry["reason"] = DELISTED_REASONS[t]
         elif t in RENAMES:
@@ -1506,6 +1623,10 @@ def main() -> None:
     fetch_macro()
     fetch_factors()
     fetch_shares(sorted(set(ndx) | set(former_ok)))
+    try:
+        fetch_sec_shares(sorted(set(ndx) | set(former_ok) | set(kept) | set(hist_members) & set(p.stem for p in PRICES.glob("*.csv"))))
+    except Exception as e:  # noqa: BLE001 - share counts are optional
+        print(f"sec shares failed: {e}", file=sys.stderr)
     sims = build_sims()
 
     meta = {
