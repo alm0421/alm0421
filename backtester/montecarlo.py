@@ -110,19 +110,9 @@ def monthly_asset_returns(tickers: list[str], start=None, end=None) -> pd.DataFr
     return r.dropna()
 
 
-def complete_months(px: pd.DataFrame | pd.Series):
-    """Month-end values labelled with each month's last trading day in the data. The last month is dropped
-    when the data stops before that month's last scheduled NYSE session (a month still in progress)."""
-    from . import calendar as _cal
-    if not len(px):
-        return px
-    per = px.index.to_period("M")
-    me = px.groupby(per).last()
-    me.index = pd.DatetimeIndex(px.index.to_series().groupby(per).max().to_numpy())
-    last = px.index[-1]
-    if _cal.next_sessions(last)[0].to_period("M") == last.to_period("M"):
-        me = me.iloc[:-1]
-    return me
+def complete_months(px):
+    from .metrics import complete_months as cm
+    return cm(px)
 
 
 def monthly_inflation(index: pd.DatetimeIndex | None = None) -> pd.Series:

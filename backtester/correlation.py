@@ -15,7 +15,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import calendar as _cal
 from . import data, metrics
 
 MAX_ASSETS = 25
@@ -30,17 +29,7 @@ def _prices(tickers: list[str]) -> dict[str, pd.Series]:
 
 
 def _complete_months(px: pd.DataFrame) -> pd.DataFrame:
-    """Month-end prices, labelled by the month's last trading day in the data; the last month is dropped
-    when the data stops before that month's last scheduled session."""
-    if px.empty:
-        return px
-    g = px.groupby(px.index.to_period("M"))
-    me = g.last()
-    me.index = g.apply(lambda x: x.index[-1])
-    last = px.index[-1]
-    if _cal.next_sessions(last)[0].to_period("M") == last.to_period("M"):
-        me = me.iloc[:-1]
-    return me
+    return metrics.complete_months(px)
 
 
 def returns_frame(tickers: list[str], freq: str = "monthly", start=None, end=None) -> tuple[pd.DataFrame, dict]:

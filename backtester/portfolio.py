@@ -512,6 +512,7 @@ _PRETTY = [
     (r'sym\("([^"]+)"\)\.', r"\1 "),
     (r"\brsi\((?:close\s*,\s*)?(\d+)\)", r"RSI(\1)"),
     (r"\b(sma|ema|wma)\((?:close\s*,\s*)?(\d+)\)", lambda m: f"{m.group(1).upper()}({m.group(2)})"),
+    (r"\b(sma|ema|wma)\(([^(),]+),\s*(\d+)\)", lambda m: f"{m.group(1).upper()}({m.group(3)}) of {m.group(2).strip()}"),
     (r"\btret\((?:tr\s*,\s*)?(\d+)\)", r"\1-day return"),
     (r"\bret\((?:close\s*,\s*)?(\d+)\)", r"\1-day price return"),
     (r"\bmax_drawdown\((?:tr\s*,\s*)?(\d+)\)", r"\1-day max drawdown"),

@@ -12,6 +12,7 @@ import pandas as pd
 from . import data
 
 TRADING_DAYS = 252
+NO_DRAWDOWN = 5e-5   # a drawdown smaller than 0.005% is reported as none
 
 CRISES = [
     ("1987 crash", "1987-10-01", "1987-12-04"),
@@ -257,10 +258,11 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, 
         "sharpe_monthly": sharpe_m,
         "sortino_monthly": sortino_m,
         "max_drawdown": mdd,
-        # no drawdown at all (e.g. only cash interest): no peak / trough dates to show
-        "max_dd_peak": display_date(peak, first_bar).date() if mdd < 0 else None,
-        "max_dd_trough": trough.date() if mdd < 0 else None,
-        "max_dd_recovery": recovery.date() if recovery is not None and mdd < 0 else None,
+        # no drawdown to speak of (e.g. only cash interest, which can dip by a hair when T-bill yields turn
+        # negative): no peak / trough dates to show
+        "max_dd_peak": display_date(peak, first_bar).date() if mdd < -NO_DRAWDOWN else None,
+        "max_dd_trough": trough.date() if mdd < -NO_DRAWDOWN else None,
+        "max_dd_recovery": recovery.date() if recovery is not None and mdd < -NO_DRAWDOWN else None,
         "longest_underwater_days": longest,
         "calmar": cagr / abs(mdd) if mdd < 0 else np.nan,
         "ulcer_index": ulcer,
@@ -483,9 +485,25 @@ def correlation_matrix(series: dict[str, pd.Series]) -> dict:
     return {"names": list(m.columns), "matrix": m.round(4).to_numpy().tolist()}
 
 
+def complete_months(px):
+    """Month-end values labelled with each month's last trading day in the data (not a calendar month end that
+    may lie in the future). The last month is dropped when the data stops before that month's last scheduled
+    NYSE session: a month still in progress has no monthly return yet."""
+    from . import calendar as _cal
+    if not len(px):
+        return px
+    per = px.index.to_period("M")
+    me = px.groupby(per).last()
+    me.index = pd.DatetimeIndex(px.index.to_series().groupby(per).max().to_numpy())
+    last = px.index[-1]
+    if len(me) > 1 and _cal.next_sessions(last)[0].to_period("M") == last.to_period("M"):
+        me = me.iloc[:-1]
+    return me
+
+
 def monthly_returns_frame(df: pd.DataFrame) -> pd.DataFrame:
-    me = df.resample("ME").last()
-    return me.pct_change().dropna()
+    """Monthly returns of complete months, labelled by each month's last trading day."""
+    return complete_months(df).pct_change().dropna()
 
 
 def yearly_returns(series: dict[str, pd.Series]) -> pd.DataFrame:

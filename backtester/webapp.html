@@ -81,7 +81,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 <body>
 <header><div class="bar"><div class="brand">📈 Backtester</div>
   <nav id="nav">
-    <a href="#backtest">Backtest</a><a href="#library">Library</a><a href="#gallery">Gallery</a><a href="#build">Build</a><a href="#compare">Compare</a><a href="#research">Research</a><a href="#montecarlo">Monte Carlo</a><a href="#factors">Factors</a>
+    <a href="#backtest">Backtest</a><a href="#library">Library</a><a href="#gallery">Gallery</a><a href="#build">Build</a><a href="#compare">Compare</a><a href="#research">Research</a><a href="#montecarlo">Monte Carlo</a><a href="#factors">Factors</a><a href="#correlations">Correlations</a>
     <a href="#signals">Signals &amp; paper</a><a href="#history">History</a><a href="#data">Data</a>
   </nav><div class="note" id="dataStamp" style="margin-left:auto"></div></div></header>
 <main>
@@ -190,7 +190,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label style="grid-column:1/-1">Entry rule<input id="s_entry" class="w" value="down_days >= 5"></label>
         <label style="grid-column:1/-1">Short entry rule (side = both)<input id="s_short_entry" class="w"></label>
         <label style="grid-column:1/-1">Exit rule<input id="s_exit_when" class="w" placeholder="close > sma(close, 5)"></label>
-        <label>Hold bars<input id="s_hold_bars" type="number" value="1"></label>
+        <label>Hold bars<input id="s_hold_bars" type="number" min="0" placeholder="none"></label>
         <label>Exit fill<select id="s_hold_exit_fill"><option>close</option><option>open</option></select></label>
         <label>Stop loss (%)<input id="s_stop_loss" type="number" step="0.1"></label>
         <label>Take profit (%)<input id="s_take_profit" type="number" step="0.1"></label>
@@ -217,6 +217,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     <details style="margin-top:10px"><summary>JSON (edit directly or paste a strategy.json)</summary>
       <textarea id="specJson" style="min-height:180px;font:12px ui-monospace,monospace"></textarea>
       <div class="row" style="margin-top:6px"><button class="btn small" id="fromJson">Load JSON into the editor</button><button class="btn small" id="toJson">Show editor as JSON</button></div></details>
+    <div class="interp hide" id="buildInterp" style="margin-top:10px"></div>
     <div class="row" style="margin-top:12px"><button class="btn primary" id="buildRun">Run</button>
       <button class="btn" id="buildExport">Export JSON file</button>
       <label class="btn" style="display:inline-block">Import JSON file…<input type="file" id="buildImport" accept=".json,application/json" class="hide"></label>
@@ -264,11 +265,13 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label>Test out of sample from<input id="o_test" type="date"></label>
         <label>Target return (%/yr)<input id="o_tret" type="number" step="0.5" placeholder="optional"></label>
         <label>Target volatility (%/yr)<input id="o_tvol" type="number" step="0.5" placeholder="optional"></label>
+        <label>Omega threshold (%/yr)<input id="o_omega" type="number" step="0.5" value="0"></label>
         <label>Re-optimise every (months)<input id="o_roll" type="number" placeholder="off"></label>
         <label>on the trailing (months)<input id="o_look" type="number" value="60"></label>
         <label style="grid-column:1/-1">Constraints (one per line or separated by ;)<textarea id="o_cons" style="min-height:44px;font-size:13px" placeholder="e.g. SPY+QQQ <= 70%; TLT >= 10%; GLD <= 20%; 20% <= TLT+IEF <= 60%"></textarea></label>
       </div>
-      <p class="note">Objectives: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity, max diversification, inverse volatility, equal weight, plus target return / volatility when given. Long-history series such as SPYSIM and TLTSIM can be used as tickers when present.</p>
+      <div class="note" style="margin-top:8px">Objectives <span class="chips" id="o_methods" style="display:inline-flex;margin:0 0 0 6px"></span></div>
+      <p class="note">Max return / max drawdown maximises CAGR over the worst drawdown of the historical monthly path (searched from several starting portfolios); max Omega maximises the Omega ratio (gains over losses around the threshold, solved exactly as a linear programme). An unreachable target volatility or return is reported with the reachable range. Long-history series such as SPYSIM and TLTSIM can be used as tickers when present.</p>
     </div>
     <div class="row" style="margin-top:10px"><button class="btn primary" id="resRun">Run</button><span class="note" id="resStatus"></span></div>
   </div>
@@ -325,6 +328,11 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       <label>Simulations<input id="mc_sims" type="number" value="5000" step="500"></label>
       <label>Success target for SWR (%)<input id="mc_success" type="number" value="95"></label>
       <label>History from<input id="mc_start" type="date"></label><label>History to<input id="mc_end" type="date"></label>
+      <label>Stress test<select id="mc_stress"><option value="">none</option><option value="worst_sequence">worst historical sequence first</option><option value="shock">first-year shock</option></select></label>
+      <label>Worst sequence (years)<input id="mc_stress_years" type="number" value="10" min="1"></label>
+      <label>First-year return (%)<input id="mc_shock" type="number" value="-30" step="1"></label>
+      <label>Current age<input id="mc_age" type="number" placeholder="optional"></label>
+      <label>Until age (sets the years)<input id="mc_until_age" type="number" placeholder="e.g. 95"></label>
     </div>
     <h3>Cash flows</h3>
     <div class="grid">
@@ -353,14 +361,14 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 <!-- FACTORS -->
 <section id="p-factors" class="hide">
   <div class="card"><h2>Factor analysis</h2>
-    <p class="note">Explain returns with the market, size, value, profitability, investment and momentum factors (Kenneth French's data): loadings with t-stats, R² and the annualised alpha left over.</p>
+    <p class="note">Explain returns with the market, size, value, profitability, investment and momentum factors (Kenneth French's data, US or developed markets) and the bond factors TERM (long Treasuries − T-bills) and DEF (corporates − Treasuries): loadings with t-stats, R² and the annualised alpha left over.</p>
     <div class="tabs2" id="fxSrc"><button data-v="ticker" class="on">Ticker</button><button data-v="weights">Tickers &amp; weights</button><button data-v="text">Sentence</button><button data-v="run">Saved run</button></div>
     <div id="fxSrcTicker"><input id="fx_ticker" list="tickerList" value="QQQ" style="width:140px"></div>
     <div id="fxSrcWeights" class="hide"><input id="fx_weights" class="w" value="SPY 60, TLT 40"></div>
     <div id="fxSrcText" class="hide"><textarea id="fx_text" style="min-height:48px">hold the top 2 of QQQ, SPY, TLT and GLD by 3 month return</textarea></div>
     <div id="fxSrcRun" class="hide"><select id="fx_run" style="max-width:100%"></select></div>
     <div class="grid" style="margin-top:10px">
-      <label>Model<select id="fx_model"><option value="capm">CAPM</option><option value="ff3" selected>Fama-French 3</option><option value="carhart">Carhart 4 (FF3 + momentum)</option><option value="ff5">Fama-French 5</option><option value="ff6">Fama-French 5 + momentum</option></select></label>
+      <label>Model<select id="fx_model"><option value="capm">CAPM</option><option value="ff3" selected>Fama-French 3</option><option value="carhart">Carhart 4 (FF3 + momentum)</option><option value="ff5">Fama-French 5</option><option value="ff6">Fama-French 5 + momentum</option><option value="dev_ff3">Developed markets Fama-French 3 (intl)</option><option value="bonds">Market + bond factors (TERM, DEF)</option><option value="ff3+bonds">Fama-French 3 + bond factors</option></select></label>
       <label>Returns<select id="fx_freq"><option value="monthly">monthly</option><option value="daily">daily</option></select></label>
       <label>Rolling window (months)<input id="fx_roll" type="number" value="36"></label>
       <label>From<input id="fx_start" type="date"></label><label>To<input id="fx_end" type="date"></label>
@@ -368,10 +376,30 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     <div class="row" style="margin-top:12px"><button class="btn primary" id="fxRun">Run regression</button><span class="note" id="fxStatus"></span></div>
   </div>
   <div id="fxOut" class="hide">
-    <div class="card"><div class="tiles" id="fxTiles"></div><p class="note" id="fxMeta"></p></div>
+    <div class="card"><div class="tiles" id="fxTiles"></div><p class="note" id="fxMeta"></p><div id="fxNotes"></div></div>
     <div class="card"><h2>Factor loadings</h2><div class="chart2" id="fxBars"></div><div class="xscroll"><table id="fxTable"></table></div>
       <p class="note">A loading is the return's sensitivity to the factor; |t| ≥ 1.96 is significant at about 5%. Alpha is the average return the factors do not explain.</p></div>
     <div class="card"><h2 id="fxRollTitle">Rolling loadings</h2><div class="lg" id="fxRollLegend"></div><div class="chart2" id="fxRoll"></div></div>
+  </div>
+</section>
+<!-- CORRELATIONS -->
+<section id="p-correlations" class="hide">
+  <div class="card"><h2>Asset correlations</h2>
+    <p class="note">The correlation of total returns (dividends reinvested) over the period the assets have in common, a rolling correlation for one pair, and each asset's statistics, like Portfolio Visualizer's asset correlations and asset analysis. Long-history series (SPYSIM, TLTSIM, EFASIM…) reach back further.</p>
+    <div class="grid">
+      <label style="grid-column:1/-1">Tickers<input id="k_tickers" class="w" list="tickerList" value="SPY TLT GLD EFASIM"></label>
+      <label>Returns<select id="k_freq"><option value="monthly">monthly</option><option value="daily">daily</option></select></label>
+      <label>Rolling window (periods)<input id="k_window" type="number" min="3" placeholder="36 months / 63 days"></label>
+      <label>Rolling pair: first<select id="k_a"></select></label><label>second<select id="k_b"></select></label>
+      <label>From<input id="k_start" type="date"></label><label>To<input id="k_end" type="date"></label>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="kRun">Show correlations</button><span class="note" id="kStatus"></span></div>
+  </div>
+  <div id="kOut" class="hide">
+    <div class="card"><h2 id="kMatTitle">Correlation matrix</h2><div class="xscroll"><table id="kMat"></table></div><div id="kNotes"></div></div>
+    <div class="card"><h2 id="kRollTitle">Rolling correlation</h2><div class="chart2" id="kRoll"></div><p class="note" id="kRollNote"></p></div>
+    <div class="card"><h2 id="kStatTitle">Asset statistics</h2><div class="xscroll"><table id="kStats"></table></div>
+      <p class="note">Total returns over the common period; Sharpe is against T-bills; best and worst year are calendar years (the first and last can be partial). "Data since" is each asset's own first date.</p></div>
   </div>
 </section>
 <datalist id="tickerList"></datalist>
@@ -394,7 +422,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   let STATUS = null;
 
   // ---------- routing
-  const pages = ['backtest', 'library', 'gallery', 'build', 'compare', 'research', 'montecarlo', 'factors', 'signals', 'history', 'data'];
+  const pages = ['backtest', 'library', 'gallery', 'build', 'compare', 'research', 'montecarlo', 'factors', 'correlations', 'signals', 'history', 'data'];
   function route() {
     const h = location.hash.replace('#', '');
     const [page, qs] = h.split('?');
@@ -760,6 +788,20 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     return `Unknown ticker ${t}` + (near.length ? ` — did you mean ${near.join(', ')}?` : '') + ' (add it on the Data page).';
   }
   function checkRuleTickers(rule, out) { for (const m of (rule || '').matchAll(/sym\("([^"]+)"\)/g)) if (!known(m[1].toUpperCase())) out.push(tickerMsg(m[1].toUpperCase())); }
+  // what an indicator measures, to catch comparisons that can hardly mean anything (RSI against a price average)
+  const UNIT = { tret: 'pct', ret: 'pct', ma_return: 'pct', max_drawdown: 'pct', stdev_return: 'pct', volatility: 'pct', rsi: 'osc', sma: 'price', ema: 'price', close: 'price', market_cap: 'usd' };
+  const UNIT_TXT = { pct: 'a percentage', osc: 'an oscillator from 0 to 100', price: 'a price', usd: 'a dollar amount' };
+  function unitWarnings(rule, own) {
+    const cc = parseCompound(rule || '', own); if (!cc) return [];
+    const out = [];
+    cc.clauses.forEach(c => {
+      if (c.rhs.num !== undefined) { if (UNIT[c.lhs.k] === 'osc' && (c.rhs.num < 0 || c.rhs.num > 100)) out.push(`${INDK[c.lhs.k].label} is between 0 and 100, so comparing it with ${c.rhs.num} is always true or always false.`); return; }
+      const a = UNIT[c.lhs.k], b = UNIT[c.rhs.k];
+      if (a && b && a !== b) out.push(`Different units: ${INDK[c.lhs.k].label} is ${UNIT_TXT[a]}, ${INDK[c.rhs.k].label} is ${UNIT_TXT[b]}; the condition compares numbers on different scales (e.g. RSI 70 vs a $400 average is always below).`);
+      else if (a === 'price' && b === 'price' && (c.lhs.t || own) && (c.rhs.t || own) && (c.lhs.t || own) !== (c.rhs.t || own)) out.push(`Compares the price level of ${c.lhs.t || own} with that of ${c.rhs.t || own}: prices of different tickers are not comparable (compare returns instead).`);
+    });
+    return out;
+  }
   function validateNode(n, errs) {
     const e = [], w = [], t = typeOf(n);
     if (t === 'asset') { const s = (n.asset || '').toUpperCase().trim(); if (!s || !known(s)) e.push(tickerMsg(s)); }
@@ -772,12 +814,12 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       }
       if (LOOKBACK[n.weights] && n.lookback != null && !(n.lookback >= 2)) e.push('The lookback must be at least 2 days.');
     }
-    if (t === 'if') { if (!(n.if || '').trim()) e.push('Enter a condition.'); const on = (n.on || 'SPY').toUpperCase(); if (!known(on)) e.push(tickerMsg(on)); checkRuleTickers(n.if, e); }
+    if (t === 'if') { if (!(n.if || '').trim()) e.push('Enter a condition.'); const on = (n.on || 'SPY').toUpperCase(); if (!known(on)) e.push(tickerMsg(on)); checkRuleTickers(n.if, e); unitWarnings(n.if, on).forEach(m => w.push(m)); }
     if (t === 'filter') {
       const f = n.filter;
       if (!(f.by || '').trim()) e.push('Choose what to rank by.');
       if (!(f.n >= 1)) e.push('Pick at least 1.');
-      checkRuleTickers(f.by, e); checkRuleTickers(f.require, e);
+      checkRuleTickers(f.by, e); checkRuleTickers(f.require, e); if (f.require) unitWarnings(f.require, null).forEach(m => w.push(m));
       if (n.universe !== 'NDX') {
         const k = n.children || [];
         if (!k.length) e.push('Empty list: add assets to choose from.');
@@ -964,8 +1006,10 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     $('buildStatus').replaceChildren(el('span', { class: 'spin' }), document.createTextNode(' running…'));
     try {
       const j = await api('/api/run', { spec: specFromEditor() });
-      $('buildStatus').textContent = (j.summary.kind === 'allocation' ? 'Portfolio' : j.interpretation.split('\n')[0]) + ' · ' + metaLine(j.summary)
+      $('buildStatus').textContent = (j.summary.label || (j.summary.kind === 'allocation' ? 'Portfolio' : 'Strategy')) + ' · ' + metaLine(j.summary)
         + (j.reused ? ' · same spec and data as a saved run (reopened it)' : '');
+      $('buildInterp').classList.remove('hide');   // the whole interpretation: entry, exits, holding period, sizing, costs
+      $('buildInterp').textContent = j.interpretation + (j.notes && j.notes.length ? '\n' + j.notes.map(n => 'Note: ' + n).join('\n') : '');
       buildShare = j.share; $('buildShare').classList.remove('hide');
       $('buildResult').classList.remove('hide'); $('buildFrame').src = j.url;
     } catch (e) { $('buildStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
@@ -992,6 +1036,11 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 
   // ---------- research
   let resMode = 'sweep';
+  const OPT_M = [['max_sharpe', 'Max Sharpe'], ['min_variance', 'Min variance'], ['max_sortino', 'Max Sortino'], ['min_cvar', 'Min CVaR'], ['risk_parity', 'Risk parity'],
+    ['max_diversification', 'Max diversification'], ['max_return_over_maxdd', 'Max return / max drawdown'], ['omega', 'Max Omega'], ['target_return', 'Target return'], ['target_vol', 'Target volatility'],
+    ['inverse_vol', 'Inverse volatility'], ['equal', 'Equal weight']];
+  OPT_M.forEach(([k, lab]) => { const c = el('span', { class: 'chip on', 'data-m': k, role: 'button', tabindex: '0', title: 'include / leave out' }, lab);
+    c.onclick = () => c.classList.toggle('on'); c.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); c.click(); } }; $('o_methods').append(c); });
   $('resMode').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; resMode = b.dataset.v; [...$('resMode').children].forEach(x => x.classList.toggle('on', x === b)); $('r_sweepwalk').classList.toggle('hide', resMode === 'optimize'); $('r_opt').classList.toggle('hide', resMode !== 'optimize'); document.querySelectorAll('.wf').forEach(x => x.classList.toggle('hide', resMode !== 'walkforward')); });
   document.querySelectorAll('.wf').forEach(x => x.classList.add('hide'));
   $('resRun').addEventListener('click', async () => {
@@ -1002,7 +1051,8 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       if (resMode === 'sweep') j = await api('/api/sweep', { text: $('r_text').value, objective: $('r_objective').value, options: o });
       else if (resMode === 'walkforward') j = await api('/api/walkforward', { text: $('r_text').value, objective: $('r_objective').value, in_sample: $('r_is').value, out_sample: $('r_oos').value, anchored: $('r_anchored').value === 'true', options: o });
       else j = await api('/api/optimize', { tickers: $('o_tickers').value, max_weight: $('o_max').value / 100, min_weight: $('o_min').value / 100, start: $('o_from').value, end: $('o_to').value, test_start: $('o_test').value,
-        constraints: $('o_cons').value, target_return: $('o_tret').value === '' ? null : $('o_tret').value / 100, target_vol: $('o_tvol').value === '' ? null : $('o_tvol').value / 100, rolling_months: $('o_roll').value || null, lookback_months: $('o_look').value || 60 });
+        constraints: $('o_cons').value, target_return: $('o_tret').value === '' ? null : $('o_tret').value / 100, target_vol: $('o_tvol').value === '' ? null : $('o_tvol').value / 100, rolling_months: $('o_roll').value || null, lookback_months: $('o_look').value || 60,
+        omega_threshold: ($('o_omega').value || 0) / 100, methods: [...$('o_methods').querySelectorAll('.chip.on')].map(c => c.dataset.m) });
       $('resStatus').textContent = ''; $('resResult').classList.remove('hide'); $('resFrame').src = j.url;
     } catch (e) { $('resStatus').textContent = e.message; }
   });
@@ -1292,6 +1342,8 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     const body = { balance: +$('mc_balance').value, years: +$('mc_years').value, model: $('mc_model').value, block_months: +$('mc_block').value,
       rebalance: $('mc_rebalance').value, inflation: $('mc_infl').value === 'fixed' ? (+$('mc_infl_rate').value / 100) : 'historical',
       sims: +$('mc_sims').value, success_target: +$('mc_success').value / 100, start: $('mc_start').value, end: $('mc_end').value,
+      stress: $('mc_stress').value || null, stress_years: +$('mc_stress_years').value || 10, stress_shock: $('mc_shock').value === '' ? null : +$('mc_shock').value / 100,
+      age: $('mc_age').value === '' ? null : +$('mc_age').value, until_age: $('mc_until_age').value === '' ? null : +$('mc_until_age').value,
       flows: [{ type: t, amount: +$('mc_cf_amount').value, pct: +$('mc_cf_pct').value / 100, freq: $('mc_cf_freq').value, inflation_adjusted: $('mc_cf_infl').value === 'true', start_year: +$('mc_cf_from').value || 1, end_year: $('mc_cf_to').value ? +$('mc_cf_to').value : null }] };
     if (mcSrc === 'weights') body.weights = $('mc_weights').value; else if (mcSrc === 'text') { body.text = $('mc_text').value; delete body.rebalance; } else { body.run_id = $('mc_run').value; delete body.rebalance; }
     if (body.model === 'forecast') { body.forecast = {}; mcTickers().forEach(tk => { const r = $(`mcf_${tk}_ret`), v = $(`mcf_${tk}_vol`); if (r && v && r.value !== '' && v.value !== '') body.forecast[tk] = { ret: +r.value / 100, vol: +v.value / 100 }; }); }
@@ -1310,17 +1362,18 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   }
   function drawMC() {
     const R = MC, st = R.settings; $('mcOut').classList.remove('hide');
-    const tiles = $('mcTiles'); tiles.replaceChildren(
-      tile('Chance of success', pct(R.prob_success, 1), `money left after ${st.years} years`),
+    const tiles = $('mcTiles'), showWR = R.show_withdrawal_rates !== false;   // SWR / PWR answer a retirement question, not a savings one
+    tiles.replaceChildren(...[
+      tile('Chance of success', pct(R.prob_success, 1), `money left after ${st.years} years` + (st.until_age ? ` (age ${st.until_age})` : '')),
       tile('Median final balance', compact(R.final['50']), `${compact(R.final_real['50'])} in today's dollars`),
       tile('10th percentile final', compact(R.final['10']), `${compact(R.final_real['10'])} real`),
-      tile('Safe withdrawal rate', pct(R.safe_withdrawal_rate), `${pct(st.success_target, 0)} success, grows with inflation`),
-      tile('Perpetual withdrawal rate', pct(R.perpetual_withdrawal_rate), 'keeps the median real balance'),
-      tile('Median annual return', pct(R.annual_return['50']), `${pct(R.annual_return_real['50'])} after inflation`));
+      showWR ? tile('Safe withdrawal rate', pct(R.safe_withdrawal_rate), `${pct(st.success_target, 0)} success, grows with inflation`) : null,
+      showWR ? tile('Perpetual withdrawal rate', pct(R.perpetual_withdrawal_rate), 'keeps the median real balance') : null,
+      tile('Median annual return', pct(R.annual_return['50']), `${pct(R.annual_return_real['50'])} after inflation`)].filter(Boolean));
     const n = $('mcNotes'); n.replaceChildren();
     const who = st.mode === 'strategy' ? `${st.name} (its own monthly returns resampled)` : Object.entries(st.weights).map(([t, w]) => `${(w * 100).toFixed(1)}% ${t}`).join(', ') + `, rebalanced ${st.rebalance}`;
     const model = { historical: `historical block bootstrap (${st.block_months}-month blocks)`, normal: 'multivariate normal', t: `multivariate Student-t (fitted df ${num(st.t_df, 1)})`, forecast: 'forecast returns with historical correlations' }[st.model];
-    n.append(el('p', { class: 'note' }, `${st.sims.toLocaleString()} paths of ${st.years} years from ${usd(st.start_balance)}: ${who}. Model: ${model}, fitted on ${st.history_start} → ${st.history_end} (${st.history_months} months). Inflation: ${typeof st.inflation === 'number' ? pct(st.inflation, 1) + '/yr' : st.inflation}. Cash flows: ${st.flows.join('; ')}.`));
+    n.append(el('p', { class: 'note' }, `${st.sims.toLocaleString()} paths of ${st.years} years from ${usd(st.start_balance)}: ${who}. Model: ${model}, fitted on ${st.history_start} → ${st.history_end} (${st.history_months} complete months). Inflation: ${typeof st.inflation === 'number' ? pct(st.inflation, 1) + '/yr' : st.inflation}. Cash flows: ${st.flows.join('; ')} (the first at the start, as in the backtest).`));
     R.notes.forEach(x => n.append(el('div', { class: 'warn' }, x)));
     if (R.settings.history_months < 240) n.append(el('div', { class: 'warn' }, `Only ${Math.round(R.settings.history_months / 12)} years of history feed the simulation. Long-history series (SPYSIM, TLTSIM, IEFSIM, SHYSIM, BILSIM) give a wider range of markets when they are available.`));
     drawFan();
@@ -1352,6 +1405,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       tile('R²', num(R.r_squared, 3), `adjusted ${num(R.adj_r_squared, 3)}`), tile('Market beta', num(R.coefficients[1].loading), `t-stat ${num(R.coefficients[1].t_stat, 1)}`),
       tile('Residual volatility', pct(R.tracking_error_annual, 1), 'per year, not explained'), tile('Observations', String(R.observations), `${R.freq} · ${R.start} → ${R.end}`));
     $('fxMeta').textContent = `${R.model_label} regression of ${R.name} on ${R.freq} excess returns (over the risk-free rate).`;
+    $('fxNotes').replaceChildren(...(R.notes || []).map(x => el('div', { class: 'note' }, 'Note: ' + x)));
     // horizontal bars with 95% intervals
     const box = $('fxBars'); box.replaceChildren();
     const rows = R.coefficients.slice(1), W = Math.max(320, box.clientWidth || 800), rh = 30, H = rows.length * rh + 30, m = { l: 70, r: 70, t: 6, b: 22 }, iw = W - m.l - m.r;
@@ -1379,11 +1433,56 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       tipRows: i => ser.map(s => [s.name, num(s.values[i])]).concat([['Alpha /yr', pct(ro.loadings.Alpha[i])], ['R²', num(ro.r_squared[i], 2)]]) });
   }
 
+  // ---------------------------------------------------------------- Correlations
+  const kTickers = () => $('k_tickers').value.replace(/[,;]/g, ' ').split(/\s+/).filter(Boolean).map(t => t.toUpperCase());
+  function kPairOptions() {
+    const tk = kTickers(), a0 = $('k_a').value, b0 = $('k_b').value;
+    [['k_a', a0 || tk[0]], ['k_b', b0 || tk[1]]].forEach(([id, v]) => { $(id).replaceChildren(...tk.map(t => el('option', { value: t }, t))); if (tk.includes(v)) $(id).value = v; });
+    if ($('k_a').value === $('k_b').value && tk.length > 1) $('k_b').value = tk.find(t => t !== $('k_a').value);
+  }
+  $('k_tickers').addEventListener('input', kPairOptions); kPairOptions();
+  const mixc = (a, b, t) => { const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); const A = p(a), B = p(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(',')})`; };
+  const hexOf = n => { const v = css(n); return /^#[0-9a-f]{6}$/i.test(v) ? v : '#888888'; };
+  async function runCorr() {
+    spin($('kStatus'), 'computing…'); $('kRun').disabled = true;
+    const body = { tickers: kTickers(), freq: $('k_freq').value, window: $('k_window').value || null, start: $('k_start').value, end: $('k_end').value, pair: [$('k_a').value, $('k_b').value] };
+    try { const R = await api('/api/correlation', body); $('kStatus').textContent = ''; drawCorr(R); }
+    catch (e) { $('kStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
+    $('kRun').disabled = false;
+  }
+  $('kRun').addEventListener('click', runCorr);
+  function drawCorr(R) {
+    $('kOut').classList.remove('hide');
+    $('kMatTitle').textContent = `Correlation of ${R.freq} returns, ${R.start} → ${R.end} (${R.observations} observations)`;
+    const tbl = $('kMat'); tbl.replaceChildren();
+    const hr = el('tr'); hr.append(el('th', {}, '')); R.tickers.forEach(t => hr.append(el('th', { class: 'n' }, t))); hr.append(el('th', { class: 'n' }, 'Average')); tbl.append(hr);
+    const mid = hexOf('--surface-2'), pos = hexOf('--s1'), neg = hexOf('--s2');
+    R.matrix.forEach((row, i) => { const tr = el('tr'); tr.append(el('td', {}, R.tickers[i]));
+      row.forEach((v, j) => { const td = el('td', { class: 'n' }, num(v)); if (i !== j) { const t = Math.min(1, Math.abs(v)); td.style.background = mixc(mid, v >= 0 ? pos : neg, t * 0.75); } td.title = `${R.tickers[i]} / ${R.tickers[j]}: ${num(v, 3)}`; tr.append(td); });
+      tr.append(el('td', { class: 'n' }, num(R.average_correlation[R.tickers[i]]))); tbl.append(tr); });
+    $('kNotes').replaceChildren(...(R.notes || []).map(x => el('div', { class: 'note' }, 'Note: ' + x)));
+    const ro = R.rolling, unit = R.freq === 'monthly' ? 'month' : 'day';
+    $('kRollTitle').textContent = `Rolling ${ro.window}-${unit} correlation: ${ro.pair[0]} / ${ro.pair[1]}`;
+    if (!ro.values.length) { $('kRoll').replaceChildren(el('p', { class: 'note' }, 'Not enough history for this window.')); $('kRollNote').textContent = ''; }
+    else {
+      const T = ro.dates.map(d => Date.parse(d)), yr = t => new Date(t).getUTCFullYear();
+      lineChart($('kRoll'), { x: T, height: 280, series: [{ name: 'Correlation', color: css('--s1'), values: ro.values }], yMin: -1, yMax: 1, zero: true,
+        fmtY: v => v.toFixed(1), fmtX: (v, full) => full ? ro.dates[T.indexOf(v)] || new Date(v).toISOString().slice(0, 10) : yr(v),
+        tipRows: i => [['Correlation', num(ro.values[i])]] });
+      $('kRollNote').textContent = `Over the pair's own common history from ${ro.start}; over the whole period ${num(ro.full_period)}. Latest ${num(ro.values[ro.values.length - 1])}.`;
+    }
+    $('kStatTitle').textContent = `Asset statistics, ${R.stats_start} → ${R.stats_end}`;
+    table($('kStats'), ['Asset', 'CAGR', 'Volatility', 'Sharpe', 'Sortino', 'Max drawdown', 'Best year', 'Worst year', 'Data since'],
+      R.stats.map(x => [x.ticker, { t: pct(x.cagr), c: x.cagr >= 0 ? 'pos' : 'neg' }, pct(x.volatility, 1), num(x.sharpe), num(x.sortino), { t: pct(x.max_drawdown, 1), c: 'neg' }, pct(x.best_year, 1), pct(x.worst_year, 1), x.data_from]));
+  }
+
   // ---------------------------------------------------------------- init
   async function initPages() {
     try { const st = await api('/api/status'); const sims = st.sims || [];
       $('mcSims').textContent = sims.length ? 'Long-history series available: ' + sims.map(s => `${s.ticker} (${s.about})`).join('; ') : 'Tip: SPYSIM, TLTSIM, IEFSIM, SHYSIM and BILSIM (simulated histories back to the 1920s-60s) appear here once the data job has built them.';
       const dl = $('tickerList'); sims.forEach(s => dl.append(el('option', { value: s.ticker })));
+      const fm = st.factor_models || [];
+      if (fm.length) { const sel = $('fx_model'), cur = sel.value; sel.replaceChildren(...fm.map(m => el('option', { value: m.key, title: m.about }, m.label + (m.aliases.length ? ` (${m.aliases.join(', ')})` : '')))); sel.value = fm.some(m => m.key === cur) ? cur : 'ff3'; }
     } catch (e) { /* status is optional here */ }
   }
   initPages();

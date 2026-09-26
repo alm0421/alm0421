@@ -106,6 +106,7 @@ tr.sect td { font-weight: 600; color: var(--text); padding-top: 12px; border-bot
 th.sort { cursor: pointer; user-select: none; }
 th.sort:hover { color: var(--text); }
 tr.click { cursor: pointer; }
+tr.sel td { background: color-mix(in srgb, var(--s4) 18%, var(--surface)); }
 tr.click:hover td { background: var(--surface-2); }
 .muted { color: var(--text-3); }
 .pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--surface-2); color: var(--text-2); margin-left: 6px; }
@@ -160,6 +161,18 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     <div class="xscroll"><table id="cmpTbl"></table></div>
   </div>
 
+  <div class="card" id="trailCard">
+    <h2>Trailing returns <span class="pill runName"></span> <span class="pill" id="trailAsOf"></span></h2>
+    <div class="xscroll"><table id="trailTbl"></table></div>
+    <p class="note">3 months, year to date and 1 year are total returns; 3, 5 and 10 years and the full period are annualised. Periods longer than the history are blank.</p>
+  </div>
+
+  <div class="card" id="assetCard">
+    <h2>Holdings: asset statistics <span class="pill runName"></span></h2>
+    <div class="xscroll"><table id="assetTbl"></table></div>
+    <p class="note" id="assetNote"></p>
+  </div>
+
   <div class="grid2">
     <div class="card"><h2>Risk and return <span class="pill runName"></span></h2><div class="xscroll"><table class="kv" id="riskTbl"></table></div></div>
     <div class="card"><h2>Trades and exposure <span class="pill runName"></span></h2><div class="xscroll"><table class="kv" id="tradeTbl"></table></div></div>
@@ -177,10 +190,11 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     <div class="row"><h2>Price and trades <span class="pill runName"></span></h2>
       <div class="ctrls"><select id="pxTicker"></select>
         <div class="seg" id="pxRange"><button data-v="126">6M</button><button data-v="252" class="on">1Y</button><button data-v="1260">5Y</button><button data-v="0">All</button></div>
+        <div class="seg" id="pxScale" title="Price scale"><button data-v="lin" class="on">Linear</button><button data-v="log">Log</button></div>
         <button class="btn" id="pxPrev" title="Earlier">◀</button><button class="btn" id="pxNext" title="Later">▶</button></div></div>
     <div class="legend" id="pxLegend"></div>
     <div class="pxwrap" id="pxChart"></div>
-    <p class="note">Scroll to zoom, drag to pan, double-click to reset. Hover for prices, indicator values and trades on that day. ▲ entries and ▼ exits (short trades are drawn the other way round), with faint vertical lines through every pane. Click a row in the trade list to jump to it.</p>
+    <p class="note">Scroll to zoom, drag to pan, double-click to reset. Hover for prices, indicator values and trades on that day. ▲ entries and ▼ exits (short trades are drawn the other way round), with faint vertical lines through every pane. Dashed lines over each trade are its stop (red), trailing stop (orange, stepping up with the best price) and target (green). Other tickers the rule filters on have their own pane, and the strip at the bottom shows on which bars the entry and exit rules were true. Click a row in the trade list to jump to it (it stays highlighted).</p>
   </div>
 
   <div class="card" id="allocCard">
@@ -235,7 +249,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       <p class="note">The same rules re-run with slippage on every buy and sell. Short holding periods are very sensitive to this.</p></div>
   </div>
 
-  <div class="card">
+  <div class="card" id="distCard">
     <div class="grid2" style="margin-top:0"><div><h2>Trade return distribution <span class="pill runName"></span></h2><div class="chart" id="histChart"></div></div>
     <div><h2>Excursions (MAE vs result) <span class="pill runName"></span></h2><div class="chart" id="maeChart"></div></div></div>
   </div>
@@ -304,12 +318,15 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   function tiles() {
     const r = R(), st = r.stats, ts = r.trade_stats, ex = r.exposure;
     const bigRet = st.total_return >= 100;
+    const noTrades = !!r.no_trades;   // a signal strategy whose entry never triggered: only cash interest
     const t = [
       ['Final value', Math.abs(st.end_equity) >= 1e6 ? '$' + compact(st.end_equity) : usd(st.end_equity), r.cash && r.cash.total_contributions ? `incl. ${usd(r.cash.total_contributions)} added` : `from ${usd(st.start_equity)}`],
-      ['Total return', bigRet ? (1 + st.total_return).toLocaleString(undefined, { maximumFractionDigits: 0 }) + '×' : pct(st.total_return, 1), r.cash && r.cash.starting_balance ? 'time-weighted' : ''],
-      ['CAGR', pct(st.cagr), st.wiped_out ? 'wiped out: everything was lost' : isNum(st.real_cagr) ? `after inflation ${pct(st.real_cagr)}` : `vol ${pct(st.volatility, 1)}`],
+      noTrades ? ['Result', 'No trades', `the entry rule never triggered · cash interest alone ${pct(st.total_return, 1)}`]
+        : ['Total return', bigRet ? (1 + st.total_return).toLocaleString(undefined, { maximumFractionDigits: 0 }) + '×' : pct(st.total_return, 1), r.cash && r.cash.starting_balance ? 'time-weighted' : ''],
+      noTrades ? ['CAGR', '—', `interest only: ${pct(st.cagr)}/yr`]
+        : ['CAGR', pct(st.cagr), st.wiped_out ? 'wiped out: everything was lost' : isNum(st.real_cagr) ? `after inflation ${pct(st.real_cagr)}` : `vol ${pct(st.volatility, 1)}`],
       ['Sharpe', num(st.sharpe), `Sortino ${num(st.sortino)}`],
-      ['Max drawdown', pct(st.max_drawdown, 1), `${st.max_dd_peak} → ${st.max_dd_trough}`],
+      st.max_dd_peak ? ['Max drawdown', pct(st.max_drawdown, 1), `${st.max_dd_peak} → ${st.max_dd_trough}`] : ['Max drawdown', 'none', 'never below a previous high'],
       r.kind === 'allocation'
         ? ['Turnover', isNum(r.turnover) ? pct(r.turnover / 2, 0) + '/yr' : '—', `${r.rebalances || 0} rebalances`]
         : ['Closed trades', ts.trades ? ts.trades.toLocaleString() : '0', (ts.trades ? `${num(ts.trades_per_year, 1)} / year` : '') + (ts.open_trades ? `${ts.trades ? ' · ' : ''}+${ts.open_trades} open` : '')],
@@ -553,7 +570,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ['Best / worst year', pct(st.best_year, 1) + ' / ' + pct(st.worst_year, 1)], ['Best / worst month', pct(st.best_month, 1) + ' / ' + pct(st.worst_month, 1)],
       ['Best / worst day', pct(st.best_day) + ' / ' + pct(st.worst_day)], ['Positive days / months', pct(st.pct_positive_days, 0) + ' / ' + pct(st.pct_positive_months, 0)],
       { sect: 'Risk' }, ['Volatility (annualised)', pct(st.volatility, 1)], ['Max drawdown', pct(st.max_drawdown, 1)],
-      ['Max drawdown dates', `${st.max_dd_peak} → ${st.max_dd_trough} → ${st.max_dd_recovery || 'not recovered'}`],
+      ['Max drawdown dates', st.max_dd_peak ? `${st.max_dd_peak} → ${st.max_dd_trough} → ${st.max_dd_recovery || 'not recovered'}` : 'no drawdown'],
       ['Longest time underwater', st.longest_underwater_days + ' days'], ['Ulcer index', num(st.ulcer_index)],
       ['VaR / CVaR 95% (daily)', pct(st.var_95_daily) + ' / ' + pct(st.cvar_95_daily)], ['VaR / CVaR 95% (monthly)', pct(st.var_95_monthly, 1) + ' / ' + pct(st.cvar_95_monthly, 1)],
       ['Skew / excess kurtosis', num(st.skew) + ' / ' + num(st.kurtosis)],
@@ -614,8 +631,13 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   // than pixels, each pixel column is reduced to its min/max. Wheel zooms around the cursor, drag pans,
   // double-click resets; oscillators used by the rules get their own panes with the rule's thresholds.
   let pxRange = 252;
-  const PX = { a: 0, b: 0, key: null, P: null, trades: [], byBar: new Map(), geo: null, hover: null, drag: null, raf: 0, series: [] };
-  const PX_MIN_BARS = 10, PANE_H = 118, PANE_GAP = 12, PRICE_H = 340, AXIS_H = 24;
+  const PX = { a: 0, b: 0, key: null, P: null, trades: [], byBar: new Map(), geo: null, hover: null, drag: null, raf: 0, series: [], log: false, focus: null };
+  const PX_MIN_BARS = 10, PANE_H = 118, PANE_GAP = 12, PRICE_H = 340, AXIS_H = 24, RS_H = 30;
+  function pxLogTicks(lo, hi) {
+    const out = [];
+    for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++) for (const m of [1, 1.5, 2, 3, 5, 7]) { const v = m * Math.pow(10, e); if (v >= lo && v <= hi) out.push(v); }
+    return out.length > 8 ? out.filter((_, i) => i % Math.ceil(out.length / 8) === 0) : out;
+  }
   let pxBase, pxTop, pxTip;
   function pxDom() {
     if (pxBase) return;
@@ -738,6 +760,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       const i = Math.max(0, lowerBound(P.dates, focus.from)), j = Math.min(n - 1, lowerBound(P.dates, focus.to || focus.from));
       const w = Math.max(PX.b - PX.a, j - i + 30, 40), mid = (i + j + 1) / 2;
       pxSetWindow(mid - w / 2, mid + w / 2);
+      PX.focus = { i, j, trade: focus.trade };   // highlighted until another trade is picked
     }
     legend($('pxLegend'), PX.series.map(s => ({ name: s.name, color: s.color })).concat([{ name: 'entry', color: css('--up') }, { name: 'exit', color: css('--down') }]), 'box');
     PX.hover = null; pxTip.hide();
@@ -747,7 +770,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const P = PX.P; if (!P) return;
     const box = $('pxChart'), W = box.clientWidth || 800, panes = P.panes || [];
     const l = 56, rgt = 44, top = 8, iw = W - l - rgt;
-    const H = top + PRICE_H + panes.length * (PANE_H + PANE_GAP) + AXIS_H;
+    const hasRS = typeof P.rs === 'string' && P.rs.length === P.dates.length;
+    const H = top + PRICE_H + panes.length * (PANE_H + PANE_GAP) + (hasRS ? RS_H + PANE_GAP : 0) + AXIS_H;
     const dpr = window.devicePixelRatio || 1;
     if (PX.size !== W + 'x' + H + '@' + dpr) {  // resizing a canvas reallocates it, so only when needed
       PX.size = W + 'x' + H + '@' + dpr;
@@ -762,15 +786,24 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const X = i => l + (i - a + 0.5) / (b - a) * iw, bpp = (b - a) / iw;
     // regions: price pane, then one per oscillator family
     const regions = [{ y: top, h: PRICE_H }].concat(panes.map((_, k) => ({ y: top + PRICE_H + PANE_GAP + k * (PANE_H + PANE_GAP), h: PANE_H })));
-    const bottom = regions[regions.length - 1].y + regions[regions.length - 1].h;
+    const lastRg = regions[regions.length - 1];
+    const strip = hasRS ? { y: lastRg.y + lastRg.h + PANE_GAP, h: RS_H } : null;
+    const bottom = strip ? strip.y + strip.h : lastRg.y + lastRg.h;
     // price scale from the visible bars and overlays
     let lo = Infinity, hi = -Infinity;
     for (let i = i0; i <= i1; i++) { if (isNum(P.l[i])) lo = Math.min(lo, P.l[i]); if (isNum(P.h[i])) hi = Math.max(hi, P.h[i]); }
     PX.series.forEach(s => { if (s.pane !== -1) return; for (let i = i0; i <= i1; i++) { const v = s.values[i]; if (isNum(v)) { if (v < lo) lo = v; if (v > hi) hi = v; } } });
     if (!isFinite(lo)) { lo = 0; hi = 1; }
-    const pad = (hi - lo) * 0.06 || Math.abs(hi) * 0.02 || 1; lo -= pad; hi += pad;
     const rp = regions[0];
-    const scales = [{ lo, hi, Y: v => rp.y + (1 - (v - lo) / (hi - lo)) * rp.h }];
+    let scales;
+    if (PX.log && lo > 0) {
+      const llo = Math.log(lo / 1.04), lhi = Math.log(hi * 1.04);
+      scales = [{ lo: lo / 1.04, hi: hi * 1.04, log: true, Y: v => rp.y + (1 - (Math.log(Math.max(v, 1e-12)) - llo) / (lhi - llo || 1)) * rp.h,
+        inv: y => Math.exp(llo + (1 - (y - rp.y) / rp.h) * (lhi - llo)) }];
+    } else {
+      const pad = (hi - lo) * 0.06 || Math.abs(hi) * 0.02 || 1; lo -= pad; hi += pad;
+      scales = [{ lo, hi, Y: v => rp.y + (1 - (v - lo) / (hi - lo)) * rp.h, inv: y => lo + (1 - (y - rp.y) / rp.h) * (hi - lo) }];
+    }
     panes.forEach((pn, k) => {
       const rg = regions[k + 1];
       let plo = Infinity, phi = -Infinity;
@@ -780,16 +813,17 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       if (PX.series.some(s => s.pane === k && s.hist)) { plo = Math.min(plo, 0); phi = Math.max(phi, 0); }
       if (!isFinite(plo)) { plo = 0; phi = 1; }
       const pp = pn.range ? 0 : (phi - plo) * 0.08 || 1; plo -= pp; phi += pp;
-      scales.push({ lo: plo, hi: phi, Y: v => rg.y + 4 + (1 - (v - plo) / (phi - plo || 1)) * (rg.h - 8) });
+      scales.push({ lo: plo, hi: phi, Y: v => rg.y + 4 + (1 - (v - plo) / (phi - plo || 1)) * (rg.h - 8),
+        inv: y => plo + (1 - (y - rg.y - 4) / (rg.h - 8)) * (phi - plo) });
     });
-    PX.geo = { l, iw, W, H, X, regions, scales, i0, i1, bottom };
+    PX.geo = { l, iw, W, H, X, regions, scales, i0, i1, bottom, strip };
     const grid = css('--grid'), axis = css('--axis'), text3 = css('--text-3'), up = css('--up'), down = css('--down');
     ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     // horizontal grid + y labels
     regions.forEach((rg, k) => {
       const sc = scales[k];
       ctx.strokeStyle = axis; ctx.lineWidth = 1; ctx.strokeRect(l + 0.5, rg.y + 0.5, iw - 1, rg.h - 1);
-      niceTicks(sc.lo, sc.hi, k ? 3 : 6).forEach(v => {
+      (sc.log ? (t => t.length >= 3 ? t : niceTicks(sc.lo, sc.hi, 6))(pxLogTicks(sc.lo, sc.hi)) : niceTicks(sc.lo, sc.hi, k ? 3 : 6)).forEach(v => {
         const y = Math.round(sc.Y(v)) + 0.5; if (y < rg.y + 2 || y > rg.y + rg.h - 2) return;
         ctx.strokeStyle = grid; ctx.beginPath(); ctx.moveTo(l, y); ctx.lineTo(l + iw, y); ctx.stroke();
         ctx.fillStyle = text3; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
@@ -824,6 +858,14 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       }));
       ctx.globalAlpha = 1;
     }
+    // the trade picked in the list: a band through every pane
+    const halfBar = 0.5 * iw / (b - a);
+    if (PX.focus && PX.focus.j >= i0 && PX.focus.i <= i1) {
+      const x0 = Math.max(l, X(PX.focus.i) - halfBar), x1 = Math.min(l + iw, X(PX.focus.j) + halfBar);
+      ctx.fillStyle = css('--s4'); ctx.globalAlpha = 0.14;
+      regions.concat(strip ? [strip] : []).forEach(rg => ctx.fillRect(x0, rg.y + 1, Math.max(1, x1 - x0), rg.h - 2));
+      ctx.globalAlpha = 1;
+    }
     // price: candles when there is room, else a close line reduced to min/max per pixel column
     clip(rp);
     const Yp = scales[0].Y;
@@ -854,6 +896,30 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       strokeSeries(ctx, P.c, i0, i1, X, Yp, bpp, css('--text-2'), 1.4);
     }
     PX.series.forEach(s => { if (s.pane === -1) strokeSeries(ctx, s.values, i0, i1, X, Yp, bpp, s.color, 1.6); });
+    // each trade's stop (red), trailing stop (orange) and target (green) over its duration: levels from the engine
+    // at the entry; the trailing stop steps with the best price since the entry, as the engine moves it
+    if (!dense) {
+      const spec = R().spec || {};
+      ctx.setLineDash([4, 3]); ctx.lineWidth = 1.3;
+      vis.forEach(x => {
+        const tr = x.tr; if (x.ei == null) return;
+        const xi = x.xi == null ? i1 : x.xi, xa = X(x.ei) - halfBar, xb = X(xi) + halfBar;
+        [[tr.stop_level, down], [tr.target_level, up]].forEach(([v, c]) => {
+          if (!isNum(v)) return; ctx.strokeStyle = c; ctx.beginPath(); ctx.moveTo(xa, Yp(v)); ctx.lineTo(xb, Yp(v)); ctx.stroke(); });
+        if (!isNum(tr.trail_level)) return;
+        const long = tr.side === 'long', pctT = +spec.trailing_stop || 0, k = +spec.trailing_atr || 0, atr = +tr.atr_at_entry || 0;
+        const lvl = pk => { const c = []; if (pctT) c.push(long ? pk * (1 - pctT) : pk * (1 + pctT)); if (k && atr) c.push(long ? pk - k * atr : pk + k * atr); return c.length ? (long ? Math.max(...c) : Math.min(...c)) : NaN; };
+        let pk = pctT ? tr.trail_level / (long ? 1 - pctT : 1 + pctT) : (long ? tr.trail_level + k * atr : tr.trail_level - k * atr);
+        ctx.strokeStyle = css('--s2'); ctx.beginPath(); let pen = false;
+        for (let j = x.ei; j <= xi; j++) {
+          const v = lvl(pk);
+          if (isNum(v)) { const y = Yp(v); if (pen) ctx.lineTo(X(j) - halfBar, y); else ctx.moveTo(X(j) - halfBar, y); ctx.lineTo(X(j) + halfBar, y); pen = true; }
+          if (j > x.ei || tr.entry_fill === 'open') { const hv = long ? P.h[j] : P.l[j]; if (isNum(hv)) pk = long ? Math.max(pk, hv) : Math.min(pk, hv); }
+        }
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+    }
     // trade markers and entry→exit connectors
     const ms = dense ? 3 : 6;
     if (!dense) {  // entry→exit connectors, green for winners and red for losers
@@ -912,6 +978,23 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ctx.fillStyle = css('--text-2'); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(pn.name, l + 7, rg.y + 10);
       ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     });
+    // rule state: on which bars the entry rule (top row) and the exit rule (bottom row) were true
+    if (strip) {
+      const rowH = (strip.h - 6) / 2, rs = P.rs;
+      ctx.strokeStyle = axis; ctx.lineWidth = 1; ctx.strokeRect(l + 0.5, strip.y + 0.5, iw - 1, strip.h - 1);
+      const bw = Math.max(1, iw / (b - a) * 0.8);
+      [[1, up, strip.y + 2], [2, down, strip.y + 4 + rowH]].forEach(([bit, col, y]) => {
+        if (bit === 2 && !P.rs_exit) return;
+        ctx.fillStyle = col; ctx.beginPath();
+        let lastCol = -1;
+        for (let i = i0; i <= i1; i++) { if (!((rs.charCodeAt(i) - 48) & bit)) continue; const x = Math.floor(X(i) - bw / 2); if (bpp > 1 && x === lastCol) continue; lastCol = x; ctx.rect(x, y, bw, rowH); }
+        ctx.globalAlpha = 0.8; ctx.fill(); ctx.globalAlpha = 1;
+      });
+      ctx.font = '600 10.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = css('--text-2');
+      ctx.fillText('entry', l - 6, strip.y + 2 + rowH / 2);
+      ctx.fillText(P.rs_exit ? 'exit' : '', l - 6, strip.y + 4 + rowH * 1.5);
+      ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    }
     PX.drawMs = performance.now() - tStart;
     pxBase.dataset.drawMs = PX.drawMs.toFixed(1);  // exposed for performance checks
   }
@@ -953,15 +1036,16 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, g.W, g.H);
     const p = PX.hover;
     if (!p || PX.drag && PX.drag.moved || p.x < g.l || p.x > g.l + g.iw || p.y < g.regions[0].y || p.y > g.bottom) { pxTip.hide(); return; }
+    const rsRow = g.strip && p.y >= g.strip.y ? P.rs.charCodeAt(Math.max(g.i0, Math.min(g.i1, Math.floor(PX.a + (p.x - g.l) / g.iw * (PX.b - PX.a))))) - 48 : null;
     let i = Math.floor(PX.a + (p.x - g.l) / g.iw * (PX.b - PX.a)); i = Math.max(g.i0, Math.min(g.i1, i));
     const x = Math.round(g.X(i)) + 0.5;
     ctx.strokeStyle = css('--text-3'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-    g.regions.forEach(rg => { ctx.beginPath(); ctx.moveTo(x, rg.y); ctx.lineTo(x, rg.y + rg.h); ctx.stroke(); });
+    g.regions.concat(g.strip ? [g.strip] : []).forEach(rg => { ctx.beginPath(); ctx.moveTo(x, rg.y); ctx.lineTo(x, rg.y + rg.h); ctx.stroke(); });
     const k = g.regions.findIndex(rg => p.y >= rg.y && p.y <= rg.y + rg.h);
     if (k >= 0) {
       const rg = g.regions[k], sc = g.scales[k], y = Math.round(p.y) + 0.5;
       ctx.beginPath(); ctx.moveTo(g.l, y); ctx.lineTo(g.l + g.iw, y); ctx.stroke();
-      const v = sc.lo + (1 - (p.y - (k ? rg.y + 4 : rg.y)) / (k ? rg.h - 8 : rg.h)) * (sc.hi - sc.lo);
+      const v = sc.inv(p.y);
       const lab = Math.abs(v) >= 1000 ? compact(v) : v.toFixed(2);
       ctx.setLineDash([]); ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
       const tw = ctx.measureText(lab).width + 8;
@@ -969,6 +1053,12 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ctx.fillStyle = css('--surface'); ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(lab, g.l - 6, y);
     }
     ctx.setLineDash([]);
+    { // the date under the crosshair, on the time axis
+      ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+      const lab = P.dates[i], tw = ctx.measureText(lab).width + 10, cx = Math.min(Math.max(x, g.l + tw / 2), g.l + g.iw - tw / 2);
+      ctx.fillStyle = css('--text'); ctx.fillRect(cx - tw / 2, g.bottom + 3, tw, 17);
+      ctx.fillStyle = css('--surface'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(lab, cx, g.bottom + 11.5);
+    }
     // dots on each series at the hovered bar
     PX.series.forEach(s => { const v = s.values[i]; if (!isNum(v) || s.hist) return; const Y = g.scales[s.pane + 1].Y; ctx.beginPath(); ctx.arc(g.X(i), Y(v), 3.5, 0, Math.PI * 2); ctx.fillStyle = s.color; ctx.fill(); ctx.strokeStyle = css('--surface'); ctx.lineWidth = 1.5; ctx.stroke(); });
     const f2 = v => num(v, 2), none = 'transparent';
@@ -978,6 +1068,10 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       { name: 'low', value: f2(P.l[i]), color: none }, { name: 'close' + (isNum(chg) ? ` (${chg >= 0 ? '+' : ''}${(chg * 100).toFixed(2)}%)` : ''), value: f2(P.c[i]), color: none },
     ];
     PX.series.forEach(s => rows.push({ name: s.name, value: isNum(s.values[i]) ? num(s.values[i], Math.abs(s.values[i]) < 10 ? 3 : 2) : '—', color: s.color }));
+    if (typeof P.rs === 'string' && P.rs.length === P.dates.length) {
+      const c = P.rs.charCodeAt(i) - 48;
+      rows.push({ name: 'entry rule' + (P.rs_exit ? ' / exit rule' : ''), value: (c & 1 ? 'true' : 'false') + (P.rs_exit ? ' / ' + (c & 2 ? 'true' : 'false') : ''), color: rsRow != null ? css('--s4') : none });
+    }
     (PX.byBar.get(i) || []).forEach(x => {
       const tr = x.tr;
       rows.push({ name: `#${tr.trade} ${tr.side} ${x.entry ? 'entry (' + tr.entry_fill + ')' : 'exit (' + tr.exit_reason + ', ' + pct(tr.return) + ')'}`,
@@ -986,7 +1080,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const bb = pxTop.getBoundingClientRect(), s = bb.width / g.W;
     pxTip.show(g.X(i) * s, Math.max(0, p.y * s - 60), P.dates[i], rows);
   }
-  $('pxTicker').addEventListener('change', () => { PX.key = null; renderPrice(); });
+  $('pxTicker').addEventListener('change', () => { PX.key = null; PX.focus = null; renderPrice(); });
+  $('pxScale').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || !PX.P) return; PX.log = b.dataset.v === 'log'; [...$('pxScale').children].forEach(x => x.classList.toggle('on', x === b)); pxSchedule(null); });
   $('pxRange').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || !PX.P) return; pxRange = +b.dataset.v; [...$('pxRange').children].forEach(x => x.classList.toggle('on', x === b)); pxRangeWindow(); pxSchedule(null); });
   $('pxPrev').addEventListener('click', () => { if (!PX.P) return; const w = PX.b - PX.a; pxSetWindow(PX.a - w * 0.8, PX.b - w * 0.8); pxSchedule(null); });
   $('pxNext').addEventListener('click', () => { if (!PX.P) return; const w = PX.b - PX.a; pxSetWindow(PX.a + w * 0.8, PX.b + w * 0.8); pxSchedule(null); });
@@ -1155,8 +1250,31 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   }
 
   // ---------- trade charts
+  // ---------- trailing returns and per-asset statistics (allocation runs, like Portfolio Visualizer)
+  function drawTrailing() {
+    const r = R(), tr = r.trailing || {}, names = Object.keys(tr).filter(k => tr[k] && Object.keys(tr[k]).length);
+    const show = r.kind === 'allocation' && names.length;
+    $('trailCard').classList.toggle('hide', !show);
+    if (!show) return;
+    const keys = [['3M', '3 months'], ['YTD', 'YTD'], ['1Y', '1 year'], ['3Y', '3 years'], ['5Y', '5 years'], ['10Y', '10 years'], ['Full', 'Full period']];
+    $('trailAsOf').textContent = 'as of ' + (tr.Strategy && tr.Strategy.as_of || '');
+    table($('trailTbl'), [''].concat(keys.map(k => k[1])), names.map(n => [n === 'Strategy' && multi ? r.name : short(n)]
+      .concat(keys.map(([k]) => { const v = tr[n][k]; return isNum(v) ? { t: pct(v, 1), c: signCls(v) } : '—'; }))));
+  }
+  function drawAssets() {
+    const r = R(), A = r.asset_stats || [];
+    $('assetCard').classList.toggle('hide', !(r.kind === 'allocation' && A.length));
+    if (!A.length) return;
+    table($('assetTbl'), ['Asset', 'Avg weight', 'Time held', 'CAGR', 'Volatility', 'Sharpe', 'Max drawdown', 'Best year', 'Worst year', 'From', 'Data since'],
+      A.map(a => [a.ticker, pct(a.avg_weight, 1), pct(a.time_held, 0), { t: pct(a.cagr), c: signCls(a.cagr) }, pct(a.volatility, 1), num(a.sharpe),
+        { t: pct(a.max_drawdown, 1), c: 'neg' }, pct(a.best_year, 1), pct(a.worst_year, 1), a.from, a.data_from]));
+    $('assetNote').textContent = "Each holding's own total return (dividends reinvested) from the run's first day, or from its first data when it starts later, to the end; Sharpe against T-bills. Average weight and time held are over the run.";
+  }
+
   function drawTradeCharts() {
     const r = R(), box = $('histChart');
+    $('distCard').classList.toggle('hide', r.kind === 'allocation');   // trade distribution and MAE mean nothing for holdings
+    if (r.kind === 'allocation') return;
     if (!r.trades.length) { box.textContent = 'No trades.'; $('maeChart').textContent = ''; return; }
     const rr = r.trades.map(t => t.return * 100).filter(isNum).sort((a, b) => a - b);
     const q = p => rr[Math.min(rr.length - 1, Math.max(0, Math.floor(p * (rr.length - 1))))];
@@ -1190,7 +1308,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const alloc = r.kind === 'allocation';
     const cols = alloc ? [
       ['#', t => t.trade, t => t.trade], ['Ticker', t => t.ticker, t => t.ticker], ['From', t => t.entry_date, t => t.entry_date], ['To', t => t.exit_date, t => t.exit_date],
-      ['Invested', t => usd(t.position_value), t => t.position_value], ['P&L', t => ({ t: usd(t.pnl, 2), c: signCls(t.pnl) }), t => t.pnl],
+      ['Avg value', t => usd(t.position_value), t => t.position_value], ['Bought', t => usd(t.bought), t => t.bought], ['P&L', t => ({ t: usd(t.pnl, 2), c: signCls(t.pnl) }), t => t.pnl],
       ['Return', t => ({ t: pct(t.return), c: signCls(t.return) }), t => t.return], ['Days', t => t.bars_held, t => t.bars_held], ['Status', t => t.exit_reason, t => t.exit_reason],
     ] : [
       ['#', t => t.trade, t => t.trade], ['Ticker', t => t.ticker, t => t.ticker], ['Side', t => t.side, t => t.side],
@@ -1213,12 +1331,16 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     rows.slice(0, LIMIT).forEach(t => {
       const row = el('tr', hasChart(r, t.ticker) ? { class: 'click' } : {});
       cols.forEach(c => { const v = c[1](t); const td = el('td'); if (v && typeof v === 'object') { td.textContent = v.t; td.className = v.c; } else td.textContent = v == null ? '—' : v; row.append(td); });
-      if (hasChart(r, t.ticker)) row.addEventListener('click', () => { showChart(t.ticker, { from: t.entry_date, to: t.exit_date }); $('priceCard').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+      if (PX.focus && PX.focus.trade === t.trade && sel + '|' + t.ticker === PX.key) row.classList.add('sel');
+      if (hasChart(r, t.ticker)) row.addEventListener('click', () => {
+        tbl.querySelectorAll('tr.sel').forEach(x => x.classList.remove('sel')); row.classList.add('sel');
+        showChart(t.ticker, { from: t.entry_date, to: t.exit_date, trade: t.trade }); $('priceCard').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
       tb.append(row);
     });
     if (rows.length > LIMIT) { const row = el('tr'); row.append(el('td', { colspan: cols.length, class: 'muted' }, `${rows.length - LIMIT} more rows — see trades.csv or narrow the filter`)); tb.append(row); }
     tbl.append(tb);
-    $('tradeNote').textContent = alloc ? 'A holding period runs from the first purchase of a ticker until a rebalance sells it completely; P&L includes trims, adds and reinvested dividends.'
+    $('tradeNote').textContent = alloc ? 'A holding period runs from the first purchase of a ticker until a rebalance sells it completely; P&L includes trims, adds and reinvested dividends. '
+        + 'Avg value is the average market value while held; Bought adds up every purchase (with daily rebalancing, many small ones); Return is the ticker\'s own total return over the period.'
       : 'Prices are split-adjusted as quoted; dividends are paid in cash on the ex-date and shown per trade (short positions pay them, plus any borrow fee). MAE/MFE = worst/best excursion while open.';
     const od = r.orders || [];
     $('ordersCard').classList.toggle('hide', !od.length);
@@ -1232,7 +1354,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   $('tradeFilter').addEventListener('input', e => { tradeFilter = e.target.value; drawTrades(); });
   $('orderFilter').addEventListener('input', () => drawTrades());
 
-  function drawRun() { header(); tiles(); drawRiskTables(); drawPrice(); drawAlloc(); drawAttribution(); drawYearly(); drawHeat(); drawRolling(); drawMisc(); drawTradeCharts(); drawTrades(); }
+  function drawRun() { header(); tiles(); drawRiskTables(); drawTrailing(); drawAssets(); drawPrice(); drawAlloc(); drawAttribution(); drawYearly(); drawHeat(); drawRolling(); drawMisc(); drawTradeCharts(); drawTrades(); }
   function drawAll() { drawEquity(); drawCompare(); drawRun(); }
 
   const ds = D.data || {};
