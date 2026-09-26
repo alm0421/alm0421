@@ -20,6 +20,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import requests
 import yfinance as yf
@@ -107,8 +108,16 @@ QQQ SPY DIA IWM MDY VTI VOO QLD TQQQ PSQ SQQQ SSO UPRO SPXL SH SDS SPXU SOXL SOX
 TLT IEF SHY BIL SGOV TMF TMV TBT AGG BND LQD HYG TIP GLD SLV DBC USO UUP
 VIXY UVXY SVXY EFA EEM VEA VWO VNQ
 XLK XLF XLE XLV XLY XLP XLI XLU XLB XLRE XLC SMH SOXX IBB ARKK
+TECS SPXS QID FNGU FNGD TNA TZA LABU LABD UGL TYD TYO VIXM VXX BTAL KMLM DBMF UDOW SDOW UCO SCO NUGT DUST
+ERX ERY FAS FAZ URTY SRTY DRN DRV CURE YINN YANG EDC EDZ UBT UST PST TTT UGE SPXU TMF
+TLH IEI VGSH VGIT VGLT EDV GOVT SHV USFR TFLO SCHD VIG VYM DVY SPYG SPYV QUAL MTUM USMV VLUE SIZE RSP QQQE
+IAU GLDM PDBC GSG CPER KWEB FXI EWJ EWZ EWG EWU VGK VPL VXUS BNDX EMB IJH IJR VB VO VUG VTV IWF IWD IWB IWN IWO
+XBI XHB XRT XME KRE KBE ITB JETS TAN ICLN LIT URA BITO IBIT GBTC
+VFINX VUSTX VBMFX VFITX VWESX VGSIX VWINX VWELX VTSMX VGTSX VIPSX FSUTX
+BTC-USD ETH-USD
 """.split()
-INDEXES = ["^NDX", "^GSPC", "^VIX", "^IRX", "^TNX", "^DJI", "^RUT"]
+ETFS = list(dict.fromkeys(ETFS))
+INDEXES = ["^NDX", "^GSPC", "^VIX", "^IRX", "^TNX", "^DJI", "^RUT", "^SP500TR", "^VIX3M", "^TYX", "^FVX"]
 EXTRA = ETFS + INDEXES
 
 # Symbol changes: membership lists use the old symbol, Yahoo keeps history under the new one.
@@ -164,8 +173,31 @@ def fetch_with_retry(t: str, tries: int = 3) -> pd.DataFrame | None:
 
 # ------------------------------------------------------------------ point-in-time membership
 
+MEMBERSHIP_PARSER = "3"
+NOT_MEMBERS = {"NDX", "QQQ", "QQQQ", "TQQQ", "SQQQ", "QLD", "QID", "PSQ", "ONEQ", "NASDAQ", "ETF", "US", "USD", "CEO",
+               "S", "P", "NQ", "ND", "RIC", "DJIA", "NYSE", "REIT", "II", "III", "IV", "A", "B", "C", "ADR", "ADS", "LLC", "INC"}
+
+
+def components_section(wikitext: str) -> str:
+    """The part of the article that lists current components.
+
+    Many revisions also carry 'Changes in 20XX' lists (dropped companies) and mention ETFs such as
+    TQQQ in prose; scraping the whole article mixed those in. Take the text from the components
+    heading to the next level-2 heading, and drop history subsections inside it."""
+    m = re.search(r"(?im)^==\s*(?:current\s+)?(?:components|constituents|index components|companies)\b[^=\n]*==\s*$", wikitext)
+    if not m:
+        return wikitext
+    rest = wikitext[m.end():]
+    nxt = re.search(r"(?m)^==[^=]", rest)
+    sec = rest[: nxt.start()] if nxt else rest
+    # cut "===Historical components===" / "===Changes...===" subsections
+    cut = re.search(r"(?im)^===+\s*(?:historical|former|changes|yearly|past|removed)", sec)
+    return sec[: cut.start()] if cut else sec
+
+
 def wiki_tickers(wikitext: str) -> set[str]:
     """Extract ticker symbols from a revision of the Nasdaq-100 article (formats changed over the years)."""
+    wikitext = components_section(wikitext)
     found: set[str] = set()
     for m in re.finditer(r"\{\{\s*(?:NASDAQ|Nasdaq|nasdaq|NasdaqSymbol|NASDAQ link)\s*\|\s*([A-Za-z.]{1,6})\s*[|}]", wikitext):
         found.add(m.group(1).upper())
@@ -202,7 +234,10 @@ def wiki_revision_at(ts: str) -> tuple[int, str, str] | None:
 def update_membership() -> pd.DataFrame:
     """Monthly snapshots of Nasdaq-100 membership reconstructed from Wikipedia's revision history."""
     have = pd.read_csv(MEMBERSHIP, dtype=str) if MEMBERSHIP.exists() else pd.DataFrame(columns=["month", "revid", "timestamp", "count", "tickers"])
-    done = set(have["month"])
+    if "parser" not in have.columns:
+        have["parser"] = ""
+    # months parsed by an older version of wiki_tickers are fetched again
+    done = set(have.loc[have["parser"].fillna("") == MEMBERSHIP_PARSER, "month"])
     months = pd.period_range("2003-01", pd.Timestamp.today().to_period("M"), freq="M")
     rows = []
     fails = 0
@@ -226,11 +261,12 @@ def update_membership() -> pd.DataFrame:
         if not got:
             continue
         revid, stamp, text = got
-        syms = {s.replace(".", "-") for s in wiki_tickers(text)} - {"NDX", "QQQ", "NASDAQ", "ETF", "US", "USD", "CEO", "S", "P"}
+        syms = {s.replace(".", "-") for s in wiki_tickers(text)} - NOT_MEMBERS
         if not (85 <= len(syms) <= 115):
             print(f"membership {key}: revision {revid} gave {len(syms)} symbols, skipped")
             continue
-        rows.append({"month": key, "revid": str(revid), "timestamp": stamp, "count": str(len(syms)), "tickers": " ".join(sorted(syms))})
+        rows.append({"month": key, "revid": str(revid), "timestamp": stamp, "count": str(len(syms)),
+                     "tickers": " ".join(sorted(syms)), "parser": MEMBERSHIP_PARSER})
     if rows:
         new = pd.DataFrame(rows)
         have = pd.concat([have[~have["month"].isin(new["month"])], new]).sort_values("month")
@@ -243,7 +279,7 @@ def update_membership() -> pd.DataFrame:
 
 def fetch_macro() -> None:
     MACRO.mkdir(parents=True, exist_ok=True)
-    for sid in ("CPIAUCSL", "DTB3"):
+    for sid in ("CPIAUCSL", "DTB3", "DGS10", "DGS20", "DGS30", "DGS5", "DGS2", "GS10", "TB3MS"):
         try:
             txt = requests.get(f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={sid}", headers=UA, timeout=60).text
             df = pd.read_csv(io.StringIO(txt))
@@ -259,7 +295,8 @@ def fetch_factors() -> None:
     import zipfile
     FACTORS.mkdir(parents=True, exist_ok=True)
     base = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
-    for name, fn in (("ff5_daily", "F-F_Research_Data_5_Factors_2x3_daily_CSV.zip"),
+    for name, fn in (("ff3_daily", "F-F_Research_Data_Factors_daily_CSV.zip"),
+                     ("ff5_daily", "F-F_Research_Data_5_Factors_2x3_daily_CSV.zip"),
                      ("mom_daily", "F-F_Momentum_Factor_daily_CSV.zip")):
         try:
             z = zipfile.ZipFile(io.BytesIO(requests.get(base + fn, headers=UA, timeout=120).content))
@@ -299,6 +336,68 @@ def fetch_shares(tickers: list[str]) -> None:
 
 
 # ------------------------------------------------------------------ main
+
+# ------------------------------------------------------------------ simulated long histories
+
+def _bond_returns(y: pd.Series, maturity: float) -> pd.Series:
+    """Daily total return of a constant-maturity Treasury fund priced off a yield series (in %).
+
+    Each day: yesterday's par bond earns its coupon for the days held and is re-priced at today's
+    yield (semi-annual coupons). The standard way to extend bond funds back before they existed."""
+    y = (y / 100.0).dropna()
+    c = y.shift(1).to_numpy()
+    r = y.to_numpy()
+    d = pd.Series(y.index, index=y.index).diff().dt.days.to_numpy() / 365.25
+    k = np.arange(1, int(round(maturity * 2)) + 1)
+    disc = np.power(1 + r[:, None] / 2, -k[None, :])
+    price = (c[:, None] / 2 * disc).sum(axis=1) + disc[:, -1]
+    return pd.Series(price - 1 + c * d, index=y.index)
+
+
+def _series_file(t: str, level: pd.Series, note: str) -> None:
+    level = level.dropna()
+    df = pd.DataFrame({"open": level, "high": level, "low": level, "close": level, "volume": 0,
+                       "dividend": 0.0, "adj_close": level})
+    df.index.name = "date"
+    save_prices(t, df)
+    print(f"sim {t}: {len(df)} rows {df.index[0].date()} .. {df.index[-1].date()} ({note})")
+
+
+def _splice(sim_ret: pd.Series, real: str) -> pd.Series:
+    """Simulated returns before `real` existed, then the real fund's total return (adj_close)."""
+    p = PRICES / f"{real}.csv"
+    r = pd.Series(dtype=float)
+    if p.exists():
+        df = pd.read_csv(p, parse_dates=["date"], index_col="date")
+        r = df["adj_close"].pct_change().dropna()
+    first = r.index[0] if len(r) else sim_ret.index[-1] + pd.Timedelta(days=1)
+    ret = pd.concat([sim_ret[sim_ret.index < first], r]).fillna(0.0)
+    return 100 * (1 + ret).cumprod()
+
+
+def build_sims() -> list[str]:
+    """SPYSIM / TLTSIM / IEFSIM / SHYSIM / BILSIM: long total-return histories for portfolio research."""
+    made = []
+    try:
+        ff = pd.read_csv(FACTORS / "ff3_daily.csv", parse_dates=["date"], index_col="date")
+        mkt = ff["Mkt-RF"] + ff["RF"]
+        _series_file("SPYSIM", _splice(mkt, "SPY"), "US market total return from Fama-French before SPY, then SPY")
+        _series_file("BILSIM", _splice(ff["RF"], "BIL"), "1-month T-bill (Fama-French RF) before BIL, then BIL")
+        made += ["SPYSIM", "BILSIM"]
+    except Exception as e:  # noqa: BLE001
+        print(f"sim SPYSIM failed: {e}", file=sys.stderr)
+    try:
+        y = {sid: pd.read_csv(MACRO / f"{sid}.csv", parse_dates=["date"], index_col="date")["value"].astype(float)
+             for sid in ("DGS10", "DGS20", "DGS30", "DGS2")}
+        long = y["DGS20"].combine_first((y["DGS10"] + y["DGS30"]) / 2).combine_first(y["DGS10"])
+        _series_file("TLTSIM", _splice(_bond_returns(long, 20), "TLT"), "20-year Treasury priced off FRED yields, then TLT")
+        _series_file("IEFSIM", _splice(_bond_returns(y["DGS10"], 9), "IEF"), "9-year Treasury off the 10-year yield, then IEF")
+        _series_file("SHYSIM", _splice(_bond_returns(y["DGS2"], 2), "SHY"), "2-year Treasury off the 2-year yield, then SHY")
+        made += ["TLTSIM", "IEFSIM", "SHYSIM"]
+    except Exception as e:  # noqa: BLE001
+        print(f"sim bonds failed: {e}", file=sys.stderr)
+    return made
+
 
 def main() -> None:
     PRICES.mkdir(parents=True, exist_ok=True)
@@ -363,6 +462,7 @@ def main() -> None:
     fetch_macro()
     fetch_factors()
     fetch_shares(sorted(set(ndx) | set(former_ok)))
+    sims = build_sims()
 
     meta = {
         "updated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -371,6 +471,7 @@ def main() -> None:
         "etfs": [t for t in ETFS if t in ok],
         "indexes": [t for t in INDEXES if t in ok],
         "benchmarks": ["SPY", "QQQ"],
+        "sims": sims,
         "former_members": sorted(former_ok),
         "former_members_missing_data": sorted(former_missing),
         "tickers": {**ok, **former_ok},

@@ -162,6 +162,9 @@ def _prepare(strat: Strategy):
         mask, first = data.member_mask(tick, cal)
         long_sig &= mask
         short_sig &= mask
+        cov = data.coverage_note(str(cal[0].date()), str(cal[-1].date()))
+        if cov and not any(n.startswith("Survivorship:") for n in strat.notes):
+            strat.notes.append(cov)
         if first is not None and cal[0] < first and not any(n.startswith("Membership:") for n in strat.notes):
             strat.notes.append(
                 f"Membership: point-in-time Nasdaq-100 membership starts {first.date()}; before that the "

@@ -49,6 +49,97 @@ def etfs() -> list[str]:
     return list(universe_meta().get("etfs", []))
 
 
+# symbols that show up in old revisions of the Wikipedia article but were never index members
+NOT_MEMBERS = {"NDX", "QQQ", "QQQQ", "TQQQ", "SQQQ", "QLD", "QID", "PSQ", "ONEQ", "NASDAQ", "ETF", "NQ", "ND"}
+
+# a member's series must look like a large Nasdaq stock: this catches recycled tickers (a small
+# company that later took over a former member's symbol) and junk series with no trading
+MIN_DOLLAR_VOLUME = 2_000_000.0
+
+
+@lru_cache(maxsize=None)
+def quality(ticker: str) -> pd.Series:
+    """Per-bar bool: does the series look like a real, liquid listing on that day?
+
+    Rules (20-bar window): median dollar volume >= $2M and at most half the bars with zero volume.
+    (No price floor: prices are split-adjusted, so early AAPL or NVDA trade below $1.)"""
+    try:
+        df = load(ticker)
+    except DataError:
+        return pd.Series(dtype=bool)
+    dv = (df["close"] * df["volume"]).rolling(20, min_periods=5).median()
+    zero = (df["volume"] <= 0).astype(float).rolling(20, min_periods=5).mean()
+    ok = (dv >= MIN_DOLLAR_VOLUME) & (zero <= 0.5)
+    return ok.fillna(False)
+
+
+def quality_report(tickers: list[str] | None = None) -> pd.DataFrame:
+    """Member-months whose price series fails the quality rules, per ticker."""
+    mem = membership()
+    if mem is None:
+        return pd.DataFrame(columns=["ticker", "member_months", "failed_months"])
+    have = set(available_tickers())
+    rows = []
+    for t in tickers or [c for c in mem.columns if c in have]:
+        months = mem.index[mem[t].to_numpy()] if t in mem else []
+        if len(months) == 0:
+            continue
+        q = quality(t)
+        if q.empty:
+            continue
+        per = q.groupby(q.index.to_period("M")).mean()
+        failed = [m for m in months if per.get(m.to_period("M"), 0.0) < 0.5]
+        if failed:
+            rows.append({"ticker": t, "member_months": len(months), "failed_months": len(failed),
+                         "first_failed": str(failed[0].date())[:7], "last_failed": str(failed[-1].date())[:7]})
+    return pd.DataFrame(rows)
+
+
+@lru_cache(maxsize=64)
+def coverage(start=None, end=None) -> pd.DataFrame:
+    """Per year: average number of index members, how many have usable price data, and the share."""
+    mem = membership()
+    if mem is None:
+        return pd.DataFrame()
+    have = set(available_tickers())
+    m = mem
+    if start is not None:
+        m = m[m.index >= pd.Timestamp(start).to_period("M").to_timestamp()]
+    if end is not None:
+        m = m[m.index <= pd.Timestamp(end)]
+    rows = []
+    for y, g in m.groupby(m.index.year):
+        tot = g.sum(axis=1).mean()
+        cols = [c for c in g.columns if c in have]
+        ok = 0.0
+        for d, row in g[cols].iterrows():
+            names = [c for c in cols if row[c]]
+            ok += sum(1 for c in names if _quality_month(c, d))
+        rows.append({"year": int(y), "members": round(float(tot), 1), "with_data": round(ok / len(g), 1),
+                     "coverage": ok / len(g) / tot if tot else 0.0})
+    return pd.DataFrame(rows)
+
+
+def _quality_month(t: str, month_start: pd.Timestamp) -> bool:
+    q = quality(t)
+    if q.empty:
+        return False
+    sl = q[(q.index >= month_start) & (q.index < month_start + pd.offsets.MonthBegin(1))]
+    return bool(len(sl)) and sl.mean() >= 0.5
+
+
+def coverage_note(start, end) -> str | None:
+    c = coverage(start, end)
+    if c.empty:
+        return None
+    tot = (c["members"]).sum()
+    got = (c["with_data"]).sum()
+    worst = c.loc[c["coverage"].idxmin()]
+    return (f"Survivorship: {got / tot:.0%} of index member-months in this period have usable price data "
+            f"(lowest {worst['coverage']:.0%} in {int(worst['year'])}). The rest are mostly companies that were acquired "
+            f"or went bankrupt; free data sources no longer carry them, so results lean optimistic.")
+
+
 @lru_cache(maxsize=1)
 def membership() -> pd.DataFrame | None:
     """Monthly point-in-time Nasdaq-100 membership (rows: month start; columns: tickers; bool)."""
@@ -57,7 +148,8 @@ def membership() -> pd.DataFrame | None:
     raw = pd.read_csv(MEMBERSHIP_FILE, dtype=str)
     if raw.empty:
         return None
-    rows = {pd.Period(m, "M").to_timestamp(): set(t.split()) for m, t in zip(raw["month"], raw["tickers"])}
+    bad = NOT_MEMBERS | set(etfs())
+    rows = {pd.Period(m, "M").to_timestamp(): set(t.split()) - bad for m, t in zip(raw["month"], raw["tickers"])}
     names = sorted(set().union(*rows.values()))
     df = pd.DataFrame(False, index=sorted(rows), columns=names)
     for d, s in rows.items():
@@ -81,6 +173,7 @@ def member_mask(tickers: list[str], index: pd.DatetimeIndex) -> tuple[np.ndarray
     mem = membership()
     cur = set(nasdaq100())
     out = np.zeros((len(index), len(tickers)), bool)
+    tickers = list(tickers)
     if mem is None:
         out[:, [j for j, t in enumerate(tickers) if t in cur]] = True
         return out, None
@@ -89,6 +182,10 @@ def member_mask(tickers: list[str], index: pd.DatetimeIndex) -> tuple[np.ndarray
     # each day uses the latest snapshot at or before it; the current list covers the months after the last snapshot
     aligned = snap.reindex(index.union(snap.index)).ffill().reindex(index).fillna(False).astype(bool).to_numpy()
     out[:] = aligned
+    # never treat a junk or recycled-ticker series as the index member
+    for j, t in enumerate(tickers):
+        q = quality(t)
+        out[:, j] &= q.reindex(index).fillna(False).to_numpy(dtype=bool) if not q.empty else False
     before = index < first
     if before.any():
         # no point-in-time data this early: fall back to the earliest snapshot
@@ -215,6 +312,14 @@ def shares_outstanding(ticker: str) -> pd.Series:
     return pd.read_csv(p, parse_dates=["date"], index_col="date")["shares"].sort_index()
 
 
+def _membership_gaps(mem) -> list[str]:
+    if mem is None or len(mem) < 2:
+        return []
+    d = pd.Series(mem.index)
+    g = d.diff().dt.days
+    return [f"{d[i - 1].date()} .. {d[i].date()}" for i in range(1, len(d)) if g[i] > 62]
+
+
 def data_status() -> dict:
     m = universe_meta()
     mem = membership()
@@ -225,6 +330,8 @@ def data_status() -> dict:
         "former_members_with_data": len(m.get("former_members", [])),
         "former_members_missing": len(m.get("former_members_missing_data", [])),
         "membership_from": str(mem.index[0].date()) if mem is not None else None,
+        "membership_to": str(mem.index[-1].date()) if mem is not None else None,
+        "membership_gaps": _membership_gaps(mem),
         "has_tbill": not tbill_rate().empty,
         "has_cpi": not cpi().empty,
         "has_factors": not factors().empty,

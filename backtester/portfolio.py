@@ -374,6 +374,9 @@ class _Evaluator:
             names = data.nasdaq100_ever()
             m, _ = data.member_mask(names, self.cal)
             self.members = {n: m[:, j] for j, n in enumerate(names)}
+            cov = data.coverage_note(str(self.cal[0].date()), str(self.cal[-1].date()))
+            if cov:
+                self.note(cov)
         return bool(self.members.get(t, np.zeros(len(self.cal), bool))[i])
 
     def has(self, t: str, i: int) -> bool:
