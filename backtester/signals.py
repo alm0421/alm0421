@@ -47,7 +47,7 @@ def scan(spec) -> dict:
         df = data.load(t)
         if df.index[-1] != last:
             continue
-        ns = expr.Namespace(df)
+        ns = expr.Namespace(df, ticker=t)
         rules = [("long" if spec.side != "short" else "short", spec.entry)]
         if spec.side == "both":
             rules.append(("short", spec.short_entry))

@@ -24,6 +24,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
+from . import calendar as _cal
 from . import data, expr
 from .engine import Result, _daily_rate
 
@@ -54,6 +55,9 @@ class Portfolio:
     withdrawal_pct: float = 0.0                  # fraction of the balance withdrawn each period
     withdrawal_freq: Literal["monthly", "quarterly", "yearly"] = "yearly"
     inflation_adjust: bool = False               # grow $ contributions/withdrawals with CPI
+    leverage: float = 1.0                        # scale every target weight; the excess is borrowed
+    margin_rate: float = 0.0                     # extra annual rate paid on borrowed cash (above T-bills)
+    expense_ratio: float = 0.0                   # annual fee on invested assets, charged daily
     benchmark: str | None = None                 # comparison ticker for alpha/beta (default SPY)
     name: str = ""
     description: str = ""
@@ -64,6 +68,8 @@ class Portfolio:
         if self.rebalance not in FREQS:
             raise ValueError(f"rebalance must be one of {FREQS}")
         validate_node(self.tree)
+        if not (0 < self.leverage <= 10):
+            raise ValueError("leverage must be between 0 and 10")
         if self.capital <= 0 and self.contribution <= 0:
             raise ValueError("need starting capital or contributions")
 
@@ -121,6 +127,52 @@ class Portfolio:
 
 # ------------------------------------------------------------------ tree helpers
 
+WEIGHTINGS = ("equal", "inverse_vol", "market_cap", "risk_parity", "min_variance", "max_sharpe", "max_diversification")
+
+
+def _wlabel(kind: str, lookback: int | None = None) -> str:
+    base = {"equal": "equal weight", "inverse_vol": "inverse volatility", "market_cap": "market-cap weight",
+            "risk_parity": "risk parity (equal risk contribution)", "min_variance": "minimum variance",
+            "max_sharpe": "maximum Sharpe", "max_diversification": "maximum diversification"}[kind]
+    if kind in ("equal", "market_cap"):
+        return base
+    return f"{base} ({lookback or (20 if kind == 'inverse_vol' else 60)}-day)"
+
+
+def optimal_weights(method: str, R: np.ndarray) -> np.ndarray | None:
+    """Long-only weights from a (days x assets) matrix of daily returns. None if it cannot be computed."""
+    from scipy.optimize import minimize
+    R = R[np.isfinite(R).all(axis=1)]
+    k = R.shape[1]
+    if k == 1:
+        return np.ones(1)
+    if len(R) < max(10, k + 2):
+        return None
+    cov = np.cov(R, rowvar=False) * 252
+    cov = cov + np.eye(k) * 1e-10
+    sd = np.sqrt(np.diag(cov))
+    mu = R.mean(axis=0) * 252
+    x0 = np.ones(k) / k
+    bounds = [(0.0, 1.0)] * k
+    cons = [{"type": "eq", "fun": lambda w: w.sum() - 1}]
+    if method == "min_variance":
+        fun = lambda w: w @ cov @ w  # noqa: E731
+    elif method == "max_sharpe":
+        fun = lambda w: -(w @ mu) / np.sqrt(max(w @ cov @ w, 1e-16))  # noqa: E731
+    elif method == "max_diversification":
+        fun = lambda w: -(w @ sd) / np.sqrt(max(w @ cov @ w, 1e-16))  # noqa: E731
+    elif method == "risk_parity":
+        def fun(w):
+            v = w @ cov @ w
+            rc = w * (cov @ w) / max(v, 1e-16)
+            return float(((rc - 1 / k) ** 2).sum()) * 1e4
+        x0 = (1 / sd) / (1 / sd).sum()
+    else:
+        return None
+    r = minimize(fun, x0, method="SLSQP", bounds=bounds, constraints=cons, options={"maxiter": 200, "ftol": 1e-12})
+    w = np.clip(r.x if r.success or np.isfinite(r.x).all() else x0, 0, None)
+    return w / w.sum() if w.sum() > 0 else None
+
 def validate_node(n: dict, depth: int = 0) -> None:
     if depth > 20:
         raise ValueError("portfolio tree is nested too deeply")
@@ -145,7 +197,9 @@ def validate_node(n: dict, depth: int = 0) -> None:
                 raise ValueError("specified weights need one weight per child")
             if abs(sum(w) - 1) > 1e-6:
                 raise ValueError(f"weights must add up to 100% (got {sum(w):.1%})")
-        elif n["weights"] not in ("equal", "inverse_vol", "market_cap"):
+            if any(x < 0 for x in w) and not n.get("allow_short", True):
+                raise ValueError("negative weights are not allowed here")
+        elif n["weights"] not in WEIGHTINGS:
             raise ValueError(f"unknown weighting {n['weights']!r}")
         for k in kids:
             validate_node(k, depth + 1)
@@ -257,8 +311,7 @@ def describe(n: dict, indent: int = 0) -> list[str]:
                     lines.append(f"{pad}{w:.0%}:")
                     lines.extend(sub)
             return lines
-        label = {"equal": "equal weight", "inverse_vol": f"inverse volatility ({n.get('lookback', 20)}-day)",
-                 "market_cap": "market-cap weight"}[kind]
+        label = _wlabel(kind, n.get("lookback"))
         lines.append(f"{pad}{label} of:")
         for k in n["children"]:
             lines.extend(describe(k, indent + 1))
@@ -271,7 +324,7 @@ def describe(n: dict, indent: int = 0) -> list[str]:
         u = n.get("universe", "children")
         uname = "Nasdaq-100 members (point-in-time)" if u in ("NDX", "nasdaq100") else ", ".join(_universe(n))
         s = (f"{pad}{f.get('select', 'top')} {f.get('n', 1)} of [{uname}] by {f['by']}, "
-             f"{ {'equal': 'equal weight', 'inverse_vol': 'inverse-volatility weight', 'market_cap': 'market-cap weight'}[f.get('weights', 'equal')] }")
+             f"{_wlabel(f.get('weights', 'equal'), f.get('lookback'))}")
         out = [s]
         if f.get("require"):
             out.append(f"{pad}  only if {f['require']}, else:")
@@ -285,9 +338,10 @@ def describe(n: dict, indent: int = 0) -> list[str]:
 class _Evaluator:
     def __init__(self, p: Portfolio, cal: pd.DatetimeIndex, dfs: dict[str, pd.DataFrame]):
         self.p, self.cal, self.dfs = p, cal, dfs
-        self.ns = {t: expr.Namespace(df) for t, df in dfs.items()}
+        self.ns = {t: expr.Namespace(df, ticker=t) for t, df in dfs.items()}
         self.cache: dict = {}
         self.close = {t: df["close"].reindex(cal).to_numpy() for t, df in dfs.items()}
+        self._rets: dict = {}
         self.members = None
 
     def series(self, rule: str, t: str, kind: str) -> np.ndarray:
@@ -325,9 +379,26 @@ class _Evaluator:
     def has(self, t: str, i: int) -> bool:
         return np.isfinite(self.close[t][i])
 
-    def weigh(self, method: str, tickers: list[str], i: int, lookback: int = 20) -> dict[str, float]:
+    def rets(self, t: str) -> np.ndarray:
+        if t not in self._rets:
+            df = self.dfs[t]
+            x = df["adj_close"] if "adj_close" in df else df["close"]
+            self._rets[t] = x.pct_change().reindex(self.cal).to_numpy()
+        return self._rets[t]
+
+    def weigh(self, method: str, tickers: list[str], i: int, lookback: int | None = None) -> dict[str, float]:
         if not tickers:
             return {"cash": 1.0}
+        if method in ("risk_parity", "min_variance", "max_sharpe", "max_diversification"):
+            n = int(lookback or 60)
+            lo = max(0, i - n + 1)
+            R = np.column_stack([self.rets(t)[lo: i + 1] for t in tickers])
+            w = optimal_weights(method, R)
+            if w is not None:
+                return {t: float(x) for t, x in zip(tickers, w) if x > 1e-6}
+            self.note(f"Not enough history for {method.replace('_', ' ')} weights on some dates: equal-weighted then.")
+            return {t: 1 / len(tickers) for t in tickers}
+        lookback = lookback or 20
         if method == "inverse_vol":
             v = np.array([self.vol(t, lookback)[i] for t in tickers])
             ok = np.isfinite(v) & (v > 0)
@@ -379,9 +450,9 @@ class _Evaluator:
             method = n["weights"]
             if method == "specified":
                 ws = n["w"]
-            elif method in ("inverse_vol", "market_cap") and all("asset" in k for k in kids):
+            elif method != "equal" and all("asset" in k for k in kids):
                 live = [data.canonical(k["asset"]) for k in kids if self.has(data.canonical(k["asset"]), i)]
-                base = self.weigh(method, live, i, n.get("lookback", 20))
+                base = self.weigh(method, live, i, n.get("lookback"))
                 ws = [base.get(data.canonical(k["asset"]), 0.0) for k in kids]
                 if not live:
                     ws = [1 / len(kids)] * len(kids)
@@ -391,7 +462,7 @@ class _Evaluator:
                 ws = [1 / len(kids)] * len(kids)
             out: dict[str, float] = {}
             for w, k in zip(ws, kids):
-                if w <= 0:
+                if w == 0:
                     continue
                 for t, x in self.eval(k, i).items():
                     out[t] = out.get(t, 0.0) + w * x
@@ -420,7 +491,7 @@ class _Evaluator:
                 passed = chosen
             if not passed:
                 return self.eval(n.get("fallback") or {"cash": True}, i)
-            w = self.weigh(f.get("weights", "equal"), passed, i, f.get("lookback", 20))
+            w = self.weigh(f.get("weights", "equal"), passed, i, f.get("lookback"))
             if f.get("require") and len(passed) < len(chosen):
                 # slots whose pick failed the requirement go to the fallback
                 share = len(passed) / len(chosen)
@@ -445,6 +516,9 @@ def _schedule(cal: pd.DatetimeIndex, freq: str) -> np.ndarray:
     per = cal.to_period(code)
     last = pd.Series(np.arange(T), index=cal).groupby(per).max().to_numpy()
     out[last] = True
+    # the latest bar only ends its period if the next NYSE session starts a new one
+    if _cal.next_sessions(cal[-1])[0].to_period(code) == per[-1]:
+        out[-1] = False
     out[0] = True  # initial allocation
     return out
 
@@ -488,6 +562,9 @@ def run(p: Portfolio) -> Result:
     C = np.column_stack([ev.close[t] for t in tick])
     DIV = np.column_stack([dfs[t]["dividend"].reindex(cal).fillna(0.0).to_numpy() for t in tick])
     rate = _daily_rate(cal, p.cash_rate)
+    borrow_extra = p.margin_rate / 252.0
+    fee_daily = p.expense_ratio / 252.0
+    fees = 0.0
     sched = _schedule(cal, p.rebalance)
     slip = p.slippage_bps / 1e4
 
@@ -529,6 +606,8 @@ def run(p: Portfolio) -> Result:
         eq = value(prices)
         if eq <= 0:
             return
+        # cash the target allows us to borrow (leverage or weights above 100%)
+        borrow_ok = max(0.0, sum(w for t, w in tgt.items() if t != "cash") - 1.0) * eq
         want = np.zeros(N)
         for t, w in tgt.items():
             if t == "cash":
@@ -544,7 +623,7 @@ def run(p: Portfolio) -> Result:
             js = [j for j in range(N) if delta[j] * sgn > 1e-12 and np.isfinite(pv[j])]
             if sgn == 1 and js:
                 need = sum(delta[j] * pv[j] * (1 + slip) * (1 + p.commission_pct) + p.commission for j in js)
-                scale = min(1.0, max(cash, 0) / need) if need > 0 else 1.0
+                scale = min(1.0, max(cash + borrow_ok, 0) / need) if need > 0 else 1.0
             else:
                 scale = 1.0
             for j in js:
@@ -578,9 +657,13 @@ def run(p: Portfolio) -> Result:
         # overnight interest and dividends
         if i > 0:
             r = rate[i - 1]
-            earned = cash * r if cash >= 0 else cash * r
+            earned = cash * r if cash >= 0 else cash * (r + borrow_extra)
             cash += earned
             interest += earned
+            if fee_daily:
+                held = float(np.nansum(np.abs(shares) * np.nan_to_num(last_px)))
+                cash -= held * fee_daily
+                fees += held * fee_daily
         div_cash = shares * DIV[i]
         got = float(np.nansum(div_cash))
         if got:
@@ -603,7 +686,8 @@ def run(p: Portfolio) -> Result:
         # withdrawals that overdraw cash: sell proportionally at the close
         np.copyto(last_px, c, where=np.isfinite(c))
         eq_close = value(c)
-        if cash < -1e-6 * max(eq_close, 1.0) and eq_close > 0 and target:
+        tgt_cash = 1.0 - sum(w for t, w in target.items() if t != "cash")
+        if f < 0 and cash < min(0.0, tgt_cash) * eq_close - 1e-6 * max(eq_close, 1.0) and eq_close > 0 and target:
             trade_to(target, c, i, "raise cash")
         # invest new contributions at the close in the current target mix (no selling)
         if f > 0 and target and not sched[i]:
@@ -635,17 +719,21 @@ def run(p: Portfolio) -> Result:
         decide = sched[i]
         if decide:
             new = ev.eval(p.tree, i)
-            new = {t: w for t, w in new.items() if w > 1e-9}
+            if p.leverage != 1.0:
+                new = {t: w * p.leverage for t, w in new.items() if t != "cash"}
+            new = {t: w for t, w in new.items() if abs(w) > 1e-9 and t != "cash"}
             changed = set(new) != set(target) or any(abs(new.get(t, 0) - target.get(t, 0)) > 1e-9 for t in new)
             if p.drift_band and target and not changed and drift(c) <= p.drift_band and i > 0:
                 decide = False
             target = new
             if decide:
-                n_rebal += 1
+                n_before = len(orders)
                 if p.fill == "close":
                     trade_to(target, c, i, "rebalance" if i else "initial")
+                    n_rebal += len(orders) > n_before
                 else:
                     pending_target = dict(target)
+                    n_rebal += 1
         elif p.drift_band and target and drift(c) > p.drift_band:
             n_rebal += 1
             if p.fill == "close":
@@ -657,8 +745,9 @@ def run(p: Portfolio) -> Result:
             pv = np.nan_to_num(px_now(c))
             weights[i] = shares * pv / equity[i]
             cashw[i] = cash / equity[i]
-        if equity[i] <= 0 and (p.withdrawal or p.withdrawal_pct):
-            p.notes.append(f"Money ran out on {cal[i].date()}.")
+        if equity[i] <= 0 and (p.withdrawal or p.withdrawal_pct or p.leverage > 1 or cash < 0):
+            p.notes.append(f"Money ran out on {cal[i].date()}." if (p.withdrawal or p.withdrawal_pct)
+                           else f"The leveraged portfolio was wiped out on {cal[i].date()}.")
             equity[i:] = 0.0
             break
 
@@ -677,7 +766,7 @@ def run(p: Portfolio) -> Result:
     res = Result(strategy=p, equity=eq, trades=trades, exposure=ex, positions=npos, prices=dfs,
                  holdings=hw, interest=interest, in_market=pd.Series(gross.reindex(idx_all).fillna(0).to_numpy() > 1e-6, index=idx_all),
                  kind="allocation", orders=od)
-    res.extras.update({"flows": fl, "turnover_annual": turnover / max((cal[-1] - cal[0]).days / 365.25, 1e-9),
+    res.extras.update({"fees": fees, "flows": fl, "turnover_annual": turnover / max((cal[-1] - cal[0]).days / 365.25, 1e-9),
                        "rebalances": n_rebal})
     return res
 

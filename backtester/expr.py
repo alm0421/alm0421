@@ -16,6 +16,8 @@ import ast
 from typing import Any, Callable
 
 import numpy as np
+
+from . import calendar as _cal
 import pandas as pd
 
 from . import data
@@ -57,18 +59,21 @@ class Bars:
         a = df.reindex(index.union(df.index)).ffill().reindex(index)
         self.open, self.high, self.low, self.close = a["open"], a["high"], a["low"], a["close"]
         self.volume = a["volume"]
+        self.tr = a["adj_close"] if "adj_close" in a else a["close"]
 
 
 class Namespace(dict):
     """Evaluation namespace for one ticker; derived variables are lazy."""
 
-    def __init__(self, df: pd.DataFrame, extra: dict[str, Any] | None = None):
+    def __init__(self, df: pd.DataFrame, extra: dict[str, Any] | None = None, ticker: str | None = None):
         super().__init__()
         self.df = df
+        self.ticker = ticker
         c = df["close"]
         self.update({
             "open": df["open"], "high": df["high"], "low": df["low"], "close": c,
             "volume": df["volume"], "price": c,
+            "tr": df["adj_close"] if "adj_close" in df else c,
             "True": True, "False": False,
         })
         self.update(self._functions())
@@ -91,14 +96,25 @@ class Namespace(dict):
             "month": lambda: pd.Series(idx.month, index=idx),
             "year": lambda: pd.Series(idx.year, index=idx),
             "dollar_volume": lambda: c * df["volume"],
+            "market_cap": lambda: self._market_cap(),
             "trading_day_of_month": lambda: pd.Series(idx.to_period("M"), index=idx).groupby(idx.to_period("M")).cumcount() + 1,
-            "trading_days_left_in_month": lambda: pd.Series(1, index=idx).groupby(idx.to_period("M")).transform(lambda s: np.arange(len(s), 0, -1)),
+            # counted on the NYSE calendar, so the latest bar knows the sessions still to come this month
+            "trading_days_left_in_month": lambda: (lambda ext: pd.Series(1, index=ext).groupby(ext.to_period("M")).transform(
+                lambda s: np.arange(len(s), 0, -1)).reindex(idx))(_cal.extend(idx, 25)),
         }
         if key in lazy:
             v = lazy[key]()
             self[key] = v
             return v
         raise NameError(f"unknown name {key!r} in expression (see --help-expr)")
+
+    def _market_cap(self) -> pd.Series:
+        sh = data.shares_outstanding(self.ticker) if self.ticker else pd.Series(dtype=float)
+        idx = self.df.index
+        if sh.empty:
+            return pd.Series(np.nan, index=idx)
+        s = sh.reindex(idx.union(sh.index)).ffill().reindex(idx)
+        return s * self.df["close"]
 
     def _functions(self) -> dict[str, Callable]:
         df = self.df
@@ -112,12 +128,16 @@ class Namespace(dict):
                     x = a
                 else:
                     n = a
+            if isinstance(n, float) and not float(n).is_integer():
+                raise ValueError(f"lookback periods must be whole numbers (got {n})")
             n = int(n)
             if n < 1:
                 raise ValueError("lookback periods must be at least 1")
             return x, n
 
         def nonneg(n):
+            if isinstance(n, float) and not float(n).is_integer():
+                raise ValueError(f"offsets must be whole numbers (got {n})")
             n = int(n)
             if n < 0:
                 raise ValueError("negative offsets would look into the future and are not allowed")
@@ -170,6 +190,43 @@ class Namespace(dict):
         def rsi(*a):
             x, n = pick(a, c, 14)
             return rsi_wilder(x, n)
+
+        trs = df["adj_close"] if "adj_close" in df else c
+
+        def tret(*a):
+            """Total return (dividends reinvested) over n bars."""
+            x, n = pick(a, trs, 1)
+            return x / x.shift(n) - 1
+
+        def tbill_ret(n=252):
+            """Compounded 3-month T-bill return over the last n bars (from 1954)."""
+            r = data.tbill_rate()
+            if r.empty:
+                return pd.Series(0.0, index=c.index)
+            rr = r.reindex(c.index.union(r.index)).ffill().reindex(c.index).fillna(0.0)
+            idx = (1 + rr / 252).cumprod()
+            return idx / idx.shift(int(n)) - 1
+
+        def max_drawdown(*a):
+            """Largest peak-to-trough fall within the last n bars, as a positive fraction."""
+            x, n = pick(a, trs, 63)
+            v = x.to_numpy(dtype=float)
+            out = np.full(len(v), np.nan)
+            if len(v) >= n:
+                w = np.lib.stride_tricks.sliding_window_view(v, n)
+                peak = np.maximum.accumulate(w, axis=1)
+                out[n - 1:] = -(w / peak - 1).min(axis=1)
+            return pd.Series(out, index=x.index)
+
+        def ma_return(*a):
+            """Average daily (total) return over n bars."""
+            x, n = pick(a, trs, 20)
+            return x.pct_change(fill_method=None).rolling(n, min_periods=n).mean()
+
+        def stdev_return(*a):
+            """Standard deviation of daily (total) returns over n bars (not annualised)."""
+            x, n = pick(a, trs, 20)
+            return x.pct_change(fill_method=None).rolling(n, min_periods=n).std()
 
         def true_range():
             return pd.concat([hi - lo, (hi - c.shift()).abs(), (lo - c.shift()).abs()], axis=1).max(axis=1)
@@ -361,24 +418,31 @@ class Namespace(dict):
             last = pd.Series(c.index, index=c.index).groupby(per).transform("max")
             return per, last
 
+        def _ends(base, freq):
+            """Each complete period's last bar (a period still in progress at the data edge is left out)."""
+            per = base.index.to_period(freq)
+            ends = base.groupby(per).tail(1)
+            if len(base) and _cal.next_sessions(base.index[-1])[0].to_period(freq) == per[-1]:
+                ends = ends.iloc[:-1]
+            return ends
+
         def _periodic_sma(freq, n, x=None):
             base = c if x is None else _s(x, c)
-            per = base.index.to_period(freq)
-            ends = base.groupby(per).tail(1)                 # value at each period's last bar
+            ends = _ends(base, freq)                         # value at each period's last bar
             m = ends.rolling(int(n), min_periods=int(n)).mean()
             # known from the period's last bar onward
             return m.reindex(base.index).ffill()
 
         def _periodic_close(freq, x=None):
             base = c if x is None else _s(x, c)
-            per = base.index.to_period(freq)
-            ends = base.groupby(per).tail(1)
-            return ends.reindex(base.index).ffill()
+            return _ends(base, freq).reindex(base.index).ffill()
 
         def is_period_end(freq):
             per = c.index.to_period(freq)
             s = pd.Series(False, index=c.index)
             s.loc[pd.Series(c.index, index=c.index).groupby(per).max().to_numpy()] = True
+            if len(s) and _cal.next_sessions(c.index[-1])[0].to_period(freq) == per[-1]:
+                s.iloc[-1] = False  # the period is not over yet: more sessions follow on the exchange calendar
             return s
 
         def sym(ticker: str) -> Bars:
@@ -387,7 +451,8 @@ class Namespace(dict):
         return {
             "sma": sma, "ma": sma, "ema": ema, "rma": rma, "wma": wma, "highest": highest, "lowest": lowest,
             "stdev": stdev, "zscore": zscore, "ref": ref, "ret": ret, "roc": ret,
-            "rsi": rsi, "atr": atr, "natr": natr, "volatility": volatility, "drawdown": drawdown,
+            "rsi": rsi, "tret": tret, "tbill_ret": tbill_ret, "max_drawdown": max_drawdown,
+            "ma_return": ma_return, "stdev_return": stdev_return, "atr": atr, "natr": natr, "volatility": volatility, "drawdown": drawdown,
             "bb_upper": bb_upper, "bb_lower": bb_lower, "pct_rank": pct_rank,
             "macd": macd, "macd_signal": macd_signal, "macd_hist": macd_hist,
             "stoch_k": stoch_k, "stoch_d": stoch_d, "adx": adx, "plus_di": plus_di, "minus_di": minus_di,
@@ -430,7 +495,10 @@ Functions (x defaults to close; n = lookback in bars):
   momentum     ret(x,n) rsi(x,n) macd(fast,slow) macd_signal(f,s,sig) macd_hist(f,s,sig)
                stoch_k(n,smooth) stoch_d(n,smooth,d) cci(n) willr(n) mfi(n) obv()
   trend        adx(n) plus_di(n) minus_di(n) supertrend(n,k) sar(step,max)
-  statistics   stdev(x,n) zscore(x,n) volatility(n) pct_rank(x,n) drawdown(x,n)
+  statistics   stdev(x,n) zscore(x,n) volatility(n) pct_rank(x,n) drawdown(x,n) max_drawdown(x,n)
+               stdev_return(x,n) ma_return(x,n)
+  total return tr (dividend-reinvested price)  tret(n) total return over n bars
+               tbill_ret(n) compounded T-bill return over n bars   market_cap
   timing       ref(x,n) (n >= 0) crossover(a,b) crossunder(a,b) count(cond,n) bars_since(cond)
                down_streak(x) up_streak(x) cummax(x) cummin(x)
   timeframes   weekly_sma(n) monthly_sma(n) weekly_close() monthly_close()
@@ -450,7 +518,7 @@ _ALLOWED = (
 )
 
 
-_ATTRS = {"open", "high", "low", "close", "volume"}
+_ATTRS = {"open", "high", "low", "close", "volume", "tr"}
 
 
 class _Vectorize(ast.NodeTransformer):
@@ -534,7 +602,8 @@ OPEN_SAFE_NAMES = {"gap", "dow", "month", "day", "year", "trading_day_of_month",
                    "trading_days_left_in_month", "open", "True", "False"}
 # functions whose series argument defaults to today's close/high/low when omitted
 _DEFAULTS_TO_CLOSE = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "stdev", "zscore", "ret", "roc",
-                      "rsi", "pct_rank", "down_streak", "up_streak", "drawdown", "cummax", "cummin"}
+                      "rsi", "pct_rank", "down_streak", "up_streak", "drawdown", "cummax", "cummin", "tret",
+                      "max_drawdown", "ma_return", "stdev_return"}
 # functions that always read today's close/high/low
 _ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "macd_signal", "macd_hist",
                  "stoch_k", "stoch_d", "adx", "plus_di", "minus_di", "cci", "willr", "obv", "mfi", "vwap",
@@ -547,18 +616,31 @@ def open_safe(rule) -> bool:
     """True if `rule` can be evaluated at the bar's open, i.e. uses no data from later in the bar."""
     if callable(rule):
         return bool(getattr(rule, "open_safe", False))
+    def const(node):
+        """Value of a constant-foldable numeric expression (e.g. `1+0`, `-(-5)`), else None."""
+        if any(isinstance(ch, (ast.Name, ast.Attribute, ast.Call, ast.Subscript)) for ch in ast.walk(node)):
+            return None
+        try:
+            v = eval(compile(ast.Expression(node), "<const>", "eval"), {"__builtins__": {}}, {})
+        except Exception:
+            return None
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
     def ok(node) -> bool:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             f = node.func.id
+            if node.keywords:
+                return False  # keyword arguments can re-order series/lookback: treat as not knowable at the open
             if f == "ref":
                 n = node.args[1] if len(node.args) > 1 else None
                 if n is None:
                     return True
-                return isinstance(n, ast.Constant) and isinstance(n.value, (int, float)) and n.value >= 1
+                v = const(n)
+                return v is not None and v >= 1 and float(v).is_integer()
             if f in _ALWAYS_CLOSE:
                 return False
             if f in _DEFAULTS_TO_CLOSE:
-                series_args = [a for a in node.args if not isinstance(a, ast.Constant)]
+                series_args = [a for a in node.args if const(a) is None]
                 if not series_args:
                     return False
             if f == "sym":
@@ -571,3 +653,38 @@ def open_safe(rule) -> bool:
         return all(ok(ch) for ch in ast.iter_child_nodes(node))
 
     return ok(ast.parse(rule.strip(), mode="eval"))
+
+
+def open_time_probe(rule, df: pd.DataFrame, ticker: str | None = None, samples: int = 16) -> str | None:
+    """Empirical lookahead check for rules acted on at the open (defence in depth behind open_safe).
+
+    On sampled dates the data is cut at that bar and the bar's high/low/close/volume are replaced by
+    very different values. A rule knowable at the open gives the same answer either way. Returns a
+    description of the first violation, or None."""
+    if callable(rule) or df is None or len(df) < 60:
+        return None
+    base = evaluate(rule, Namespace(df, ticker=ticker))
+    idx = df.index
+    pos_true = np.flatnonzero(base.reindex(idx, fill_value=False).to_numpy())
+    rng = np.random.default_rng(0)
+    cand = np.arange(max(30, len(idx) - 2000), len(idx))
+    picks = list(rng.choice(pos_true[pos_true >= 30], size=min(samples // 2, int((pos_true >= 30).sum())), replace=False)) if len(pos_true) else []
+    picks += list(rng.choice(cand, size=min(samples - len(picks), len(cand)), replace=False))
+    for i in sorted(set(int(x) for x in picks)):
+        cut = df.iloc[: i + 1]
+        want = bool(evaluate(rule, Namespace(cut, ticker=ticker)).iloc[-1])
+        for f in (1.09, 0.91):
+            pert = cut.copy()
+            o = float(pert["open"].iloc[-1])
+            new_c = o * f
+            j = pert.index[-1]
+            pert.loc[j, "close"] = new_c
+            pert.loc[j, "high"] = max(o, new_c) * 1.01
+            pert.loc[j, "low"] = min(o, new_c) * 0.99
+            pert.loc[j, "volume"] = float(pert["volume"].iloc[-1]) * (3 if f > 1 else 0.3)
+            if "adj_close" in pert:
+                pert.loc[j, "adj_close"] = float(pert["adj_close"].iloc[-1]) * new_c / max(float(cut["close"].iloc[-1]), 1e-12)
+            got = bool(evaluate(rule, Namespace(pert, ticker=ticker)).iloc[-1])
+            if got != want:
+                return f"on {j.date()} the rule's answer changes when that day's close/high/low change"
+    return None

@@ -132,7 +132,7 @@ def price_payload(res: Result, budget: int = MAX_PRICE_POINTS) -> dict:
         cost = len(seg) * (5 + len(calls))
         if used + cost > budget and out:
             break
-        ns = expr.Namespace(df)
+        ns = expr.Namespace(df, ticker=t)
         overlays = {}
         for c in calls:
             try:

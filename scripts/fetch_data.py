@@ -175,9 +175,10 @@ def wiki_tickers(wikitext: str) -> set[str]:
             for m in re.finditer(r"\(\s*(?:NASDAQ:\s*|Nasdaq:\s*)?\[?\[?([A-Z]{1,5}(?:\.[A-Z])?)\]?\]?\s*\)", s):
                 found.add(m.group(1))
         if s.startswith("|") and not s.startswith(("|-", "|}", "|+")):
-            for cell in re.split(r"\|\|", s.lstrip("|")):
-                cell = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]*)\]\]", r"\1", cell).strip()
-                cell = cell.split("|")[-1].strip()
+            # cells are separated by "||" (older revisions) or " | " (2025+); strip links first
+            row = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]*)\]\]", r"\1", s.lstrip("|"))
+            for cell in re.split(r"\|\||\s\|\s", row):
+                cell = cell.strip()
                 if re.fullmatch(r"[A-Z]{1,5}(?:\.[A-Z])?", cell):
                     found.add(cell)
     return found
