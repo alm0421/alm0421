@@ -28,7 +28,7 @@ def _identity_notes(spec: Spec, res: Result) -> None:
     from . import data
     try:
         if isinstance(spec, Portfolio):
-            names = portfolio.tickers_in(spec.tree) if isinstance(spec.tree, dict) else []
+            names = portfolio.tickers_in(spec.tree, index_universes=False) if isinstance(spec.tree, dict) else []
         elif getattr(spec, "universe_name", None):
             names = []
         else:

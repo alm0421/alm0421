@@ -156,7 +156,7 @@ def _run_name(res: Result, i: int) -> str:
 
 def cost_sensitivity(res: Result, levels=(0, 5, 10, 25), warm=None) -> list[dict]:
     """The run repeated at several slippage levels (stats from `warm`, the end of the indicator warm-up)."""
-    from . import runner
+    from . import portfolio, runner
     rows = []
     base = res.strategy.slippage_bps
     for bps in sorted(set(levels) | {base}):
@@ -164,7 +164,8 @@ def cost_sensitivity(res: Result, levels=(0, 5, 10, 25), warm=None) -> list[dict
             r = res
         else:
             s = dataclasses.replace(res.strategy, slippage_bps=float(bps), notes=list(res.strategy.notes))
-            r = runner.run(s)
+            with portfolio.reuse_evaluations(res, light=True):   # the targets do not depend on costs: evaluated once
+                r = runner.run(s)
         r = trim_result(r, warm)
         fl = r.extras.get("flows")
         st = metrics.equity_stats(r.equity, flows=fl)
@@ -1014,6 +1015,7 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
                     corr_in[t] = b
         A["correlation"] = metrics.correlation_matrix(corr_in)
         A["asset_stats"] = holdings_stats(res, rf)
+    full.__dict__.pop("_evaluations", None)   # the cost reruns are done: free the evaluator's indicator caches
     return A
 
 
@@ -1451,38 +1453,179 @@ def write_outputs(analyses: list[dict] | dict, out_dir: Path, excel: bool = True
     return path
 
 
+def _xml_escape(t: str) -> str:
+    return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+class _FastBook:
+    """A minimal .xlsx writer with DataFrame.to_excel's layout (bold header row, the index as the first column,
+    dates as Excel dates). It streams the sheet XML directly: pandas' openpyxl writer builds a Python object per
+    cell and takes seconds on the tens of thousands of orders of a daily rebalance."""
+
+    _EPOCH = pd.Timestamp("1899-12-30")
+
+    def __init__(self):
+        self.sheets: list[tuple[str, str]] = []
+
+    @staticmethod
+    def _col(j: int) -> str:
+        out = ""
+        j += 1
+        while j:
+            j, r = divmod(j - 1, 26)
+            out = chr(65 + r) + out
+        return out
+
+    _CTRL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f]")   # control characters XML 1.0 does not allow
+
+    @classmethod
+    def _cell(cls, ref: str, x, bold: bool = False) -> str:
+        """One <c> element: numbers as numbers, dates as serial days (style 2, or 3 with a time), text inline."""
+        st = ' s="1"' if bold else ""
+        if x is None or x is pd.NaT:
+            return f'<c r="{ref}"{st}/>' if bold else ""
+        if isinstance(x, (bool, np.bool_)):
+            return f'<c r="{ref}" t="b"{st}><v>{int(bool(x))}</v></c>'
+        if isinstance(x, (int, np.integer)):
+            return f'<c r="{ref}"{st}><v>{int(x)}</v></c>'
+        if isinstance(x, (float, np.floating)):
+            if not np.isfinite(x):
+                return ""
+            return f'<c r="{ref}"{st}><v>{repr(float(x))}</v></c>'
+        if isinstance(x, (np.datetime64, date)):
+            ts = pd.Timestamp(x)
+            if ts is pd.NaT:
+                return ""
+            if ts.tzinfo is not None:
+                ts = ts.tz_localize(None)
+            days = (ts - cls._EPOCH) / pd.Timedelta(days=1)
+            style = "3" if (ts.hour or ts.minute or ts.second) else "2"
+            return f'<c r="{ref}" s="{style}"><v>{repr(float(days))}</v></c>'
+        text = cls._CTRL.sub("", _xml_escape(str(x)).replace("\r", "&#13;"))
+        return f'<c r="{ref}" t="inlineStr"{st}><is><t xml:space="preserve">{text}</t></is></c>'
+
+    @classmethod
+    def _column(cls, ref: str, col: pd.Series, first: int) -> list[str]:
+        """The <c> elements of one column (rows first, first + 1, ...), with fast paths for numbers and dates."""
+        rows = range(first, first + len(col))
+        kind = col.dtype.kind
+        if kind == "f":
+            return ["" if v != v or v in (np.inf, -np.inf) else f'<c r="{ref}{n}"><v>{v!r}</v></c>'
+                    for n, v in zip(rows, col.to_numpy(dtype=float).tolist())]
+        if kind in "iu":
+            return [f'<c r="{ref}{n}"><v>{v}</v></c>' for n, v in zip(rows, col.to_numpy().tolist())]
+        if kind == "M":
+            ix = pd.DatetimeIndex(col)
+            if ix.tz is not None:
+                ix = ix.tz_localize(None)
+            days = ((ix - cls._EPOCH) / pd.Timedelta(days=1)).to_numpy(dtype=float).tolist()
+            timed = (ix != ix.normalize()).tolist()
+            return ["" if d != d else f'<c r="{ref}{n}" s="{3 if t else 2}"><v>{d!r}</v></c>'
+                    for n, d, t in zip(rows, days, timed)]
+        cell = cls._cell
+        return [cell(f"{ref}{n}", x) for n, x in zip(rows, col.to_numpy(dtype=object).tolist())]
+
+    def put(self, df: pd.DataFrame, sheet_name: str, index: bool = True, index_label: str | None = None) -> None:
+        cols = list(df.columns)
+        names = ([index_label if index_label is not None else df.index.name] if index else []) + cols
+        refs = [self._col(j) for j in range(len(names))]
+        head = "".join(self._cell(f"{refs[j]}1", None if v is None else str(v), bold=True) for j, v in enumerate(names))
+        columns = [self._column(refs[j + (1 if index else 0)], df.iloc[:, j], 2) for j in range(len(cols))]
+        if index:
+            columns.insert(0, [self._cell(f"A{r + 2}", k, bold=True) for r, k in enumerate(df.index)])
+        rows = [f'<row r="1">{head}</row>']
+        rows += [f'<row r="{r + 2}">' + "".join(cells) + "</row>" for r, cells in enumerate(zip(*columns))]
+        xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+               '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+               + "".join(rows) + "</sheetData></worksheet>")
+        title = "".join(ch for ch in sheet_name if ch not in '[]:*?/\\')[:31]
+        self.sheets.append((title, xml))
+
+    def save(self, path) -> None:
+        import zipfile
+        from xml.sax.saxutils import quoteattr
+        n = len(self.sheets)
+        ns = "http://schemas.openxmlformats.org"
+        ctypes = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                  f'<Types xmlns="{ns}/package/2006/content-types">'
+                  '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+                  '<Default Extension="xml" ContentType="application/xml"/>'
+                  '<Override PartName="/xl/workbook.xml" '
+                  'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+                  '<Override PartName="/xl/styles.xml" '
+                  'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+                  + "".join(f'<Override PartName="/xl/worksheets/sheet{i + 1}.xml" '
+                            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+                            for i in range(n)) + "</Types>")
+        rels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                f'<Relationships xmlns="{ns}/package/2006/relationships">'
+                f'<Relationship Id="rId1" Type="{ns}/officeDocument/2006/relationships/officeDocument" '
+                'Target="xl/workbook.xml"/></Relationships>')
+        wb = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+              f'<workbook xmlns="{ns}/spreadsheetml/2006/main" xmlns:r="{ns}/officeDocument/2006/relationships"><sheets>'
+              + "".join(f'<sheet name={quoteattr(t)} sheetId="{i + 1}" r:id="rId{i + 1}"/>'
+                        for i, (t, _) in enumerate(self.sheets)) + "</sheets></workbook>")
+        wbrels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                  f'<Relationships xmlns="{ns}/package/2006/relationships">'
+                  + "".join(f'<Relationship Id="rId{i + 1}" Type="{ns}/officeDocument/2006/relationships/worksheet" '
+                            f'Target="worksheets/sheet{i + 1}.xml"/>' for i in range(n))
+                  + f'<Relationship Id="rId{n + 1}" Type="{ns}/officeDocument/2006/relationships/styles" '
+                    'Target="styles.xml"/></Relationships>')
+        # cell styles: 0 plain, 1 bold (headers and the index), 2 date, 3 date and time
+        styles = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                  f'<styleSheet xmlns="{ns}/spreadsheetml/2006/main">'
+                  '<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm:ss"/></numFmts>'
+                  '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>'
+                  '<font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
+                  '<fills count="2"><fill><patternFill patternType="none"/></fill>'
+                  '<fill><patternFill patternType="gray125"/></fill></fills>'
+                  '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+                  '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+                  '<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+                  '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+                  '<xf numFmtId="14" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+                  '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>'
+                  '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+                  '</styleSheet>')
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("[Content_Types].xml", ctypes)
+            z.writestr("_rels/.rels", rels)
+            z.writestr("xl/workbook.xml", wb)
+            z.writestr("xl/_rels/workbook.xml.rels", wbrels)
+            z.writestr("xl/styles.xml", styles)
+            for i, (_, xml) in enumerate(self.sheets):
+                z.writestr(f"xl/worksheets/sheet{i + 1}.xml", xml)
+
+
 def _excel(A: dict, path: Path) -> None:
-    try:
-        import openpyxl  # noqa: F401
-    except ImportError:
-        return
     res = A["result"]
-    with pd.ExcelWriter(path, engine="openpyxl") as xw:
-        rows = [("Strategy", A["strategy"].description or ""), ("Interpretation", interpretation(A["strategy"]))]
-        rows += [(k, v) for k, v in _clean(A["stats"]).items()]
-        rows += [(f"cash: {k}", v) for k, v in _clean(A["cash"]).items()]
-        rows += [(f"trades: {k}", v) for k, v in _clean(A["trade_stats"]).items()]
-        rows += [(f"vs benchmark: {k}", v) for k, v in _clean(A["relative"]).items()]
-        pd.DataFrame(rows, columns=["metric", "value"]).to_excel(xw, sheet_name="Summary", index=False)
-        A["yearly"].to_excel(xw, sheet_name="Yearly")
-        A["monthly"].to_excel(xw, sheet_name="Monthly")
-        A["drawdowns"].to_excel(xw, sheet_name="Drawdowns", index=False)
-        if res.trades is not None and not res.trades.empty:
-            res.trades.to_excel(xw, sheet_name="Trades", index_label="trade")
-        if res.orders is not None and not res.orders.empty:
-            res.orders.to_excel(xw, sheet_name="Orders", index=False)
-        eq = pd.DataFrame({"equity": res.equity, "twr_index": A["nav"], "drawdown": metrics.drawdown(A["nav"])})
-        for n, b in A["benchmarks"].items():
-            eq[n] = b
-        for n, b in (A.get("benchmarks_with_flows") or {}).items():
-            eq[n + " (with cash flows)"] = b
-        eq = export_frame(eq, A)
-        eq.index = eq.index.tz_localize(None)
-        eq.to_excel(xw, sheet_name="Equity", index_label="date")
-        if A.get("attribution") is not None and len(A["attribution"]):
-            A["attribution"].to_excel(xw, sheet_name="Attribution", index=False)
-        if res.holdings is not None and not res.holdings.empty:
-            res.holdings.resample("ME").last().to_excel(xw, sheet_name="Holdings (month-end)", index_label="date")
+    xw = _FastBook()
+    rows = [("Strategy", A["strategy"].description or ""), ("Interpretation", interpretation(A["strategy"]))]
+    rows += [(k, v) for k, v in _clean(A["stats"]).items()]
+    rows += [(f"cash: {k}", v) for k, v in _clean(A["cash"]).items()]
+    rows += [(f"trades: {k}", v) for k, v in _clean(A["trade_stats"]).items()]
+    rows += [(f"vs benchmark: {k}", v) for k, v in _clean(A["relative"]).items()]
+    xw.put(pd.DataFrame(rows, columns=["metric", "value"]), sheet_name="Summary", index=False)
+    xw.put(A["yearly"], sheet_name="Yearly")
+    xw.put(A["monthly"], sheet_name="Monthly")
+    xw.put(A["drawdowns"], sheet_name="Drawdowns", index=False)
+    if res.trades is not None and not res.trades.empty:
+        xw.put(res.trades, sheet_name="Trades", index_label="trade")
+    if res.orders is not None and not res.orders.empty:
+        xw.put(res.orders, sheet_name="Orders", index=False)
+    eq = pd.DataFrame({"equity": res.equity, "twr_index": A["nav"], "drawdown": metrics.drawdown(A["nav"])})
+    for n, b in A["benchmarks"].items():
+        eq[n] = b
+    for n, b in (A.get("benchmarks_with_flows") or {}).items():
+        eq[n + " (with cash flows)"] = b
+    eq = export_frame(eq, A)
+    eq.index = eq.index.tz_localize(None)
+    xw.put(eq, sheet_name="Equity", index_label="date")
+    if A.get("attribution") is not None and len(A["attribution"]):
+        xw.put(A["attribution"], sheet_name="Attribution", index=False)
+    if res.holdings is not None and not res.holdings.empty:
+        xw.put(res.holdings.resample("ME").last(), sheet_name="Holdings (month-end)", index_label="date")
+    xw.save(path)
 
 
 def to_pdf(html_path: Path, pdf_path: Path) -> bool:

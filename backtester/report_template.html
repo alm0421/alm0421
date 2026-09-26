@@ -75,7 +75,13 @@ h3 { font-size: 13px; margin: 14px 0 8px; font-weight: 600; color: var(--text-2)
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 16px; }
 .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; min-width: 0; }
 .tile .k { color: var(--text-2); font-size: 12px; }
-.tile .v { font-size: clamp(17px, 2.2vw, 22px); font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tile .v { font-size: clamp(17px, 2.2vw, 22px); font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; line-height: 1.25;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* ellipsis only below 11px (fitTiles) */
+/* long values ("1,146% / -2%") step down in size rather than wrap mid-number */
+.tile .v.long { font-size: clamp(15px, 1.8vw, 19px); }
+.tile .v.xlong { font-size: clamp(13px, 1.5vw, 16px); }
+@media (max-width: 480px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .tile { padding: 10px 11px; }
+  .tile .v { font-size: 17px; } .tile .v.long { font-size: 15px; } .tile .v.xlong { font-size: 13px; } }
 .tile .d { color: var(--text-3); font-size: 11.5px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
 .grid2 > * { min-width: 0; margin-top: 0 !important; }
@@ -301,6 +307,14 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   const svgEl = (tag, attrs = {}) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
   const isNum = v => typeof v === 'number' && isFinite(v);
   const pct = (v, d = 2) => isNum(v) ? (v * 100).toFixed(d) + '%' : (v === 'inf' ? '∞' : '—');
+  // a headline percentage: fewer decimals as it grows, thousands separators, k / M beyond 10,000%
+  const pctH = (v, d = 2) => {
+    if (!isNum(v)) return pct(v, d);
+    const a = Math.abs(v * 100);
+    if (a >= 1e4) return compact(v * 100) + '%';
+    if (a >= 100) return (v * 100).toLocaleString(undefined, { maximumFractionDigits: 0 }) + '%';
+    return pct(v, d);
+  };
   const num = (v, d = 2) => isNum(v) ? v.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) : (v === 'inf' ? '∞' : '—');
   const usd = (v, d = 0) => isNum(v) ? (v < 0 && Math.abs(v) >= 0.5 * Math.pow(10, -d) ? '-$' : '$') + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) : '—';
   const signCls = v => isNum(v) ? (v > 0 ? 'pos' : v < 0 ? 'neg' : '') : '';
@@ -339,6 +353,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
 
   function tiles() {
     const r = R(), st = r.stats, ts = r.trade_stats, ex = r.exposure;
+    const pct = pctH;   // headline numbers: compact when huge, so a tile never wraps inside a number
     const bigRet = st.total_return >= 100;
     const noTrades = !!r.no_trades;   // a signal strategy whose entry never triggered: only cash interest
     const t = [
@@ -363,8 +378,33 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       t[6] = ['Open P&L', usd(ts.open_pnl), `${ts.open_trades} position${ts.open_trades > 1 ? 's' : ''} still open, not in the trade stats`];
     }
     $('tiles').replaceChildren();
-    t.forEach(([k, v, d]) => { const x = el('div', { class: 'tile' }); x.append(el('div', { class: 'k' }, k), el('div', { class: 'v' }, v), el('div', { class: 'd' }, d)); $('tiles').append(x); });
+    t.forEach(([k, v, d]) => {
+      const x = el('div', { class: 'tile' });
+      const n = String(v).length;
+      const vv = el('div', { class: 'v' + (n > 13 ? ' xlong' : n > 9 ? ' long' : ''), title: String(v) });
+      vv.textContent = String(v);
+      x.append(el('div', { class: 'k' }, k), vv, el('div', { class: 'd' }, d));
+      $('tiles').append(x);
+    });
+    fitTiles();
   }
+
+  // shrink a headline value that does not fit its tile (narrow screens, many tiles) instead of wrapping it
+  function fitTiles() {
+    document.querySelectorAll('#tiles .tile .v').forEach(v => {
+      v.style.fontSize = '';
+      let fs = parseFloat(getComputedStyle(v).fontSize);
+      // the text's exact width (scrollWidth is rounded, and a sub-pixel overflow already shows an ellipsis)
+      const rg = document.createRange();
+      rg.selectNodeContents(v);
+      const over = () => rg.getBoundingClientRect().width > v.clientWidth - 0.5;
+      while (over() && fs > 11) { fs -= 0.5; v.style.fontSize = fs + 'px'; }
+    });
+  }
+  // refit whenever the tiles' width changes (window resize, a scrollbar appearing once the rest of the page is drawn)
+  { let w0 = 0; const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(es => {
+      const w = Math.round(es[0].contentRect.width); if (w !== w0) { w0 = w; fitTiles(); } }) : null;
+    if (ro) ro.observe($('tiles')); else window.addEventListener('resize', fitTiles); }
 
   // ---------- chart helpers
   function tipFor(container) {

@@ -116,7 +116,8 @@ def test_two_ticker_comparisons_use_sym():
     assert s["tree"]["if"] == "close < sma(close, 200)"
     s = ci.convert(root({"step": "if", "children": [
         cond("current-price", "QQQ", "gt", "SPY", asset("QQQ"), rhs_fn="current-price"), other(asset("SPY"))]}))
-    assert s["tree"]["if"] == 'close > sym("SPY").close'
+    # price levels of two tickers are only comparable as quoted (each total-return level starts at its own first close)
+    assert s["tree"]["if"] == 'quoted(close) > quoted(sym("SPY").close)'
     # the window may also come as lhs-fn-params (newer exports)
     c = cond("relative-strength-index", "SPY", "lt", "30", asset("UPRO"))
     c["lhs-fn-params"] = {"window": 10}

@@ -250,15 +250,20 @@ class _Importer:
             rt = ticker(c.get("rhs-val"), f"{where} rhs-val")
             rhs, _ = indicator(rfn, rt, _window(c, "rhs", where), on, where)
         rule = f"{lhs} {COMPARATORS[cmp]} {rhs}"
-        if fixed:
-            # a price level (current price, its moving average or standard deviation) against a fixed number means
-            # the quoted price, not the total-return series the other indicators use
-            from .portfolio import quote_levels
-            q = quote_levels(rule)
-            if q != rule:
+        # a price level (current price, its moving average or standard deviation) against a fixed number means the
+        # quoted price, and price levels of two different tickers are only comparable as quoted: each ticker's
+        # total-return level starts at its own first close and grows with its own dividends
+        from .portfolio import quote_levels_why
+        q, why = quote_levels_why(rule, on)
+        if q != rule:
+            if "fixed" in why:
                 self.note(f"{where}: {fn} of {on} is compared with the fixed value {rhs}, so it is read on quoted prices "
                           f"(`{q}`); the other indicators use total-return prices.")
-                rule = q
+            if "cross" in why:
+                self.note(f"{where}: {fn} of {on} is compared with {c.get('rhs-fn')} of another ticker, so both price "
+                          f"levels are read on quoted prices (`{q}`); total-return levels of two tickers are not "
+                          "comparable.")
+            rule = q
         return rule, on
 
     def if_node(self, kids: list, where: str) -> dict:
@@ -291,6 +296,11 @@ class _Importer:
         if not fn:
             raise ComposerImportError(f"{where}: the filter has no 'sort-by-fn'")
         by, _ = indicator(fn, None, _window(n, "sort-by", where), None, where)
+        from .portfolio import quote_metric
+        if quote_metric(by) != by:
+            self.note(f"{where}: ranking by {fn} compares price levels across tickers, so it uses quoted prices "
+                      f"(`{quote_metric(by)}`); total-return levels of different tickers are not comparable.")
+            by = quote_metric(by)
         sel = n.get("select-fn", "top")
         if sel not in ("top", "bottom"):
             raise ComposerImportError(f"{where}: select-fn must be 'top' or 'bottom', got {sel!r}")

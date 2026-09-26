@@ -78,7 +78,7 @@ def test_the_reported_misparse():
     assert p.tree["if"] == "(drawdown(close, 200) <= -0.1)"
     # no spurious 'and (change < 0)' from the verb
     assert sig("buy SPY when it falls 20% below its 52 week high, hold 10 days").entry == "(drawdown(close, 252) <= -0.2)"
-    assert sig("buy SPY when it has fallen more than 20% from its 52 week high, hold 10 days").entry == "(drawdown(close, 252) <= -0.2)"
+    assert sig("buy SPY when it has fallen more than 20% from its 52 week high, hold 10 days").entry == "(drawdown(close, 252) < -0.2)"
 
 
 def test_distance_from_another_tickers_high():
@@ -244,7 +244,7 @@ def test_drawdown_phrases():
 
 def test_fell_yesterday():
     s = sig("buy SPY when it fell more than 2% yesterday, hold 3 days")
-    assert s.entry == "(ref(change, 1) <= -0.02)" and any("previous bar" in n for n in s.notes)
+    assert s.entry == "(ref(change, 1) < -0.02)" and any("previous bar" in n for n in s.notes)   # "more than": strict
     assert port("if SPY fell 2% yesterday then BIL else SPY").tree["if"] == "(ref(tret(tr, 1), 1) <= -0.02)"
 
 

@@ -517,6 +517,27 @@ def api_import_composer(body):
     return {"spec": d, "interpretation": interp, "notes": d.get("notes", []), "problems": problems}
 
 
+def api_export_composer(body):
+    """A portfolio spec (or sentence) -> a Composer symphony: {"symphony", "notes"}. Features Composer lacks (shorts,
+    leverage, other indicators, index universes) come back as an error saying what to change."""
+    from . import composer_export
+    if body.get("text"):
+        spec = parser.parse(str(body["text"]))
+    elif isinstance(body.get("spec"), dict):
+        spec = runner.from_dict(dict(body["spec"]))
+    else:
+        raise ClientError("Send a portfolio spec ('spec') or a sentence ('text').")
+    sym, notes = composer_export.export(spec)
+    return {"symphony": sym, "notes": notes}
+
+
+def api_tickers(_body=None):
+    """Every ticker with price data, with the lists that group them (for autocomplete)."""
+    m = data.universe_meta()
+    return {"tickers": data.available_tickers(), "nasdaq100": data.nasdaq100(), "etfs": data.etfs(),
+            "indexes": m.get("indexes", []), "sims": list(data.sims())}
+
+
 def api_compare(body):
     specs = []
     for rid in body.get("ids") or []:
@@ -905,6 +926,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, api_status())
             if path == "/api/runs":
                 return self._json(200, [_readable_label(r) for r in _index()])
+            if path == "/api/tickers":
+                return self._json(200, api_tickers())
             if path == "/api/library":
                 from .library import LIBRARY
                 return self._json(200, LIBRARY)
@@ -943,6 +966,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/paper": lambda b: api_paper(b, "POST"),
                 "/api/fetch": api_fetch, "/api/share": api_share, "/api/orders": api_orders,
                 "/api/gallery/stats": api_gallery_stats, "/api/import/composer": api_import_composer,
+                "/api/export/composer": api_export_composer, "/api/tickers": api_tickers,
                 "/api/community/publish": api_community_publish,
                 "/api/montecarlo": api_montecarlo, "/api/factors": api_factors, "/api/style": api_style, "/api/correlation": api_correlation,
             }

@@ -35,6 +35,14 @@ from . import data, expr
 from .engine import Result, _daily_rate
 
 FREQS = ("daily", "weekly", "monthly", "quarterly", "semiannual", "yearly", "none")
+# plus "every_N_days" (every N trading days), "every_N_weeks" / "every_N_months" (every Nth week / month end)
+_EVERY = re.compile(r"every_(\d+)_(days|weeks|months)")
+
+
+def every_n(freq) -> tuple[int, str] | None:
+    """'every_2_days' -> (2, 'days'); None for the named frequencies."""
+    m = _EVERY.fullmatch(str(freq))
+    return (int(m.group(1)), m.group(2)) if m else None
 FLOW_FREQS = ("monthly", "quarterly", "semiannual", "yearly")
 NAV_WARMUP = 504   # trading days simulated before the start for the synthetic NAVs of groups
 
@@ -106,8 +114,10 @@ class Portfolio:
     kind: str = "allocation"
 
     def validate(self) -> None:
-        if self.rebalance not in FREQS:
-            raise ValueError(f"rebalance must be one of {FREQS}")
+        ev = every_n(self.rebalance)
+        if self.rebalance not in FREQS and not (ev and ev[0] >= 1):
+            raise ValueError(f"rebalance must be one of {FREQS}, or every_N_days / every_N_weeks / every_N_months "
+                             "(e.g. every_2_days)")
         validate_node(self.tree)
         check_tree(self)
         if not (0 < self.leverage <= 10):
@@ -194,6 +204,12 @@ class Portfolio:
         rb = {"none": "never rebalanced (buy and hold)", "daily": "re-evaluated and rebalanced daily",
               "semiannual": "re-evaluated and rebalanced every six months (end of June and December)"}.get(
             self.rebalance, f"re-evaluated and rebalanced {self.rebalance}")
+        if every_n(self.rebalance):
+            n_, u_ = every_n(self.rebalance)
+            rb = (f"re-evaluated and rebalanced every {n_} trading days" if u_ == "days" else
+                  f"re-evaluated and rebalanced at every "
+                  f"{n_}{'nd' if n_ % 10 == 2 and n_ % 100 != 12 else 'rd' if n_ % 10 == 3 and n_ % 100 != 13 else 'th'} "
+                  f"{u_[:-1]}-end" if n_ > 1 else f"re-evaluated and rebalanced {u_[:-1]}ly")
         bands = []
         if self.drift_band:
             bands.append(f"drifts {self.drift_band:.0%} from its target")
@@ -552,7 +568,8 @@ def _universe(n: dict) -> list[str]:
     return [data.canonical(t) for t in u]
 
 
-def tickers_in(n: dict) -> list[str]:
+def tickers_in(n: dict, index_universes: bool = True) -> list[str]:
+    """Every ticker the tree reads (index_universes=False: without the members of a Nasdaq-100 universe)."""
     out: list[str] = []
 
     def add(t):
@@ -577,7 +594,7 @@ def tickers_in(n: dict) -> list[str]:
             if x.get("universe", "children") == "children":
                 for k in x.get("children") or []:
                     walk(k)
-            else:
+            elif index_universes or x.get("universe") not in ("NDX", "nasdaq100"):
                 for t in _universe(x):
                     add(t)
             if x.get("fallback"):
@@ -827,23 +844,143 @@ def _is_level(x) -> bool:
     return False
 
 
-def quote_levels(rule: str) -> str:
-    """Wrap each price level compared with a fixed number in quoted(...): 'close > 400' -> 'quoted(close) > 400',
-    'sma(close, 200) < 350' -> 'quoted(sma(close, 200)) < 350'. A fixed price level means the quoted price;
-    relative comparisons (close > sma(close, 200)), ratios, returns and oscillators are left alone."""
+_LEVEL_PASS = {"abs", "maximum", "minimum", "ref"}   # functions whose value is in the units of their argument
+
+
+def _level_valued(x) -> bool:
+    """Is the expression in price units (a level: close, sma(close, 50), 1.05 * sym("X").close, close - low)?
+    A ratio of two levels (close / sma(close, 200)) and returns, oscillators and counts are not."""
     import ast
-    if not isinstance(rule, str) or not price_level_threshold(rule):
-        return rule
+    if _is_level(x):
+        return True
+    if isinstance(x, ast.UnaryOp) and isinstance(x.op, (ast.USub, ast.UAdd)):
+        return _level_valued(x.operand)
+    if isinstance(x, ast.BinOp):
+        if isinstance(x.op, (ast.Mult, ast.Div)):
+            if _is_num(x.right):
+                return _level_valued(x.left)
+            return isinstance(x.op, ast.Mult) and _is_num(x.left) and _level_valued(x.right)
+        if isinstance(x.op, (ast.Add, ast.Sub)):
+            sides = [x.left, x.right]
+            return any(_level_valued(y) for y in sides) and all(_level_valued(y) or _is_num(y) for y in sides)
+    if isinstance(x, ast.Call) and isinstance(x.func, ast.Name) and x.func.id in _LEVEL_PASS and x.args:
+        a = [y for y in x.args if not (x.func.id == "ref" and _is_num(y))]
+        return bool(a) and all(_level_valued(y) for y in a)
+    return False
+
+
+def _level_terms(x) -> list:
+    """The price levels an expression is built from (each close / moving average / sym("X").close in it), not
+    looking inside ratios' functions such as ret(), rsi() or quoted()."""
+    import ast
+    if _is_level(x):
+        return [x]
+    if isinstance(x, ast.UnaryOp):
+        return _level_terms(x.operand)
+    if isinstance(x, ast.BinOp):
+        return _level_terms(x.left) + _level_terms(x.right)
+    if isinstance(x, ast.Call) and isinstance(x.func, ast.Name) and x.func.id in _LEVEL_PASS:
+        return [t for y in x.args for t in _level_terms(y)]
+    return []
+
+
+def _term_ticker(x, own: str) -> str:
+    """The ticker whose price a level term reads: sym("X") inside it, else the rule's own ticker."""
+    import ast
+    for n in ast.walk(x):
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "sym" and n.args
+                and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)):
+            return data.canonical(n.args[0].value)
+    return own
+
+
+def quote_levels_why(rule: str, on: str | None = None) -> tuple[str, set]:
+    """quote_levels, also saying why: {"fixed"} (a price level against a fixed number) and/or {"cross"} (price
+    levels of different tickers against each other)."""
+    import ast
+    if not isinstance(rule, str):
+        return rule, set()
     text = " ".join(rule.split())   # one line, so AST column offsets index the text directly
-    spans = []
-    for node in ast.walk(ast.parse(text, mode="eval")):
+    try:
+        tree = ast.parse(text, mode="eval")
+    except SyntaxError:
+        return rule, set()
+    own = data.canonical(on) if on else "\0self"
+    spans, why = set(), set()
+
+    def pair(a, b):
+        if _level_valued(a) and _level_valued(b):
+            terms = _level_terms(a) + _level_terms(b)
+            if len({_term_ticker(t, own) for t in terms}) > 1:
+                why.add("cross")
+                spans.update((t.col_offset, t.end_col_offset) for t in terms)
+        for x, y in ((a, b), (b, a)):
+            if _is_num(y) and _level_valued(x):
+                terms = _level_terms(x)
+                why.add("cross" if len({_term_ticker(t, own) for t in terms}) > 1 else "fixed")
+                spans.update((t.col_offset, t.end_col_offset) for t in terms)
+
+    for node in ast.walk(tree):
         if isinstance(node, ast.Compare):
             ops = [node.left] + list(node.comparators)
-            if any(_is_num(o) for o in ops):
-                spans += [(o.col_offset, o.end_col_offset) for o in ops if _is_level(o)]
-    for a, b in sorted(set(spans), reverse=True):   # the rest of the text (quotes, brackets) is kept as written
+            for a, b in zip(ops, ops[1:]):
+                pair(a, b)
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("crossover", "crossunder")
+              and len(node.args) == 2):
+            pair(*node.args)
+    # an inner term inside another wrapped term (sma(close) never nests in a level, but be safe): outermost only
+    spans = {s for s in spans if not any(o != s and o[0] <= s[0] and s[1] <= o[1] for o in spans)}
+    if not spans:
+        return rule, set()
+    for a, b in sorted(spans, reverse=True):   # the rest of the text (quotes, brackets) is kept as written
         text = f"{text[:a]}quoted({text[a:b]}){text[b:]}"
-    return text
+    return text, why
+
+
+def quote_levels(rule: str, on: str | None = None) -> str:
+    """Wrap price levels whose comparison depends on the price basis in quoted(...):
+
+    - a level compared with a fixed number: 'close > 400' -> 'quoted(close) > 400', 'sma(close, 200) < 350' ->
+      'quoted(sma(close, 200)) < 350' (a fixed price level means the quoted price);
+    - levels of different tickers compared with each other (`on` is the rule's own ticker): 'close >
+      sym("HYG").close' -> 'quoted(close) > quoted(sym("HYG").close)'. Each ticker's total-return level starts at
+      its own first quoted close and grows with its own dividends, so levels of two tickers are not comparable.
+
+    Comparisons within one ticker (close > sma(close, 200)), ratios, returns and oscillators are left alone."""
+    return quote_levels_why(rule, on)[0]
+
+
+def quote_metric(by: str) -> str:
+    """A ranking metric that is a price level (close, sma(close, 20), stdev(close, 20)) -> quoted(...): ranking
+    tickers by their total-return levels would compare numbers that are not comparable across tickers."""
+    import ast
+    if not isinstance(by, str):
+        return by
+    try:
+        tree = ast.parse(" ".join(by.split()), mode="eval")
+    except SyntaxError:
+        return by
+    return f"quoted({' '.join(by.split())})" if _level_valued(tree.body) else by
+
+
+CROSS_NOTE = ("The rule `{r}` compares price levels of different tickers, so they are read as quoted (`{q}`): on "
+              "total-return prices (price_basis \"adjusted\") each ticker's level starts at its own first quoted "
+              "close and grows with its own reinvested dividends, so levels of two tickers are not comparable.")
+FIXED_NOTE = ("The rule `{r}` compares a price level with a fixed number, so that price is read as quoted (`{q}`): "
+              "the other indicators use total-return prices (price_basis \"adjusted\"), whose level grows with the "
+              "reinvested dividends and sits above the quote for a dividend payer.")
+RANK_NOTE = ("Ranking by `{r}` compares price levels across tickers, so it uses quoted prices (`{q}`): total-return "
+             "levels (price_basis \"adjusted\") start at each ticker's own first quoted close and are not comparable "
+             "between tickers.")
+
+
+def level_notes(r: str, q: str, why: set) -> list[str]:
+    out = []
+    if "cross" in why:
+        out.append(CROSS_NOTE.format(r=r, q=q))
+    if "fixed" in why:
+        out.append(FIXED_NOTE.format(r=r, q=q))
+    return out
 
 
 def _self_comparison(rule: str, on: str | None) -> str | None:
@@ -901,19 +1038,68 @@ def check_tree(p: "Portfolio") -> None:
             if bad:
                 raise ValueError(f"The requirement `{f['require']}` compares a value with itself ({bad}).")
         if getattr(p, "price_basis", "adjusted") == "adjusted":
-            for holder, key in ((n, "if"), (f if isinstance(f, dict) else {}, "require")):
+            for holder, key, on in ((n, "if", n.get("on", "SPY")), (f if isinstance(f, dict) else {}, "require", None)):
                 r = holder.get(key)
                 if isinstance(r, str):
-                    q = quote_levels(r)
+                    q, why = quote_levels_why(r, on)
                     if q != r:
                         holder[key] = q
-                        note(f"The rule `{r}` compares a price level with a fixed number, so that price is read as quoted "
-                             f"(`{q}`): the other indicators use total-return prices (price_basis \"adjusted\"), whose "
-                             "level grows with the reinvested dividends and sits above the quote for a dividend payer.")
+                        for m in level_notes(r, q, why):
+                            note(m)
+            if isinstance(f, dict) and isinstance(f.get("by"), str):
+                q = quote_metric(f["by"])
+                if q != f["by"]:
+                    note(RANK_NOTE.format(r=f["by"], q=q))
+                    f["by"] = q
         for k in _kids(n):
             walk(k)
 
     walk(p.tree)
+
+
+class _Namespaces(dict):
+    """ticker -> expr.Namespace, each built on first use (a universe of hundreds of tickers mostly needs few)."""
+
+    def __init__(self, dfs: dict, basis: str):
+        super().__init__()
+        self.dfs, self.basis = dfs, basis
+
+    def __missing__(self, t: str):
+        ns = self[t] = expr.Namespace(self.dfs[t], ticker=t, price_basis=self.basis)
+        return ns
+
+
+_REUSE: dict = {"on": 0, "light": False, "key": None, "ev": None}   # the evaluator runs inside the context may reuse
+
+
+class reuse_evaluations:
+    """Within this context, a run of the same tree on the same data and calendar as the previous run reuses its
+    evaluated target weights (indicators, rankings, synthetic NAVs), which do not depend on costs: for
+    re-running one portfolio at several slippage levels. Notes are not repeated (the copies carry them)."""
+
+    def __init__(self, result=None, light: bool = False):
+        self.result = result    # the run whose evaluations to start from (its Result)
+        self.light = light      # also skip the trade list and P&L attribution (only the equity curve is used)
+
+    def __enter__(self):
+        self.prev = dict(_REUSE)
+        _REUSE["on"] += 1
+        _REUSE["light"] = self.light
+        src = getattr(self.result, "_evaluations", None)
+        if src is not None:
+            _REUSE["key"], _REUSE["ev"] = src
+        return self
+
+    def __exit__(self, *exc):
+        _REUSE.update(self.prev)   # nothing outlives the context (an evaluator holds every ticker's indicators)
+        _REUSE["on"] = self.prev["on"]
+        return False
+
+
+def _reuse_key(p, cal, dfs, off) -> tuple:
+    return (id(p.tree), json.dumps(p.tree, sort_keys=True, default=str), tuple((t, id(df)) for t, df in dfs.items()),
+            len(cal), cal[0], cal[-1], off, p.price_basis, p.point_in_time, p.cash_rate, p.target_vol,
+            p.target_vol_lookback, p.leverage)
 
 
 class _Evaluator:
@@ -927,7 +1113,7 @@ class _Evaluator:
     def __init__(self, p: Portfolio, cal: pd.DatetimeIndex, dfs: dict[str, pd.DataFrame], off: int = 0):
         self.p, self.cal, self.dfs, self.off = p, cal, dfs, off
         self.basis = getattr(p, "price_basis", "quoted") or "quoted"
-        self.ns = {t: expr.Namespace(df, ticker=t, price_basis=self.basis) for t, df in dfs.items()}
+        self.ns = _Namespaces(dfs, self.basis)   # built when a rule first reads the ticker
         self.cache: dict = {}
         self.close = {t: df["close"].reindex(cal).to_numpy() for t, df in dfs.items()}
         self._rets: dict = {}
@@ -992,33 +1178,51 @@ class _Evaluator:
         return self.cache[key]
 
     def is_member(self, t: str, i: int) -> bool:
+        return bool(self.member_row(t)[i])
+
+    def member_row(self, t: str) -> np.ndarray:
+        """Point-in-time Nasdaq-100 membership of `t` on every day of the calendar."""
         if self.members is None:
             names = data.nasdaq100_ever()
             m, _ = data.member_mask(names, self.cal)
             self.members = {n: m[:, j] for j, n in enumerate(names)}
+            self._no_member = np.zeros(len(self.cal), bool)
             cov = data.coverage_note(str(self.cal[min(self.off, len(self.cal) - 1)].date()), str(self.cal[-1].date()))
             if cov:
                 self.note(cov)
-        return bool(self.members.get(t, np.zeros(len(self.cal), bool))[i])
+        return self.members.get(t, self._no_member)
 
     def has(self, t: str, i: int) -> bool:
         """Has the ticker started trading by bar i (and not stopped: delisted or acquired)? A missing price on a
         day it has already traded (another calendar's holiday) uses its last price rather than dropping it to cash."""
-        c = self.close[t]
-        if np.isfinite(c[i]):
-            return True
-        if not hasattr(self, "_first"):
-            self._first = {}
-        if t not in self._first:
-            ok = np.flatnonzero(np.isfinite(c))
-            self._first[t] = int(ok[0]) if len(ok) else len(c)
-        if self.ended(t, i):
-            return False
-        return i > self._first[t] and i - self._first[t] > 0 and np.isfinite(c[max(0, i - 10): i]).any()
+        return bool(self.has_row(t)[i])
+
+    def has_row(self, t: str) -> np.ndarray:
+        """`has` on every day of the calendar, computed once per ticker."""
+        if not hasattr(self, "_has"):
+            self._has = {}
+        h = self._has.get(t)
+        if h is None:
+            c = self.close[t]
+            T = len(c)
+            fin = np.isfinite(c)
+            ok = np.flatnonzero(fin)
+            first = int(ok[0]) if len(ok) else T
+            idx = np.arange(T)
+            cs = np.r_[0, np.cumsum(fin)]                         # cs[k] = finite bars before k
+            recent = cs[idx] - cs[np.maximum(0, idx - 10)] > 0    # a finite bar in [i - 10, i)
+            g = gone_bar(self.dfs[t], self.cal)
+            alive = idx <= g if g is not None else np.ones(T, bool)
+            h = self._has[t] = fin | (alive & (idx > first) & recent)
+        return h
 
     def ended(self, t: str, i: int) -> bool:
         """Has the ticker's data ended by bar i, well before the end of the run (delisted or acquired)?"""
-        g = gone_bar(self.dfs[t], self.cal)
+        if not hasattr(self, "_gone"):
+            self._gone = {}
+        if t not in self._gone:
+            self._gone[t] = gone_bar(self.dfs[t], self.cal)
+        g = self._gone[t]
         return g is not None and i > g
 
     def rets(self, t: str) -> np.ndarray:
@@ -1216,17 +1420,26 @@ class _Evaluator:
         if "filter" in n:
             f = n["filter"]
             u = n.get("universe", "children")
-            mem = [self._member(k) for k in n.get("children") or []] if u == "children" else _universe(n)
+            mk = ("members", id(n))
+            if mk not in self.cache:   # the same members every day
+                self._keep.append(n)
+                mem = [self._member(k) for k in n.get("children") or []] if u == "children" else _universe(n)
+                self.cache[mk] = (mem, bool(mem) and all(isinstance(m, str) for m in mem))
+            mem, assets = self.cache[mk]
             pit = u in ("NDX", "nasdaq100") and self.p.point_in_time
-            cands = []
-            for m in mem:
-                if isinstance(m, str) and (not self.has(m, i) or (pit and not self.is_member(m, i))):
-                    continue
-                v = self.mseries(f["by"], m, "value")[i]
-                if np.isfinite(v):
-                    cands.append((v, m))
-            cands.sort(key=lambda x: x[0], reverse=f.get("select", "top") == "top")
-            chosen = [m for _, m in cands[: int(f.get("n", 1))]]
+            top = f.get("select", "top") == "top"
+            if assets:
+                chosen = self._rank_assets(n, mem, f["by"], pit, i, top, int(f.get("n", 1)))
+            else:
+                cands = []
+                for m in mem:
+                    if isinstance(m, str) and (not self.has(m, i) or (pit and not self.is_member(m, i))):
+                        continue
+                    v = self.mseries(f["by"], m, "value")[i]
+                    if np.isfinite(v):
+                        cands.append((v, m))
+                cands.sort(key=lambda x: x[0], reverse=top)
+                chosen = [m for _, m in cands[: int(f.get("n", 1))]]
             if f.get("require"):
                 passed = [m for m in chosen if self.mseries(f["require"], m, "bool")[i]]
             else:
@@ -1248,6 +1461,31 @@ class _Evaluator:
                 return out
             return w
         raise ValueError(f"bad node {n}")
+
+    def _rank_assets(self, n: dict, mem: list, by: str, pit: bool, i: int, top: bool, k: int) -> list:
+        """A filter over single assets on day i: the k members with the highest (top) or lowest `by` among those
+        trading (and in the index, `pit`) with a value that day; ties keep the members' order. The same choice as
+        sorting (value, member) pairs, with the per-ticker rows kept as matrices so a day costs a few array ops."""
+        key = ("rank", id(n), by, pit)
+        st = self.cache.get(key)
+        if st is None:
+            self._keep.append(n)
+            T, M = len(self.cal), len(mem)
+            elig = np.column_stack([self.has_row(m) for m in mem])
+            if pit:
+                elig &= np.column_stack([self.member_row(m) for m in mem])
+            st = self.cache[key] = {"elig": elig, "V": np.full((T, M), np.nan), "done": np.zeros(M, bool)}
+        elig, V, done = st["elig"], st["V"], st["done"]
+        live = np.flatnonzero(elig[i])
+        todo = live[~done[live]]
+        for j in todo:   # a ticker's metric is computed the first time it is eligible, as the loop did
+            V[:, j] = self.mseries(by, mem[j], "value")
+            done[j] = True
+        v = V[i, live]
+        fin = np.isfinite(v)
+        live, v = live[fin], v[fin]
+        order = np.argsort(-v if top else v, kind="stable")[:k]
+        return [mem[j] for j in live[order]]
 
 
 DELIST_GAP_DAYS = 7
@@ -1272,6 +1510,19 @@ def _period_ids(idx: pd.DatetimeIndex, freq: str):
 def _schedule(cal: pd.DatetimeIndex, freq: str) -> np.ndarray:
     """True on the last trading day of each period (daily: every day; none: only the first day)."""
     T = len(cal)
+    ev = every_n(freq)
+    if ev:
+        n, unit = ev
+        if unit == "days":   # the first day, then every n-th trading day after it
+            out = np.zeros(T, bool)
+            out[::n] = True
+            return out
+        base = _schedule(cal, {"weeks": "weekly", "months": "monthly"}[unit])
+        ends = np.flatnonzero(base[1:]) + 1   # the period ends after the first day
+        out = np.zeros(T, bool)
+        out[ends[n - 1::n]] = True            # every n-th of them
+        out[0] = True                         # initial allocation
+        return out
     if freq == "daily":
         return np.ones(T, bool)
     out = np.zeros(T, bool)
@@ -1490,14 +1741,23 @@ def warmup_dates(p, frames=None) -> tuple[pd.Timestamp | None, dict, dict]:
     return (max(dates) if dates else None), late, waited
 
 
+def _union_index(idxs: list) -> pd.DatetimeIndex | None:
+    """The sorted union of many date indexes in one step (pairwise unions re-infer a frequency each time)."""
+    if not idxs:
+        return None
+    if len(idxs) == 1:
+        return idxs[0]
+    out = pd.DatetimeIndex(np.unique(np.concatenate([np.asarray(ix.values) for ix in idxs])))
+    names = {ix.name for ix in idxs}
+    return out.rename(names.pop()) if len(names) == 1 else out
+
+
 def run(p: Portfolio) -> Result:
     p.validate()
     names = tickers_in(p.tree)
     dfs = data.load_many(names)
     must = fixed_tickers(p.tree)
-    cal = None
-    for df in dfs.values():
-        cal = df.index if cal is None else cal.union(df.index)
+    cal = _union_index([df.index for df in dfs.values()])
     cal_all = cal
     first_common = max(dfs[t].index[0] for t in must) if must else cal[0]
     start = pd.Timestamp(p.start) if p.start else first_common
@@ -1557,7 +1817,15 @@ def run(p: Portfolio) -> Result:
     full = cal_all[cal_all <= cal[-1]]
     off = int(full.searchsorted(cal[0]))
     lo = max(0, off - NAV_WARMUP) if _needs_nav(p.tree) else off
-    ev = _Evaluator(p, full[lo:], dfs, off=off - lo)
+    ev = None
+    key = _reuse_key(p, full[lo:], dfs, off - lo)
+    if _REUSE["on"] and _REUSE["key"] == key:
+        ev = _REUSE["ev"]
+        ev.p = p
+    if ev is None:
+        ev = _Evaluator(p, full[lo:], dfs, off=off - lo)
+        if _REUSE["on"]:
+            _REUSE["key"], _REUSE["ev"] = key, ev
     base = off - lo
     T = len(cal)
     tick = list(dfs)
@@ -1650,8 +1918,10 @@ def run(p: Portfolio) -> Result:
             want = np.floor(want)
         delta = want - shares
         # sells first, then buys (scaled to the cash available)
+        tradable = np.isfinite(pv) & (i < gone)
+        day = cal[i]
         for sgn in (-1, 1):
-            js = [j for j in range(N) if delta[j] * sgn > 1e-12 and np.isfinite(pv[j]) and i < gone[j]]
+            js = np.flatnonzero((delta * sgn > 1e-12) & tradable).tolist()
             if sgn == 1 and js:
                 need = sum(delta[j] * pv[j] * (1 + slip) * (1 + p.commission_pct) + p.commission for j in js)
                 scale = min(1.0, max(cash + borrow_ok, 0) / need) if need > 0 else 1.0
@@ -1671,9 +1941,9 @@ def run(p: Portfolio) -> Result:
                 shares[j] += q
                 tcash[j] -= q * fill + com
                 tcom[j] += com
-                ledger.append((cal[i], tick[j], "buy" if q > 0 else "sell", q, abs(q) * fill, com))
+                ledger.append((day, tick[j], "buy" if q > 0 else "sell", q, abs(q) * fill, com))
                 turnover += abs(q) * fill / eq
-                orders.append({"date": cal[i].date(), "ticker": tick[j], "side": "buy" if q > 0 else "sell",
+                orders.append({"date": day.date(), "ticker": tick[j], "side": "buy" if q > 0 else "sell",
                                "shares": abs(q), "price": fill, "value": abs(q) * fill, "commission": com,
                                "reason": reason})
 
@@ -1940,9 +2210,10 @@ def run(p: Portfolio) -> Result:
     npos = pd.Series(np.concatenate([[0], (hw.drop(columns="cash").abs() > 1e-6).sum(axis=1).to_numpy()]), index=idx_all)
     od = pd.DataFrame(orders)
     end_px = np.nan_to_num(last_px)
-    tri = {t: (dfs[t]["adj_close"] if "adj_close" in dfs[t] else dfs[t]["close"]).reindex(cal).ffill().to_numpy()
-           for t in tick}
-    trades = _round_trips(ledger, tick, end_px, cal[-1], mv=mvals, cal=cal, tri=tri)
+    tri = {} if (_REUSE["on"] and _REUSE["light"]) else {
+        t: (dfs[t]["adj_close"] if "adj_close" in dfs[t] else dfs[t]["close"]).reindex(cal).ffill().to_numpy() for t in tick}
+    light = bool(_REUSE["on"] and _REUSE["light"])   # a cost-sensitivity rerun: the equity curve is all it needs
+    trades = pd.DataFrame() if light else _round_trips(ledger, tick, end_px, cal[-1], mv=mvals, cal=cal, tri=tri)
     res = Result(strategy=p, equity=eq, trades=trades, exposure=ex, positions=npos, prices=dfs,
                  holdings=hw, interest=interest, in_market=pd.Series(gross.reindex(idx_all).fillna(0).to_numpy() > 1e-6, index=idx_all),
                  kind="allocation", orders=od)
@@ -1952,7 +2223,8 @@ def run(p: Portfolio) -> Result:
     res.extras.update({"fees": fees, "flows": fl, "turnover_annual": turnover / max((cal[-1] - cal[0]).days / 365.25, 1e-9),
                        "rebalances": n_rebal,
                        "vol_scale": pd.Series([k for _, k in vol_scale], index=pd.DatetimeIndex([d for d, _ in vol_scale]), dtype=float),
-                       "attribution": _attribution(tick, tcash, tdiv, tcom, shares, end_px, od)})
+                       "attribution": None if light else _attribution(tick, tcash, tdiv, tcom, shares, end_px, od)})
+    res._evaluations = (key, ev)   # for reuse_evaluations(res): lives as long as the result, never in a file
     return res
 
 

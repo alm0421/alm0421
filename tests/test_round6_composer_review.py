@@ -199,7 +199,7 @@ def test_composer_price_levels_are_quoted():
     ("unless SPY is below its 200 day moving average hold QQQ, otherwise TLT",
      lambda t: t == {"if": "(close < sma(close, 200))", "on": "SPY", "then": {"asset": "TLT"}, "else": {"asset": "QQQ"}}),
     ("if SPY is less than 10% below its 52 week high then hold QQQ else hold TLT",
-     lambda t: t["if"] == "(drawdown(close, 252) >= -0.1)"),
+     lambda t: t["if"] == "(drawdown(close, 252) > -0.1)"),   # "less than" is strict
 ])
 def test_new_phrasings(text, check):
     assert check(parser.parse(text).tree)
@@ -208,7 +208,8 @@ def test_new_phrasings(text, check):
 @needs("SPY")
 def test_less_than_below_high_in_signal_rules():
     s = parser.parse("buy SPY when it is less than 10% below its 52 week high, sell when it is more than 20% below its 52 week high")
-    assert s.entry == "(drawdown(close, 252) >= -0.1)" and s.exit_when == "(drawdown(close, 252) <= -0.2)"
+    # "less than 10% below" is strict (> -0.1), "more than 20% below" too (< -0.2)
+    assert s.entry == "(drawdown(close, 252) > -0.1)" and s.exit_when == "(drawdown(close, 252) < -0.2)"
 
 
 # ------------------------------------------------------------ 5. requested tickers
