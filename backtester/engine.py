@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 from . import data, expr
-from .strategy import Strategy
+from .strategy import Strategy, broker_commission
 
 INTRADAY_REASONS = ("stop loss", "ATR stop", "trailing stop", "chandelier stop", "take profit", "scale out")
 
@@ -113,22 +113,27 @@ def _prepare(strat: Strategy):
     tick = list(dfs)
     T, N = len(cal), len(tick)
     arr = lambda: np.full((T, N), np.nan)  # noqa: E731
-    O, H, L, C, V, DIV, ATR, VOL, LEVEL = (arr() for _ in range(9))
+    O, H, L, C, V, DIV, ATR, VOL, LEVEL, ADV = (arr() for _ in range(10))
     long_sig = np.zeros((T, N), bool)
     short_sig = np.zeros((T, N), bool)
     exit_ = np.zeros((T, N), bool)
     rank = np.zeros((T, N))
     per_trade_exit = bool(strat.exit_when) and bool(expr.names_in(strat.exit_when) & expr.POSITION_VARS)
     namespaces = {}
+    # the static open-time check (Strategy.validate) is backed by an empirical one on the longest history
+    t0 = max(tick, key=lambda t: len(dfs[t]))
     if strat.entry_fill == "open":
-        # the static check (Strategy.validate) is backed by an empirical one on the longest history
-        t0 = max(tick, key=lambda t: len(dfs[t]))
         for rule in (strat.entry, strat.short_entry):
             if rule:
                 bad = expr.open_time_probe(rule, dfs[t0], t0)
                 if bad:
                     raise ValueError(f"Lookahead: the entry is filled at the open but {bad} ({t0}). "
                                      "Use ref(..., 1) for yesterday's values or fill at the next open.")
+    if strat.exit_when_fill == "open" and strat.exit_when:
+        bad = expr.open_time_probe(strat.exit_when, dfs[t0], t0)
+        if bad:
+            raise ValueError(f"Lookahead: the exit rule is filled at the open but {bad} ({t0}). "
+                             "Use exit_when_fill 'next_open' instead.")
     for j, t in enumerate(tick):
         df = dfs[t]
         ns = expr.Namespace(df, ticker=t)
@@ -136,6 +141,8 @@ def _prepare(strat: Strategy):
         a = df.reindex(cal)
         O[:, j], H[:, j], L[:, j], C[:, j] = a["open"], a["high"], a["low"], a["close"]
         V[:, j] = a["volume"]
+        # average daily volume of the 20 bars before the order's bar (known when it is placed)
+        ADV[:, j] = df["volume"].rolling(20, min_periods=1).mean().shift(1).reindex(cal)
         DIV[:, j] = a["dividend"].fillna(0.0)
         ATR[:, j] = ns["atr"](strat.atr_period).reindex(cal)
         VOL[:, j] = ns["volatility"](20).reindex(cal)
@@ -177,7 +184,7 @@ def _prepare(strat: Strategy):
             strat.notes.append(
                 f"Coverage: until {cal[thin[-1]].date()} fewer than half of the {N} tickers had price history, "
                 f"so early results come from a small subset. Add 'since <year>' to focus on the period with full coverage.")
-    return dict(dfs=dfs, cal=cal, tick=tick, O=O, H=H, L=L, C=C, V=V, DIV=DIV, ATR=ATR, VOL=VOL,
+    return dict(dfs=dfs, cal=cal, tick=tick, O=O, H=H, L=L, C=C, V=V, DIV=DIV, ATR=ATR, VOL=VOL, ADV=ADV,
                 LEVEL=LEVEL, long_sig=long_sig, short_sig=short_sig, exit_sig=exit_, rank=rank,
                 per_trade_exit=per_trade_exit, namespaces=namespaces)
 
@@ -191,6 +198,7 @@ def run(strat: Strategy) -> Result:
     O, H, L, C, V, DIV, ATR, VOL = P["O"], P["H"], P["L"], P["C"], P["V"], P["DIV"], P["ATR"], P["VOL"]
     LEVEL, long_sig, short_sig, exit_sig, rank = P["LEVEL"], P["long_sig"], P["short_sig"], P["exit_sig"], P["rank"]
     namespaces = P["namespaces"]
+    ADV = P["ADV"]
     T, N = C.shape
     slip = strat.slippage_bps / 1e4
     rate = _daily_rate(cal, strat.cash_rate)
@@ -210,6 +218,7 @@ def run(strat: Strategy) -> Result:
     in_mkt = np.zeros(T, bool)
     hold_w = np.zeros((T, N))
     bar_gross = [0.0]
+    margin_calls: list = []
 
     def price_or_last(k: int, prices: np.ndarray) -> float:
         px = prices[k]
@@ -228,7 +237,17 @@ def run(strat: Strategy) -> Result:
         bar_gross[0] = max(bar_gross[0], gross(prices))
 
     def commission(shares: float, value: float) -> float:
-        return strat.commission + strat.commission_per_share * shares + strat.commission_pct * abs(value)
+        return (strat.commission + strat.commission_per_share * shares + strat.commission_pct * abs(value)
+                + broker_commission(strat.commission_model, shares, value))
+
+    def slip_for(i: int, k: int, shares: float) -> float:
+        """Slippage per side as a fraction: fixed bps, plus (volume model) half the spread and a square-root
+        market impact, impact_bps * sqrt(shares / ADV20)."""
+        if strat.slippage_model != "volume":
+            return slip
+        adv = ADV[i, k]
+        impact = strat.impact_bps * np.sqrt(shares / adv) if np.isfinite(adv) and adv > 0 else 0.0
+        return slip + (strat.spread_bps / 2 + impact) / 1e4
 
     def size_shares(i: int, k: int, fill: float, eq: float, prices: np.ndarray, sgn: int, at_open: bool) -> float:
         # indicators used for sizing must be known when the order is placed
@@ -263,7 +282,10 @@ def run(strat: Strategy) -> Result:
         if not strat.fractional_shares:
             shares = np.floor(shares)
         if sgn == 1 and shares * fill + commission(shares, shares * fill) > S["cash"] + (strat.leverage - 1) * max(eq, 0) + 1e-9:
-            shares = max(0.0, (S["cash"] + (strat.leverage - 1) * max(eq, 0) - strat.commission) / (fill * (1 + strat.commission_pct) + strat.commission_per_share))
+            avail = S["cash"] + (strat.leverage - 1) * max(eq, 0)
+            shares = max(0.0, (avail - strat.commission) / (fill * (1 + strat.commission_pct) + strat.commission_per_share))
+            if strat.commission_model:  # one fixed-point step: the fee of a larger order is an upper bound
+                shares = max(0.0, (avail - commission(shares, shares * fill)) / fill)
             if not strat.fractional_shares:
                 shares = np.floor(shares)
         return max(shares, 0.0)
@@ -276,6 +298,9 @@ def run(strat: Strategy) -> Result:
         if eq <= 0:
             return False
         shares = size_shares(i, k, fill, eq, prices, sgn, at_open)
+        if shares > 0 and strat.slippage_model != "fixed":
+            fill = px * (1 + sgn * slip_for(i, k, shares))  # impact of the order size, then re-size at that price
+            shares = size_shares(i, k, fill, eq, prices, sgn, at_open)
         if shares <= 0:
             return False
         com = commission(shares, shares * fill)
@@ -313,7 +338,7 @@ def run(strat: Strategy) -> Result:
         return True
 
     def close_part(i: int, p: Position, px: float, reason: str, at_open: bool, fraction: float = 1.0) -> None:
-        fill = px * (1 - p.sign * slip)
+        fill = px * (1 - p.sign * slip_for(i, p.k, p.shares * fraction))
         a = p.entry_bar + (0 if p.lots[0].at_open else 1)
         b = i - (1 if at_open else 0)
         hi = np.nanmax(H[a:b + 1, p.k]) if b >= a else np.nan
@@ -418,6 +443,10 @@ def run(strat: Strategy) -> Result:
             r = rate[i - 1]
             if S["cash"] >= 0:
                 earned = S["cash"] * r
+                if r > 0 and strat.short_rebate_spread:
+                    # short sale proceeds (part of cash) earn the rate less the rebate spread, floored at zero
+                    short_mv = sum(p.shares * price_or_last(p.k, C[i - 1]) for p in positions.values() if p.sign == -1)
+                    earned -= min(short_mv, S["cash"]) * min(r, strat.short_rebate_spread / 252.0)
             else:
                 earned = S["cash"] * (r + strat.margin_rate / 252.0)
             S["cash"] += earned
@@ -444,6 +473,10 @@ def run(strat: Strategy) -> Result:
             if p.pending_open_exit or (p.exit_due_bar is not None and p.exit_due_open and i >= p.exit_due_bar):
                 close_part(i, p, o[k], p.pending_reason or "time exit", at_open=True)
                 continue
+            if strat.exit_when and strat.exit_when_fill == "open":  # open-safe rule, acted on at today's open
+                if p.exit_sig[i] if p.exit_sig is not None else exit_sig[i, k]:
+                    close_part(i, p, o[k], "exit rule", at_open=True)
+                    continue
             if stops_used:
                 stop, why, tgt = levels(p)
                 if stop is not None and (o[k] - stop) * p.sign <= 0:
@@ -529,7 +562,7 @@ def run(strat: Strategy) -> Result:
                 close_part(i, p, c[k], "time exit", at_open=False)
                 continue
             sig = p.exit_sig[i] if p.exit_sig is not None else exit_sig[i, k]
-            if strat.exit_when and sig:
+            if strat.exit_when and sig and strat.exit_when_fill != "open":
                 if strat.exit_when_fill == "close":
                     close_part(i, p, c[k], "exit rule", at_open=False)
                 else:
@@ -564,6 +597,17 @@ def run(strat: Strategy) -> Result:
             equity[i] = S["cash"]
             if not any(n.startswith("Liquidated") for n in strat.notes):
                 strat.notes.append(f"Liquidated: equity fell to zero on {cal[i].date()}; trading stopped.")
+        elif positions and strat.maintenance_margin and (strat.leverage > 1 or any(p.sign == -1 for p in positions.values())):
+            # maintenance margin: equity must cover this fraction of gross exposure at the close; otherwise
+            # every position is cut pro rata at the close until gross exposure is back to leverage x equity
+            g = gross(c)
+            if g > 0 and equity[i] / g < strat.maintenance_margin:
+                cut = 1.0 - equity[i] * strat.leverage / g
+                for p in list(positions.values()):
+                    if not np.isnan(c[p.k]):
+                        close_part(i, p, c[p.k], "margin call", at_open=False, fraction=min(max(cut, 0.0), 1.0))
+                margin_calls.append(cal[i].date())
+                equity[i] = mark(c)
         g = gross(c)
         eq_pos = equity[i] if equity[i] > 0 else np.nan
         exposure[i] = max(g, bar_gross[0]) / eq_pos if eq_pos == eq_pos else 0.0
@@ -572,6 +616,13 @@ def run(strat: Strategy) -> Result:
         if positions and equity[i] > 0:
             for p in positions.values():
                 hold_w[i, p.k] = p.sign * p.shares * price_or_last(p.k, c) / equity[i]
+
+    if margin_calls:
+        more = f" and {len(margin_calls) - 5} more" if len(margin_calls) > 5 else ""
+        strat.notes = [n for n in strat.notes if not n.startswith("Margin call")]
+        strat.notes.append(f"Margin call on {', '.join(str(d) for d in margin_calls[:5])}{more}: equity fell below "
+                           f"{strat.maintenance_margin:.0%} of gross exposure, so positions were cut pro rata at the "
+                           f"close back to {strat.leverage:g}x (trades marked 'margin call').")
 
     # close anything still open at the last bar
     for p in list(positions.values()):

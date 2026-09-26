@@ -7,6 +7,23 @@ from typing import Literal
 
 Fill = Literal["close", "open", "next_open", "next_close"]
 
+# broker presets: (per share, minimum per order, maximum as a fraction of trade value, pass-through fees per share)
+COMMISSION_MODELS = {
+    None: None,
+    "ibkr_fixed": (0.005, 1.00, 0.01, 0.0),       # IBKR Pro Fixed: $0.005/share, min $1, max 1% of trade value
+    "ibkr_tiered": (0.0035, 0.35, 0.01, 0.0002),  # IBKR Pro Tiered (first tier) plus ~$0.0002/share exchange,
+                                                  # clearing and regulatory fees (an approximation)
+}
+
+
+def broker_commission(model: str | None, shares: float, value: float) -> float:
+    """Commission of one order under a broker preset (0 for None)."""
+    spec = COMMISSION_MODELS.get(model)
+    if not spec or shares <= 0:
+        return 0.0
+    per_share, lo, cap, fees = spec
+    return min(max(lo, per_share * shares), cap * abs(value)) + fees * shares
+
 
 @dataclass
 class Strategy:
@@ -27,7 +44,8 @@ class Strategy:
     hold_exit_fill: Literal["close", "open"] = "close"
     exit_when: str | None = None                 # expression; may use bars_held / entry_price / pnl /
                                                  # highest_since_entry / lowest_since_entry
-    exit_when_fill: Literal["close", "next_open"] = "close"
+    exit_when_fill: Literal["close", "open", "next_open"] = "close"   # "open": same bar's open (the rule must be
+                                                 # known at the open); "next_open": checked at the close, sold next open
     stop_loss: float | None = None               # 0.05 = exit if price moves 5% against you
     stop_atr: float | None = None                # stop N x ATR(atr_period) from entry
     take_profit: float | None = None             # 0.10 = exit at +10%
@@ -62,6 +80,13 @@ class Strategy:
     cash_rate: str | float | None = "tbill"      # interest on idle cash: "tbill", annual rate, or None
     margin_rate: float = 0.0                     # annual rate charged on borrowed cash (added to T-bill)
     borrow_fee: float = 0.0                      # annual fee on short market value
+    short_rebate_spread: float = 0.0025          # short sale proceeds earn the cash rate minus this (floored at 0)
+    maintenance_margin: float = 0.25             # with leverage or shorts: if equity / gross exposure is below this
+                                                 # at a close, positions are cut pro rata back to 1/leverage
+    commission_model: str | None = None          # None, "ibkr_fixed" or "ibkr_tiered" (added to the fields above)
+    slippage_model: Literal["fixed", "volume"] = "fixed"   # "volume": adds spread_bps/2 + impact_bps*sqrt(shares/ADV20)
+    spread_bps: float = 2.0                      # volume model: quoted bid-ask spread (half of it is paid per fill)
+    impact_bps: float = 100.0                    # volume model: impact coefficient, in bps at 100% of ADV
 
     # period
     start: str | None = None
@@ -110,6 +135,23 @@ class Strategy:
             raise ValueError(f"{self.sizing} sizing needs fixed_amount")
         if self.leverage <= 0:
             raise ValueError("leverage must be positive")
+        if self.exit_when_fill not in ("close", "open", "next_open"):
+            raise ValueError("exit_when_fill must be 'close', 'open' or 'next_open'")
+        if self.exit_when_fill == "open" and self.exit_when and not open_safe(self.exit_when):
+            raise ValueError("exit_when_fill 'open' needs an exit rule known at the open (e.g. gap, dow); this one uses "
+                             "today's close/high/low. Use exit_when_fill 'next_open' to check it at the close and sell "
+                             "at the next open.")
+        if self.commission_model not in COMMISSION_MODELS:
+            raise ValueError(f"commission_model must be one of {sorted(k for k in COMMISSION_MODELS if k)} or null")
+        if self.slippage_model not in ("fixed", "volume"):
+            raise ValueError("slippage_model must be 'fixed' or 'volume'")
+        if self.short_rebate_spread < 0:
+            raise ValueError("short_rebate_spread cannot be negative")
+        if not 0 <= self.maintenance_margin < 1:
+            raise ValueError("maintenance_margin must be at least 0 and below 1")
+        if self.maintenance_margin > 1 / self.leverage + 1e-12:
+            raise ValueError(f"maintenance_margin ({self.maintenance_margin:.0%}) is above the initial margin of "
+                             f"{self.leverage:g}x leverage ({1 / self.leverage:.0%}); lower one of them.")
         if self.position_size is None:
             self.position_size = self.leverage / self.max_positions
 
@@ -148,7 +190,8 @@ class Strategy:
         if self.hold_bars is not None:
             ex.append(f"after {self.hold_bars} bar(s) at the {self.hold_exit_fill}")
         if self.exit_when:
-            ex.append(f"when {self.exit_when} ({'same close' if self.exit_when_fill == 'close' else 'next open'})")
+            when = {"close": "same close", "open": "same open", "next_open": "next open"}[self.exit_when_fill]
+            ex.append(f"when {self.exit_when} ({when})")
         if self.stop_loss:
             ex.append(f"stop loss {self.stop_loss:.1%}")
         if self.stop_atr:
@@ -185,12 +228,21 @@ class Strategy:
             costs.append(f"${self.commission_per_share:g}/share")
         if self.commission_pct:
             costs.append(f"{self.commission_pct:.3%} of value")
+        if self.commission_model:
+            costs.append({"ibkr_fixed": "IBKR fixed ($0.005/share, min $1, max 1%)",
+                          "ibkr_tiered": "IBKR tiered (~$0.0037/share incl. fees, min $0.35, max 1%)"}[self.commission_model])
         if self.slippage_bps:
             costs.append(f"{self.slippage_bps:g} bps slippage/side")
+        if self.slippage_model == "volume":
+            costs.append(f"volume slippage ({self.spread_bps / 2:g} bps + {self.impact_bps:g} bps x sqrt(shares/ADV20))")
         if self.max_volume_pct:
             costs.append(f"orders capped at {self.max_volume_pct:.1%} of volume")
         if self.borrow_fee:
             costs.append(f"{self.borrow_fee:.2%}/yr borrow fee")
+        if self.side != "long" and self.short_rebate_spread:
+            costs.append(f"short proceeds earn the cash rate less {self.short_rebate_spread:.2%}")
+        if (self.side != "long" or self.leverage > 1) and self.maintenance_margin:
+            costs.append(f"{self.maintenance_margin:.0%} maintenance margin")
         lines.append("Costs: " + (", ".join(costs) if costs else "none"))
         cr = self.cash_rate
         lines.append("Cash: " + ("earns the 3-month T-bill rate" if cr == "tbill" else

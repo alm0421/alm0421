@@ -64,16 +64,17 @@ hold the top 3 sector ETFs by 6 month momentum
 
 | Idea | Examples |
 |---|---|
-| Streaks and moves | down N days in a row, down *exactly* N days, drops 2% in a day, up 10% over 5 days, gaps down 1%, 10% below its 52-week high |
-| Averages | above/below/crosses its N-day (or N-week / N-month) SMA/EMA, 50-day MA above the 200-day MA, golden/death cross |
-| Oscillators | RSI(2) below 10, RSI crosses above 30, stochastic below 20, ADX above 25, CCI, Williams %R, MFI, MACD crosses its signal / turns positive, +DI above -DI |
-| Bands and trends | Bollinger, Keltner, Supertrend, Parabolic SAR, closes above its 20-day high (breakout), new N-day low, all-time high, IBS, inside day |
-| Other tickers | "…and SPY is above its 200-day moving average", "VIX is above 30" |
-| Calendar | on Mondays, in October, last/first trading day of the month |
+| Streaks and moves | down N days in a row, after 3 down days, down *exactly* N days, drops 2% in a day, up 10% over 5 days, gaps down 1%, 10% below / within 2% of its 52-week high |
+| Averages | above/below/crosses its N-day (or N-week / N-month) SMA/EMA, "the 9 EMA crosses above the 21 EMA", "the 50 MA", "20 period EMA", EMA(9), 50-day MA above the 200-day MA, golden/death cross |
+| Oscillators | RSI(2) below 10, RSI crosses above 30, RSI(2) falls back below 30 / rises back above 70 (crossings), stochastic below 20, ADX above 25, CCI, Williams %R, MFI, MACD crosses its signal / turns positive, +DI above -DI, ATR(14) above 2% of price |
+| Bands and trends | Bollinger ("the upper / middle / lower band" = 20-day SMA ± 2 sd), Keltner, Supertrend, Parabolic SAR, VWAP (rolling 20-day volume-weighted typical price on daily bars; "its 10 day VWAP"), closes above its 20-day high (breakout), new N-day low, all-time high, IBS, inside day, volume twice its 20-day average |
+| Other tickers | "…and SPY is above its 200-day moving average", "VIX is above 30", "sell when SPY closes below it" |
+| Calendar | on Mondays, in October, last / first / third / second-to-last trading day of the month, first 3 trading days of the month |
+| Ranking | "buy the 5 Nasdaq 100 stocks with the lowest RSI(2) each day, hold 3 days" (up to 5 positions; free slots go to the lowest RSI(2)) |
 | Entries | at the close / at the open (same day, rules must be knowable at the open) / next open; limit or stop orders ("a limit 2% below the close"); pyramiding |
-| Exits | hold N days, sell when …, "sell when it crosses back below", % stop, ATR stop, trailing / chandelier stop, take profit, sell half at +X% |
+| Exits | hold N days, sell when …, "sell after 10 days or when RSI is above 70", "sell when it's over 70" (*it* = the entry's indicator; refused if the entry has several), a bare "RSI" takes the entry's period, "sell when it crosses back below", "sell at the open when …" (same open if the rule is known at the open, e.g. a gap; otherwise checked at the close and sold at the next open), "cover at the next open when …", % stop, ATR stop, trailing / chandelier stop, take profit, sell half at +X%. "buy TSLA while …" / "hold TSLA when …" with no exit: in the market while the condition holds |
 | Sizing | max N positions, X% per position, risk X% per trade, target X% volatility, $X or N shares per trade, 2x leverage |
-| Costs | bps or % slippage, $ per trade, $ per share, % commission, borrow fee, margin rate, cap at X% of volume |
+| Costs | bps or % slippage, volume-based slippage / market impact, $ per trade, $ per share, % commission, IBKR commissions (fixed or tiered), borrow fee, margin rate, short rebate X% below T-bills, 30% maintenance margin / no margin calls, cap at X% of volume |
 | Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, top/bottom N by momentum/RSI/volatility, rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
 | Other | starting with $X, since/from/until YEAR, vs TICKER, cash earns nothing, using today's members only |
 
@@ -125,6 +126,25 @@ python -m backtester tickers                                                 # w
 - **Prices and dividends.** Prices are daily and split-adjusted, as quoted. Dividends are paid in
   cash on the ex-date, and short positions pay them. Idle cash earns the 3-month T-bill rate;
   borrowed cash pays it plus any margin rate.
+- **Shorts and margin (signal strategies).**
+  - Short sale proceeds earn the T-bill rate minus `short_rebate_spread` (default 0.25%/yr, floored
+    at zero), like a broker's short rebate. "full short rebate" sets it to 0, "no short rebate" to
+    nothing earned.
+  - With leverage above 1x or any short, `maintenance_margin` (default 25%) is checked at every
+    close: if equity / gross exposure is below it, every position is cut pro rata at that close back
+    to the initial margin (1/leverage). The trades are marked "margin call" and the notes list the
+    dates. Leverage above 4x needs a lower maintenance margin ("with a 15% maintenance margin");
+    "no margin calls" turns the check off.
+- **Broker costs (signal strategies).**
+  - `commission_model: "ibkr_fixed"` ("IBKR commissions"): $0.005/share, min $1, max 1% of the
+    trade value per order.
+  - `"ibkr_tiered"` ("IBKR tiered"): $0.0035/share, min $0.35, max 1% of trade value, plus about
+    $0.0002/share of exchange, clearing and regulatory fees (an approximation of the first tier).
+  - `slippage_model: "volume"` ("volume-based slippage", "market impact"): each fill pays, on top of
+    any fixed `slippage_bps`, `spread_bps / 2 + impact_bps × sqrt(order shares / ADV20)` basis points,
+    where ADV20 is the average volume of the 20 bars before the order (defaults: 2 bps spread, 100
+    bps impact coefficient, so 1% of ADV costs 1 + 10 = 11 bps). Tickers without volume pay only the
+    half spread.
 - **Bar ordering.** Each bar runs overnight financing and dividends → exits at the open → entries at
   the open (market, then limit/stop) → intraday stops and targets → exits at the close → entries at
   the close.

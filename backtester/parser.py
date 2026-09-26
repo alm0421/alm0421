@@ -196,6 +196,20 @@ CMPW = r"(below|under|less than|lower than|beneath|<=?|above|over|greater than|h
 MA = r"(simple |exponential |weighted )?(?:moving average|moving avg|ma|sma|ema|wma)\b"
 
 
+MAK = r"(?:(?:simple|exponential|weighted) )?(?:moving average|moving avg|ma|sma|ema|wma)"
+
+
+def _mat(p: str) -> str:
+    """A moving-average term: '50 day moving average', '9 EMA', '20 period EMA', 'EMA(9)', '10 week SMA'."""
+    return (rf"(?:(?P<{p}n>\d+) (?:(?P<{p}u>day|week|month|period|bar|session)s? )?(?P<{p}k>{MAK})"
+            rf"|(?P<{p}k2>{MAK}) ?\( ?(?P<{p}n2>\d+) ?\))")
+
+
+def _mat_expr(m, p: str, x: str) -> str:
+    kind = m.group(p + "k") or m.group(p + "k2")
+    return _ma(kind, x, m.group(p + "n") or m.group(p + "n2"), m.group(p + "u"), kind)
+
+
 def _period(n: str, unit: str | None) -> int:
     n = int(float(n))
     u = (unit or "day").lower()
@@ -206,6 +220,15 @@ def _period(n: str, unit: str | None) -> int:
     if u.startswith("year"):
         return n * 252
     return n
+
+
+ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8,
+            "ninth": 9, "tenth": 10}
+ORD = r"first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+(?:st|nd|rd|th)"
+
+
+def _ord(w: str) -> int:
+    return ORDINALS.get(w) or int(re.match(r"\d+", w).group(0))
 
 
 def _ma(kind: str | None, x: str, n: str, unit: str | None, raw: str) -> str:
@@ -257,6 +280,8 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
 
     def take(pattern: str, fn) -> None:
         nonlocal s
+        # a phrase must start and end on word boundaries ("down day" must not eat part of "down days")
+        pattern = rf"(?<![a-z0-9])(?:{pattern})(?![a-z0-9])"
         while True:
             m = re.search(pattern, s)
             if not m:
@@ -272,8 +297,9 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     up_x = "up_days" if ctx.base else f"up_streak({c})"
     chg = "change" if ctx.base else f"ret({c}, 1)"
 
-    # raw rule language in backticks
-    take(r"`([^`]+)`", lambda m: f"({m.group(1)})")
+    # raw rule language in backticks (kept in its original case: True, sym("SPY"))
+    raw_ticks = re.findall(r"`([^`]+)`", text.strip())
+    take(r"`([^`]+)`", lambda m: raw_ticks.pop(0).strip() if raw_ticks else m.group(1))  # wrapped in () below
 
     # negations of relations
     s = re.sub(r"\b(?:is|closes?|trades?) not (above|over)\b", "is below", s)
@@ -287,6 +313,10 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     take(rf"(?:at least )?{NUM} (?:or more )?(?:consecutive|straight|successive) {dn} (?:days|closes|sessions|bars)",
          lambda m: f"{down_x} >= {int(float(m.group(1)))}")
     take(rf"(?:at least )?{NUM} (?:or more )?(?:consecutive|straight|successive) {up} (?:days|closes|sessions|bars)",
+         lambda m: f"{up_x} >= {int(float(m.group(1)))}")
+    take(rf"(?:at least )?{NUM} (?:or more )?(?:down|red|losing|negative) (?:days|closes|sessions|bars)(?: in a row| straight| consecutively)?",
+         lambda m: f"{down_x} >= {int(float(m.group(1)))}")
+    take(rf"(?:at least )?{NUM} (?:or more )?(?:up|green|winning|positive) (?:days|closes|sessions|bars)(?: in a row| straight| consecutively)?",
          lambda m: f"{up_x} >= {int(float(m.group(1)))}")
     take(rf"{dn}(?: for)?(?: at least)? {NUM} (?:or more )?(?:straight |consecutive |trading )?(?:days|closes|sessions|bars|times)(?: in a row| straight| consecutively)",
          lambda m: f"{down_x} >= {int(float(m.group(1)))}")
@@ -308,27 +338,25 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
                     f"crossunder(plus_di(), minus_di())" if m.group(1) == "crosses below" else
                     f"plus_di() {_cmp(m.group(1))} minus_di()"))
     # oscillator crossings and levels
-    take(rf"(?:the )?(?:(\d+) (?:day|period|bar) )?{OSC}\s*(?:\(\s*(\d+)\s*\)|(\d+))? (?:line )?cross(?:es|ed)? (above|over|below|under) (-?{NUM})",
+    take(rf"(?:the )?(?:(\d+) (?:day|period|bar) )?{OSC}\s*(?:\(\s*(\d+)\s*\)|(\d+))? (?:line )?(?:cross(?:es|ed)?(?: back)?|(?:falls?|fell|drops?|dropped|dips?|dipped|moves?|moved|goes|went|gets?|rises?|rose|climbs?|climbed|comes?|came) back) (above|over|below|under) (-?{NUM})",
          lambda m: f"{'crossover' if m.group(5) in ('above', 'over') else 'crossunder'}({_osc(m.group(2), m.group(1) or m.group(3) or m.group(4), ctx)}, {m.group(6)})")
     take(rf"(?:the )?(?:(\d+) (?:day|period|bar) )?{OSC}\s*(?:\(\s*(\d+)\s*\)|(\d+))?(?: value| reading)? (?:is |closes |drops |falls |rises |goes |reads )?{CMPW} (-?{NUM})",
          lambda m: f"{_osc(m.group(2), m.group(1) or m.group(3) or m.group(4), ctx)} {_cmp(m.group(5))} {m.group(6)}")
 
     # moving-average relationships between two averages
     def ma_vs_ma(m):
-        a = _ma(m.group(3), c, m.group(1), m.group(2), m.group(0))
-        b = _ma(m.group(8), c, m.group(6), m.group(7), m.group(0))
-        rel = (m.group(4) or "") + m.group(5)
+        a, b = _mat_expr(m, "a", c), _mat_expr(m, "b", c)
+        rel = (m.group("cross") or "") + m.group("rel")
         if "cross" in rel:
             return f"{'crossover' if 'above' in rel or 'over' in rel else 'crossunder'}({a}, {b})"
-        return f"{a} {_cmp(m.group(5))} {b}"
-    take(rf"(?:the |its )?{NUM} (day|week|month) {MA} (?:is |has )?(cross(?:es|ed)? )?(above|over|below|under) (?:the |its )?{NUM} (day|week|month) {MA}", ma_vs_ma)
+        return f"{a} {_cmp(m.group('rel'))} {b}"
+    take(rf"(?:the |its )?{_mat('a')} (?:line )?(?:is |has |stays |remains )?(?P<cross>cross(?:es|ed)? )?(?P<rel>above|over|below|under) (?:the |its )?{_mat('b')}", ma_vs_ma)
     take(r"golden cross", lambda m: f"crossover(sma({c}, 50), sma({c}, 200))")
     take(r"death cross", lambda m: f"crossunder(sma({c}, 50), sma({c}, 200))")
 
-    # price vs moving average, optionally by X%
-    def px_vs_ma(m):
-        pct, cross, rel, n, unit, kind = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5), m.group(6)
-        ma = _ma(kind, c, n, unit, m.group(0))
+    # price vs moving average (or VWAP), optionally by X%
+    def px_vs(m, ma):
+        pct, cross, rel = m.group("pct"), m.group("cross"), m.group("rel")
         op = _cmp(rel)
         if cross:
             return f"{'crossover' if op == '>' else 'crossunder'}({c}, {ma})"
@@ -336,10 +364,19 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
             f = float(pct) / 100
             return f"{c} {op}= {ma} * {1 - f if op == '<' else 1 + f:.6g}"
         return f"{c} {op} {ma}"
-    take(rf"(?:{NUM}%(?: or more)? )?(?:(?:closes?|trades?|is|price is|stays?|remains?|falls|drops|moves|goes|rises|climbs) )?(?:back )?(cross(?:es|ed)? (?:back )?)?{CMPW} (?:its |the )?{NUM} (day|week|month|period|bar)s? {MA}",
-         px_vs_ma)
+    PX = (rf"(?:(?:closes?|trades?|is|stays?|remains?) )?(?:(?P<pct>\d+(?:\.\d+)?)%(?: or more)? )?(?:(?:closes?|trades?|is|price is|price|stays?|remains?|falls|drops|moves|goes|rises|climbs) )?"
+          rf"(?:back )?(?P<cross>cross(?:es|ed)? (?:back )?)?(?P<rel>{CMPW[1:-1]}) (?:its |the )?")
+    take(PX + _mat("a"), lambda m: px_vs(m, _mat_expr(m, "a", c)))
+
+    # VWAP: on daily bars, the rolling N-day volume-weighted average of the typical price (default 20)
+    def vwap_x(m):
+        n = int(m.group("vn") or 20)
+        return px_vs(m, f"vwap({n})" if ctx.base else f"(sma((({h} + {l} + {c}) / 3) * {v}, {n}) / sma({v}, {n}))")
+    take(PX + r"(?:(?P<vn>\d+) (?:day|bar|period|session)s? )?(?:rolling )?vwap", vwap_x)
 
     # drawdown from a high
+    take(rf"(?:is |trades? |closes? )?within {NUM}% (?:of|from) (?:its |the )?(?:(\d+) (day|week|month|year) high|52 week high|all[- ]time high|high)",
+         lambda m: f"drawdown({c}{', ' + str(252 if '52 week' in m.group(0) else _period(m.group(2), m.group(3))) if (m.group(2) or '52 week' in m.group(0)) else ''}) >= {-float(m.group(1)) / 100:g}")
     take(rf"(?:is |trades? |closes? )?(?:at least |more than )?{NUM}% (?:or more )?(?:below|off|under) (?:its |the )?(?:(\d+) (day|week|month|year) high|52 week high|all[- ]time high|high)",
          lambda m: f"drawdown({c}{', ' + str(252 if '52 week' in m.group(0) else _period(m.group(2), m.group(3))) if (m.group(2) or '52 week' in m.group(0)) else ''}) <= {-float(m.group(1)) / 100:g}")
 
@@ -378,6 +415,15 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
         return f"{g} <= {-f:g}" if m.group(1) == "down" else f"{g} >= {f:g}"
     take(rf"(?:opens? with a |has a )?gaps? (down|up)(?: by)?(?: more than| at least| over)?(?: {NUM}%)?(?: or more)?", gap)
 
+    # ATR as a fraction of price, or in price units
+    ATRP = r"(?:(?:the )?(?:(\d+) (?:day|period|bar) )?(?:atr|average true range)\s*(?:\(\s*(\d+)\s*\))?)"
+    take(rf"{ATRP} (?:is )?{CMPW} {NUM}% of (?:the )?(?:price|close|closing price)",
+         lambda m: f"natr({m.group(1) or m.group(2) or 14}) {_cmp(m.group(3))} {float(m.group(4)) / 100:g}" if ctx.base
+         else _unsupported("ATR of another ticker"))
+    take(rf"{ATRP} (?:is )?{CMPW} \$?{NUM}(?![\d%])",
+         lambda m: f"atr({m.group(1) or m.group(2) or 14}) {_cmp(m.group(3))} {m.group(4)}" if ctx.base
+         else _unsupported("ATR of another ticker"))
+
     # volatility
     take(rf"(?:(\d+) day )?(?:historical |realized |annualized )?volatility (?:is )?{CMPW} {NUM}%",
          lambda m: f"volatility({int(m.group(1) or 20)}{xs}) {_cmp(m.group(2))} {float(m.group(3)) / 100:g}")
@@ -409,12 +455,24 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     take(r"inside day", lambda m: f"({h} < ref({h}, 1)) and ({l} > ref({l}, 1))")
     take(r"outside day", lambda m: f"({h} > ref({h}, 1)) and ({l} < ref({l}, 1))")
 
-    # bollinger bands
-    take(r"(closes? |is |trades? |falls |drops |rises )?(below|under|above|over) (?:the )?(lower|upper) bollinger band",
-         lambda m: f"{c} {_cmp(m.group(2))} bb_{m.group(3)}(20, 2)" if ctx.base
-         else f"{c} {_cmp(m.group(2))} sma({c}, 20) {'-' if m.group(3) == 'lower' else '+'} 2 * stdev({c}, 20)")
+    # bollinger bands (20-day, 2 standard deviations; "the middle band" is the 20-day SMA)
+    def band(m):
+        which = m.group(3)
+        if which in ("middle", "mid", "center", "centre", "basis"):
+            b = f"sma({c}, 20)"
+        elif ctx.base:
+            b = f"bb_{which}(20, 2)"
+        else:
+            b = f"(sma({c}, 20) {'-' if which == 'lower' else '+'} 2 * stdev({c}, 20))"
+        if m.group(1):
+            return f"{'crossover' if _cmp(m.group(2)) == '>' else 'crossunder'}({c}, {b})"
+        return f"{c} {_cmp(m.group(2))} {b}"
+    take(r"(?:(?:closes?|is|trades?|falls|drops|rises|moves|goes|price|price is) )?(?:back )?(cross(?:es|ed)? (?:back )?)?(below|under|above|over) (?:the |its )?"
+         r"(lower|upper|middle|mid|center|centre|basis) (?:bollinger )?(?:band|line)", band)
 
     # volume
+    s = re.sub(r"\b(?:is )?(twice|double|triple)\b(?= (?:its |the )?(?:\d+ day )?(?:average|avg))",
+               lambda m: {"twice": "2x", "double": "2x", "triple": "3x"}[m.group(1)], s)
     take(rf"volume (?:is )?(?:at least |more than |above |over )?{NUM} ?(?:x|times) (?:its |the )?(?:(\d+) day )?(?:average|avg)(?: volume)?(?: of the (?:last|past) (\d+) days)?",
          lambda m: f"{v} >= {m.group(1)} * sma({v}, {m.group(2) or m.group(3) or 20})")
 
@@ -424,8 +482,13 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
 
     # calendar
     take(r"(?:on )?(monday|tuesday|wednesday|thursday|friday)s?", lambda m: f"dow == {DOW[m.group(1)]}")
-    take(r"(?:on )?(?:the )?last trading day of the month|month[- ]end", lambda m: "trading_days_left_in_month == 1")
-    take(r"(?:on )?(?:the )?first trading day of the month", lambda m: "trading_day_of_month == 1")
+    take(r"(?:on |at )?(?:the )?month[- ]end", lambda m: "trading_days_left_in_month == 1")
+    take(rf"(?:on )?(?:the )?(?:({ORD}) (?:to |from )?last|last) (?:trading )?day (?:of|in) (?:the |each |every )?month",
+         lambda m: f"trading_days_left_in_month == {_ord(m.group(1)) if m.group(1) else 1}")
+    take(rf"(?:on )?(?:the )?({ORD}) trading day (?:of|in) (?:the |each |every )?(?:next |following |new )?month",
+         lambda m: f"trading_day_of_month == {_ord(m.group(1))}")
+    take(r"(?:on |in |during )?(?:the )?(first|last) (\d+) trading days (?:of|in) (?:the |each |every )?month",
+         lambda m: f"trading_day_of_month <= {m.group(2)}" if m.group(1) == "first" else f"trading_days_left_in_month <= {m.group(2)}")
     take(r"(?:during |in )?(?:the )?(january|february|march|april|may|june|july|august|september|october|november|december)",
          lambda m: f"month == {MONTHS.index(m.group(1)) + 1}")
 
@@ -484,12 +547,14 @@ def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list:
             if e:
                 or_exprs.append(e)
             if left and (strict or not e):
-                bad.append(left if e else o.strip())
+                words = set(re.findall(r"[a-z%']+|\d+(?:\.\d+)?", o.lower()))
+                unknown = [w for w in left.split() if w in words]
+                bad.append(o.strip() + (f"' (not understood: '{' '.join(unknown)}')" if e and unknown else "'"))
         if or_exprs:
             exprs.append(or_exprs[0] if len(or_exprs) == 1 else "(" + " or ".join(or_exprs) + ")")
     if bad:
         raise ParseError(
-            "Could not interpret: " + "; ".join(repr(b) for b in bad)
+            "Could not interpret: " + "; ".join("'" + b for b in bad)
             + ".\nRephrase, or write that part in the rule language inside backticks, e.g. "
               "`rsi(2) < 10 and close > sma(close, 200)` (see --help-expr)."
         )
@@ -573,8 +638,18 @@ def split_and(rule: str) -> list[str]:
     return out
 
 
-def _flip(entry: str, below: bool) -> str | None:
-    """'sell when it crosses back below' -> the entry's first price/average comparison, reversed."""
+def _is_price(a: str) -> bool:
+    return a == "close" or re.fullmatch(r"sym\((['\"])[^'\"]+\1\)\.close", a) is not None
+
+
+def _flip(entry: str, below: bool, series: str | None = None, price_only: bool = False) -> str | None:
+    """'sell when it crosses back below' -> the entry's comparison, reversed.
+
+    `series` ('close' or 'sym("SPY").close') restricts it to comparisons of that ticker's price.
+    Otherwise a comparison of the price is preferred; failing that (unless `price_only`), the entry's
+    only comparison (e.g. 'the 9 EMA crosses above the 21 EMA' or 'RSI(2) crosses below 10').
+    Returns None when nothing, or more than one thing, could be meant."""
+    cands = []
     for term in split_and(entry):
         n = ast.parse(term, mode="eval").body
         if isinstance(n, ast.Compare) and len(n.ops) == 1 and isinstance(n.ops[0], (ast.Gt, ast.GtE, ast.Lt, ast.LtE)):
@@ -583,8 +658,36 @@ def _flip(entry: str, below: bool) -> str | None:
             a, b = ast.unparse(n.args[0]), ast.unparse(n.args[1])
         else:
             continue
-        return f"{a} {'<' if below else '>'} {b}"
-    return None
+        cands.append((a, b))
+    if series is not None:
+        want = ast.unparse(ast.parse(series, mode="eval").body)
+        cands = [(a, b) for a, b in cands if a == want]
+    else:
+        price = [(a, b) for a, b in cands if _is_price(a)]
+        cands = price if (price or price_only) else cands
+    if len(cands) != 1:
+        return None
+    a, b = cands[0]
+    return f"{a} {'<' if below else '>'} {b}"
+
+
+_CALL_NAMES = ("rsi", "stoch_k", "cci", "willr", "mfi", "adx")
+
+
+def _calls(rule: str, names=_CALL_NAMES) -> list[str]:
+    """Distinct calls of the given functions in a rule, e.g. ['rsi(close, 2)']."""
+    out = []
+    for m in re.finditer(rf"\b(?:{'|'.join(names)})\(", rule):
+        depth, j = 0, m.end() - 1
+        while j < len(rule):
+            depth += {"(": 1, ")": -1}.get(rule[j], 0)
+            if depth == 0:
+                break
+            j += 1
+        call = rule[m.start(): j + 1]
+        if call not in out:
+            out.append(call)
+    return out
 
 
 # ----------------------------------------------------------------- shared options
@@ -712,7 +815,11 @@ def parse(text: str, **overrides):
     """Parse a sentence into a Strategy (signals) or a Portfolio (allocations)."""
     if not text or not text.strip():
         raise ParseError("Describe a strategy, e.g. 'buy MSFT at the close when it is down 5 days in a row, hold 1 day'.")
-    if looks_like_allocation(text):
+    held = _holding_signal(text)
+    if held:
+        obj = parse_signal(held, holding=True)
+        obj.description = text
+    elif looks_like_allocation(text):
         obj = parse_allocation(text)
     else:
         obj = parse_signal(text)
@@ -733,8 +840,81 @@ def parse(text: str, **overrides):
 
 ENTRY_VERB = r"^(?:buy|go long|long|purchase|enter(?: long)?|get in|short|sell short|go short|short[- ]sell|enter short)\b"
 EXIT_VERB = r"^(?:hold|keep|sell|exit|cover|close (?:the|out|it|positions?)|get out|take profit|stop|use|with|place|then sell|and sell|after|or after|max(?:imum)? hold)\b"
-COND_START = r"\b(?:when(?:ever)?|if|once|after|on days when|any day|every time|each time)\b"
+COND_START = r"\b(?:when(?:ever)?|while|as long as|if|once|after|on days when|any day|every time|each time)\b"
 TIMING = r"(?:(?:at|on) (?:the )?(?:next |following |tomorrow's )?(?:day's |trading day's )?(?:close|open)|market on (?:close|open)|\bmoc\b|\bmoo\b|at the next open|next day's open|next open)"
+
+
+EXIT_WHEN = (r"(?:(?:sell|exit|cover|close (?:the position|out|it)|get out)\w*(?: it| the position| out| them| everything)?"
+             r"(?: (?:at|on) (?:the )?(?:next |following |tomorrow's )?(?:day's |trading day's )?(?:open|close))?|\b(?:or|and))"
+             r" (?:when(?:ever)?|if|once|on|as soon as|at the first|at the close of the first|at the close when|at the open after|the day after)\b(?P<body>.*)$")
+
+
+def _exit_rule(wl: str, entry: str, universe: list[str], notes: list[str]) -> str:
+    """The rule of a 'sell when ...' clause. Resolves references back to the entry: 'it crosses back
+    below' / 'QQQ closes below it' (the entry's price comparison reversed), 'it is over 70' (the
+    entry's indicator), a bare 'RSI' (the entry's RSI period) and 'the signal ends'."""
+    one = universe[0] if len(universe) == 1 else None
+    tick = r"(?P<tk>[\^$]?[a-z][a-z0-9.&'-]{0,24}(?: [a-z][a-z0-9.&'-]{0,24}){0,2}?)(?:'s(?: price)?)?"
+    pron = re.fullmatch(rf"(?i)(?:it |the price |price |{tick} )?(?P<verb>crosses|falls|drops|closes|goes|moves|is|trades|gets)?(?: back)? ?"
+                        r"(?P<rel>below|under|above|over)(?: (?:it|them|that|the average|the line|again))?", wl)
+    tk = None
+    if pron and pron.group("tk"):
+        found = find_tickers(pron.group("tk"), strict=False)
+        if len(found) != 1 or pron.group("tk").lower() in ("it", "the price", "price"):
+            pron = None
+        else:
+            tk = found[0]
+    if pron:
+        below = pron.group("rel").lower() in ("below", "under")
+        series = None if tk is None else ("close" if tk == one else f'sym("{tk}").close')
+        price_only = tk is not None or (pron.group("verb") or "").lower() in ("closes", "trades")
+        flip = _flip(entry, below=below, series=series, price_only=price_only)
+        if not flip:
+            what = f"{tk}'s price" if tk else ("the price" if price_only else "anything")
+            raise ParseError(
+                f"'{wl}': 'it' has nothing to refer back to - the entry ({entry.strip('()')}) does not compare {what} "
+                f"with exactly one level or average. Say what it crosses, e.g. "
+                f"'sell when {tk or 'it'} closes below its 5 day moving average'.")
+        notes.append(f"'{wl}' was read as the reverse of the entry comparison: {flip}.")
+        return flip
+    if re.fullmatch(r"(?i)(?:the |its )?(?:signal|condition|setup|entry (?:rule|condition))s? (?:reverses?|ends?|is no longer (?:true|met)|no longer holds?|turns? off)|it(?:'s| is)? no longer (?:true|met)|not ?", wl):
+        return f"not ({entry})"
+
+    # a bare "RSI" means the entry's RSI period when the entry uses exactly one
+    periods = list(dict.fromkeys(re.findall(r"\brsi\(close, (\d+)\)", entry)))
+
+    def bare_rsi(m):
+        if m.group(1) or m.group(2):
+            return m.group(0)
+        if len(periods) == 1:
+            notes.append(f"'RSI' in the exit was read as the entry's RSI({periods[0]}).")
+            return f"RSI({periods[0]})"
+        if len(periods) > 1:
+            raise ParseError(f"'{wl}': which RSI? The entry uses RSI({') and RSI('.join(periods)}). Give the period, e.g. 'RSI({periods[0]}) is above 70'.")
+        notes.append("'RSI' with no period: using the standard 14-day RSI.")
+        return m.group(0)
+    wl = re.sub(r"(?i)\b(?:(\d+) (?:day|period|bar|session) )?rsi\b(\s*\(\s*\d+\s*\)|\s+\d+(?![\d.]|\s*%))?", bare_rsi, wl)
+
+    # "it is over 70" / "it's under 30" / "it rises back above 50" -> the entry's indicator
+    oscs = _calls(entry)
+
+    def it_osc(m):
+        if not oscs:
+            return m.group(0)   # no indicator in the entry: 'it' is the price
+        if len(oscs) > 1:
+            raise ParseError(f"'{m.group(0).strip()}' is ambiguous: the entry uses {' and '.join(oscs)}. "
+                             f"Name the indicator, e.g. 'RSI(2) is above 70'.")
+        op = _cmp(m.group("rel"))
+        if m.group("back") or (m.group("verb") or "").lower().startswith("cross"):
+            e = f"{'crossover' if op == '>' else 'crossunder'}({oscs[0]}, {m.group('n')})"
+        else:
+            e = f"{oscs[0]} {op} {m.group('n')}"
+        notes.append(f"'{m.group(0).strip()}' was read as referring to the entry's indicator: {e}.")
+        return f" `{e}` "
+    wl = re.sub(r"(?i)\bit(?:'s|\s+is)?\s+(?:(?:now|still)\s+)?(?P<verb>(?:rises|climbs|falls|drops|goes|gets|moves|crosses|comes|dips|reads)\s+)?"
+                r"(?P<back>back\s+)?(?P<rel>above|over|below|under|greater than|less than|higher than|lower than)\s+(?P<n>-?\d+(?:\.\d+)?)"
+                r"(?![\d.]|\s*%|\s*(?:day|week|month|bar|period|session)s?\b)", it_osc, wl)
+    return parse_conditions(wl, universe)
 
 
 def _split_clauses(t: str) -> list[str]:
@@ -765,12 +945,46 @@ def _universe_phrase(text: str) -> tuple[list[str] | None, str | None]:
     return None, None
 
 
-def parse_signal(text: str) -> Strategy:
+def _holding_signal(text: str) -> str | None:
+    """'hold TSLA when it is above its 50 day moving average' (one ticker, no otherwise / rebalancing)
+    is a daily signal strategy: in the market while the condition holds. Returns it as 'buy TSLA while ...'."""
+    t = _normalize(text)
+    m = re.match(r"(?i)\s*(?:hold|own|stay long|be long|stay in|be in)\s+(?P<who>.+?)\s+(?:when(?:ever)?|while|if|as long as|only when|only while|only if)\s+(?P<rest>.+)$", t)
+    if not m or re.search(r"(?i)\b(?:otherwise|else|rebalanc\w*|withdraw\w*|contribut\w*|rotat\w*|allocat\w*)\b|\d%\s+(?:in\s+|of\s+)?[A-Za-z^]{1,5}\b(?!\s+(?:stop|trailing|target|take|profit|slippage|commission|per|of|below|above|drawdown|gain|loss))", t):
+        return None
+    who = m.group("who")
+    tk = find_tickers(who, strict=True)
+    rest_who = re.sub(r"[\^$]?\b(?:" + "|".join(re.escape(x.lstrip("^")) for x in tk) + r")\b", " ", who, flags=re.I) if tk else who
+    for name in COMPANIES:
+        rest_who = re.sub(rf"\b{re.escape(name)}\b", " ", rest_who, flags=re.I)
+    if len(tk) != 1 or re.sub(r"(?i)\b(?:the|shares?|stock|of)\b", "", rest_who).strip():
+        return None
+    return f"buy {who} while {m.group('rest')}"
+
+
+def parse_signal(text: str, holding: bool = False) -> Strategy:
     raw = text
     t = _normalize(text)
     T = Text(t)
     notes: list[str] = []
+    # broker fee presets and volume-based slippage (before the generic cost phrases)
+    broker: dict = {}
+    m = T.find(r"(?:(?:with|using|and|at) )?(?:ibkr|interactive brokers?)(?: pro)?(?: \(?(fixed|tiered)\)?)?"
+               r"(?: (?:pricing|commissions?|fees|rates?|commission (?:schedule|model|plan)|costs?))*(?: \((fixed|tiered)\))?")
+    if m:
+        tier = (m.group(1) or m.group(2) or "fixed").lower()
+        broker["commission_model"] = f"ibkr_{tier}"
+        if not (m.group(1) or m.group(2)):
+            notes.append("IBKR commissions: using IBKR Pro Fixed pricing ($0.005/share, min $1, max 1% of the trade). "
+                         "Say 'IBKR tiered' for the tiered schedule.")
+    m = T.find(r"(?:(?:with|using|and) )?(?:(?:volume|liquidity)[- ](?:based|dependent|adjusted|aware)|square[- ]root)(?: (?:slippage|market impact|impact))+(?: model)?"
+               r"|(?:(?:with|using|and) )?(?:market )?impact(?: model)? slippage|(?:(?:with|using|and) )?(?:a )?market impact(?: model| costs?)?")
+    if m:
+        broker["slippage_model"] = "volume"
+        notes.append("Volume-based slippage: each fill pays half the spread (2 bps default) plus 100 bps x sqrt(order shares / "
+                     "20-day average volume), on top of any fixed slippage.")
     kw = common_options(T, notes)
+    kw.update(broker)
 
     # ---- sizing and portfolio options
     m = T.find(r"(?:max(?:imum)?(?: of)?|up to|at most|no more than|hold at most|limit(?:ed)? to) (\d+) (?:open |simultaneous |concurrent )?(?:positions|stocks|names|holdings|trades)(?: at (?:a|any|one) time| at once)?|(\d+) (?:positions|stocks|names) max(?:imum)?")
@@ -805,6 +1019,16 @@ def parse_signal(text: str) -> Strategy:
     m = T.find(rf"{NUM}% margin (?:interest|rate)|margin (?:interest|rate) of {NUM}%")
     if m:
         kw["margin_rate"] = float(m.group(1) or m.group(2)) / 100
+    m = T.find(rf"(?:(?:with|and) )?(?:a )?{NUM}% maintenance(?: margin)?(?: requirement)?|maintenance margin(?: requirement)?(?: of)? {NUM}%")
+    if m:
+        kw["maintenance_margin"] = float(m.group(1) or m.group(2)) / 100
+    if T.find(r"(?:(?:with|and) )?(?:no|without|ignore|ignoring) margin calls?"):
+        kw["maintenance_margin"] = 0.0
+    m = T.find(rf"(?:(?:with|and) )?(?:a )?short rebate(?: spread)?(?: of)? {NUM}% (?:below|under|less than) (?:the )?(?:t-?bill|cash)(?: rate)?"
+               rf"|(?:(?:with|and) )?(?:no|full) short rebate(?: haircut)?")
+    if m:
+        # "no short rebate": proceeds earn nothing (a spread larger than any rate); "full": the whole cash rate
+        kw["short_rebate_spread"] = float(m.group(1)) / 100 if m.group(1) else (1.0 if "no" in m.group(0).lower().split() else 0.0)
     m = T.find(r"pyramid(?:ing)?(?: up to)? (\d+)(?: times| entries)?|(?:add to (?:the )?(?:position|winners)|scale in)(?: up to)? (\d+) times|up to (\d+) entries per (?:ticker|stock|position)")
     if m:
         kw["pyramiding"] = int(m.group(1) or m.group(2) or m.group(3))
@@ -844,6 +1068,25 @@ def parse_signal(text: str) -> Strategy:
         raise ParseError(f"Could not understand the stop/target in {mm.group(0).strip()!r}. Write e.g. '5% stop loss', "
                          f"'2 ATR stop', '10% trailing stop', '3 ATR trailing stop', 'take profit at 8%'.")
 
+    # ---- "the 5 Nasdaq 100 stocks with the lowest RSI(2) each day": fill up to N slots, best-ranked first
+    ranked = False
+    mrk = re.search(r"\b(?:the )?(?:top |bottom )?(\d+) ((?:nasdaq[- ]?100|ndx) (?:stocks|names|members|components)|stocks|names|tickers|etfs|sector etfs)"
+                    r" (?:with|having|that have|showing) (?:the )?(lowest|highest|smallest|largest|biggest|weakest|strongest) (.+?)"
+                    r"(?: (?:each|every) (?:trading )?(?:day|session)| daily)?(?=\s*(?:[,;.]|$|\bat\b|\bwhen\b|\bif\b|\bwhile\b|\bon\b|\band\b))",
+                    T.rest, flags=re.I)
+    if mrk:
+        if mr:
+            raise ParseError("The ranking is given twice; keep one of them.")
+        rank_expr, rank_notes = value_phrase(mrk.group(4), default_n=None)
+        low_first = mrk.group(3).lower() in ("lowest", "smallest", "weakest")
+        kw["max_positions"] = int(mrk.group(1))
+        kw["rank_by"], kw["rank_ascending"] = rank_expr, low_first
+        notes.extend(rank_notes)
+        notes.append(f"Up to {mrk.group(1)} positions at once: each day, free slots are filled with the "
+                     f"{mrk.group(3).lower()} {rank_expr} among the tickers that qualify; open positions are held until their exit.")
+        T.rest = T.rest[: mrk.start()] + " " + mrk.group(2) + " " + T.rest[mrk.end():]
+        ranked = True
+
     # ---- clause split on what's left
     clauses = _split_clauses(T.rest)
     entries: list[tuple[str, str]] = []   # (side, clause)
@@ -882,6 +1125,7 @@ def parse_signal(text: str) -> Strategy:
     # ---- entries
     universe, uni_name = None, None
     parsed: dict[str, dict] = {}
+    stateful = holding
     for side, cl in entries:
         cl_rest = cl
         mcond = re.search(COND_START, cl_rest, flags=re.I)
@@ -938,6 +1182,8 @@ def parse_signal(text: str) -> Strategy:
         mcond = re.search(COND_START, low, flags=re.I)
         cond = low[mcond.end():] if mcond else ""
         cond = re.sub(TIMING, " ", cond, flags=re.I)
+        if mcond and mcond.group(0).lower() in ("while", "as long as"):
+            stateful = True
         if not mcond:
             rest = re.sub(ENTRY_VERB, " ", low.strip(), flags=re.I)
             rest = re.sub(TIMING, " ", rest, flags=re.I)
@@ -950,7 +1196,7 @@ def parse_signal(text: str) -> Strategy:
         for tk in universe:
             cond = re.sub(rf"(?<![\w])[\$^]?{re.escape(tk.lstrip('^'))}\b(?!\s*(?:is|closes|trades|'s)\b)", " it ", cond, flags=re.I) if len(universe) == 1 else cond
         if not re.sub(r"[^a-z0-9`]", "", re.sub(r"\b(?:it|the|a|an|and|stock|shares?)\b", "", cond.lower())):
-            if order != "market":
+            if order != "market" or ranked:
                 cond = "`True`"
             else:
                 raise ParseError("No entry condition found. Say e.g. 'buy MSFT at the close when it is down 5 days in a row'.")
@@ -994,28 +1240,38 @@ def parse_signal(text: str) -> Strategy:
         if mh:
             hold_bars = _period(mh.group(1), mh.group(2))
             low = low.replace(mh.group(0), " ")  # noqa
-        elif re.search(r"(?:sell|exit|cover)\w* (?:at |on )?(?:the )?(?:next|following|tomorrow)", low, flags=re.I) or re.search(r"\bnext day\b", low, flags=re.I):
+        elif not re.search(EXIT_WHEN, low, flags=re.I) and (
+                re.search(r"(?:sell|exit|cover)\w* (?:at |on )?(?:the )?(?:next|following|tomorrow)", low, flags=re.I)
+                or re.search(r"\bnext day\b", low, flags=re.I)):
             hold_bars = 1 if hold_bars is None else hold_bars
-        mw = re.search(r"(?:sell|exit|cover|close (?:the position|out|it)|get out)\w*(?: it| the position| out| them)? (?:when|if|once|on|as soon as|at the first|at the close of the first|at the close when|at the open after|the day after)\b(.*)$", low, flags=re.I)
-        if mw and mw.group(1).strip():
-            wtxt = mw.group(1)
-            if re.search(r"next (?:day's )?open|at the open|the day after", wtxt + " " + mw.group(0), re.I):
-                exit_when_fill = "next_open"
+        mw = re.search(EXIT_WHEN, low, flags=re.I)
+        if mw and mw.group("body").strip():
+            wtxt = mw.group("body")
+            timing = wtxt + " " + mw.group(0)
+            if re.search(r"(?:next|following|tomorrow's)(?: day's| trading day's)? open|the day after|open after", timing, re.I):
+                fill_word = "next_open"
+            elif re.search(r"(?:at|on) (?:the )?open\b|market on open|\bmoo\b", timing, re.I):
+                fill_word = "open"
+            else:
+                fill_word = "close"
             wtxt = re.sub(TIMING, " ", wtxt, flags=re.I)
             wtxt = re.sub(r"\b(?:or )?(?:after|in) \d+ (?:trading )?(?:days?|bars?|sessions?|weeks?)\b", " ", wtxt, flags=re.I)
-            wtxt = re.sub(r"\b(?:the )?first\b", " ", wtxt, flags=re.I)
+            wtxt = re.sub(r"\b(?:the )?first\b(?! trading day)", " ", wtxt, flags=re.I)
             wl = wtxt.strip(" ,;")
-            pron = re.fullmatch(r"(?i)(?:it |the price )?(?:crosses|falls|drops|closes|goes|moves|is|trades|gets)?(?: back)? ?(below|under|above|over)(?: (?:it|them|that|the average|the line|again))?", wl)
-            if pron:
-                flip = _flip(first["entry"], below=pron.group(1) in ("below", "under"))
-                if not flip:
-                    raise ParseError(f"'{wl}' refers back to the entry rule, but the entry has no comparison to reverse; say what it crosses.")
-                exit_when = flip
-                notes.append(f"'{wl}' was read as the reverse of the entry comparison: {flip}.")
-            elif re.fullmatch(r"(?i)(?:the |its )?(?:signal|condition|setup|entry (?:rule|condition))s? (?:reverses?|ends?|is no longer (?:true|met)|no longer holds?|turns? off)|it(?:'s| is)? no longer (?:true|met)|not ?", wl):
-                exit_when = f"not ({first['entry']})"
-            elif wl:
-                exit_when = parse_conditions(wl, universe)
+            rule = _exit_rule(wl, first["entry"], universe, notes)
+            if fill_word == "open":
+                if _open_safe(rule):
+                    notes.append(f"Exit rule {rule} is known at the open, so positions are sold at the open of the day it is true.")
+                else:
+                    fill_word = "next_open"
+                    notes.append(f"Exit at the open: {rule} is only known at the close, so it is checked at the close "
+                                 "and the position is sold at the next day's open.")
+            elif fill_word == "next_open":
+                notes.append(f"Exit rule {rule} is checked at the close and filled at the next day's open.")
+            if exit_when is not None and fill_word != exit_when_fill:
+                raise ParseError("All rule exits must fill at the same time (the close, or the next open).")
+            exit_when = rule if exit_when is None else f"({exit_when}) or ({rule})"
+            exit_when_fill = fill_word
         for mx in re.finditer(rf"(?:sell|exit|cover|close)\w*[^,;]*?(?:at|on) (?:the )?(?:next |following |tomorrow's )?(?:day's |trading day's )?(open|close)\b", low, flags=re.I):
             if not mw or mx.start() < (mw.start(1) if mw else 0):
                 hold_fill = mx.group(1).lower() if hold_bars is not None or not mw else hold_fill
@@ -1026,13 +1282,17 @@ def parse_signal(text: str) -> Strategy:
                 hold_fill = m1.group(2).lower()
                 notes.append(f"No holding period stated: exiting at the first {hold_fill} after entry.")
     stops_given = any(ex.get(k) for k in ("stop_loss", "trailing_stop", "take_profit", "stop_atr", "trailing_atr", "take_profit_atr", "scale_out"))
+    if stateful and len(parsed) == 1 and not (hold_bars or exit_when or stops_given):
+        exit_when = f"not ({first['entry']})"
+        notes.append(f"No exit given: in the market while {first['entry']} is true, and out at the close of the "
+                     "first day it is false (it is re-entered when it turns true again).")
     if not any([hold_bars, exit_when, stops_given, len(parsed) == 2]):
         raise ParseError("No exit rule found. Say e.g. 'hold 1 day and sell at the close', 'sell when it closes above its 5-day moving average', or 'with a 5% stop loss'.")
 
     # leftover check over the whole sentence (entry conditions were parsed strictly already)
     for cl in exits:
         chk = cl.lower()
-        chk = re.sub(r"(?:sell|exit|cover|close (?:the position|out|it)|get out)\w*(?: it| the position| out| them)? (?:when|if|once|on|as soon as|at the first|at the close of the first|at the close when|at the open after|the day after)\b.*$", " ", chk)
+        chk = re.sub(EXIT_WHEN, " ", chk, flags=re.I)
         chk = re.sub(r"(?:max(?:imum)? hold(?:ing)?(?: period)?(?: of)?|time stop(?: of)?) \d+ (?:trading )?(?:day|bar|session|week|month)s?", " ", chk)
         chk = re.sub(r"\d+ (?:trading )?(?:day|bar|session|week|month)s? later", " ", chk)
         chk = re.sub(r"(?:hold|keep)\w*(?: it| the position| the stock| positions?| the trade| them)?(?: for)?(?: up to| at most| a maximum of| no more than)? \d+ (?:trading )?(?:day|bar|session|week|month)s?", " ", chk)
@@ -1079,6 +1339,12 @@ def parse_signal(text: str) -> Strategy:
         description=raw, notes=notes, **ex, **kw,
     )
     strat.benchmark = benchmark
+    rules = " ".join(r for r in (strat.entry, strat.short_entry, strat.exit_when) if isinstance(r, str))
+    if "vwap(" in rules or re.search(r"sma\(\(\(.*volume, \d+\) / sma\(", rules):
+        strat.notes.append("VWAP on daily bars: the rolling N-day (default 20) volume-weighted average of the typical "
+                           "price (high + low + close) / 3, not an intraday VWAP.")
+    if re.search(r"\b(?:upper|lower|middle|mid|center|centre|basis) (?:bollinger )?(?:band|line)\b", raw, re.I):
+        strat.notes.append("Bollinger bands: 20-day SMA +/- 2 standard deviations; the middle band is the 20-day SMA.")
     strat.notes = list(dict.fromkeys(strat.notes))
     if re.search(r"\b(?:down|up)_(?:days|streak)\b\s*>=|_streak\([^)]*\) >=", strat.entry):
         notes.append("'N days in a row' also fires on later days of a longer streak (6th, 7th...); say 'exactly N days' to fire only on the Nth.")

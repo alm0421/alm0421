@@ -491,3 +491,191 @@ def test_leverage_and_optimiser_weights_run():
     r3 = runner.run(parser.parse("risk parity SPY, TLT and GLD over 90 days, rebalance monthly, since 2010"))
     w = r3.holdings.drop(columns="cash").iloc[-1]
     assert abs(w.sum() - 1) < 0.05 and w["TLT"] > w["SPY"]
+
+
+# ------------------------------------------------------------ round 3: phrasings from TradingView / QuantConnect users
+
+@needs_data
+@pytest.mark.parametrize("text, check", [
+    # 1. "the 9 EMA", "9 SMA", "the 50 MA", "20 period EMA", "EMA(9)"
+    ("buy SPY when the 9 EMA crosses above the 21 EMA, sell when the 9 EMA crosses below the 21 EMA",
+     lambda s: s.entry == "(crossover(ema(close, 9), ema(close, 21)))" and s.exit_when == "(crossunder(ema(close, 9), ema(close, 21)))"),
+    ("buy SPY when the 9 SMA crosses above the 21 SMA, hold 5 days", lambda s: s.entry == "(crossover(sma(close, 9), sma(close, 21)))"),
+    ("buy SPY when it closes above the 50 MA, sell when it closes below the 50 MA",
+     lambda s: s.entry == "(close > sma(close, 50))" and s.exit_when == "(close < sma(close, 50))"),
+    ("buy SPY when the 20 period EMA crosses above the 50 period SMA, hold 5 days",
+     lambda s: s.entry == "(crossover(ema(close, 20), sma(close, 50)))"),
+    ("buy QQQ when EMA(9) crosses above EMA(21), hold 5 days", lambda s: s.entry == "(crossover(ema(close, 9), ema(close, 21)))"),
+    # 2. "it" in the exit is the entry's indicator
+    ("buy AAPL when RSI(2) is below 10, sell when it's over 70", lambda s: s.exit_when.strip("()") == "rsi(close, 2) > 70"),
+    ("buy AAPL when RSI(2) is below 10, sell when it is under 30", lambda s: s.exit_when.strip("()") == "rsi(close, 2) < 30"),
+    ("buy QQQ when it is down 3 days in a row, sell when it is above 100", lambda s: s.exit_when == "(close > 100)"),
+    # 3. rule exits at the open
+    ("buy AAPL when RSI(2) is below 10, sell at the open when RSI(2) is above 70",
+     lambda s: s.exit_when == "(rsi(close, 2) > 70)" and s.exit_when_fill == "next_open" and s.hold_bars is None),
+    ("short AAPL when RSI(2) is above 90, cover at the next open when RSI(2) is below 30",
+     lambda s: s.side == "short" and s.exit_when == "(rsi(close, 2) < 30)" and s.exit_when_fill == "next_open" and s.hold_bars is None),
+    ("buy QQQ when it gaps down 1%, sell at the open when it gaps up 1%",
+     lambda s: s.exit_when == "(gap >= 0.01)" and s.exit_when_fill == "open"),
+    # 4. VWAP
+    ("buy QQQ when price is above VWAP, hold 5 days", lambda s: s.entry == "(close > vwap(20))" and any("VWAP" in n for n in s.notes)),
+    ("buy QQQ when it is above its 10 day VWAP, hold 5 days", lambda s: s.entry == "(close > vwap(10))"),
+    # 5. in the market while a condition holds
+    ("buy TSLA while it is above its 50 day moving average",
+     lambda s: s.entry == "(close > sma(close, 50))" and s.exit_when == "not ((close > sma(close, 50)))"),
+    ("hold TSLA when it is above its 50 day moving average",
+     lambda s: isinstance(s, Strategy) and s.exit_when == "not ((close > sma(close, 50)))"),
+    # 6. "after 3 down days"
+    ("buy QQQ at the open after 3 down days, sell at the close",
+     lambda s: s.entry == "ref((down_days >= 3), 1)" and s.entry_fill == "open" and s.hold_bars == 1),
+    # 7. time exit OR rule exit; a bare RSI takes the entry's period
+    ("buy QQQ when RSI(2) is below 10, sell after 10 days or when RSI above 70",
+     lambda s: s.hold_bars == 10 and s.exit_when == "(rsi(close, 2) > 70)"),
+    ("buy QQQ when RSI(2) is below 10, sell when RSI(2) rises above 70", lambda s: s.exit_when == "(rsi(close, 2) > 70)"),
+    # 8. Bollinger bands without the word Bollinger
+    ("buy QQQ when it closes below the lower band, sell when it closes above the middle band",
+     lambda s: s.entry == "(close < bb_lower(20, 2))" and s.exit_when == "(close > sma(close, 20))"),
+    ("buy QQQ when RSI(2) is below 10, sell when it closes above the upper band", lambda s: s.exit_when == "(close > bb_upper(20, 2))"),
+    # 9. exits that name a ticker
+    ("buy QQQ when it closes above its 50 day moving average, sell when QQQ closes below it",
+     lambda s: s.exit_when == "close < sma(close, 50)"),
+    ("buy QQQ when SPY closes above its 200 day moving average, sell when SPY closes below it",
+     lambda s: s.exit_when.replace("'", '"') == 'sym("SPY").close < sma(sym("SPY").close, 200)'),
+    ("buy QQQ when RSI(2) is below 10, sell when SPY closes below its 50 day moving average",
+     lambda s: s.exit_when == '(sym("SPY").close < sma(sym("SPY").close, 50))'),
+    # 10. rank a universe and fill N slots
+    ("buy the 5 Nasdaq 100 stocks with the lowest RSI(2) each day, hold 3 days",
+     lambda s: s.universe_name == "NDX" and s.max_positions == 5 and s.rank_by == "rsi(close, 2)" and s.rank_ascending
+     and s.entry == "(True)" and s.hold_bars == 3),
+    # 11. crossing back
+    ("buy QQQ when RSI(2) falls back below 30, hold 3 days", lambda s: s.entry == "(crossunder(rsi(close, 2), 30))"),
+    ("buy QQQ when RSI(2) rises back above 30, hold 3 days", lambda s: s.entry == "(crossover(rsi(close, 2), 30))"),
+    # 12. trading days of the month
+    ("buy SPY on the third trading day of the month, hold 5 days", lambda s: s.entry == "(trading_day_of_month == 3)"),
+    ("buy SPY on the last trading day of the month, sell on the first trading day of the next month",
+     lambda s: s.entry == "(trading_days_left_in_month == 1)" and s.exit_when == "(trading_day_of_month == 1)"),
+    ("buy SPY on the second to last trading day of the month, hold 3 days", lambda s: s.entry == "(trading_days_left_in_month == 2)"),
+    # 13. assorted
+    ("buy SPY when it is up 3 days in a row, hold 3 days", lambda s: s.entry == "(up_days >= 3)"),
+    ("buy SPY when it gaps down more than 2%, hold 3 days", lambda s: s.entry == "(gap <= -0.02)"),
+    ("buy SPY when it closes in the top 10% of its daily range, hold 3 days", lambda s: s.entry == "(ibs > 0.9)"),
+    ("buy SPY when it makes a new 52-week high, hold 3 days", lambda s: s.entry == "(close >= highest(close, 252))"),
+    ("buy SPY when it is within 2% of its 52 week high, hold 3 days", lambda s: s.entry == "(drawdown(close, 252) >= -0.02)"),
+    ("buy SPY when volume is twice its 20 day average, hold 3 days", lambda s: s.entry == "(volume >= 2 * sma(volume, 20))"),
+    ("buy SPY when the 5 day RSI is below 30, hold 3 days", lambda s: s.entry == "(rsi(close, 5) < 30)"),
+    ("buy SPY when price crosses above the upper Bollinger band, hold 3 days", lambda s: s.entry == "(crossover(close, bb_upper(20, 2)))"),
+    ("buy SPY when ATR(14) is above 2% of price, hold 3 days", lambda s: s.entry == "(natr(14) > 0.02)"),
+    ("buy SPY when it closes 2% above its 20 day VWAP, hold 2 days", lambda s: s.entry == "(close >= vwap(20) * 1.02)"),
+    # costs
+    ("buy SPY when RSI(2) is below 10, hold 3 days, IBKR commissions", lambda s: s.commission_model == "ibkr_fixed"),
+    ("buy SPY when RSI(2) is below 10, hold 3 days, Interactive Brokers fixed pricing", lambda s: s.commission_model == "ibkr_fixed"),
+    ("buy SPY when RSI(2) is below 10, hold 3 days, IBKR tiered commissions", lambda s: s.commission_model == "ibkr_tiered"),
+    ("buy SPY when RSI(2) is below 10, hold 3 days, volume-based slippage", lambda s: s.slippage_model == "volume"),
+    ("buy SPY when RSI(2) is below 10, hold 3 days, with market impact", lambda s: s.slippage_model == "volume"),
+    ("short QQQ when RSI(2) is above 90, hold 3 days, 30% maintenance margin", lambda s: s.maintenance_margin == 0.3),
+])
+def test_parser_round3_phrases(text, check):
+    s = parser.parse(text)
+    assert check(s), s.to_json()
+
+
+@needs_data
+@pytest.mark.parametrize("text, words", [
+    ("buy QQQ when RSI(2) is below 10, sell when QQQ closes below it", "nothing to refer back to"),  # no price comparison
+    ("buy QQQ when RSI(2) is below 10 and CCI is below -100, sell when it is above 50", "ambiguous"),
+    ("buy QQQ after 3 down dayz, hold 2 days", "'3 down dayz'"),                 # the user's words, not '3 s'
+    ("buy MSFT when it is down 3 days in a row", "No exit rule"),              # 'when' alone does not imply an exit
+    ("buy QQQ when RSI(2) is below 10 and RSI(5) is below 20, sell when RSI is above 70", "which RSI"),
+])
+def test_parser_round3_refusals(text, words):
+    with pytest.raises(parser.ParseError) as e:
+        parser.parse(text)
+    assert words in str(e.value)
+
+
+def _week(rows, volume=1e6):
+    df = synthetic(rows)
+    df.index = pd.bdate_range("2019-12-30", periods=len(rows))  # starts on a Monday
+    df["volume"] = volume
+    return df
+
+
+def test_rule_exit_at_same_open_and_next_open(fake):
+    fake["X"] = _week([(100, 100, 100, 100), (100, 102, 100, 102), (105, 106, 104, 105), (105, 105, 105, 105)])
+    r = engine.run(Strategy(cash_rate=None, universe=["X"], entry="dow == 0", exit_when="gap >= 0.02", exit_when_fill="open"))
+    t = r.trades.iloc[0]
+    assert t.exit_price == 105 and t.exit_fill == "open" and str(t.exit_date) == "2020-01-01"
+    r = engine.run(Strategy(cash_rate=None, universe=["X"], entry="dow == 0", exit_when="close > 101", exit_when_fill="next_open"))
+    t = r.trades.iloc[0]
+    assert t.exit_price == 105 and t.exit_fill == "open" and str(t.exit_date) == "2020-01-01"
+    with pytest.raises(ValueError):
+        Strategy(universe=["X"], entry="dow == 0", exit_when="close > 101", exit_when_fill="open").validate()
+
+
+def test_short_rebate_haircut(fake):
+    fake["X"] = _week([(100, 100, 100, 100)] * 6)
+    r = 0.0504
+    base = dict(cash_rate=r, universe=["X"], entry="dow == 0", side="short", hold_bars=4, maintenance_margin=0.0)
+    full = engine.run(Strategy(short_rebate_spread=0.0, **base))
+    cut = engine.run(Strategy(short_rebate_spread=0.0025, **base))
+    none = engine.run(Strategy(short_rebate_spread=1.0, **base))     # floored at zero: proceeds earn nothing
+    nights = 4
+    assert full.interest - cut.interest == pytest.approx(nights * 10_000 * 0.0025 / 252, rel=1e-3)
+    assert full.interest - none.interest == pytest.approx(nights * 10_000 * r / 252, rel=1e-3)
+    for res in (full, cut, none):
+        assert res.equity.iloc[-1] == pytest.approx(10_000 + res.trades.pnl.sum() + res.interest)
+
+
+def test_margin_call_cuts_positions_pro_rata(fake):
+    fake["X"] = _week([(100, 100, 100, 100), (120, 120, 120, 120), (150, 150, 150, 150), (170, 170, 170, 170), (170, 170, 170, 170)])
+    s = Strategy(cash_rate=None, universe=["X"], entry="dow == 0", side="short", hold_bars=10)
+    r = engine.run(s)
+    mc = r.trades[r.trades.exit_reason == "margin call"]
+    assert len(mc) == 1 and str(mc.iloc[0].exit_date) == "2020-01-02" and mc.iloc[0].exit_price == 170
+    # equity 3,000 against a 17,000 short: cut back to 1x, i.e. 3,000 of exposure (17.65 shares) remains
+    assert mc.iloc[0].shares == pytest.approx(100 * (1 - 3000 / 17000))
+    assert r.trades.shares.sum() == pytest.approx(100)
+    assert any(n.startswith("Margin call on 2020-01-02") for n in s.notes)
+    assert r.equity.iloc[-1] == pytest.approx(10_000 + r.trades.pnl.sum())
+    # disabled: no margin call
+    r2 = engine.run(Strategy(cash_rate=None, universe=["X"], entry="dow == 0", side="short", hold_bars=10, maintenance_margin=0))
+    assert (r2.trades.exit_reason != "margin call").all()
+    with pytest.raises(ValueError):
+        Strategy(universe=["X"], entry="True", hold_bars=1, leverage=5).validate()   # 25% maintenance > 20% initial
+
+
+def test_ibkr_commission_presets(fake):
+    from backtester.strategy import broker_commission
+    assert broker_commission("ibkr_fixed", 100, 1_000) == pytest.approx(1.0)       # minimum $1
+    assert broker_commission("ibkr_fixed", 1_000, 10_000) == pytest.approx(5.0)    # $0.005/share
+    assert broker_commission("ibkr_fixed", 1_000, 50) == pytest.approx(0.5)        # capped at 1% of value
+    assert broker_commission("ibkr_tiered", 10, 1_000) == pytest.approx(0.35 + 0.002)
+    assert broker_commission("ibkr_tiered", 1_000, 10_000) == pytest.approx(3.5 + 0.2)
+    fake["X"] = _week([(10, 10, 10, 10)] * 4)
+    r = engine.run(Strategy(cash_rate=None, universe=["X"], entry="dow == 0", hold_bars=1, commission_model="ibkr_fixed"))
+    t = r.trades.iloc[0]
+    assert t.shares * 10 + 0.005 * t.shares <= 10_000 + 1e-9                     # the fee is affordable
+    assert t.commission == pytest.approx(2 * 0.005 * t.shares)
+    assert r.equity.iloc[-1] == pytest.approx(10_000 + t.pnl)
+
+
+def test_volume_slippage_square_root_impact(fake):
+    fake["X"] = _week([(10, 10, 10, 10)] * 4, volume=1e6)
+    s = Strategy(cash_rate=None, universe=["X"], entry="dow == 1", hold_bars=1, slippage_model="volume",
+                 spread_bps=2, impact_bps=100)
+    r = engine.run(s)
+    t = r.trades.iloc[0]
+    first_guess = 10_000 / 10                                                     # shares before the impact is known
+    bps = 1 + 100 * np.sqrt(first_guess / 1e6)
+    assert t.entry_price == pytest.approx(10 * (1 + bps / 1e4))
+    assert t.exit_price == pytest.approx(10 * (1 - (1 + 100 * np.sqrt(t.shares / 1e6)) / 1e4))
+    assert r.equity.iloc[-1] == pytest.approx(10_000 + t.pnl)
+
+
+@needs_data
+@pytest.mark.parametrize("text", [
+    "short QQQ when RSI(2) is above 90, cover at the next open when RSI(2) is below 30, 2x leverage, IBKR commissions, volume-based slippage",
+    "buy QQQ when it gaps down 1%, sell at the open when it gaps up 1%",
+])
+def test_round3_features_do_not_depend_on_future_data(monkeypatch, text):
+    test_signal_trades_do_not_depend_on_future_data(monkeypatch, text)
