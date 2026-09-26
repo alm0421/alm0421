@@ -31,6 +31,7 @@ jobs:
           # optional: free keys let the job fill in delisted former Nasdaq-100 members (see README)
           TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+          STOOQ_API_KEY: ${{ secrets.STOOQ_API_KEY }}
       - name: Commit data
         run: |
           git config user.name "github-actions[bot]"

@@ -203,12 +203,14 @@ class Namespace(dict):
         raise NameError(f"unknown name {key!r} in expression (see --help-expr)")
 
     def _market_cap(self) -> pd.Series:
-        sh = data.shares_outstanding(self.ticker) if self.ticker else pd.Series(dtype=float)
+        # quoted close x point-in-time shares (data.market_cap), never the total-return price basis
         idx = self.df.index
-        if sh.empty:
+        mc = data.market_cap(self.ticker) if self.ticker else pd.Series(dtype=float)
+        if data.MCAP_NOTE not in self.notes:
+            self.notes.append(data.MCAP_NOTE)
+        if mc.empty:
             return pd.Series(np.nan, index=idx)
-        s = sh.reindex(idx.union(sh.index)).ffill().reindex(idx)
-        return s * self.df["close"]
+        return mc.reindex(idx)
 
     def _functions(self) -> dict[str, Callable]:
         df = self.df

@@ -238,8 +238,9 @@ python -m backtester tickers                                                 # w
 - **Survivorship.** "Nasdaq 100 stocks" means point-in-time membership from 2004 (monthly snapshots
   of the index list). A stock is only bought while it was in the index, and former members are
   included where price history exists.
-  - About half of former members (mostly acquired companies) have no free price history, so some
-    bias remains. The report says so.
+  - About 90 former members (mostly acquired companies) have no free price history, so some bias
+    remains (member-month coverage about 48% in 2004, about 75% over 2004-2026). The report says so; a
+    free Tiingo key fills most of the gap (see Data).
   - Before 2004 the earliest known list is used.
 - **Portfolios.** Targets are re-evaluated on the schedule (month-end close by default) and traded at
   the close or next open. Only the differences are traded, and new contributions buy the target mix.
@@ -266,19 +267,64 @@ python -m backtester tickers                                                 # w
 
 `scripts/fetch_data.py` runs in the **Fetch price data** GitHub Action every weekday after the US
 close and commits updates, so `git pull` gets fresh data. It downloads:
-- prices from Yahoo Finance for current and former Nasdaq-100 members, ETFs and indexes (Stooq as a
-  fallback for delisted names)
+- prices from Yahoo Finance for current and former Nasdaq-100 members, ETFs and indexes (Tiingo,
+  Alpha Vantage and Stooq as keyed fallbacks for delisted names, below)
 - point-in-time membership reconstructed from the Wikipedia article's revision history, with the live
   list from stockanalysis.com, Wikipedia or Nasdaq for the current month
 - the T-bill rate and CPI from FRED
 - Fama-French factors from Kenneth French's data library
-- share counts for market-cap weighting
+- share counts for market-cap weighting (Yahoo, mostly from late 2015; merged into the saved files, so
+  the history grows)
+
+**Market cap** is the close as quoted that day times the shares outstanding last reported before that day
+(each count is used from the next session). Yahoo's share counts are in the share units of their date, so
+they are put on the same split basis as the prices, with counts that Yahoo still reports in pre-split units
+for a few weeks after a split corrected, and a jump of more than 15% only used once a second report confirms
+it. A market cap whose implied daily turnover (dollar volume / market cap) is outside 0.001%-100% is treated
+as unknown. Share classes of one company (GOOG/GOOGL, FOX/FOXA, ...) each get the company's value divided by
+the number of listed classes. Examples: AMZN about $1.7T in mid-2021, NVDA about $2.3T at the end of March
+2024, AAPL about $3.0T at the end of 2023, AEP under $60B.
+
+**Nothing is ever deleted.** A failed or partial download never replaces a saved history: a refresh that
+comes back shorter than the file (Yahoo reset EA to a single bar when it was taken private in August 2026)
+is spliced onto the saved rows when the two agree on their overlap, and otherwise the saved file is kept.
+Symbols whose history has ended are listed in `data/delisted.json` (last date, membership months and the
+reason when known), and a backtest that runs past a ticker's last date says so. What the merge did on each
+run is in `data/merge_log.txt`.
+
+**Data checks.** Opening prices get a sanity pass when loaded (using only each bar and the ones before it):
+an open outside the bar's own low-high range is clipped into it, and for a company with two listed share
+classes an open far from the other class's (scaled by that day's closes, where the two normally track each
+other) is replaced from it - GOOG's open and high on 2014-04-02 are about 6% above anything that traded. A
+repaired open is never used for a fill. `data.open_anomalies(ticker)` lists further suspect opens judged
+with hindsight, for review. When you name a ticker whose file is probably not the company you mean in the
+period - a recycled symbol such as CPWR (Compuware was an index member; the file is a later penny stock),
+DELL before 2016 or MNST before 2012 - the report adds an "Identity:" note.
 
 **Delisted former members.** Yahoo drops companies that were acquired or went bankrupt (Celgene,
-Xilinx, Activision, Yahoo, …), which is the main survivorship gap. Add a free API key as a repository
-secret and the data job fills them in automatically, a batch per run:
-`TIINGO_API_KEY` (tiingo.com, about 400 names a run) or `ALPHAVANTAGE_API_KEY` (alphavantage.co, 20 a
-run on the free tier). Every report states the current member-month coverage.
+Xilinx, Activision, Yahoo, …), which is the main survivorship gap: about 90 former members have no free
+history, and member-month coverage is about 48% in 2004-05 and about 75% over 2004-2026. No keyless source
+reachable from a GitHub Action carries them (checked in September 2026: Yahoo's chart API and Nasdaq's
+historical API answer "symbol may be delisted" / "Symbol not exists"; Stooq's CSV download needs an API
+key since early 2026; MarketWatch and Macrotrends block automated clients; the public Quandl WIKI mirror and
+the Hugging Face price datasets need an account or cover only surviving symbols). A free API key fills the gap:
+
+1. Get a free key at [tiingo.com](https://www.tiingo.com) (sign up, then Account → API → Token). The free
+   plan allows 50 requests an hour, 1,000 a day and 500 different symbols a month, and includes delisted US
+   stocks.
+2. In your GitHub repository: Settings → Secrets and variables → Actions → New repository secret. Name
+   `TIINGO_API_KEY`, value the token.
+3. Run the **Fetch price data** workflow (Actions → Fetch price data → Run workflow), or wait for the
+   nightly run. Each run fetches up to 45 missing names and keeps them, so the ~90 missing former members
+   are filled in over two or three runs. Then `git pull`.
+
+`ALPHAVANTAGE_API_KEY` (alphavantage.co, 25 requests a day on the free plan, 20 used per run) and
+`STOOQ_API_KEY` (a free key from https://stooq.com/q/d/?s=aapl.us&get_apikey, after a CAPTCHA) work the same
+way. A history from any of these is only used if it passes an identity check: it must trade during the
+membership months like a large Nasdaq stock (a recycled symbol - a small company that later took the
+ticker - fails), and where a saved file overlaps it the prices must agree. Tiingo's company name is recorded
+in `data/delisted.json`. Stooq has no dividends (its histories are price-return only). Every report states
+the current member-month coverage.
 
 The **Daily signals** Action then scans the paper-trading strategies (`paper/*.json`) and writes
 `signals/latest.md`. It also posts to a webhook if you add a repository secret `ALERT_WEBHOOK_URL`
