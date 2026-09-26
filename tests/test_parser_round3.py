@@ -189,7 +189,7 @@ def test_verbless_if_is_an_allocation():
 def test_if_trees_default_to_daily_even_with_filters():
     p = port("if TQQQ RSI(10) is above 79 hold UVXY, otherwise hold the top 2 of TQQQ, SOXL, TECL by 10 day cumulative return")
     assert p.rebalance == "daily" and any("every day" in n and "Composer" in n for n in p.notes)
-    assert port("hold the top 2 of QQQ, SPY, TLT and GLD by 3 month return").rebalance == "monthly"
+    assert port("hold the top 2 of QQQ, SPY, TLT and GLD by 3 month return").rebalance == "daily"   # round 4: filters default to daily (Composer)
     assert port("equal weight SPY, TLT and GLD").rebalance == "monthly"
     assert port("if SPY is above its 200 day moving average hold QQQ, otherwise TLT, rebalance monthly").rebalance == "monthly"
 
