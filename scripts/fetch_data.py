@@ -558,11 +558,13 @@ def build_sims() -> list[str]:
         c = commodity_monthly()
         tb = pd.read_csv(MACRO / "TB3MS.csv", parse_dates=["date"], index_col="date")["value"].astype(float) / 100 / 12
         tb.index = tb.index + pd.offsets.MonthEnd(0)
-        r = c.pct_change().dropna() + tb.reindex(c.index).ffill().reindex(c.index[1:]).fillna(0).to_numpy()
+        # spot price change only: futures indexes also earn T-bill collateral but lose the roll yield,
+        # and over 1972-2025 those two roughly offset (the S&P GSCI total return is ~7%/yr)
+        r = c.pct_change().dropna()
         level = (1 + r).cumprod()
         daily = level.resample("B").ffill().pct_change().dropna()
         _series_file("DBCSIM", _splice(daily, "DBC"),
-                     "commodities: World Bank energy + non-energy price indexes plus T-bill collateral (no roll yield), then DBC")
+                     "commodities: World Bank energy + non-energy spot price indexes (monthly steps), then DBC")
         made.append("DBCSIM")
     except Exception as e:  # noqa: BLE001
         print(f"sim DBCSIM failed: {e}", file=sys.stderr)

@@ -121,7 +121,7 @@ class Portfolio:
             if not 0 <= float(getattr(self, f)) < 1:
                 raise ValueError(f"{f} is an annual fraction between 0 and 1 (0.01 = 1% a year)")
         if self.start and self.end and pd.Timestamp(self.start) >= pd.Timestamp(self.end):
-            raise ValueError(f"The start date {self.start} is not before the end date {self.end}.")
+            raise ValueError(f"The period is reversed or empty: it starts on {self.start} but ends on {self.end}.")
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2, default=lambda o: f"<python function {getattr(o, '__name__', 'custom')}>")

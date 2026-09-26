@@ -1573,7 +1573,13 @@ def _parse(text: str, **overrides):
                 raise ParseError(f"--{k.replace('_', '-')} applies to signal strategies, not allocation portfolios")
             continue
         setattr(obj, k, v)
-    obj.validate()
+    _check_runnable(obj)
+    try:
+        obj.validate()
+    except ParseError:
+        raise
+    except ValueError as e:  # the spec's own checks, reported like any other parse problem
+        raise ParseError(str(e)) from None
     return obj
 
 

@@ -86,7 +86,7 @@ SIMS = {"SPYSIM": "US stock market (Fama-French market return) spliced into SPY"
         "GLDSIM": "Gold (World Bank monthly average price, stepped daily) from 1960, spliced into GLD",
         "LQDSIM": "Investment-grade corporates priced off Moody's Aaa/Baa yields from 1953, spliced into LQD",
         "EEMSIM": "Emerging markets (Fama-French, monthly steps) from 1989, spliced into EEM",
-        "DBCSIM": "Commodities (World Bank price indexes + T-bill collateral, monthly steps) from 1960, spliced into DBC"}
+        "DBCSIM": "Commodities (World Bank spot price indexes, monthly steps) from 1960, spliced into DBC"}
 
 
 def is_sim(ticker: str) -> bool:

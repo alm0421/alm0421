@@ -405,11 +405,13 @@ def test_other_ticker_filters_get_a_pane():
 def test_dry_run_runs_the_same_validations(capsys):
     from backtester.__main__ import main
     assert main(["buy SPY when RSI(2) is below 10, hold 3 days", "--start", "2020-01-01", "--end", "2019-01-01", "--dry-run"]) == 2
-    assert "not before the end date" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "reversed" in err
     if not HAVE:
         return
     assert main(["hold 60% SPY and 40% TLT", "--start", "2030-01-01", "--dry-run"]) == 2
-    assert "No price data in the requested period" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "No price data in the requested period" in err or "after the last date with data" in err
     assert main(["--tickers", "SPY", "--entry", "close > sma(close, 3000)", "--hold", "1", "--start", "1993-06-01",
                  "--end", "1995-06-01", "--dry-run"]) == 2
     assert "needs more history" in capsys.readouterr().err

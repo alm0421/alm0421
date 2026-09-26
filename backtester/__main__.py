@@ -125,7 +125,7 @@ def preflight(spec) -> list[str]:
     start = pd.Timestamp(spec.start) if spec.start else None
     end = pd.Timestamp(spec.end) if spec.end else None
     if start is not None and end is not None and start >= end:
-        raise ValueError(f"The start date {start.date()} is not before the end date {end.date()}.")
+        raise ValueError(f"The period is reversed or empty: it starts on {start.date()} but ends on {end.date()}.")
     web._probe_rules(spec)
     is_pf = spec.__class__.__name__ == "Portfolio"
     tickers = pf.fixed_tickers(spec.tree) if is_pf else [data.canonical(t) for t in spec.universe]
