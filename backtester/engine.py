@@ -164,6 +164,28 @@ def _prepare(strat: Strategy):
     valid = ~np.isnan(C)
     long_sig &= valid
     short_sig &= valid
+    # opens that were never quoted (mutual funds, simulated series, old index data) can't be traded at
+    OK = np.column_stack([(dfs[t]["open_ok"] if "open_ok" in dfs[t] else pd.Series(True, index=dfs[t].index))
+                          .reindex(cal).fillna(False).to_numpy(dtype=bool) for t in tick])
+    import re as _re
+    for rule in (strat.entry, strat.short_entry, strat.exit_when):
+        if isinstance(rule, str):
+            for other in set(_re.findall(r"""sym\(\s*["']([^"']+)["']\s*\)\.open""", rule)):
+                od = data.load(other)
+                w = od.loc[(od.index >= cal[0]) & (od.index <= cal[-1])]
+                if "open_ok" in w and len(w) and w["open_ok"].mean() < 0.5:
+                    raise ValueError(f"The rule uses {other}'s open, but {other} has no real opening prices (only daily "
+                                     "closes, e.g. a mutual fund or simulated series). Use its close instead.")
+    if strat.entry_fill in ("open", "next_open") and strat.entry_order == "market":
+        fill_ok = OK if strat.entry_fill == "open" else np.vstack([OK[1:], np.ones((1, N), bool)])
+        dead = [t for j, t in enumerate(tick) if valid[:, j].any() and not OK[valid[:, j], j].any()]
+        if dead:
+            raise ValueError(f"{', '.join(dead)} has no real opening prices (only a daily close, e.g. a mutual fund or a "
+                             "simulated series), so it can't be bought at the open. Trade it at the close instead.")
+        if (~fill_ok & (long_sig | short_sig)).any() and not any(n.startswith("Opens:") for n in strat.notes):
+            strat.notes.append("Opens: some bars have no quoted opening price (old data); entries at the open are skipped on those days.")
+        long_sig &= fill_ok
+        short_sig &= fill_ok
 
     if strat.universe_name == "NDX" and strat.point_in_time:
         mask, first = data.member_mask(tick, cal)

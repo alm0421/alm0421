@@ -43,10 +43,28 @@ def streak(close: pd.Series, direction: int) -> pd.Series:
     return pd.Series(out, index=close.index)
 
 
+def wilder(x: pd.Series, n: int) -> pd.Series:
+    """Wilder's moving average (RMA) as TradingView computes it: seeded with the simple average of the
+    first n values, then x_t / n + prev * (n - 1) / n."""
+    n = int(n)
+    v = x.to_numpy(dtype=float)
+    ok = np.isfinite(v)
+    run = np.convolve(ok.astype(int), np.ones(n, int), "full")[: len(v)] if len(v) else ok
+    first = np.flatnonzero(run >= n)
+    if not len(first):
+        return pd.Series(np.nan, index=x.index)
+    i = int(first[0])
+    y = pd.Series(np.nan, index=x.index)
+    seed = pd.Series(v[i:].copy(), index=x.index[i:])
+    seed.iloc[0] = v[i - n + 1: i + 1].mean()
+    y.iloc[i:] = seed.ewm(alpha=1 / n, adjust=False).mean().to_numpy()
+    return y
+
+
 def rsi_wilder(x: pd.Series, n: int) -> pd.Series:
     d = x.diff()
-    up = d.clip(lower=0).ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
-    dn = (-d.clip(upper=0)).ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+    up = wilder(d.clip(lower=0), n)
+    dn = wilder(-d.clip(upper=0), n)
     rs = up / dn
     out = 100 - 100 / (1 + rs)
     return out.where(dn != 0, 100.0).where(d.notna())
@@ -58,6 +76,9 @@ class Bars:
     def __init__(self, df: pd.DataFrame, index: pd.Index):
         a = df.reindex(index.union(df.index)).ffill().reindex(index)
         self.open, self.high, self.low, self.close = a["open"], a["high"], a["low"], a["close"]
+        if "open_ok" in df:  # an open that was never quoted is unknown, not the close
+            ok = df["open_ok"].reindex(index).fillna(False).astype(bool)
+            self.open = self.open.where(ok)
         self.volume = a["volume"]
         self.tr = a["adj_close"] if "adj_close" in a else a["close"]
 
@@ -71,7 +92,8 @@ class Namespace(dict):
         self.ticker = ticker
         c = df["close"]
         self.update({
-            "open": df["open"], "high": df["high"], "low": df["low"], "close": c,
+            "open": df["open"].where(df["open_ok"]) if "open_ok" in df else df["open"],
+            "high": df["high"], "low": df["low"], "close": c,
             "volume": df["volume"], "price": c,
             "tr": df["adj_close"] if "adj_close" in df else c,
             "True": True, "False": False,
@@ -88,7 +110,7 @@ class Namespace(dict):
             "down_days": lambda: streak(c, -1),
             "up_days": lambda: streak(c, +1),
             "ibs": lambda: ((c - df["low"]) / (df["high"] - df["low"])).where(df["high"] > df["low"], 0.5),
-            "gap": lambda: df["open"] / c.shift(1) - 1,
+            "gap": lambda: self["open"] / c.shift(1) - 1,
             "range": lambda: df["high"] / df["low"] - 1,
             "change": lambda: c.pct_change(fill_method=None),
             "dow": lambda: pd.Series(idx.dayofweek, index=idx),
@@ -153,7 +175,7 @@ class Namespace(dict):
 
         def rma(*a):  # Wilder's moving average
             x, n = pick(a, c, 14)
-            return x.ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+            return wilder(x, n)
 
         def wma(*a):
             x, n = pick(a, c, 20)
@@ -170,11 +192,11 @@ class Namespace(dict):
 
         def stdev(*a):
             x, n = pick(a, c, 20)
-            return x.rolling(n, min_periods=n).std()
+            return x.rolling(n, min_periods=n).std(ddof=0)  # population, as TradingView's ta.stdev
 
         def zscore(*a):
             x, n = pick(a, c, 20)
-            return (x - x.rolling(n).mean()) / x.rolling(n).std()
+            return (x - x.rolling(n).mean()) / x.rolling(n).std(ddof=0)
 
         def ref(x, n=1):
             x = _s(x, c)
@@ -233,7 +255,7 @@ class Namespace(dict):
 
         def atr(n=14):
             n = int(n)
-            return true_range().ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+            return wilder(true_range(), n)
 
         def natr(n=14):
             return atr(n) / c
@@ -288,9 +310,9 @@ class Namespace(dict):
             up, dn = hi.diff(), -lo.diff()
             pdm = up.where((up > dn) & (up > 0), 0.0)
             mdm = dn.where((dn > up) & (dn > 0), 0.0)
-            trn = true_range().ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
-            pdi = 100 * pdm.ewm(alpha=1 / n, adjust=False, min_periods=n).mean() / trn
-            mdi = 100 * mdm.ewm(alpha=1 / n, adjust=False, min_periods=n).mean() / trn
+            trn = wilder(true_range(), n)
+            pdi = 100 * wilder(pdm, n) / trn
+            mdi = 100 * wilder(mdm, n) / trn
             return pdi, mdi
 
         def plus_di(n=14):
@@ -302,7 +324,7 @@ class Namespace(dict):
         def adx(n=14):
             pdi, mdi = _dm(n)
             dx = 100 * (pdi - mdi).abs() / (pdi + mdi)
-            return dx.ewm(alpha=1 / int(n), adjust=False, min_periods=int(n)).mean()
+            return wilder(dx, int(n))
 
         def cci(n=20):
             tp = (hi + lo + c) / 3
@@ -335,11 +357,12 @@ class Namespace(dict):
         def donchian_lower(n=20):
             return lo.rolling(int(n)).min()
 
+        # TradingView's ta.kc: EMA of the close +/- k x EMA of the true range
         def keltner_upper(n=20, k=2.0):
-            return ema(c, n) + k * atr(n)
+            return ema(c, n) + k * ema(true_range(), n)
 
         def keltner_lower(n=20, k=2.0):
-            return ema(c, n) - k * atr(n)
+            return ema(c, n) - k * ema(true_range(), n)
 
         def supertrend(n=10, k=3.0):
             """Supertrend line (below price in an uptrend, above in a downtrend)."""
