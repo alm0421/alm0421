@@ -790,7 +790,7 @@ def build_sims() -> list[str]:
         daily = (eu["Mkt-RF"] + eu["RF"]).dropna()
         note = "European stocks (Fama-French Europe, daily from 1990), then VGK"
         try:
-            m = _monthly_steps(french_international_index("europe"))
+            m = _monthly_steps(french_international_index("eur_with_uk"))   # Europe incl. UK
             daily = pd.concat([m[m.index < daily.index[0]], daily])
             note = "European stocks: Fama-French Europe index (monthly steps) from 1975, daily from 1990, then VGK"
         except Exception as e:  # noqa: BLE001
@@ -808,7 +808,7 @@ def build_sims() -> list[str]:
         daily = d6[_col(d6, "BIGHIBM")].dropna()
         note = "developed ex-US large-cap value (Fama-French big/high B/M, daily from 1990), then EFV"
         try:
-            m = _monthly_steps(french_international_index("all", column=("HIBM", "HIGHBM", "HIBEME", "VALUE")))
+            m = _monthly_steps(french_international_index("all", column=("HIGH",)))   # first "High" = high BE/ME
             daily = pd.concat([m[m.index < daily.index[0]], daily])
             note = ("developed ex-US value: Fama-French EAFE high book-to-market index (monthly steps) from 1975, "
                     "big/high B/M daily from 1990, then EFV")
