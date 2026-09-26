@@ -344,7 +344,8 @@ def test_long_history_portfolio_benchmarks():
     # the common period is the strategies' (a young default benchmark such as QQQ doesn't cut it short); a
     # benchmark that starts later is labelled with its own first date
     assert "SPY buy & hold" in C["full"] and str(C["start"]).startswith("1972")
-    assert C["columns_from"]["QQQ buy & hold"].startswith("1999") and "SPYSIM buy & hold" not in C["columns_from"]
+    assert C["benchmarks_own_from"]["QQQ buy & hold"].startswith("1999") and "SPYSIM buy & hold" in C["columns"]
+    assert "QQQ buy & hold" not in C["columns"] and "SPY buy & hold" not in C["columns"]
     # allocation tables: balances, not trade statistics
     y = A["yearly"]
     assert {"start_balance", "withdrawals", "end_balance", "inflation", "real_return"} <= set(y.columns)

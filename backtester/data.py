@@ -573,7 +573,7 @@ def tbill_rate() -> pd.Series:
 def cpi() -> pd.Series:
     """US CPI, indexed by the date each month's figure was published (about the 15th of the following
     month), so inflation-indexed cash flows and real returns only use CPI that was known at the time.
-    Seasonally adjusted (CPIAUCSL) from 1947, not-seasonally-adjusted CPIAUCNS back to 1913 before that."""
+    CPI-U not seasonally adjusted (CPIAUCNS, from 1913), as cpi_monthly()."""
     s = cpi_monthly()
     if s.empty:
         return s
@@ -585,9 +585,11 @@ def cpi() -> pd.Series:
 @lru_cache(maxsize=1)
 def cpi_monthly() -> pd.Series:
     """US CPI by the month it measures (dated the 1st of that month, not lagged): for reporting inflation over
-    calendar periods (December to December), not for decisions. Same splice as cpi()."""
+    calendar periods (December to December), not for decisions. CPI-U not seasonally adjusted (CPIAUCNS, from
+    1913: the official inflation figure and what Portfolio Visualizer uses; 1967 is 3.0%, where the seasonally
+    adjusted series gives 3.3%), with the seasonally adjusted CPIAUCSL only as a fallback when it is missing."""
     parts = []
-    for sid in ("CPIAUCSL", "CPIAUCNS"):
+    for sid in ("CPIAUCNS", "CPIAUCSL"):
         f = DATA / "macro" / f"{sid}.csv"
         if f.exists():
             d = pd.read_csv(f, parse_dates=["date"], index_col="date")["value"]
@@ -868,3 +870,116 @@ def data_status() -> dict:
         "has_cpi": not cpi().empty,
         "has_factors": not factors().empty,
     }
+
+
+# ------------------------------------------------------------------ monthly-stepped segments and holes
+
+STEP_MAX_MOVES = 3        # a month whose series moves on at most this many sessions ...
+STEP_MIN_JUMP = 1e-4      # ... by at least this much (0.01%) on one of them is a monthly step
+STEP_MIN_MONTHS = 3       # a stepped stretch has at least this many such months
+
+
+def _stepped_months(px: pd.Series) -> pd.Series:
+    """Per calendar month: "j" (moves on 1-3 sessions only: a monthly step), "f" (flat or a constant daily accrual)
+    or "d" (moves on most days: a daily series). A day "moves" when its return per calendar day differs from the
+    month's median rate, so a bond model that accrues its coupon daily and re-prices on one day a month (LQDSIM
+    before 1986) counts as stepped, and a constant T-bill accrual counts as flat."""
+    px = pd.to_numeric(px, errors="coerce").dropna()
+    px = px[px > 0]
+    if len(px) < 3:
+        return pd.Series(dtype=object)
+    r = px.pct_change().iloc[1:]
+    gap = pd.Series(px.index, index=px.index).diff().dt.days.iloc[1:].clip(lower=1)
+    rate = r / gap
+    per = r.index.to_period("M")
+    med = rate.groupby(per).transform("median")
+    dev = (rate - med).abs() * gap
+    moved = dev > 1e-9 + 1e-3 * (med.abs() * gap)
+    g = pd.DataFrame({"moved": moved, "dev": dev.where(moved, 0.0)}).groupby(per)
+    cnt, big = g["moved"].sum(), g["dev"].max()
+    return pd.Series(np.where(cnt > STEP_MAX_MOVES, "d", np.where(big >= STEP_MIN_JUMP, "j", "f")), index=cnt.index)
+
+
+def stepped_ranges_of(px: pd.Series) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """Date ranges (first day of the first stepped month, last day of the last) where a price / total-return
+    series changes only about once a month (monthly source data spread over daily sessions)."""
+    st = _stepped_months(px)
+    out, run = [], []
+
+    def close(run):
+        js = [m for m, s in run if s == "j"]
+        if len(js) >= STEP_MIN_MONTHS:
+            out.append((js[0].start_time.normalize(), js[-1].end_time.normalize()))
+    for m, s in st.items():
+        if s == "d":
+            close(run)
+            run = []
+        else:
+            run.append((m, s))
+    close(run)
+    return out
+
+
+@lru_cache(maxsize=None)
+def stepped_ranges(ticker: str) -> tuple[tuple[pd.Timestamp, pd.Timestamp], ...]:
+    """Where `ticker`'s total-return series moves in monthly steps (EFASIM before 1990, EEMSIM before 2003,
+    VNQSIM before 2004, DBCSIM before 2006, LQDSIM's monthly-yield years...): daily statistics, daily
+    correlations and daily regressions are meaningless there. Detected from the data, so any series built
+    from a monthly source is caught."""
+    try:
+        df = load(ticker)
+    except (DataError, FileNotFoundError):
+        return ()
+    return tuple(stepped_ranges_of(df["adj_close"]))
+
+
+def stepped_in(tickers, start=None, end=None) -> dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]]:
+    """{ticker: its stepped ranges clipped to [start, end]} for the tickers that have any there."""
+    s = pd.Timestamp(start) if start is not None else pd.Timestamp.min
+    e = pd.Timestamp(end) if end is not None else pd.Timestamp.max
+    out = {}
+    for t in dict.fromkeys(canonical(x) for x in tickers):
+        rng = [(max(a, s), min(b, e)) for a, b in stepped_ranges(t) if a <= e and b >= s]
+        if rng:
+            out[t] = rng
+    return out
+
+
+def stepped_text(found: dict) -> str:
+    return "; ".join(f"{t} " + ", ".join(f"{a:%Y-%m}..{b:%Y-%m}" for a, b in r) for t, r in found.items())
+
+
+MAX_GAP_DAYS = 10   # business days: a longer hole inside a simulated series is a data error
+
+
+@lru_cache(maxsize=None)
+def data_gaps(ticker: str) -> tuple[tuple[pd.Timestamp, pd.Timestamp, int], ...]:
+    """Holes of more than MAX_GAP_DAYS business days inside a SIM series (after its first date): (last date
+    before, first date after, business days missing). The data build logs these as failures; the loader keeps
+    the series and portfolios note the hole (the slice is held in cash through it)."""
+    t = canonical(ticker)
+    if not is_sim(t):
+        return ()
+    try:
+        idx = load(t).index
+    except (DataError, FileNotFoundError):
+        return ()
+    if len(idx) < 2:
+        return ()
+    a = idx[:-1].values.astype("datetime64[D]")
+    b = idx[1:].values.astype("datetime64[D]")
+    miss = np.busday_count(a, b) - 1
+    return tuple((idx[k], idx[k + 1], int(miss[k])) for k in np.nonzero(miss > MAX_GAP_DAYS)[0])
+
+
+def gap_notes(tickers, start=None, end=None) -> list[str]:
+    s = pd.Timestamp(start) if start is not None else pd.Timestamp.min
+    e = pd.Timestamp(end) if end is not None else pd.Timestamp.max
+    out = []
+    for t in dict.fromkeys(canonical(x) for x in tickers):
+        for a, b, n in data_gaps(t):
+            if a < e and b > s:
+                out.append(f"Data gap: {t} has no data between {a.date()} and {b.date()} ({n} trading days missing, a "
+                           "data-build error); holdings of it are carried at the last price, or held in cash if it is "
+                           "bought then. Re-run the data workflow to rebuild it.")
+    return out

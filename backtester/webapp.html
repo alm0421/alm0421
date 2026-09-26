@@ -440,31 +440,36 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 </main>
 
 <script>
+// Helpers shared by every script block on the page: defined once, at the top level (global lexical scope), so each
+// page's code (the IIFEs below) sees the same functions. (A helper defined inside one IIFE is invisible to the
+// others: the Monte Carlo forecast mode once failed with "afterPress is not defined".)
+const $ = id => document.getElementById(id);
+const el = (t, a = {}, x) => { const e = document.createElement(t); for (const k in a) e.setAttribute(k, a[k]); if (x != null) e.textContent = x; return e; };
+const isNum = v => typeof v === 'number' && isFinite(v);
+const pct = (v, d = 2) => isNum(v) ? (v * 100).toFixed(d) + '%' : '—';
+const num = (v, d = 2) => isNum(v) ? v.toFixed(d) : '—';
+const usd = v => isNum(v) ? '$' + Math.round(v).toLocaleString() : '—';
+async function api(path, body, method) {
+  const r = await fetch(path, { method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({ error: 'Bad response from server' }));
+  if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+// Layout changes wait while a mouse button / finger is down. A settings field commits its value (change) on the
+// mousedown that blurs it; re-rendering then would move the button under the pointer before mouseup, and the
+// click would be lost. State updates stay synchronous; only the DOM work is deferred until just after the click.
+let pressed = false;
+const pendingUI = new Map();
+const flushUI = () => { if (pressed) return; const q = [...pendingUI.values()]; pendingUI.clear(); q.forEach(f => f()); };
+const afterPress = (fn, key) => { if (!pressed) return fn(); pendingUI.set(key || fn, fn); };
+document.addEventListener('pointerdown', () => { pressed = true; }, true);
+const unpress = () => { if (!pressed) return; pressed = false; setTimeout(flushUI, 30); };   // after the click event
+['pointerup', 'pointercancel', 'dragend'].forEach(t => document.addEventListener(t, unpress, true));
+window.addEventListener('blur', unpress);
+</script>
+<script>
 (function () {
-  const $ = id => document.getElementById(id);
-  const el = (t, a = {}, x) => { const e = document.createElement(t); for (const k in a) e.setAttribute(k, a[k]); if (x != null) e.textContent = x; return e; };
-  const isNum = v => typeof v === 'number' && isFinite(v);
-  const pct = (v, d = 2) => isNum(v) ? (v * 100).toFixed(d) + '%' : '—';
-  const num = (v, d = 2) => isNum(v) ? v.toFixed(d) : '—';
-  const usd = v => isNum(v) ? '$' + Math.round(v).toLocaleString() : '—';
-  async function api(path, body, method) {
-    const r = await fetch(path, { method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-    const j = await r.json().catch(() => ({ error: 'Bad response from server' }));
-    if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-    return j;
-  }
   let STATUS = null;
-  // Layout changes wait while a mouse button / finger is down. A settings field commits its value (change) on the
-  // mousedown that blurs it; re-rendering then would move the button under the pointer before mouseup, and the
-  // click would be lost. State updates stay synchronous; only the DOM work is deferred until just after the click.
-  let pressed = false;
-  const pendingUI = new Map();
-  const flushUI = () => { if (pressed) return; const q = [...pendingUI.values()]; pendingUI.clear(); q.forEach(f => f()); };
-  const afterPress = (fn, key) => { if (!pressed) return fn(); pendingUI.set(key || fn, fn); };
-  document.addEventListener('pointerdown', () => { pressed = true; }, true);
-  const unpress = () => { if (!pressed) return; pressed = false; setTimeout(flushUI, 30); };   // after the click event
-  ['pointerup', 'pointercancel', 'dragend'].forEach(t => document.addEventListener(t, unpress, true));
-  window.addEventListener('blur', unpress);
 
   // ---------- routing
   const pages = ['backtest', 'library', 'gallery', 'community', 'build', 'compare', 'research', 'montecarlo', 'factors', 'correlations', 'signals', 'history', 'data'];
@@ -1421,21 +1426,9 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 </style>
 <script>
 (function () {
-  const $ = id => document.getElementById(id);
-  const el = (t, a = {}, x) => { const e = document.createElement(t); for (const k in a) e.setAttribute(k, a[k]); if (x != null) e.textContent = x; return e; };
   const S = (t, a = {}) => { const e = document.createElementNS('http://www.w3.org/2000/svg', t); for (const k in a) e.setAttribute(k, a[k]); return e; };
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-  const isNum = v => typeof v === 'number' && isFinite(v);
-  const pct = (v, d = 2) => isNum(v) ? (v * 100).toFixed(d) + '%' : '—';
-  const num = (v, d = 2) => isNum(v) ? v.toFixed(d) : '—';
-  const usd = v => isNum(v) ? '$' + Math.round(v).toLocaleString() : '—';
   const compact = v => { const a = Math.abs(v); if (a >= 1e9) return '$' + (v / 1e9).toFixed(1) + 'B'; if (a >= 1e6) return '$' + (v / 1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M'; if (a >= 1e3) return '$' + (v / 1e3).toFixed(0) + 'k'; return '$' + v.toFixed(0); };
-  async function api(path, body) {
-    const r = await fetch(path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-    const j = await r.json().catch(() => ({ error: 'Bad response from server' }));
-    if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
-    return j;
-  }
   const spin = (box, msg) => box.replaceChildren(el('span', { class: 'spin' }), document.createTextNode(' ' + msg));
   function tabs(id, onChange) { $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; [...$(id).children].forEach(x => x.classList.toggle('on', x === b)); onChange(b.dataset.v); }); }
   const tabVal = id => ([...$(id).children].find(b => b.classList.contains('on')) || {}).dataset.v;
@@ -1525,8 +1518,12 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   function drawForecast() {
     const on = $('mc_model').value === 'forecast'; $('mcForecast').classList.toggle('hide', !on); $('mc_block').disabled = $('mc_model').value !== 'historical';
     if (!on) return;
-    const g = $('mcForecastGrid'), keep = {}; g.querySelectorAll('input').forEach(i => keep[i.id] = i.value); g.replaceChildren();
+    const g = $('mcForecastGrid'), keep = {};
     const tks = mcSrc === 'weights' ? mcTickers() : [];
+    // same tickers as shown: leave the boxes alone (rebuilding them would drop the focus of the one being typed in)
+    if (tks.length && g.dataset.tickers === tks.join(' ') && g.querySelector('input')) return;
+    g.dataset.tickers = tks.join(' ');
+    g.querySelectorAll('input').forEach(i => keep[i.id] = i.value); g.replaceChildren();
     if (!tks.length) { g.append(el('div', { class: 'note' }, 'Forecasts apply to the tickers-and-weights portfolio.')); return; }
     tks.forEach(t => { ['ret', 'vol'].forEach(k => { const id = `mcf_${t}_${k}`; const l = el('label'); const i = el('input', { id, type: 'number', step: '0.1', placeholder: 'historical' }); i.value = keep[id] || ''; l.append(document.createTextNode(`${t} ${k === 'ret' ? 'return' : 'volatility'} (%/yr)`), i); g.append(l); }); });
   }

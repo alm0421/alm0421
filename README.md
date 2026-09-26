@@ -20,7 +20,7 @@ python -m backtester "buy at the close Microsoft when it trades down 5 days in a
 | **Build** | A block editor for portfolios (weighted groups, if/else switches and top-N filters, nested as deep as you like), like a Composer symphony: indicator pickers for conditions and rankings, eight weightings (equal, specified, inverse volatility, risk parity, min variance, max Sharpe, max diversification, market cap), drag and drop, duplicate, inline checks, leverage and expense ratio. It also has a form for every field of a signal strategy. Both convert to and from JSON files and from sentences, and both offer "Today's orders". |
 | **Gallery** | Library strategies and saved runs with their headline numbers. Fork one into the editor, or export/import a strategy JSON file. |
 | **Community** | Strategies people published with "Publish to the community gallery" (Backtest and Build pages: a name, an author and a description; the strategy is backtested first). Search, sort by CAGR, Sharpe or max drawdown, **Fork** into the editor or **Run**. Kept in `data/community.json` (`BACKTESTER_COMMUNITY` points elsewhere). |
-| **Compare** | Put several strategies (from history or typed) in one report. Every column is compared over the same period. |
+| **Compare** | Put several strategies (from history or typed) in one report. Every column is compared over the same period; a benchmark whose data starts later than that period is listed separately with its own dates. |
 | **Research** | A parameter sweep (`hold {1..5} days`) with a heatmap. Walk-forward optimisation (rolling or anchored). A portfolio optimiser: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity, max diversification, max return / max drawdown, max Omega (at a threshold return), target return, target volatility, inverse volatility and equal weight (pick any subset), with per-asset and group limits (`SPY+QQQ <= 70%`), the efficient frontier, an out-of-sample check and rolling (walk-forward) re-optimisation compared with the static weights. A target that can't be reached says what can ("the minimum achievable volatility is 9.1%"). |
 | **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), and any number of cash-flow phases (contribute, then withdraw). |
 | **Factors** | Regress a ticker, portfolio, sentence or saved run on CAPM, Fama-French 3, Carhart 4, Fama-French 5 or FF5 + momentum for the US or a region (developed, developed ex US, Europe, Japan, Asia Pacific ex Japan, North America, emerging), AQR's quality (QMJ) and betting-against-beta (BAB) factors, and the bond factors TERM and DEF, monthly (French's official monthly files) or daily: loadings with t-stats, R², annualised alpha and rolling 36-month loadings. **Style analysis** (Sharpe 1992) finds the asset-class mix that best tracks the returns, with rolling 36-month weights. |
@@ -117,7 +117,7 @@ Build page.
 | Higher timeframes | the weekly RSI is above 50, weekly RSI(14), the monthly 10 SMA, weekly 20 EMA (computed on completed weeks/months only) |
 | More signals | ROC(10) above 5 / rate of change, %K crosses above %D, MACD histogram turns negative, yesterday's high, not on Fridays, except in October, buy stop 1% above the close / at yesterday's high |
 | Portfolio conditions | any indicator phrase compared with a number or another ticker's indicator: "TQQQ 6 day cumulative return is less than -12%", "the 10 day max drawdown of TQQQ is above 20%", "SPY 10 day standard deviation of return is above 2%", "QQQ's 3 month return beats TLT's" (total returns) |
-| Schedules and flows | semi-annually, relative bands ("drifts 25% relative to its target"), schedule + band, contributions/withdrawals for N years / starting in YEAR / from year N, growing X% a year |
+| Schedules and flows | semi-annually, relative bands ("drifts 25% relative to its target"), schedule + band ("rebalance quarterly or when any weight drifts more than 5%": every quarter AND whenever a weight leaves its band in between), contributions/withdrawals for N years / starting in YEAR / from year N, growing X% a year |
 | Other | starting with $X, since/from/until YEAR, vs TICKER (incl. SPYSIM), a blended benchmark ("vs 60/40 SPY/AGG", "compared with 60% SPY and 40% AGG", "benchmark 60/40 SPY/AGG"), versus T-bills, cash earns nothing, using today's members only |
 | Relative hurdles | "only if their 12 month return is above BIL's 12 month return" (each candidate vs BIL; also beats / exceeds / greater than / higher than, "above BIL" = the same indicator), "hold SPY if its 12 month return beats BIL's, otherwise IEF". A condition that compares a value with itself is refused |
 
@@ -151,8 +151,9 @@ never quietly drops them or swaps in a different ticker.
   the rest load from `charts/<TICKER>.js` next to it (keep that folder with the report).
 - Benchmarks: SPY and QQQ, the stock itself, and SPYSIM (the US market spliced into SPY) as the main
   benchmark when the run starts before SPY existed. The head-to-head shows the whole period, with
-  benchmarks that start later marked "from", or the common period. The equity chart has an
-  after-inflation view.
+  benchmarks that start later marked "from", or the common period (everything under that heading covers
+  exactly those dates; benchmarks that start later are in a separate table with their own dates). The equity
+  chart has an after-inflation view.
 - When indicators need a warm-up (a 200-day average on the first bars of the data), the statistics start
   on the first day every rule has a value, and the notes say so.
 - Allocation over time and current holdings for portfolios. A cash-flow summary with money-weighted
@@ -176,7 +177,19 @@ never quietly drops them or swaps in a different ticker.
 - For portfolios: P&L by holding (sales − purchases − costs + dividends + value still held; with
   interest and fees it adds up to the gain after cash flows, to the cent), benchmarks that receive
   the same contributions and withdrawals, the account value in today's dollars, and with
-  withdrawals the safe and perpetual withdrawal rates over the tested history.
+  withdrawals the safe and perpetual withdrawal rates over the tested history (as a share of the starting
+  balance; for a save-then-withdraw plan, of the balance on the first withdrawal, over the withdrawal years,
+  and labelled so).
+- With cash flows every benchmark gets the same flows: one that starts later starts with the portfolio's
+  balance on its first day; one whose data starts after the portfolio ran out of money is left out, with a
+  note (never shown without the flows).
+- Holdings that move in **monthly steps** (EFASIM/EFVSIM/VGKSIM before 1990, EEMSIM before 2003, VNQSIM
+  before 2004, DBCSIM before 2006, BNDXSIM's model, LQDSIM's monthly-yield years; detected from the data by
+  `data.stepped_ranges`): when one is held with a material weight (5% on average over its stepped stretch),
+  volatility, Sharpe, Sortino, skew, kurtosis, beta/alpha and the factor regression are computed from
+  monthly returns for the whole run, daily figures (best/worst day, positive days, daily VaR/CVaR) are
+  blank, and a warning says so. The Correlations page switches daily returns to monthly (with a note) when a
+  series is stepped in the window, and the Factors page regresses monthly.
 - Benchmarks are bought at the close of the strategy's first bar, like the strategy.
 - A Monte Carlo block bootstrap (with "chance the money lasts" when there are withdrawals) and a
   transaction-cost sensitivity table.
@@ -337,11 +350,15 @@ python -m backtester tickers                                                 # w
   - Flow indexing uses CPI *as published*: each month's figure from about two weeks after the month, so a
     withdrawal only grows with inflation that was known that day. The yearly table's inflation column is for
     reporting and uses calendar months: December to December (a partial year to the latest month published).
+    CPI is CPI-U not seasonally adjusted (FRED CPIAUCNS, the official figure Portfolio Visualizer uses: 1967
+    is 3.0%).
   - A withdrawal is capped at the balance: when one is more than the account holds, everything is sold at that
     close and what is left is paid out (cash_flow in equity.csv is the amount actually paid). The notes and the
-    cash-flow table say "portfolio depleted on <date>"; return statistics cover the funded period only, and the
-    yearly and monthly returns after that are blank. Benchmarks that receive the same flows are capped at their
-    own balance the same way, and the Monte Carlo replays the flows as scheduled.
+    cash-flow table say "portfolio depleted on <date>", and the report stops on that day: statistics, the
+    yearly table (the depletion year is its last row), the monthly table, the equity and allocation charts, the
+    holdings' statistics and the benchmarks all end there. Benchmarks that receive the same flows are capped at
+    their own balance the same way (their values are shown on the depletion day), and the Monte Carlo replays
+    the flows as scheduled over the whole period.
   - "starting with $0" works when contributions fund the account from the first day: returns are
     time-weighted from the first funded day (and it is refused when nothing would ever be invested).
   - Short positions (negative weights): the proceeds earn the cash rate less `short_rebate_spread` (default
@@ -482,7 +499,11 @@ notes. Keep in mind:
 - **monthly steps**: a monthly source moves only on the last NYSE session of each month (a month
   that ends on a weekend or holiday is booked on its last trading day, like every real ticker's
   month-end), and is flat in between. Daily-rule strategies see nothing inside those months;
-  monthly rebalancing lines up exactly;
+  monthly rebalancing lines up exactly; reports, correlations and factor regressions switch to monthly
+  returns where they are held (see the report section);
+- the data build fails a SIM (in data/sims_log.txt) that has a hole of more than 10 business days after its
+  start; a run that holds one anyway gets a "Data gap" note (LQDSIM and BNDSIM missed 1983-85 until the
+  corporate-yield model was fixed to use the monthly Aaa/Baa yields until both daily series exist);
 - GLDSIM's 1960-68 part is monthly *average* prices (gold was pegged near $35 then); from April 1968
   it uses the daily London PM fixing, so its month-ends are real month-end prices;
 - BNDXSIM's model uses OECD monthly-average yields (smoother than month-end prices: correlation with

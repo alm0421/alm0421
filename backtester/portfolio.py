@@ -204,7 +204,8 @@ class Portfolio:
             if self.rebalance == "none":
                 rb = f"rebalanced only when a holding {b}"
             else:
-                rb += f", plus whenever a holding {b} (scheduled trades are skipped while every holding is within the band)"
+                rb += (f", trading only when the target changes or a holding {b}" if self.rebalance == "daily"
+                       else f", and also whenever a holding {b} in between")
         lines.append(f"Rebalancing: {rb}; trades at the {'close' if self.fill == 'close' else 'next open'}")
         cf = []
 
@@ -1552,6 +1553,9 @@ def run(p: Portfolio) -> Result:
             cal = cal[int(np.argmax(both)):]
     if len(cal) < 2:
         raise ValueError("no price data in the requested period")
+    for n in data.gap_notes(names, cal[0], cal[-1]):
+        if n not in p.notes:
+            p.notes.append(n)
     # rule indicators come from each ticker's full history; synthetic NAVs of groups (filters or weightings
     # over sub-trees) are simulated from NAV_WARMUP sessions before the start so they are warm on day one
     full = cal_all[cal_all <= cal[-1]]
@@ -1845,7 +1849,10 @@ def run(p: Portfolio) -> Result:
                 new = {t: w * p.leverage for t, w in new.items() if t != "cash"}
             new = {t: w for t, w in new.items() if abs(w) > 1e-9 and t != "cash"}
             changed = set(new) != set(target) or any(abs(new.get(t, 0) - target.get(t, 0)) > 1e-9 for t in new)
-            if bands and target and not changed and not drifted(c) and i > 0:
+            # "rebalance quarterly or when a weight drifts 5%": the schedule always trades and the band trades in
+            # between. Only a daily re-evaluation (Composer-style rules) is gated by the band: it trades when the
+            # rules change the target or a holding leaves its band, not back to the exact weights every day.
+            if bands and target and not changed and p.rebalance == "daily" and not drifted(c) and i > 0:
                 decide = False
             target = new
             if decide:

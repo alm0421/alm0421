@@ -238,7 +238,7 @@ def test_withdrawals_are_capped_at_the_balance():
     y = f[f > 0].groupby(f[f > 0].index.year).sum()
     assert (y.loc[1980:1999] == 12_000).all()
     first_wd = f[f < 0].iloc[0]
-    assert first_wd == pytest.approx(-110_789, abs=1)
+    assert first_wd == pytest.approx(-110_870, abs=1)   # CPI-U NSA (CPIAUCNS), as Portfolio Visualizer
     # nothing is left held: every holding period closed
     assert not res.trades["exit_reason"].isin(metrics.OPEN_REASONS).any()
     # P&L by holding + interest - fees == final equity - capital - net flows actually made
@@ -256,9 +256,9 @@ def test_depleted_report_numbers_add_up():
     assert y["withdrawals"].sum() == pytest.approx(c["total_withdrawals"])
     assert y["contributions"].sum() == pytest.approx(c["total_contributions"])
     assert c["starting_balance"] + c["total_contributions"] - c["total_withdrawals"] + c["net_gain"] == pytest.approx(0, abs=1e-6)
-    after = y.index.astype(int) > dep.year
-    assert after.any() and y.loc[after, "return"].isna().all() and y.loc[after, "real_return"].isna().all()
-    assert y.loc[~after, "return"].notna().all()
+    # the report stops on the day the money ran out: the depletion year is the last row
+    assert int(y.index.astype(int).max()) == dep.year and y["return"].notna().all()
+    assert A["result"].equity.index[-1] == dep and A["nav"].index[-1] == dep
     assert A["stats"]["end"] == dep.date() and np.isfinite(A["stats"]["cagr"]) and A["stats"]["cagr"] > 0
     assert not A["stats"]["wiped_out"]
     assert np.isfinite(c["money_weighted_return"])
@@ -273,7 +273,7 @@ def test_depleted_report_numbers_add_up():
     assert A["monte_carlo"] and 0 <= A["monte_carlo"]["success_rate"] <= 1
     out = report.console_summary(A)
     assert f"portfolio depleted on {dep.date()}" in out
-    assert re.search(rf"^{dep.year + 1}\s+n/a\s+n/a", out, re.M)
+    assert not re.search(rf"^{dep.year + 1}\s", out, re.M) and re.search(rf"^{dep.year}\*?\s", out, re.M)
 
 
 def test_apply_flows_caps_and_stops():

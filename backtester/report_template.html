@@ -170,6 +170,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       <div class="seg" id="cmpSeg"><button data-v="full" class="on">Whole period</button><button data-v="common">Common period</button></div></div>
     <p class="note" style="margin-top:0" id="cmpNote"></p>
     <div class="xscroll"><table id="cmpTbl"></table></div>
+    <div id="cmpOwn" class="hide"><h3 style="margin:14px 0 4px">Benchmarks with a shorter history <span class="muted">(their own dates, not the period above)</span></h3>
+      <div class="xscroll"><table id="cmpOwnTbl"></table></div></div>
   </div>
 
   <div class="card" id="trailCard">
@@ -561,7 +563,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   // ---------- head-to-head over the common window
   const hasFull = D.common && D.common.full && Object.keys(D.common.full).length;
   let cmpMode = hasFull ? 'full' : 'common';
-  if (!hasFull || !Object.keys(D.common.full_from || {}).length) $('cmpSeg').classList.add('hide');
+  if (!hasFull || !(Object.keys(D.common.full_from || {}).length || Object.keys(D.common.benchmarks_own || {}).length)) $('cmpSeg').classList.add('hide');
   $('cmpSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; cmpMode = b.dataset.v; [...$('cmpSeg').children].forEach(x => x.classList.toggle('on', x === b)); drawCompare(); });
   function drawCompare() {
     const C = D.common, full = cmpMode === 'full' && hasFull, from = full ? (C.full_from || {}) : (C.columns_from || {});
@@ -570,8 +572,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     $('cmpNote').textContent = full
       ? (Object.keys(from).length ? 'Each column covers the whole period where it has data; columns marked "from" start later, so their numbers cover less history. "Common period" compares everything over the same dates.'
         : 'All columns are measured over the same period.')
-      : (Object.keys(from).length ? 'The strategies are measured over the same period (the latest start among them); a benchmark marked "from" has data only from that date, so its numbers cover less history.'
-        : 'All columns are measured over the same period (the latest start date among the strategies), so the comparison is like-for-like.');
+      : 'Every column is measured over exactly this period (the latest start date among the strategies), so the comparison is like-for-like.'
+        + (Object.keys(C.benchmarks_own || {}).length ? ' Benchmarks whose data starts later are listed below with their own dates.' : '');
     const cols = Object.keys(data);
     const lab = c => short(c) + (from[c] ? ` (from ${from[c]})` : '');
     const rows = [
@@ -583,6 +585,11 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ['VaR 95% (monthly)', s => pct(s.var_95_monthly, 1)], ['CVaR 95% (monthly)', s => pct(s.cvar_95_monthly, 1)],
     ];
     table($('cmpTbl'), [''].concat(cols.map(lab)), rows.map(([k, f]) => [k].concat(cols.map(c => f(data[c])))));
+    // common period: a benchmark that starts later is listed on its own, with its own dates
+    const own = full ? {} : (C.benchmarks_own || {}), ok = Object.keys(own);
+    $('cmpOwn').classList.toggle('hide', !ok.length);
+    if (ok.length) table($('cmpOwnTbl'), [''].concat(ok.map(c => `${short(c)} (${(C.benchmarks_own_from || {})[c]} → ${(C.benchmarks_own_to || {})[c]})`)),
+      rows.map(([k, f]) => [k].concat(ok.map(c => f(own[c])))));
   }
 
   // ---------- per-run tables
@@ -605,6 +612,11 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ['Up / down capture', pct(rel.up_capture, 0) + ' / ' + pct(rel.down_capture, 0)], ['Tracking error', pct(rel.tracking_error, 1)],
       ['Information ratio', num(rel.information_ratio)], ['Treynor ratio', num(rel.treynor, 3)],
     ];
+    if (r.return_basis === 'monthly') {
+      // a holding moves in monthly steps: the "daily" figures are computed from monthly returns or left blank
+      rows.forEach(x => { if (Array.isArray(x) && typeof x[0] === 'string') x[0] = x[0].replace('(annualised)', '(annualised, from monthly returns)').replace('Sharpe (daily / monthly)', 'Sharpe (monthly returns)').replace('Sortino (daily / monthly)', 'Sortino (monthly returns)').replace('Skew / excess kurtosis', 'Skew / excess kurtosis (monthly)'); });
+      rows.unshift({ sect: 'Monthly-stepped data: ' + Object.keys(r.stepped || {}).map(t => t + ' ' + r.stepped[t].map(p => p[0].slice(0, 7) + '..' + p[1].slice(0, 7)).join(', ')).join('; ') + ' — statistics from monthly returns; daily figures blank' });
+    }
     table($('riskTbl'), null, rows);
     const tr = [];
     if (r.kind === 'allocation') {
@@ -636,9 +648,10 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ['Money-weighted return (IRR)', pct(c.money_weighted_return)], ['Time-weighted return (CAGR)', pct(r.stats.cagr)],
       ['Money ran out?', c.ran_out ? { t: c.depleted_on ? `Yes, portfolio depleted on ${c.depleted_on}` : 'Yes', c: 'neg' } : 'No'],
     ].concat(r.withdrawal_rates && isNum(r.withdrawal_rates.swr) ? [
-      { sect: `Withdrawal rates over this history (${r.withdrawal_rates.from} → ${r.withdrawal_rates.to}, inflation-adjusted)` },
-      [{ t: 'Safe withdrawal rate', title: 'the largest inflation-adjusted yearly withdrawal, as a share of the starting balance, that lasts the whole period' }, pct(r.withdrawal_rates.swr)],
-      [{ t: 'Perpetual withdrawal rate', title: 'the largest one that keeps the balance, in dollars of the start date, at the starting balance' }, pct(r.withdrawal_rates.pwr)],
+      { sect: `Withdrawal rates over this history (${r.withdrawal_rates.from} → ${r.withdrawal_rates.to}, inflation-adjusted, ` +
+          (r.withdrawal_rates.base === 'withdrawal_start' ? `as a share of the balance when withdrawals start: ${usd(r.withdrawal_rates.base_balance)} on ${r.withdrawal_rates.base_date})` : 'as a share of the starting balance)') },
+      [{ t: 'Safe withdrawal rate', title: 'the largest inflation-adjusted yearly withdrawal, as a share of the ' + (r.withdrawal_rates.base === 'withdrawal_start' ? 'balance when withdrawals start' : 'starting balance') + ', that lasts the whole period' }, pct(r.withdrawal_rates.swr)],
+      [{ t: 'Perpetual withdrawal rate', title: 'the largest one that keeps the balance, in dollars of that date, at that balance' }, pct(r.withdrawal_rates.pwr)],
       ['Safe rate in 95% of bootstrapped histories', pct(r.withdrawal_rates.swr_mc95)],
     ] : []));
     const bc = r.benchmark_cash || {}, bk = Object.keys(bc);
@@ -1456,7 +1469,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const F = r.factors || {};
     if (F.coefficients) {
       table($('factorTbl'), ['Factor', 'Loading', 't-stat'], F.coefficients.map(c => [c.factor === 'alpha' ? 'Alpha (annualised)' : c.factor, c.factor === 'alpha' ? pct(c.loading) : num(c.loading, 3), { t: num(c.t_stat), c: Math.abs(c.t_stat) > 2 ? 'pos' : 'muted' }]));
-      $('factorNote').textContent = `Fama-French 5 factors + momentum, daily excess returns ${F.period_start} → ${F.period_end}, R² ${num(F.r_squared)}. |t| > 2 is conventionally significant.`;
+      $('factorNote').textContent = `Fama-French 5 factors + momentum, ${F.freq === 'monthly' ? 'monthly (a holding moves in monthly steps)' : 'daily'} excess returns ${F.period_start} → ${F.period_end}, R² ${num(F.r_squared)}. |t| > 2 is conventionally significant.`;
     } else { table($('factorTbl'), null, [['Factor data not available']]); $('factorNote').textContent = ''; }
     const C = r.correlation || {};
     const tbl = $('corrTbl'); tbl.replaceChildren();
