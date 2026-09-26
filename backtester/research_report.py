@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .report import _clean, num, pct
+from .report import _clean, _fit, num, pct
 
 PAGE = Path(__file__).with_name("research_template.html")
 
@@ -88,7 +88,7 @@ def walk_console(R: dict) -> str:
          f"{'In-sample':25s} {'Out-of-sample':25s} {'Chosen parameters':28s} {'IS score':>9s} {'OOS return':>11s}"]
     for w in R["windows"]:
         L.append(f"{str(w['in_sample'][0]) + ' - ' + str(w['in_sample'][1]):25s} {str(w['out_sample'][0]) + ' - ' + str(w['out_sample'][1]):25s} "
-                 f"{str(w['params']):28s} {num(w['is_score']):>9s} {pct(w['oos_return']):>11s}")
+                 f"{_fit(str(w['params']), 28)} {num(w['is_score']):>9s} {pct(w['oos_return']):>11s}")
     s = R["oos_stats"]
     if s:
         L.append(f"Stitched out-of-sample: CAGR {pct(s['cagr'])}, Sharpe {num(s['sharpe'])}, max drawdown {pct(s['max_drawdown'], 1)}")
@@ -120,7 +120,7 @@ def optimize_console(R: dict) -> str:
         L.append("Constraints: " + "; ".join(lim))
     L.append(f"  {'':26s} {'return':>7s} {'vol':>7s} {'Sharpe':>6s} {'Sortino':>7s} {'CVaR95m':>7s} {'DivR':>5s}")
     for name, p in R["portfolios"].items():
-        L.append(f"  {name:26s} {pct(p['exp_return'], 1):>7s} {pct(p['exp_vol'], 1):>7s} {num(p['exp_sharpe']):>6s} "
+        L.append(f"  {_fit(name, 26)} {pct(p['exp_return'], 1):>7s} {pct(p['exp_vol'], 1):>7s} {num(p['exp_sharpe']):>6s} "
                  f"{num(p.get('exp_sortino')):>7s} {pct(p.get('cvar_95_monthly'), 1):>7s} {num(p.get('diversification_ratio')):>5s}")
         L.append(f"  {'':26s} {p.get('sentence', '')}")
     for n in R.get("notes") or []:
@@ -128,14 +128,14 @@ def optimize_console(R: dict) -> str:
     if R.get("test"):
         L.append(f"Out of sample from {R.get('test_start')}:")
         for name, s in R["test"].items():
-            L.append(f"  {name:26s} CAGR {pct(s['cagr'])}  vol {pct(s['volatility'])}  Sharpe {num(s['sharpe'])}  maxDD {pct(s['max_drawdown'], 1)}")
+            L.append(f"  {_fit(name, 26)} CAGR {pct(s['cagr'])}  vol {pct(s['volatility'])}  Sharpe {num(s['sharpe'])}  maxDD {pct(s['max_drawdown'], 1)}")
     ro = R.get("rolling")
     if ro:
         L.append(f"Walk-forward: re-optimised every {ro['every_months']} months on the trailing {ro['lookback_months']} months, "
                  f"{ro['start']} -> {ro['end']} (out of sample) vs the same weights fitted on the whole period (hindsight):")
         for name, s in ro["stats"].items():
             a, b = s.get("rolling", {}), s.get("static", {})
-            L.append(f"  {name:26s} rolling CAGR {pct(a.get('cagr'))} Sharpe {num(a.get('sharpe'))} maxDD {pct(a.get('max_drawdown'), 1)}"
+            L.append(f"  {_fit(name, 26)} rolling CAGR {pct(a.get('cagr'))} Sharpe {num(a.get('sharpe'))} maxDD {pct(a.get('max_drawdown'), 1)}"
                      + (f"   static CAGR {pct(b.get('cagr'))} Sharpe {num(b.get('sharpe'))} maxDD {pct(b.get('max_drawdown'), 1)}" if b else ""))
     L.append("Optimised weights fit the past; check them out of sample (--test-start) before trusting them.")
     return "\n".join(L)

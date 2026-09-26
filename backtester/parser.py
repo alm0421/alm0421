@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 from . import data
 from .portfolio import Portfolio
+from .portfolio import short_name as _pf_short_name
 from .strategy import Strategy
 
 NUM = r"(\d+(?:\.\d+)?)"
@@ -102,6 +103,37 @@ MODEL_PORTFOLIOS = [
      "David Swensen's individual-investor portfolio: US, developed, emerging, REITs, TIPS, Treasuries"),
     (r"larry(?: swedroe'?s?)?|swedroe'?s?", "Larry portfolio", [(15, "VBR"), (7.5, "VSS"), (7.5, "VWO"), (70, "IEF")],
      "Larry Swedroe: 30% small value / emerging stocks, 70% intermediate Treasuries (VSS stands in for international small value)"),
+    (r"(?:warren )?buffett'?s?(?: 90[/-]10)?", "Buffett 90/10 portfolio", [(90, "VOO"), (10, "SHY")],
+     "Warren Buffett's instructions for his estate: 90% an S&P 500 index fund, 10% short-term government bonds"),
+    (r"global market", "Global Market Portfolio",
+     [(24, "SPY"), (14, "EFA"), (7, "VB"), (5, "EEM"), (44, "IEF"), (4, "VNQ"), (2, "GLD")],
+     "Doeswijk, Lam and Swinkels' market-cap mix of all assets (Portfolio Charts' version: 38% developed-world large caps, "
+     "7% small caps, 5% emerging, 44% developed-world government bonds, 4% REITs, 2% gold). Proxies: the developed-world "
+     "large caps are split about 60/40 US / ex-US (SPY / EFA), US small caps (VB) stand in for developed-world small caps, "
+     "and US intermediate Treasuries (IEF) for developed-world government bonds"),
+    (r"(?:bob )?(?:clyatt'?s? )?sandwich", "Sandwich portfolio",
+     [(20, "SPY"), (8, "VB"), (10, "VSS"), (6, "EFA"), (6, "EEM"), (41, "IEF"), (4, "BIL"), (5, "VNQ")],
+     "Bob Clyatt (Portfolio Charts' version): 20% US large, 8% US small, 10% ex-US small, 6% ex-US large, 6% emerging, "
+     "30% US intermediate Treasuries, 11% ex-US intermediate government bonds, 4% T-bills, 5% REITs. Proxies: VSS (all-world "
+     "ex-US small caps, emerging included) for developed ex-US small caps, and IEF also holds the 11% ex-US bonds (41% in all)"),
+    (r"desert", "Desert portfolio", [(60, "IEF"), (30, "VTI"), (10, "GLD")],
+     "60% intermediate Treasuries, 30% US total market, 10% gold"),
+    (r"(?:paul )?merriman'?s?(?: ultimate)?(?: buy[- ]and[- ]hold)?|(?:the )?ultimate buy[- ]and[- ]hold", "Ultimate Buy and Hold portfolio",
+     [(6, "SPY"), (6, "VTV"), (6, "VB"), (6, "VBR"), (12, "EFA"), (12, "VSS"), (6, "EEM"), (20, "IEF"), (20, "SHY"), (6, "VNQ")],
+     "Paul Merriman: 6% each in US large, large value, small, small value, ex-US large, ex-US large value, ex-US small, "
+     "ex-US small value and emerging, 6% REITs, 20% intermediate and 20% short-term Treasuries. Proxies: EFA holds both ex-US "
+     "large sleeves (12%) and VSS both ex-US small sleeves (12%), as no ex-US value funds are in the data"),
+    (r"weird", "Weird portfolio", [(20, "VBR"), (20, "VSS"), (20, "TLT"), (20, "VNQ"), (20, "GLD")],
+     "Value Stock Geek: US small value, ex-US small caps, long Treasuries, REITs and gold, 20% each (VSS, all-world ex-US "
+     "small caps, stands in for developed ex-US small caps)"),
+    (r"(?:rick )?(?:ferri'?s? )?core[- ]?(?:4|four)", "Core Four portfolio", [(48, "VTI"), (24, "VXUS"), (20, "BND"), (8, "VNQ")],
+     "Rick Ferri: 48% US total market, 24% international, 20% total bond market, 8% REITs"),
+    (r"talmud(?:ic)?", "Talmud portfolio", [(100 / 3, "VTI"), (100 / 3, "VNQ"), (100 / 3, "IEF")],
+     "a third each in stocks (US total market), real estate (REITs) and bonds (intermediate Treasuries)"),
+    (r"pinwheel", "Pinwheel portfolio",
+     [(15, "SPY"), (10, "VBR"), (15, "EFA"), (10, "EEM"), (15, "IEF"), (10, "BIL"), (15, "VNQ"), (10, "GLD")],
+     "Portfolio Charts: 15% US large, 10% US small value, 15% ex-US large, 10% emerging, 15% intermediate Treasuries, "
+     "10% T-bills, 15% REITs, 10% gold"),
 ]
 MODEL_RX = r"(?:the |a |an )?(?:" + "|".join(p for p, *_ in MODEL_PORTFOLIOS) + r")(?:'s)?(?: lazy)?(?: portfolio| model| allocation| strategy)?"
 
@@ -157,7 +189,7 @@ def _model_portfolio(text: str, notes: list[str]) -> dict | None:
             raise ParseError(f"{name} needs {etf}, which has no price data here.")
         kids.append({"asset": use})
         ws.append(w / 100)
-    notes.append(f"{name}: " + ", ".join(f"{w:g}% {e}" for w, e in holdings) + f" ({about}).")
+    notes.append(f"{name}: " + ", ".join(f"{round(w, 2):g}% {e}" for w, e in holdings) + f" ({about}).")
     if swaps:
         notes.append(f"Start {str(start)[:10]} is before some of the funds existed: using the long-history series "
                      + "; ".join(swaps) + ".")
@@ -1384,6 +1416,10 @@ def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list:
                 continue
             o = _sub_outside(r".+", lambda m: _indicator_periods(m.group(0)), o)
             mentioned = [t for t in find_tickers(o, strict=True) if t not in traded]
+            rel = _relative_compare(o, total) if mentioned else None
+            if rel:
+                or_exprs.append(rel)
+                continue
             pair = _pair_compare(o, traded)
             if pair:
                 _check_ranges(pair, o)
@@ -1490,6 +1526,74 @@ def _pair_compare(text: str, traded: list[str]) -> str | None:
             return None
         return f"{ea} {op} {eb}"
     return None
+
+
+REL_CMP = [
+    (r"(?:is |are )?(?:greater than or equal to|at least|no less than|>=)", ">="),
+    (r"(?:is |are )?(?:less than or equal to|at most|no more than|<=)", "<="),
+    (r"(?:is |are |has |have )?(?:greater than|higher than|above|more than|over|exceeds?|exceeded|beats?|beaten|"
+     r"outperforms?|outperformed|better than|>)", ">"),
+    (r"(?:is |are |has |have )?(?:less than|lower than|below|under|underperforms?|underperformed|worse than|<)", "<"),
+]
+PRONOUN_SUBJECT = (r"(?:its|their|the (?:selected|chosen) (?:assets?|stocks?|ones?|funds?)'?s?|"
+                   r"each (?:one|asset|candidate|fund)'?s?)")
+
+
+def _relative_compare(text: str, total: bool = True) -> str | None:
+    """A relative hurdle: '<its / their> <indicator> <comparison> <X>'s [<indicator>]', e.g. 'their 12 month return
+    is above BIL's 12 month return' -> tret(tr, 252) > tret(sym("BIL").tr, 252). The left side is the asset the
+    condition belongs to (the traded ticker, an if-node's holding, or each candidate of a filter); the right side
+    is ticker X (via sym()). 'above BIL' alone compares the same indicator. None when the text is not of that shape
+    (no pronoun subject, or no other ticker on the right); a ParseError when it is but a side is not understood."""
+    t = re.sub(r"\s+", " ", text.strip())
+    m0 = re.fullmatch(rf"(?i){PRONOUN_SUBJECT}\s+(.+)", t)
+    if not m0 or "`" in t:
+        return None
+    body = f" {m0.group(1)} "
+    for pat, op in REL_CMP:
+        m = re.search(rf"(?i)\s{pat}\s", body)
+        if not m:
+            continue
+        lhs, rhs = body[: m.start()].strip(), body[m.end():].strip()
+        tk = find_tickers(rhs, strict=True)
+        if not lhs or find_tickers(lhs, strict=True) or not tk:
+            return None
+        if len(tk) > 1:
+            raise ParseError(f"'{t}': compare with one ticker at a time (found {', '.join(tk)}).")
+        x = tk[0]
+        rest = re.sub(rf"(?i)(?<![\w])[\$^]?{re.escape(x.lstrip('^'))}(?:'s|')?(?![\w])", " ", rhs)
+        for name, sym in COMPANIES.items():
+            if sym == x:
+                rest = re.sub(rf"(?i)\b{re.escape(name)}(?:'s)?\b", " ", rest)
+        rest = re.sub(r"(?i)\b(?:that|those) of\b|\bthe\b|\bof\b|\bfor\b|\bits\b", " ", rest)
+        rest = re.sub(r"\s+", " ", rest).strip()
+        try:
+            le, ln = value_phrase(lhs, Ctx(total=total), default_n=None, total=total)
+            re_, rn = value_phrase(rest or lhs, Ctx.for_ticker(x, total=total), default_n=None, total=total)
+        except ParseError as e:
+            raise ParseError(f"'{t}': a comparison with {x} was recognised, but: {e}") from None
+        for n_ in ln + rn:
+            _note(n_)
+        rule = f"{le} {op} {re_}"
+        _note(f"'{t}' is a relative hurdle: the asset's own {lhs.strip()} compared with {x}'s ({rule}).")
+        return rule
+    return None
+
+
+def _tautologies(rule: str) -> list[str]:
+    """Comparisons in a rule whose two sides are textually identical (always true or always false)."""
+    try:
+        tree = ast.parse(rule.strip(), mode="eval")
+    except SyntaxError:
+        return []
+    out = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Compare):
+            sides = [n.left] + list(n.comparators)
+            for a, b in zip(sides, sides[1:]):
+                if ast.unparse(a) == ast.unparse(b):
+                    out.append(f"{ast.unparse(a)} vs {ast.unparse(b)}")
+    return out
 
 
 def split_and(rule: str) -> list[str]:
@@ -1663,8 +1767,29 @@ def common_options(T: Text, notes: list[str]) -> dict:
     m = T.find(rf"(?:idle )?cash (?:earns|pays|yields) {NUM}%(?: (?:a|per) year| annually)?")
     if m:
         kw["cash_rate"] = float(m.group(1)) / 100
-    # benchmark
-    m = T.find(r"\b(?:compared? (?:it )?(?:to|with|against)|benchmark(?:ed)?(?: it)?(?: (?:to|against))?|versus|vs\.?|against) "
+    # benchmark: a blend ("vs 60/40 SPY/AGG", "benchmark 60% SPY and 40% AGG"), or one ticker
+    BT = r"[\^$]?[a-z]{1,5}(?:sim)?(?:-usd)?"
+    m = T.find(r"\b(?:compared? (?:it )?(?:to|with|against)|benchmark(?:ed)?(?: it)?(?: (?:to|against|with))?|versus|vs\.?|against) "
+               r"(?:an? |the )?(?:(?P<ws>\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)+) (?P<ts>" + BT + r"(?:/" + BT + r")+)"
+               r"|(?P<list>\d+(?:\.\d+)?% " + BT + r"(?:(?:,? and |, ?| ?/ ?| plus )\d+(?:\.\d+)?% " + BT + r")+))"
+               r"(?: blend| mix| portfolio)?(?![\w-])")
+    if m:
+        if m.group("ws"):
+            ws, ts = m.group("ws").split("/"), m.group("ts").split("/")
+            if len(ws) != len(ts):
+                raise ParseError(f"'{m.group(0).strip()}': {len(ws)} weights but {len(ts)} tickers.")
+            pairs = list(zip(ts, ws))
+        else:
+            pairs = [(t, w) for w, t in re.findall(r"(\d+(?:\.\d+)?)% (" + BT + ")", m.group("list"), re.I)]
+        pairs = [(data.canonical(t), float(w)) for t, w in pairs]
+        for t, _ in pairs:
+            if t not in _known():
+                raise ParseError(f"No price data for benchmark {t}")
+        if abs(sum(w for _, w in pairs) - 100) > 1e-6:
+            raise ParseError(f"'{m.group(0).strip()}': the benchmark weights add up to {sum(w for _, w in pairs):g}%, not 100%.")
+        kw["benchmark"] = " ".join(f"{w:g} {t}" for t, w in pairs)
+        notes.append(f"Benchmark: a blend of {' / '.join(f'{w:g}% {t}' for t, w in pairs)}, total returns, rebalanced monthly.")
+    m = None if "benchmark" in kw else T.find(r"\b(?:compared? (?:it )?(?:to|with|against)|benchmark(?:ed)?(?: it)?(?: (?:to|against))?|versus|vs\.?|against) "
                r"(?!(?:t-?bills?|cash|treasury bills|the risk[- ]free rate)\b)([\^$]?[a-z]{1,5}(?:sim)?(?:-usd)?)(?![\w-])")
     if m:
         b = data.canonical(m.group(1))
@@ -1697,8 +1822,14 @@ SIGNAL_HINT = re.compile(
     r"\bshort\b|days? in a row|\bbuy\b[^,]*\b(?:when|if|after|once)\b)", re.I)
 
 
+BLEND_BENCH_RX = (r"(?i),?\s*\b(?:compared? (?:it )?(?:to|with|against)|benchmark(?:ed)?(?: it)?(?: (?:to|against|with))?|"
+                  r"versus|vs\.?|against) (?:an? |the )?(?:\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)+ \S+|"
+                  r"\d+(?:\.\d+)?% \S+(?:(?:,? and |, ?| ?/ ?| plus )\d+(?:\.\d+)?% [\w^$-]+)+)(?: blend| mix| portfolio)?")
+
+
 def looks_like_allocation(text: str) -> bool:
     t = _normalize(text)
+    t = re.sub(BLEND_BENCH_RX, " ", t)   # a blended benchmark ("vs 60/40 SPY/AGG") says nothing about the strategy
     # "SPY 60%, TLT 30%, GLD 10%": ticker-first weights (uppercase, known tickers only)
     tw = re.findall(r"(?<![\w^])(\^?[A-Z]{1,5}(?:SIM|-USD)?) \d+(?:\.\d+)?%", t)
     if len(tw) >= 2 and all(data.canonical(x) in _known() for x in tw):
@@ -1765,6 +1896,11 @@ def _check_runnable(obj) -> None:
         rules = [r for r in _rules(obj.tree) if isinstance(r, str)]
         on = next((t for t in _tree_tickers(obj.tree) if t in known), None)
     for r in rules:
+        same = _tautologies(r)
+        if same:
+            raise ParseError(f"The condition {r!r} compares a value with itself ({same[0]}), so it is always true or always "
+                             "false: part of the sentence was misread. Name each side's ticker, e.g. \"if SPY's 12 month "
+                             "return is above BIL's 12 month return\", or write the rule in backticks.")
         _probe_rule(r, on)
 
 
@@ -2819,7 +2955,13 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
                  r"(?:it is |it's |it )?(?P<cond>.+?),? (?:and )?(?:otherwise|else|or else)[, ]+(?:(?:hold|in|be in) )?(?P<other>.+)$", s,
                  flags=re.I | re.S, match=True)
     if m:
-        assets = _asset_list(m.group("lst"))
+        lst = m.group("lst")
+        # "20% each of SPY, EFA, ...": a stated weight per sleeve (the default is equal shares)
+        each = re.match(r"(?i)\s*(?:(\d+(?:\.\d+)?)% (?:each|apiece)|(?:in )?equal(?:ly)?(?:[- ]weight(?:ed|s)?)?|an equal (?:share|weight))"
+                        r"(?: (?:of|in|to|into))?\s+", lst)
+        if each:
+            lst = lst[each.end():]
+        assets = _asset_list(lst)
         if len(assets) < 2 or not all("asset" in a for a in assets):
             raise ParseError(f"'{s.strip()}': 'each only when ...' needs a list of tickers, e.g. 'SPY, EFA and IEF equally, each "
                              "only when above its 10 month moving average, otherwise cash'.")
@@ -2833,10 +2975,19 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
             on, rule = _condition_on(f"{tk} {cond}", tk)
             kids.append({"if": rule, "on": on, "then": {"asset": tk}, "else": other})
         _TL.tactical = "Per-asset timing"
-        notes.append(f"Each of {', '.join(a['asset'] for a in assets)} gets an equal share, held only while its own condition "
-                     f"is true ({kids[0]['if']} for {assets[0]['asset']}); otherwise that share goes to "
-                     f"{'cash' if other.get('cash') else 'the otherwise holding'}.")
-        return {"weights": "equal", "children": kids}
+        pct = float(each.group(1)) / 100 if each and each.group(1) else None
+        notes.append(f"Each of {', '.join(a['asset'] for a in assets)} gets "
+                     + (f"{pct * 100:g}%" if pct else "an equal share")
+                     + f", held only while its own condition is true ({kids[0]['if']} for {assets[0]['asset']}); otherwise "
+                     f"that sleeve goes to {'cash' if other.get('cash') else _pf_short_name(other)}, each sleeve switching on its own.")
+        if pct is None or abs(pct * len(kids) - 1) < 1e-9:
+            return {"weights": "equal", "children": kids}
+        if pct * len(kids) > 1 + 1e-9:
+            raise ParseError(f"{pct:.0%} each of {len(kids)} holdings is {pct * len(kids):.0%}, more than 100%.")
+        notes.append(f"{pct:.0%} each of {len(kids)} holdings is {pct * len(kids):.0%}: the remaining "
+                     f"{1 - pct * len(kids):.0%} is held in cash.")
+        return {"weights": "specified", "w": [round(pct, 10)] * len(kids) + [round(1 - pct * len(kids), 10)],
+                "children": kids + [{"cash": True}]}
     # X if COND else Y
     m = _msearch(rf"(.+?) (?:if|when|while|as long as|whenever) (.+?),? (?:and )?(?:otherwise|else|or else)[, ]+{VERB}?(.+)$", s,
                  flags=re.I | re.S, match=True)
@@ -2934,7 +3085,21 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
                 elif re.match(r"(?i)(?:otherwise|else)\b", nxt):
                     other = re.sub(r"(?i)^(?:otherwise|else)[, ]+", "", nxt)
                     i += 1
-                own = re.match(r"(?i)(?:their|its|the (?:selected|chosen) (?:assets?|stocks?|ones?)'?s?)\s+(.+?)\s+(?:is |are )?(positive|negative|above (-?[\d.]+)%|below (-?[\d.]+)%|beats? (?:cash|t-?bills|bil|the risk[- ]free rate))\s*$", cond.strip())
+                own = re.match(r"(?i)(?:their|its|the (?:selected|chosen) (?:assets?|stocks?|ones?)'?s?)\s+(.+?)\s+(?:is |are )?(positive|negative|above (-?[\d.]+)%|below (-?[\d.]+)%|(?:beats?|exceeds?|is above|are above|is greater than|is higher than) (?:cash|t-?bills|the risk[- ]free rate))\s*$", cond.strip())
+                pron = re.match(rf"(?i)\s*{PRONOUN_SUBJECT}\s", cond)
+                if pron and not own:
+                    # a relative hurdle against another ticker: each candidate's value vs that ticker's
+                    rel = _relative_compare(cond)
+                    if rel is None:
+                        raise ParseError(f"Could not interpret the requirement {cond.strip()!r}: write e.g. 'only if their 12 "
+                                         "month return is positive', '... is above 2%', '... beats cash' or '... is above "
+                                         "BIL's 12 month return'.")
+                    node["filter"]["require"] = rel
+                    node["fallback"] = _node(other, notes) if other else {"cash": True}
+                    if not other:
+                        notes.append("No 'otherwise' given for the requirement: a slot whose pick fails it is held in cash.")
+                    i += 1
+                    continue
                 if own:
                     mexpr, mn = value_phrase(own.group(1))
                     notes.extend(mn)
@@ -2959,11 +3124,20 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
                         notes.append("No 'otherwise' given for the condition: holding cash when it is false.")
                 i += 1
                 continue
-            mb = re.fullmatch(r"(?i)(?:that |which )?(?:beat|beats|outperform|outperforms) (?:cash|t-?bills|bil|the risk[- ]free rate)(?:,? (?:otherwise|else) (.+))?", o)
+            mb = re.fullmatch(r"(?i)(?:that |which )?(?:beat|beats|outperform|outperforms) (cash|t-?bills|bil|the risk[- ]free rate)(?:,? (?:otherwise|else) (.+))?", o)
             if mb:
                 look_n = re.search(r"(\d+)\)", metric)
-                node["filter"]["require"] = f"{metric} > tbill_ret({look_n.group(1) if look_n else 252})"
-                node["fallback"] = _node(mb.group(1), notes) if mb.group(1) else {"cash": True}
+                if mb.group(1).lower() == "bil":
+                    # the BIL fund itself (its total return), not the T-bill rate
+                    other_m, _ = value_phrase(metric_text, Ctx.for_ticker("BIL", total=True))
+                    node["filter"]["require"] = f"{metric} > {other_m}"
+                else:
+                    node["filter"]["require"] = f"{metric} > tbill_ret({look_n.group(1) if look_n else 252})"
+                other = mb.group(2)
+                if not other and re.match(r"(?i)(?:otherwise|else)\b", nxt):
+                    other = re.sub(r"(?i)^(?:otherwise|else)[, ]+", "", nxt)
+                    i += 1
+                node["fallback"] = _node(other, notes) if other else {"cash": True}
                 i += 1
                 continue
             raise ParseError(f"Could not interpret {o!r} in {text.strip()!r}")
@@ -3075,7 +3249,13 @@ def _weights_node(ws: list[float], kids: list[dict], s: str) -> dict:
 def _condition_on(cond: str, default: str | None) -> tuple[str, str]:
     """Condition text -> (ticker the rule is evaluated on, rule)."""
     tk = find_tickers(cond, strict=True)
-    on = tk[0] if tk else default
+    if re.match(rf"(?i)\s*{PRONOUN_SUBJECT}\s", cond):
+        # "SPY if its 12 month return is above BIL's": the condition is about the holding, not about BIL
+        if default is None:
+            raise ParseError(f"{cond.strip()!r}: whose? Name the ticker, e.g. 'if SPY's 12 month return is above BIL's'.")
+        on = default
+    else:
+        on = tk[0] if tk else default
     if on is None:
         raise ParseError(f"Which ticker does {cond.strip()!r} refer to? e.g. 'if SPY is above its 200-day moving average'.")
     rule = parse_conditions(cond, [on], total=True)
@@ -3152,7 +3332,21 @@ def parse_allocation(text: str) -> Portfolio:
     # cash flows (parsed before the general options, so "starting in 2000" dates the withdrawals)
     contrib, cfreq = flows["contribution"], flows["contribution_freq"]
     wd, wd_pct, wfreq = flows["withdrawal"], flows["withdrawal_pct"], flows["withdrawal_freq"]
-    infl = bool(T.find(r",? ?(?:\(?(?:adjusted|indexed|rising|growing|increased) (?:for|with|by) inflation\)?|inflation[- ](?:adjusted|indexed)|in real terms)"))
+    # "adjusted for inflation" written away from any flow ("..., hold 60/40, adjusted for inflation"): every $ flow
+    loose = T.find(r",? ?(?:and )?(?:with )?(?:all |the )?(?:(?:cash )?flows? |amounts? )?(?:" + CF_INFL + r")")
+    if loose:
+        kinds = [k for k in ("contribution", "withdrawal") if flows[k] or (k == "withdrawal" and flows["withdrawal_pct"])]
+        md = re.search(r"in (today's|todays|current|\d{4}) dollars", loose.group(0))
+        for k in kinds:
+            flows[f"{k}_inflation"] = True
+            if md:
+                flows[f"{k}_dollars"] = md.group(1) if md.group(1).isdigit() else "flow"
+        if len(kinds) > 1:
+            notes.append(f"'{loose.group(0).strip(' ,')}' is not attached to one cash flow, so it applies to both the "
+                         "contributions and the withdrawals; write it right after the one you mean (e.g. 'withdraw $50,000 a "
+                         "year adjusted for inflation') to index only that one.")
+    infl = bool(flows.get("contribution_inflation") or flows.get("withdrawal_inflation"))
+    wd_infl = bool(flows.get("withdrawal_inflation"))
     if T.find(r",? ?(?:do not|don't|without) reinvest(?:ing)? dividends|dividends (?:paid out|kept) (?:as|in) cash"):
         kw["reinvest_dividends"] = False
     T.find(r",? ?(?:with )?dividends reinvested|reinvest(?:ing)? dividends")
@@ -3230,14 +3424,25 @@ def parse_allocation(text: str) -> Portfolio:
             rb = "none"
     if buy_hold and rb != "none":
         notes.append("'Buy and hold' with a rebalance schedule: the schedule wins.")
-    if wd_pct and infl:
+    if wd_pct and wd_infl:
         # "withdraw 4% a year adjusted for inflation" is the classic 4% rule: 4% of the starting
         # balance, then that dollar amount rising with CPI
         wd, wd_pct = wd_pct * pk.get("capital", 10_000.0), 0.0
         notes.append(f"Read as the '4% rule': withdraw ${wd:,.0f} in the first year (that % of the starting balance), "
                      "then the same amount grown with inflation. Say 'withdraw 4% of the balance each year' for a percentage of the current balance.")
     newer = {k: flows[k] for k in ("contribution_start", "contribution_end", "withdrawal_start", "withdrawal_end",
-                                   "contribution_growth", "withdrawal_growth") if flows.get(k) is not None}
+                                   "contribution_growth", "withdrawal_growth", "contribution_dollars", "withdrawal_dollars")
+             if flows.get(k) is not None}
+    if infl:
+        # each flow carries its own flag: "add $1,000 a month, then withdraw $50,000 a year adjusted for inflation"
+        # indexes only the withdrawals
+        newer["contribution_inflation"] = bool(flows.get("contribution_inflation"))
+        newer["withdrawal_inflation"] = bool(flows.get("withdrawal_inflation"))
+        if contrib and not flows.get("contribution_inflation"):
+            notes.append("Only the withdrawals are indexed to inflation; the contributions stay fixed in dollars "
+                         "(say 'add $1,000 a month adjusted for inflation' to index them too).")
+        if wd and not flows.get("withdrawal_inflation"):
+            notes.append("Only the contributions are indexed to inflation; the withdrawals stay fixed in dollars.")
     if band_rel is not None:
         newer["drift_band_relative"] = band_rel
     p = Portfolio(tree=tree, rebalance=rb, drift_band=band, fill=fill, contribution=contrib, contribution_freq=cfreq,
@@ -3258,9 +3463,13 @@ def parse_allocation(text: str) -> Portfolio:
 
 CF_FREQ = r"(?:every|each|per|a|an|once a|1) (month|quarter|year)"   # "a month" is normalised to "1 month"
 CF_SCHED = (r"(?:,? (?:for (?:the first |the next )?\d+ years?|(?:until|through|to) (?:year \d+|\d{4})|"
-            r"(?:from|starting(?: in| from)?|beginning(?: in)?|after|in) (?:year \d+|\d{4})|"
+            r"(?:from|starting(?: in| from)?|beginning(?: in)?|after|in) (?:year \d+|\d{4})(?! dollars)|"
             r"(?:starting|beginning) (?:in|after) \d+ years?|after \d+ years?|"
-            r"(?:growing|increasing|rising|indexed|increased) (?:by |at )?\d+(?:\.\d+)?% (?:a|per|each|every) year))*")
+            r"(?:growing|increasing|rising|indexed|increased) (?:by |at )?\d+(?:\.\d+)?% (?:a|per|each|every) year|"
+            r"\(?(?:adjusted|indexed|rising|growing|increased) (?:for|with|by|to) (?:inflation|cpi)\)?|inflation[- ](?:adjusted|indexed)|"
+            r"in real terms|in (?:today's|todays|current|\d{4}) dollars))*")
+CF_INFL = (r"\(?(?:adjusted|indexed|rising|growing|increased) (?:for|with|by|to) (?:inflation|cpi)\)?|inflation[- ](?:adjusted|indexed)|"
+           r"in real terms|in (?:today's|todays|current|\d{4}) dollars")
 
 
 def _cf_schedule(text: str, kind: str, out: dict, notes: list[str]) -> None:
@@ -3269,7 +3478,7 @@ def _cf_schedule(text: str, kind: str, out: dict, notes: list[str]) -> None:
     ends inclusive: end=20 is the first 20 years, start=21 the 21st year on); a year >= 1900 is 1 Jan of
     that year; an end date is written 'YYYY-12-31'."""
     t = text.lower()
-    for m in re.finditer(r"(?:from|starting(?: in| from)?|beginning(?: in)?|after|in) (?:year (\d+)|(\d{4}))", t):
+    for m in re.finditer(r"(?:from|starting(?: in| from)?|beginning(?: in)?|after|in) (?:year (\d+)|(\d{4}))(?! dollars)", t):
         if m.group(1):
             out[f"{kind}_start"] = int(m.group(1)) + (1 if m.group(0).startswith("after") else 0)
         else:
@@ -3287,6 +3496,26 @@ def _cf_schedule(text: str, kind: str, out: dict, notes: list[str]) -> None:
         out[f"{kind}_end"] = int(m.group(1)) if m.group(1) else f"{m.group(2)}-12-31"
     for m in re.finditer(r"(?:growing|increasing|rising|indexed|increased) (?:by |at )?(\d+(?:\.\d+)?)% (?:a|per|each|every) year", t):
         out[f"{kind}_growth"] = float(m.group(1)) / 100
+    # "adjusted for inflation" / "in 2000 dollars" written with this flow applies to this flow only
+    for m in re.finditer(CF_INFL, t):
+        out[f"{kind}_inflation"] = True
+        md = re.search(r"in (today's|todays|current|\d{4}) dollars", m.group(0))
+        if md:
+            if md.group(1).isdigit():
+                out[f"{kind}_dollars"] = md.group(1)
+            else:
+                out[f"{kind}_dollars"] = "flow"
+                notes.append(f"'{m.group(0)}': read as dollars of the first {kind} (its amount is paid in full then, "
+                             f"and rises with inflation after that). Say 'in {_last_cpi_year()} dollars' for the dollars of the latest full year of CPI.")
+
+
+def _last_cpi_year() -> int:
+    m = data.cpi_monthly()
+    if m.empty:
+        return 2025
+    n = m.groupby(m.index.year).size()
+    full = n[n >= 12]
+    return int(full.index[-1]) if len(full) else int(m.index[-1].year) - 1
 
 
 def _year_text(v) -> str:

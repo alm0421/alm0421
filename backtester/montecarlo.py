@@ -54,6 +54,7 @@ class CashFlow:
     inflation_adjusted: bool = True
     start_year: int = 1            # first year it applies (1 = from the start)
     end_year: int | None = None    # last year it applies (inclusive); None = to the end
+    real_from_start: bool = False  # an inflation-adjusted amount in dollars of its first payment (not of year 1)
 
     def describe(self) -> str:
         if not self.amount and not self.pct:
@@ -61,7 +62,8 @@ class CashFlow:
         what = []
         if self.amount:
             what.append(f"{'add' if self.amount > 0 else 'withdraw'} ${abs(self.amount):,.0f} {self.freq}"
-                        + (" (grows with inflation)" if self.inflation_adjusted else " (fixed dollars)"))
+                        + ((" (in dollars of its first payment, then grows with inflation)" if self.real_from_start and
+                            self.start_year > 1 else " (grows with inflation)") if self.inflation_adjusted else " (fixed dollars)"))
         if self.pct:
             what.append(f"{'add' if self.pct > 0 else 'withdraw'} {abs(self.pct):.2%} of the balance per year, paid {self.freq}")
         yrs = ""
@@ -198,7 +200,12 @@ def simulate_balances(P: np.ndarray, cum_infl: np.ndarray, start: float, flows: 
             if m % step or year < cf.start_year or (cf.end_year and year > cf.end_year):
                 continue
             if cf.amount:
-                f += cf.amount * (cum_infl[:, m] if cf.inflation_adjusted else 1.0)
+                k = 1.0
+                if cf.inflation_adjusted:
+                    k = cum_infl[:, m]
+                    if cf.real_from_start and cf.start_year > 1:
+                        k = k / cum_infl[:, min((cf.start_year - 1) * 12, months)]
+                f += cf.amount * k
             if cf.pct:
                 f += cf.pct * step / 12 * np.maximum(b, 0)
         b = np.maximum(b + f, 0.0) * (1 + P[:, m])
@@ -481,12 +488,16 @@ def flows_from_portfolio(p) -> list[CashFlow]:
     out = []
     cs, ce = _years(p.contribution_start, False) or 1, _years(p.contribution_end, True)
     ws, we = _years(p.withdrawal_start, False) or 1, _years(p.withdrawal_end, True)
+    def infl(kind):
+        f = getattr(p, "flow_inflation", None)
+        return f(kind) if f else bool(p.inflation_adjust)
     if p.contribution:
-        out.append(CashFlow(amount=p.contribution, freq=p.contribution_freq, inflation_adjusted=p.inflation_adjust,
-                            start_year=cs, end_year=ce))
+        out.append(CashFlow(amount=p.contribution, freq=p.contribution_freq, inflation_adjusted=infl("contribution"),
+                            start_year=cs, end_year=ce,
+                            real_from_start=getattr(p, "contribution_dollars", None) == "flow"))
     if p.withdrawal:
-        out.append(CashFlow(amount=-p.withdrawal, freq=p.withdrawal_freq, inflation_adjusted=p.inflation_adjust,
-                            start_year=ws, end_year=we))
+        out.append(CashFlow(amount=-p.withdrawal, freq=p.withdrawal_freq, inflation_adjusted=infl("withdrawal"),
+                            start_year=ws, end_year=we, real_from_start=getattr(p, "withdrawal_dollars", None) == "flow"))
     if p.withdrawal_pct:
         per_year = 12 / (STEPS.get(p.withdrawal_freq, 12) or 12)
         out.append(CashFlow(pct=-p.withdrawal_pct * per_year, freq=p.withdrawal_freq, start_year=ws, end_year=we))

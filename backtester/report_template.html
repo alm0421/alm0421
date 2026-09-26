@@ -612,7 +612,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ['Starting balance', usd(c.starting_balance)], ['Contributions', usd(c.total_contributions)], ['Withdrawals', usd(c.total_withdrawals)],
       ['Ending balance', usd(c.ending_balance)], ['Net investment gain', { t: usd(c.net_gain), c: signCls(c.net_gain) }],
       ['Money-weighted return (IRR)', pct(c.money_weighted_return)], ['Time-weighted return (CAGR)', pct(r.stats.cagr)],
-      ['Money ran out?', c.ran_out ? 'Yes' : 'No'],
+      ['Money ran out?', c.ran_out ? { t: c.depleted_on ? `Yes, portfolio depleted on ${c.depleted_on}` : 'Yes', c: 'neg' } : 'No'],
     ].concat(r.withdrawal_rates && isNum(r.withdrawal_rates.swr) ? [
       { sect: `Withdrawal rates over this history (${r.withdrawal_rates.from} → ${r.withdrawal_rates.to}, inflation-adjusted)` },
       [{ t: 'Safe withdrawal rate', title: 'the largest inflation-adjusted yearly withdrawal, as a share of the starting balance, that lasts the whole period' }, pct(r.withdrawal_rates.swr)],
@@ -622,8 +622,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const bc = r.benchmark_cash || {}, bk = Object.keys(bc);
     $('bcashTitle').classList.toggle('hide', !bk.length); $('bcashNote').textContent = '';
     table($('bcashTbl'), bk.length ? ['', 'Starting balance', 'Withdrawals', 'Contributions', 'Ending balance', 'Money-weighted return', 'Ran out?'] : null,
-      bk.length ? [[multi ? r.name : 'Strategy', usd(c.starting_balance), usd(c.total_withdrawals), usd(c.total_contributions), usd(c.ending_balance), pct(c.money_weighted_return), c.ran_out ? 'Yes' : 'No']]
-        .concat(bk.map(k => { const x = bc[k]; return [short(k) + (x.from ? ` (from ${x.from})` : ''), usd(x.starting_balance), usd(x.total_withdrawals), usd(x.total_contributions), usd(x.ending_balance), pct(x.money_weighted_return), { t: x.ran_out ? 'Yes' : 'No', c: x.ran_out ? 'neg' : '' }]; })) : []);
+      bk.length ? [[multi ? r.name : 'Strategy', usd(c.starting_balance), usd(c.total_withdrawals), usd(c.total_contributions), usd(c.ending_balance), pct(c.money_weighted_return), c.ran_out ? (c.depleted_on ? `Yes (${c.depleted_on})` : 'Yes') : 'No']]
+        .concat(bk.map(k => { const x = bc[k]; return [short(k) + (x.from ? ` (from ${x.from})` : ''), usd(x.starting_balance), usd(x.total_withdrawals), usd(x.total_contributions), usd(x.ending_balance), pct(x.money_weighted_return), { t: x.ran_out ? (x.depleted_on ? `Yes (${x.depleted_on})` : 'Yes') : 'No', c: x.ran_out ? 'neg' : '' }]; })) : []);
     if (bk.some(k => bc[k].from)) $('bcashNote').textContent = 'A benchmark that starts later starts with the strategy\'s account balance on its first day and then receives the same contributions and withdrawals (on their original schedule and inflation indexing).';
   }
 
