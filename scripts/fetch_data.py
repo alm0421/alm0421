@@ -127,11 +127,17 @@ RENAMES = {"FB": "META", "PCLN": "BKNG", "DISCA": "WBD", "RIMM": "BB", "MYL": "V
            "UAUA": "UAL", "KFT": "MDLZ", "KLA": "KLAC", "ERICY": "ERIC", "WFMI": "WFM", "LINTA": "QRTEA"}
 
 
+STOOQ_FAILS = [0]
+
+
 def fetch_stooq(t: str) -> pd.DataFrame | None:
     """Secondary source for delisted US stocks (no dividends; split-adjusted closes used as adj_close)."""
+    if STOOQ_FAILS[0] >= 5:  # the source is unreachable or has nothing: stop paying for timeouts
+        return None
     try:
-        r = requests.get(f"https://stooq.com/q/d/l/?s={t.lower().replace('-', '.')}.us&i=d", headers=UA, timeout=30)
+        r = requests.get(f"https://stooq.com/q/d/l/?s={t.lower().replace('-', '.')}.us&i=d", headers=UA, timeout=10)
         if r.status_code != 200 or not r.text.lower().startswith("date"):
+            STOOQ_FAILS[0] += 1
             return None
         df = pd.read_csv(io.StringIO(r.text), parse_dates=["Date"], index_col="Date")
         if len(df) < 20:
@@ -143,6 +149,7 @@ def fetch_stooq(t: str) -> pd.DataFrame | None:
         return df[["open", "high", "low", "close", "adj_close", "volume", "dividend", "split"]]
     except Exception as e:  # noqa: BLE001
         print(f"stooq {t}: {e}", file=sys.stderr)
+        STOOQ_FAILS[0] += 1
         return None
 
 WIKI_API = "https://en.wikipedia.org/w/api.php"
@@ -420,13 +427,16 @@ def main() -> None:
     print(f"{len(ndx)} current constituents from {source}; {len(former)} former members; {len(tickers)} other tickers")
 
     ok, failed = {}, []
-    for t in tickers:
-        df = fetch_with_retry(t)
-        if df is None:
-            failed.append(t)
-            continue
-        ok[t] = save_prices(t, df)
-        print(f"{t:6s} {ok[t]}")
+    t0 = time.time()
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for t, df in zip(tickers, pool.map(fetch_with_retry, tickers)):
+            if df is None:
+                failed.append(t)
+                continue
+            ok[t] = save_prices(t, df)
+            print(f"{t:6s} {ok[t]}", flush=True)
+    print(f"prices: {len(ok)} ok, {len(failed)} failed in {time.time() - t0:.0f}s", flush=True)
 
     # former members: fetch under the (possibly renamed) current symbol, store under the old symbol
     former_ok, former_missing = {}, []
