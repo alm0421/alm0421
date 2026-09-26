@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 from functools import lru_cache
+import re
 from typing import Any, Callable
 
 import numpy as np
@@ -548,6 +549,27 @@ class Namespace(dict):
                 out[i] = np.nan if last is None else i - last
             return pd.Series(out, index=c.index)
 
+        def valuewhen(cond, x, n=0):
+            """The value of x on the most recent bar where cond was true (n = 1: the one before that...),
+            as TradingView's ta.valuewhen. Causal: each bar only sees conditions up to and including itself."""
+            n = nonneg(n)
+            cs = _s(cond, c)
+            cs = (cs.fillna(0) if cs.dtype != bool else cs).astype(bool).to_numpy()
+            xv = _s(x, c).astype(float).to_numpy()
+            occ = np.flatnonzero(cs)
+            k = np.cumsum(cs) - 1 - n            # index of the wanted occurrence, as of each bar
+            out = np.full(len(cs), np.nan)
+            ok = k >= 0
+            out[ok] = xv[occ[k[ok]]]
+            return pd.Series(out, index=c.index)
+
+        def diff(x=None, n=1):
+            """x - x n bars ago (TradingView's ta.change)."""
+            if not isinstance(x, pd.Series) and x is not None:
+                x, n = c, x
+            base = c if x is None else _s(x, c)
+            return base - base.shift(nonneg(n))
+
         def down_streak(x=None):
             return streak(c if x is None else series_arg(x, "down_streak"), -1)
 
@@ -674,14 +696,16 @@ class Namespace(dict):
             "keltner_upper": keltner_upper, "keltner_lower": keltner_lower,
             "supertrend": supertrend, "sar": sar,
             "crossover": crossover, "crossunder": crossunder, "count": count, "bars_since": bars_since,
+            "valuewhen": valuewhen, "diff": diff,
             "down_streak": down_streak, "up_streak": up_streak,
             "cummax": lambda x: series_arg(x, "cummax").cummax(), "cummin": lambda x: series_arg(x, "cummin").cummin(),
             "weekly_sma": lambda n, x=None: _periodic_sma("W-FRI", n, x),
             "monthly_sma": lambda n, x=None: _periodic_sma("M", n, x),
             "weekly_rsi": lambda n=14, x=None: _periodic("W-FRI", rsi_wilder, n, x),
             "monthly_rsi": lambda n=14, x=None: _periodic("M", rsi_wilder, n, x),
-            "weekly_ema": lambda n, x=None: _periodic("W-FRI", lambda e, k: e.ewm(span=k, adjust=False, min_periods=k).mean(), n, x),
-            "monthly_ema": lambda n, x=None: _periodic("M", lambda e, k: e.ewm(span=k, adjust=False, min_periods=k).mean(), n, x),
+            # seeded with the simple average of the first n periods, like ema() and TradingView's ta.ema
+            "weekly_ema": lambda n, x=None: _periodic("W-FRI", ema_tv, n, x),
+            "monthly_ema": lambda n, x=None: _periodic("M", ema_tv, n, x),
             "weekly_ret": lambda n=1, x=None: _periodic("W-FRI", lambda e, k: e / e.shift(k) - 1, n, x),
             "monthly_ret": lambda n=1, x=None: _periodic("M", lambda e, k: e / e.shift(k) - 1, n, x),
             "weekly_close": lambda x=None: _periodic_close("W-FRI", x),
@@ -718,8 +742,10 @@ Functions (x defaults to close; n = lookback in bars, a number written in the ru
                stdev_return(x,n) ma_return(x,n)
   total return tr (dividend-reinvested price)  tret(n) total return over n bars
                tbill_ret(n) compounded T-bill return over n bars   market_cap
-  timing       ref(x,n) (n >= 0) crossover(a,b) crossunder(a,b) count(cond,n) bars_since(cond)
-               down_streak(x) up_streak(x) cummax(x) cummin(x)
+  timing       ref(x,n) (n >= 0; also written x[n]) crossover(a,b) crossunder(a,b) count(cond,n)
+               bars_since(cond)  bars since cond was last true (0 on a bar where it is true)
+               valuewhen(cond,x,k)  x on the k-th most recent bar where cond was true (k=0: the latest)
+               diff(x,n)  x - x n bars ago   down_streak(x) up_streak(x) cummax(x) cummin(x)
   timeframes   weekly_sma(n) weekly_ema(n) weekly_rsi(n) weekly_ret(n)      (x optional last argument)
                monthly_sma(n) monthly_ema(n) monthly_rsi(n) monthly_ret(n)
                  computed on completed weekly (Friday) / monthly bars, then held until the next
@@ -732,6 +758,11 @@ Functions (x defaults to close; n = lookback in bars, a number written in the ru
   price basis  quoted(x)  x computed on prices as quoted (not dividend-adjusted), e.g.
                  quoted(close) > 400 in a portfolio whose indicators use total-return prices
 Operators: + - * / < <= > >= == != and or not, e.g. 0.1 < ibs < 0.3
+TradingView (Pine) spellings are accepted and translated: close[1] -> ref(close, 1) (literal offsets >= 0 only),
+  ta.sma ta.ema ta.rma ta.wma ta.rsi ta.atr ta.highest ta.lowest ta.stdev ta.crossover ta.crossunder
+  ta.change (-> diff) ta.mom (-> diff) ta.roc (-> 100 * ret) ta.barssince (-> bars_since) ta.valuewhen
+  ta.macd(src, fast, slow, signal) (-> the MACD line only; use macd_signal / macd_hist for the others)
+  math.abs math.max math.min math.log math.sqrt, true / false
 """
 
 
@@ -813,6 +844,76 @@ class _Timeframes(ast.NodeTransformer):
         return node
 
 
+# TradingView (Pine Script v5) names -> the rule language
+_PINE_TA = {"sma": "sma", "ema": "ema", "rma": "rma", "wma": "wma", "rsi": "rsi", "atr": "atr", "highest": "highest",
+            "lowest": "lowest", "stdev": "stdev", "crossover": "crossover", "crossunder": "crossunder",
+            "change": "diff", "mom": "diff", "barssince": "bars_since", "valuewhen": "valuewhen", "macd": "macd",
+            "roc": "roc"}
+_PINE_MATH = {"abs": "abs", "max": "maximum", "min": "minimum", "log": "log", "sqrt": "sqrt"}
+
+
+class _Pine(ast.NodeTransformer):
+    """close[1] -> ref(close, 1); ta.sma(...) -> sma(...); math.abs -> abs; true/false -> True/False."""
+
+    def visit_Subscript(self, node):
+        self.generic_visit(node)
+        sl = node.slice
+        v = None
+        if isinstance(sl, ast.Constant) and isinstance(sl.value, int) and not isinstance(sl.value, bool):
+            v = sl.value
+        elif (isinstance(sl, ast.UnaryOp) and isinstance(sl.op, ast.USub) and isinstance(sl.operand, ast.Constant)
+              and isinstance(sl.operand.value, int) and not isinstance(sl.operand.value, bool)):
+            v = -sl.operand.value
+        if v is None:
+            raise ValueError(f"'{ast.unparse(node)}': the offset in [] must be a fixed whole number, e.g. close[1]")
+        if v < 0:
+            raise ValueError(f"'{ast.unparse(node)}': negative offsets would look into the future and are not allowed")
+        if v == 0:
+            return node.value
+        return ast.Call(func=ast.Name(id="ref", ctx=ast.Load()), args=[node.value, ast.Constant(v)], keywords=[])
+
+    def visit_Name(self, node):
+        if node.id in ("true", "false"):
+            return ast.Name(id=node.id.capitalize(), ctx=ast.Load())
+        return node
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        f = node.func
+        if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in ("ta", "math"):
+            table = _PINE_TA if f.value.id == "ta" else _PINE_MATH
+            name = table.get(f.attr)
+            if name is None:
+                raise ValueError(f"{f.value.id}.{f.attr}() is not supported; see --help-expr for the functions available")
+            if node.keywords:
+                raise ValueError(f"{f.value.id}.{f.attr}(): write the arguments in order, without names")
+            args = list(node.args)
+            if name == "macd":
+                # ta.macd(source, fast, slow, signal) -> the MACD line
+                if len(args) not in (3, 4):
+                    raise ValueError("ta.macd takes (source, fast, slow, signal), e.g. ta.macd(close, 12, 26, 9)")
+                src, fast, slow = args[0], args[1], args[2]
+                call_args = [fast, slow] if (isinstance(src, ast.Name) and src.id == "close") else [fast, slow, src]
+                return ast.Call(func=ast.Name(id="macd", ctx=ast.Load()), args=call_args, keywords=[])
+            if name == "roc":
+                inner = ast.Call(func=ast.Name(id="ret", ctx=ast.Load()), args=args, keywords=[])
+                return ast.BinOp(left=inner, op=ast.Mult(), right=ast.Constant(100))
+            return ast.Call(func=ast.Name(id=name, ctx=ast.Load()), args=args, keywords=[])
+        return node
+
+
+def pine_to_rule(text):
+    """Translate TradingView (Pine) spellings to the rule language; other text is returned unchanged."""
+    if not isinstance(text, str) or not re.search(r"\[|\bta\.|\bmath\.|\btrue\b|\bfalse\b", text):
+        return text
+    try:
+        tree = ast.parse(text.strip(), mode="eval")
+    except SyntaxError:
+        return text
+    tree = ast.fix_missing_locations(_Pine().visit(tree))
+    return ast.unparse(tree)
+
+
 # ---------------------------------------------------------------- static argument shapes
 # Every argument of an indicator is either a series (a price, a variable, another indicator, arithmetic on
 # them) or a lookback/length/offset/parameter, which must be a number written in the rule. A computed scalar
@@ -880,7 +981,7 @@ def _check_arguments(tree) -> None:
 
 
 def compile_expr(text: str):
-    return _compile_expr(text.strip())
+    return _compile_expr(pine_to_rule(text).strip())
 
 
 @lru_cache(maxsize=4096)
@@ -906,7 +1007,7 @@ POSITION_VARS = {"bars_held", "entry_price", "pnl"}
 def names_in(text) -> set[str]:
     if callable(text):
         return set()
-    return {n.id for n in ast.walk(ast.parse(text.strip(), mode="eval")) if isinstance(n, ast.Name)}
+    return {n.id for n in ast.walk(ast.parse(pine_to_rule(text).strip(), mode="eval")) if isinstance(n, ast.Name)}
 
 
 def evaluate(text, ns: Namespace) -> pd.Series:
@@ -937,13 +1038,25 @@ def evaluate_value(text, ns: Namespace) -> pd.Series:
 
 OPEN_SAFE_NAMES = {"gap", "dow", "month", "day", "year", "trading_day_of_month",
                    "trading_days_left_in_month", "open", "True", "False"}
+# functions whose series argument defaults to today's close/high/low when omitted
+_DEFAULTS_TO_CLOSE = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "stdev", "zscore", "ret", "roc", "diff",
+                      "rsi", "pct_rank", "down_streak", "up_streak", "drawdown", "cummax", "cummin", "tret",
+                      "max_drawdown", "ma_return", "stdev_return"}
+# functions that always read today's close/high/low
+_ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "macd_signal", "macd_hist",
+                 "stoch_k", "stoch_d", "adx", "plus_di", "minus_di", "cci", "willr", "obv", "mfi", "vwap",
+                 "donchian_upper", "donchian_lower", "keltner_upper", "keltner_lower", "supertrend", "sar",
+                 "weekly_sma", "monthly_sma", "weekly_close", "monthly_close", "is_week_end",
+                 "weekly_rsi", "monthly_rsi", "weekly_ema", "monthly_ema", "weekly_ret", "monthly_ret",
+                 "is_month_end", "is_quarter_end", "is_year_end", "bars_since", "count", "weekly", "monthly",
+                 "valuewhen"}
 
 
 def first_defined(rule, ns) -> pd.Timestamp | None:
     """First date on which every indicator call in `rule` has a value (NaN during its look-back), or None."""
     if not isinstance(rule, str) or not rule.strip() or ns is None:
         return None
-    text = rule.strip()
+    text = pine_to_rule(rule).strip()
     try:
         tree = ast.parse(text, mode="eval")
     except SyntaxError:
@@ -978,6 +1091,35 @@ def _is_sym(node) -> bool:
             and isinstance(node.args[0].value, str))
 
 
+def never_defined(rule, ns) -> list[tuple[str, int | None]]:
+    """Indicator calls in `rule` that never get a value on this data (their look-back is longer than the history):
+    [(call text, the longest look-back literal in it)]. Empty when every indicator warms up."""
+    if not isinstance(rule, str) or not rule.strip() or ns is None:
+        return []
+    text = pine_to_rule(rule).strip()
+    try:
+        tree = ast.parse(text, mode="eval")
+    except SyntaxError:
+        return []
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        seg = ast.get_source_segment(text, node)
+        try:
+            v = evaluate_value(seg, ns)
+        except Exception:  # noqa: BLE001
+            continue
+        if not isinstance(v, pd.Series) or v.dtype == bool or not len(v) or v.first_valid_index() is not None:
+            continue
+        nums = [int(n.value) for n in ast.walk(node) if isinstance(n, ast.Constant) and isinstance(n.value, (int, float))
+                and not isinstance(n.value, bool) and float(n.value).is_integer() and n.value > 0]
+        out = [(s, k) for s, k in out if seg not in s]    # the innermost call that never warms up is the cause
+        if not any(s in seg for s, _ in out):
+            out.append((seg, max(nums) if nums else None))
+    return out
+
+
 def open_safe(rule) -> bool:
     """True if `rule` can be evaluated at the bar's open, i.e. uses no data from later in the bar.
 
@@ -993,7 +1135,7 @@ def open_safe(rule) -> bool:
         return False
     try:
         compile_expr(rule)
-        tree = ast.parse(rule.strip(), mode="eval")
+        tree = ast.parse(pine_to_rule(rule).strip(), mode="eval")
     except (ValueError, SyntaxError):
         return False
 

@@ -909,6 +909,24 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
     tstats = metrics.trade_stats(res.trades, stats["years"])
     no_trades = res.kind == "signal" and not (tstats.get("trades") or tstats.get("open_trades"))
     warnings = metrics.result_warnings(res.kind, stats, tstats, res.interest, has_flows)
+    if no_trades and res.prices:
+        # no trades because an indicator's look-back is longer than the history: say so, not "never triggered"
+        t_long = max(res.prices, key=lambda t: len(res.prices[t]))
+        ns_ = _ns(res, t_long)
+        for rule in (getattr(s, "entry", None), getattr(s, "short_entry", None)):
+            cold = expr.never_defined(rule, ns_) if ns_ is not None else []
+            if cold:
+                seg, n = cold[0]
+                for w in warnings:
+                    if w.get("code") == "no_trades":
+                        w["detail"] = (f"The indicator never warmed up: {seg} needs {n or 'more'} bars, and {t_long}'s data "
+                                       f"has {len(res.prices[t_long])}. Shorten the look-back.")
+                break
+    # notes that reinterpret the user's words ("it" resolved to the entry's indicator...) are shown as warnings
+    for n in s.notes:
+        if isinstance(n, str) and n.startswith("Warning:"):
+            warnings.append({"code": "interpretation", "level": "warn", "message": "Check the interpretation",
+                             "detail": n[len("Warning:"):].strip()})
     if not no_trades:
         for c in metrics.caveats(stats):
             warnings.append({"code": "volatility_drag", "level": "info", "message": "Negative CAGR with a positive Sharpe ratio",
@@ -1112,7 +1130,8 @@ def console_summary(A: dict) -> str:
     s, st, ts, ex = A["strategy"], A["stats"], A["trade_stats"], A["exposure"]
     L = ["=" * 78, s.description or s.name or "(strategy)", "-" * 78, interpretation(s)]
     for n in s.notes:
-        L.append(f"Note: {n}")
+        if not n.startswith("Warning:"):   # those are listed with the warnings below
+            L.append(f"Note: {n}")
     for w in A.get("warnings") or []:
         tag = {"error": "WARNING", "warn": "Warning", "info": "Note"}.get(w["level"], "Warning")
         L.append(f"{tag}: {w['message']}. {w['detail']}")

@@ -102,14 +102,14 @@ Build page.
 |---|---|
 | Streaks and moves | down N days in a row, after 3 down days, down *exactly* N days, drops 2% in a day, up 10% over 5 days, gaps down 1%, 10% below / within 2% of / less than 10% below its 52-week high |
 | Averages | above/below/crosses its N-day (or N-week / N-month) SMA/EMA, "the 9 EMA crosses above the 21 EMA", "the 50 MA", "20 period EMA", EMA(9), 50-day MA above the 200-day MA, golden/death cross |
-| Oscillators | RSI(2) below 10, RSI crosses above 30, RSI(2) falls back below 30 / rises back above 70 (crossings), stochastic below 20, ADX above 25, CCI, Williams %R, MFI, MACD crosses its signal / turns positive, +DI above -DI, ATR(14) above 2% of price |
+| Oscillators | RSI(2) below 10, RSI crosses above 30, RSI(2) falls back below 30 / rises back above 70 (crossings), stochastic below 20, ADX above 25, CCI, Williams %R, MFI, MACD crosses its signal / turns positive, "MACD(12,26,9) crosses above signal", +DI above -DI, ATR(14) above 2% of price, "the 14 day ATR is above its 50 day average" |
 | Bands and trends | Bollinger ("the upper / middle / lower band" = 20-day SMA ± 2 sd), Keltner, Supertrend, Parabolic SAR, VWAP (rolling 20-day volume-weighted typical price on daily bars; "its 10 day VWAP"), closes above its 20-day high (breakout), new N-day low, all-time high, IBS, inside day, volume twice its 20-day average |
 | Other tickers | "…and SPY is above its 200-day moving average", "VIX is above 30", "sell when SPY closes below it" |
 | Calendar | on Mondays, in October, last / first / third / second-to-last trading day of the month, first 3 trading days of the month |
 | Ranking | "buy the 5 Nasdaq 100 stocks with the lowest RSI(2) each day, hold 3 days" (up to 5 positions; free slots go to the lowest RSI(2)) |
-| Entries | at the close / at the open (same day, rules must be knowable at the open) / next open; limit or stop orders ("a limit 2% below the close"); pyramiding |
-| Exits | hold N days, sell when …, "sell after 10 days or when RSI is above 70", "sell when it's over 70" (*it* = the entry's indicator; refused if the entry has several), a bare "RSI" takes the entry's period, "sell when it crosses back below", "sell at the open when …" (same open if the rule is known at the open, e.g. a gap; otherwise checked at the close and sold at the next open), "cover at the next open when …", % stop, ATR stop, trailing / chandelier stop, take profit, sell half at +X%. "buy TSLA while …" / "hold TSLA when …" with no exit: in the market while the condition holds |
-| Sizing | max N positions, X% per position, risk X% per trade, target X% volatility, $X or N shares per trade, 2x leverage |
+| Entries | at the close / at the open (same day, rules must be knowable at the open) / next open; limit or stop orders ("a limit 2% below the close"); pyramiding ("pyramid up to 3 entries": with no size given, each position's share is split across the entries); a gap rule with no timing ("buy QQQ when it gaps down 2%") fills at that day's open, when it becomes known; "on QQQ, go long when …" |
+| Exits | hold N days, sell when …, "sell after 10 days or when RSI is above 70", "sell when it's over 70", "sell when it is falling", "sell when they turn down" (*it* / *they* = what the entry is about: its indicator, e.g. the 50-day MA of "buy when the 50 day moving average is rising", or the price; refused if the entry is about several things; shown as a **Warning**), a bare "RSI" takes the entry's period, "sell when it crosses back below", "sell at the open when …" (same open if the rule is known at the open, e.g. a gap; otherwise checked at the close and sold at the next open), "cover at the next open when …", % stop, ATR stop, trailing / chandelier stop, "move the stop to breakeven after +2%", take profit, sell half at +X%, "cover when it closes above it". "buy TSLA while …" / "hold TSLA when …" with no exit: in the market while the condition holds |
+| Sizing | max N positions (with a short list of k < 10 tickers and no limit: k slots at 1/k each; otherwise 10 at 10%), X% per position, risk X% per trade, target X% volatility, $X or N shares per trade, 2x leverage |
 | Costs | bps or % slippage, volume-based slippage / market impact, $ per trade, $ per share, % commission, IBKR commissions (fixed or tiered), borrow fee, margin rate, short rebate X% below T-bills, 30% maintenance margin / no margin calls, cap at X% of volume |
 | Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, "when/whenever … hold X, otherwise Y", "unless … hold X, otherwise Y", top/bottom N by momentum/RSI/volatility, "the 2 of … with the highest …", "the best/worst performing of … over 10 days", "only if their 60 day return beats BIL's", rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
 | Directions in holdings | "buy/hold/go long X" = long; "short X", "go short X", "sell short X", "X short" = a short position (-100% of the slice plus the proceeds in cash); "sell X", "exit X", "cover X", "sell everything", "exit" in an if/otherwise branch = cash. "sell X" inside a list ("hold TQQQ and sell TMF") is refused as ambiguous. Two identical branches get a note; a comparison of a value with itself is refused |
@@ -123,7 +123,16 @@ Build page.
 
 Anything else can be written in the **rule language** inside backticks
 (`` `zscore(close, 20) < -2` ``). See `python -m backtester --help-expr` for about 60 functions and
-variables. If any part of a sentence isn't understood, the tool **refuses and names the words**. It
+variables. TradingView (Pine) spellings are translated: `close[1]` (= `ref(close, 1)`; fixed offsets of 0 or
+more only), `ta.sma`, `ta.ema`, `ta.rsi`, `ta.atr`, `ta.highest`, `ta.lowest`, `ta.stdev`, `ta.crossover`,
+`ta.crossunder`, `ta.change` (`diff`), `ta.barssince` (`bars_since`), `ta.valuewhen` (`valuewhen`),
+`ta.macd(close, 12, 26, 9)` (the MACD line; `macd_signal` / `macd_hist` for the others), `math.abs`, `and` /
+`or` / `not`. For simple state, `bars_since(cond)` counts the bars since `cond` was last true and
+`valuewhen(cond, x, k)` is `x` on the k-th most recent bar where `cond` was true (both causal).
+
+Notes that reinterpret one of your words (*it* resolved to the entry's indicator, a bare "RSI" given the
+entry's period) start with **Warning:** and are listed first on the command line, as warning banners in the
+report and flagged on the site. Check them. If any part of a sentence isn't understood, the tool **refuses and names the words**. It
 never quietly drops them or swaps in a different ticker.
 
 ## The report
@@ -249,7 +258,14 @@ python -m backtester tickers                                                 # w
 - **Pyramiding (TradingView rules).** With `pyramiding` 1 (the default), an entry signal that fires while the
   ticker's position is already held is ignored, not queued: a next-open order from a day the position was
   still open never fills after a stop closes it at that open. A position closed at a day's close is flat, so
-  that day's signal is valid.
+  that day's signal is valid. With `pyramiding` N and no size given, each entry gets 1/N of the position's
+  default share (a note says so), so every add-on has room.
+- **Today's signals and orders.** `signals` (and the daily Action, its webhook payload and `signals/latest.md`)
+  lists, besides new entries: exits made at today's close (market-on-close), exits for the next open (an exit
+  rule filled at the next open, a holding period ending at an open), holding periods ending on a later date,
+  and for each open position the stop (stop order) and target / scale-out (limit orders) levels for the next
+  session, marked one-cancels-other. They are what the backtest does: truncated at any day D, the scan's exits
+  equal the engine's trades on D and D+1 (tested). The orders page turns next-open exits into SELL orders.
 - **Sizing is what the summary says.** "200% per position" raises leverage to 2x (with a note) instead of
   being capped at 100%; a long stop of 100% or more, and a starting capital of zero or less, are refused.
   Volume caps on fills at the open use the previous day's volume.
@@ -258,6 +274,20 @@ python -m backtester tickers                                                 # w
   the close.
   - A stop and a target touched on the same bar count as the stop.
   - Gaps through a stop fill at the open.
+  - The stop and the target are one-cancels-other (OCA): whichever fills closes the position and cancels the
+    other.
+  - Trailing, chandelier and breakeven stops move with the best price reached, using each bar's high (low for
+    shorts) after that bar's own stop check: a level set by today's high applies from the next bar, because a
+    daily bar does not say whether its high came before its low. A breakeven stop ("move the stop to
+    breakeven after +2%", `breakeven_after: 0.02`) is a stop at the entry price, armed once the best price is
+    that far in favour.
+- **No dust trades.** Orders worth less than `min_order` (default $1) are skipped. When a pyramiding add-on
+  finds no room left (the position already uses the capital or leverage available) it is skipped and a
+  warning says how often.
+- **Slot contention.** When more tickers signal than there are free position slots and no ranking is given,
+  the most liquid are taken first: the highest 20-day average dollar volume (close × volume), as known when
+  the order is placed. A note says on how many days this happened; "prefer the lowest RSI" (or `rank_by`)
+  chooses differently.
 - **No lookahead.**
   - "At the close" rules use that day's data and fill at the close (market-on-close).
   - "At the open" rules may only use data known at the open. Anything else is automatically checked

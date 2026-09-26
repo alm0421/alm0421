@@ -181,8 +181,18 @@ def preflight(spec) -> list[str]:
         pairs = [(r, t0) for r in rules if isinstance(r, str)]
     for rule, t in pairs:
         df = frames.get(t) if t in frames else data.load(t)
-        d = rule_first_defined(rule, Namespace(df, ticker=t))
+        ns_ = Namespace(df, ticker=t)
+        d = rule_first_defined(rule, ns_)
         stop = end if end is not None else df.index[-1]
+        if d is None:
+            from .expr import never_defined
+            cold = never_defined(rule, ns_)
+            if cold:
+                seg, n = cold[0]
+                need = f"needs {n} bars" if n else "needs more bars than there are"
+                raise ValueError(f"Indicator never warmed up: {seg} {need}, and {t}'s data has {len(df)} "
+                                 f"({df.index[0].date()} to {df.index[-1].date()}), so the rule {rule!r} can never be "
+                                 "true. Shorten the look-back.")
         if d is not None and d > stop:
             raise ValueError(f"The rule {rule!r} needs more history than there is: on {t} its indicators first have a "
                              f"value on {d.date()}, after the end of the period ({stop.date()}). Shorten the look-back "
@@ -205,7 +215,10 @@ def cmd_run(argv: list[str]) -> int:
     extra = preflight(spec)   # the same checks for a dry run and a real run: fail before printing a clean interpretation
     if a.dry_run:
         print(spec.summary())
-        for n in spec.notes + extra:
+        allnotes = spec.notes + extra
+        for n in [n for n in allnotes if n.startswith("Warning:")]:   # reinterpreted words: shown first
+            print("WARNING:", n[len("Warning:"):].strip())
+        for n in [n for n in allnotes if not n.startswith("Warning:")]:
             print("Note:", n)
         print(spec.to_json())
         return 0

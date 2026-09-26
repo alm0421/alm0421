@@ -53,6 +53,8 @@ class Strategy:
     take_profit_atr: float | None = None
     trailing_stop: float | None = None           # 0.08 = exit 8% below highest high since entry
     trailing_atr: float | None = None            # chandelier: N x ATR below highest high since entry
+    breakeven_after: float | None = None         # 0.02 = once the best price since entry is 2% in favour, a stop
+                                                 # at the entry price (breakeven) is added; armed from the next bar
     atr_period: int = 14
     scale_out: list[dict] = field(default_factory=list)   # [{"at": 0.05, "fraction": 0.5}, ...]
 
@@ -68,6 +70,7 @@ class Strategy:
     rank_by: str | None = None                   # when more signals than free slots, prefer highest value
     rank_ascending: bool = False
     fractional_shares: bool = True
+    min_order: float = 1.0                       # orders worth less than this ($) are skipped (no dust trades)
     point_in_time: bool = True                   # only enter index stocks while they were members
     universe_name: str | None = None             # e.g. "NDX" when the universe is an index
     benchmark: str | None = None                 # comparison ticker for alpha/beta (default SPY)
@@ -98,13 +101,21 @@ class Strategy:
     notes: list[str] = field(default_factory=list)
 
     def validate(self) -> None:
-        from .expr import compile_expr, open_safe
+        from .expr import compile_expr, open_safe, pine_to_rule
         if not self.universe:
             raise ValueError("universe is empty")
+        for name in ("entry", "short_entry", "exit_when", "entry_level", "rank_by"):
+            v = getattr(self, name)
+            if isinstance(v, str):   # TradingView spellings (close[1], ta.sma) -> the rule language
+                setattr(self, name, pine_to_rule(v))
         if not any([self.hold_bars is not None, self.exit_when, self.stop_loss, self.take_profit, self.trailing_stop,
-                    self.stop_atr, self.take_profit_atr, self.trailing_atr, self.side == "both"]):
+                    self.stop_atr, self.take_profit_atr, self.trailing_atr, self.breakeven_after, self.side == "both"]):
             raise ValueError("strategy needs at least one exit rule (hold_bars, exit_when, stop_loss, "
-                             "take_profit, trailing_stop, stop_atr, trailing_atr)")
+                             "take_profit, trailing_stop, stop_atr, trailing_atr, breakeven_after)")
+        if self.breakeven_after is not None and not self.breakeven_after > 0:
+            raise ValueError("breakeven_after must be positive (0.02 = move the stop to the entry price after +2%)")
+        if self.min_order is None or self.min_order < 0:
+            raise ValueError("min_order cannot be negative")
         try:
             cap_ok = float(self.capital) > 0
         except (TypeError, ValueError):
@@ -175,7 +186,16 @@ class Strategy:
             raise ValueError(f"maintenance_margin ({self.maintenance_margin:.0%}) is above the initial margin of "
                              f"{self.leverage:g}x leverage ({1 / self.leverage:.0%}); lower one of them.")
         if self.position_size is None:
-            self.position_size = self.leverage / self.max_positions
+            per = self.leverage / self.max_positions
+            if (self.pyramiding or 1) > 1 and self.sizing == "percent":
+                # the default size is the position's full share: each of the N allowed entries buys 1/N of it, so
+                # every add-on has room (a first entry of the whole share would leave nothing to pyramid with)
+                self.position_size = per / self.pyramiding
+                self.notes = [n for n in self.notes if not n.startswith("Pyramiding:")]
+                self.notes.append(f"Pyramiding: no size per entry given, so each position's {per:.0%} is split across its "
+                                  f"{self.pyramiding} allowed entries: {self.position_size:.2%} of equity per entry.")
+            else:
+                self.position_size = per
         if self.sizing == "percent" and self.position_size > self.leverage + 1e-12:
             # "200% per position" at 1x would be silently capped to 100%: run what was asked instead
             need = float(self.position_size)
@@ -263,7 +283,10 @@ class Strategy:
         if self.trailing_stop:
             ex.append(f"trailing stop {f(self.trailing_stop, '.1%')}")
         if self.trailing_atr:
-            ex.append(f"chandelier stop {f(self.trailing_atr, 'g')}x ATR({self.atr_period}) from the high")
+            extreme = {"long": "the high", "short": "the low"}.get(self.side, "the high (longs) / low (shorts)")
+            ex.append(f"chandelier stop {f(self.trailing_atr, 'g')}x ATR({self.atr_period}) from {extreme}")
+        if self.breakeven_after:
+            ex.append(f"stop moves to breakeven (the entry price) after +{f(self.breakeven_after, '.1%')}")
         for so in self.scale_out or []:
             ex.append(f"sell {f(so.get('fraction'), '.0%')} at +{f(so.get('at'), '.1%')}")
         if self.side == "both" and not ex:

@@ -23,6 +23,15 @@ def main() -> None:
         lines.append(f"## {r['name']} (paper trading since {r['registered']})")
         lines.append(f"- forward return {report.pct(r.get('return'))}, max drawdown {report.pct(r.get('max_drawdown'))}, {r.get('days', 0)} days")
         lines.append(f"- today ({r['today']['as_of']}): {r['today'].get('action', '')}")
+        for e in r["today"].get("exit_signals", [])[:30]:
+            lines.append(f"  - exit: {e['action']} {e['ticker']} {e['when']} ({e['reason']}"
+                         + (", already filled" if e.get("done") and e.get("order") != "MOC" else "") + ")")
+        for o in r["today"].get("exit_orders", [])[:30]:
+            if o.get("price") is not None:
+                lines.append(f"  - exit order: {o['action']} {o['order']} {o['ticker']} @ {o['price']} ({o['reason']}"
+                             + (", one-cancels-other" if o.get("oca") else "") + ")")
+            else:
+                lines.append(f"  - exit order: {o['action']} {o['ticker']} at the next open if {o['reason']}")
         for e in r["today"].get("entry_signals", [])[:30]:
             lines.append(f"  - {e['side']} {e['ticker']} @ {e['close']}")
         lines.append("")
