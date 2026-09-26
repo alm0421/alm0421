@@ -130,8 +130,17 @@ def analyze(returns: pd.Series, model: str = "ff3", freq: str = "monthly", start
         fm = monthly_factors(fd)
         df = pd.concat([rm.rename("r"), fm], axis=1, join="inner").dropna()
         # drop partial first/last months
+        # drop the first/last month only when the data covers part of it (a short month in the
+        # middle, like September 2001, is a full month of returns)
         days = r.resample("ME").count().reindex(df.index)
-        df = df[days >= 0.8 * days.median()]
+        keep = pd.Series(True, index=df.index)
+        if len(df):
+            first_m, last_m = r.index[0], r.index[-1]
+            if first_m.day > 7 and days.iloc[0] < 0.8 * days.median():
+                keep.iloc[0] = False
+            if len(df) > 1 and days.iloc[-1] < 0.8 * days.median() and (last_m + pd.offsets.BMonthEnd(0)).date() != last_m.date():
+                keep.iloc[-1] = False
+        df = df[keep]
         per_year, min_obs = 12, 24
     else:
         df = pd.concat([r.rename("r"), fd], axis=1, join="inner").dropna()

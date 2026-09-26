@@ -309,7 +309,10 @@ def run(s: Settings) -> dict:
             Z = Z * np.sqrt((t_df - 2) / chi)   # covariance stays equal to cov
         A = np.maximum(mu + Z, -1.0)
         if fixed_infl is None:
-            full = monthly_inflation().to_numpy()
+            # inflation from the same window as the asset returns, so real results are consistent
+            # across models (the full 1947+ CPI history would mix eras)
+            hi = hist_infl.dropna()
+            full = hi.to_numpy() if len(hi) >= 24 else monthly_inflation().dropna().to_numpy()
             I = full[_draw_blocks(rng, len(full), months, sims, max(s.block_months, 1))]
     if fixed_infl is not None:
         I = np.full((sims, months), (1 + fixed_infl) ** (1 / 12) - 1)
