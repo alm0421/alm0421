@@ -25,7 +25,11 @@ import yfinance as yf
 
 ROOT = Path(__file__).resolve().parent.parent
 PRICES = ROOT / "data" / "prices"
-UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) backtester-data-fetch"}
+UA = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/126.0 Safari/537.36 backtester-data-fetch (github.com/alm0421/alm0421)",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 # Used only if both live constituent sources fail.
 FALLBACK_NDX = """
@@ -41,26 +45,37 @@ XEL ZS
 EXTRA = ["QQQ", "SPY"]
 
 
-def ndx_from_wikipedia() -> list[str]:
-    html = requests.get("https://en.wikipedia.org/wiki/Nasdaq-100", headers=UA, timeout=30).text
+TICKER_RE = r"^[A-Z]{1,5}([.-][A-Z])?$"
+
+
+def tickers_from_html(url: str) -> list[str]:
+    """Find a column of ~100 ticker-shaped strings (including MSFT) in any table on the page."""
+    html = requests.get(url, headers=UA, timeout=30).text
     for t in pd.read_html(io.StringIO(html)):
-        cols = [str(c).lower() for c in t.columns]
-        for key in ("ticker", "symbol"):
-            if key in cols:
-                syms = t.iloc[:, cols.index(key)].astype(str).str.strip().tolist()
-                if 90 <= len(syms) <= 110:
-                    return syms
+        for col in t.columns:
+            vals = t[col].astype(str).str.strip()
+            syms = vals[vals.str.match(TICKER_RE)].tolist()
+            if 90 <= len(syms) <= 110 and "MSFT" in syms:
+                return syms
     raise RuntimeError("constituents table not found")
 
 
 def ndx_from_nasdaq() -> list[str]:
-    r = requests.get("https://api.nasdaq.com/api/quote/list-type/nasdaq100", headers=UA, timeout=30)
+    r = requests.get("https://api.nasdaq.com/api/quote/list-type/nasdaq100", headers=UA, timeout=20)
     rows = r.json()["data"]["data"]["rows"]
     return [row["symbol"].strip() for row in rows]
 
 
+SOURCES = (
+    ("wikipedia", lambda: tickers_from_html("https://en.wikipedia.org/wiki/Nasdaq-100")),
+    ("stockanalysis.com", lambda: tickers_from_html("https://stockanalysis.com/list/nasdaq-100-stocks/")),
+    ("slickcharts.com", lambda: tickers_from_html("https://www.slickcharts.com/nasdaq100")),
+    ("nasdaq.com", ndx_from_nasdaq),
+)
+
+
 def constituents() -> tuple[list[str], str]:
-    for name, fn in (("wikipedia", ndx_from_wikipedia), ("nasdaq.com", ndx_from_nasdaq)):
+    for name, fn in SOURCES:
         try:
             syms = fn()
             if len(syms) >= 90:
@@ -105,6 +120,21 @@ def main() -> None:
                 time.sleep(2 * (attempt + 1))
         else:
             failed.append(t)
+    # Drop constituents whose history stopped (delisted / acquired) or is too short to be real.
+    last_bench = max(pd.Timestamp(ok[b]["last"]) for b in EXTRA if b in ok)
+    stale = [
+        t for t in ndx
+        if t in ok and ((last_bench - pd.Timestamp(ok[t]["last"])).days > 10 or ok[t]["rows"] < 5)
+    ]
+    for t in stale:
+        print(f"dropping {t}: stale or too little data {ok[t]}")
+        (PRICES / f"{t}.csv").unlink(missing_ok=True)
+        ok.pop(t)
+    ndx = [t for t in ndx if t in ok]
+    # remove files for tickers no longer in the universe
+    for f in PRICES.glob("*.csv"):
+        if f.stem not in ok:
+            f.unlink()
     meta = {
         "updated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "constituent_source": source,
@@ -112,10 +142,11 @@ def main() -> None:
         "benchmarks": EXTRA,
         "tickers": ok,
         "failed": failed,
+        "dropped_stale": stale,
     }
     (ROOT / "data" / "universe.json").write_text(json.dumps(meta, indent=1))
     print(f"done: {len(ok)} ok, {len(failed)} failed {failed}")
-    if len(ok) < len(tickers) * 0.9:
+    if len(ok) < len(tickers) * 0.85:
         sys.exit(1)
 
 
