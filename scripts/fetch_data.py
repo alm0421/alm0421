@@ -204,7 +204,7 @@ def components_section(wikitext: str) -> str:
     nxt = re.search(r"(?m)^==[^=]", rest)
     sec = rest[: nxt.start()] if nxt else rest
     # cut "===Historical components===" / "===Changes...===" subsections
-    cut = re.search(r"(?im)^===+\s*(?:historical|former|changes|yearly|past|removed)", sec)
+    cut = re.search(r"(?im)^===+[^=\n]*\b(?:historical|former|changes?|yearly|past|removed|additions|deletions|annual)\b", sec)
     return sec[: cut.start()] if cut else sec
 
 
@@ -247,6 +247,9 @@ def wiki_revision_at(ts: str, title: str = "Nasdaq-100") -> tuple[int, str, str]
     return rev["revid"], rev["timestamp"], rev["slots"]["main"]["content"]
 
 
+MEMBERSHIP_LOG: list[str] = []
+
+
 def update_membership() -> pd.DataFrame:
     """Monthly snapshots of Nasdaq-100 membership reconstructed from Wikipedia's revision history."""
     have = pd.read_csv(MEMBERSHIP, dtype=str) if MEMBERSHIP.exists() else pd.DataFrame(columns=["month", "revid", "timestamp", "count", "tickers"])
@@ -284,6 +287,9 @@ def update_membership() -> pd.DataFrame:
                 found = (revid, stamp, syms)
                 break
             print(f"membership {key}: {title} revision {revid} gave {len(syms)} symbols, skipped")
+            MEMBERSHIP_LOG.append(f"{key}\t{title}\t{revid}\t{len(syms)} symbols\tskipped\t"
+                                  f"section={'yes' if components_section(text) is not text else 'no'}\t"
+                                  f"sample={' '.join(sorted(syms)[:12])}")
         if not found:
             continue
         revid, stamp, syms = found
@@ -294,6 +300,7 @@ def update_membership() -> pd.DataFrame:
         have = pd.concat([have[~have["month"].isin(new["month"])], new]).sort_values("month")
         have.to_csv(MEMBERSHIP, index=False)
     print(f"membership: {len(have)} monthly snapshots ({have['month'].min()} .. {have['month'].max()})")
+    (ROOT / "data" / "membership_log.tsv").write_text("\n".join(MEMBERSHIP_LOG) + "\n")
     return have
 
 
