@@ -90,6 +90,7 @@ class Settings:
     series_name: str = "Portfolio"
     stress: str | None = None                     # None, "worst_sequence" or "shock"
     stress_years: int = 10                        # length of the worst historical sequence placed first
+    expense_ratio: float = 0.0                    # annual fee on the portfolio, taken monthly
     stress_shock: float = -0.30                   # first-year return of the "shock" stress test
     age: float | None = None                      # current age: with until_age, the horizon is until_age - age
     until_age: float | None = None
@@ -352,6 +353,11 @@ def run(s: Settings) -> dict:
         k = int(min(max(1, s.stress_years) * 12, months, len(H)))
         hp = H @ w if n > 1 else H[:, 0]
         logg = np.log1p(np.maximum(hp, -0.999999))
+        if fixed_infl is None and any(getattr(f, "inflation_adjusted", False) and (f.amount or f.pct) and (f.amount < 0 or f.pct < 0) for f in (s.flows or [])):
+            # with inflation-indexed cash flows the damaging sequence is the worst in real terms (the 1970s)
+            hi0 = hist_infl.reindex(hist.index).to_numpy() if hasattr(hist_infl, "reindex") else np.asarray(hist_infl)
+            hi0 = np.where(np.isfinite(hi0), hi0, 0.0)
+            logg = logg - np.log1p(hi0[: len(logg)])
         c = np.concatenate([[0.0], np.cumsum(logg)])
         tot = c[k:] - c[:-k]
         j = int(np.argmin(tot))
@@ -380,6 +386,8 @@ def run(s: Settings) -> dict:
         notes.append(f"Stress test: every path loses {-shock:.0%} in its first year" if shock < 0 else
                      f"Stress test: every path returns {shock:.0%} in its first year")
         notes[-1] += f" (evenly over {k} months), then continues with the {s.model} model."
+    if s.expense_ratio:
+        P = P - s.expense_ratio / 12.0
     B = simulate_balances(P, cum_infl, s.start_balance, s.flows)
     R = B / cum_infl
 
@@ -490,7 +498,12 @@ def settings_from_spec(spec, s: Settings) -> tuple[dict[str, float], str]:
     assets (so rebalancing matters); anything else (rules, rotations, signals) resamples the
     strategy's own monthly returns. Returns (weights, name) and sets s.series when needed."""
     name = getattr(spec, "name", "") or getattr(spec, "description", "") or "Strategy"
+    # the spec's own money: its starting balance (unless the caller set one) and fees
+    if s.start_balance == Settings.start_balance and getattr(spec, "capital", None):
+        s.start_balance = float(spec.capital)
     w = weights_from_tree(spec.tree) if hasattr(spec, "tree") else None
+    if w:
+        s.expense_ratio = float(getattr(spec, "expense_ratio", 0.0) or 0.0)
     if w:
         if getattr(spec, "leverage", 1.0) == 1.0:
             rb = getattr(spec, "rebalance", "yearly")

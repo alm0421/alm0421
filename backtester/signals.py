@@ -41,27 +41,71 @@ def scan(spec) -> dict:
         {"ticker": r.ticker, "side": r.side, "since": str(r.entry_date), "entry_price": round(float(r.entry_price), 4),
          "last_price": round(float(r.exit_price), 4), "unrealized_return": round(float(r["return"]), 4)}
         for _, r in open_now.iterrows()]
-    sig = []
+    held = {r["ticker"] for r in out["open_positions"]}
+    sig, assumed = [], False
     for t in spec.universe:
         t = data.canonical(t)
         df = data.load(t)
         if df.index[-1] != last:
             continue
-        ns = expr.Namespace(df, ticker=t)
+        if spec.entry_fill == "open":
+            # an "at the open" rule decides on the NEXT bar's open: evaluate it on a provisional next bar
+            # whose open is today's close (exact for the parts that use earlier bars; open-dependent parts
+            # such as gaps are only a preview and are flagged)
+            from . import calendar as _cal
+            nxt = _cal.next_sessions(last)[0]
+            c = float(df["close"].iloc[-1])
+            row = {col: df[col].iloc[-1] for col in df.columns}
+            row.update({"open": c, "high": c, "low": c, "close": c, "volume": 0.0, "dividend": 0.0})
+            if "adj_close" in df:
+                row["adj_close"] = float(df["adj_close"].iloc[-1])
+            if "open_ok" in df:
+                row["open_ok"] = True
+            ext = pd.concat([df, pd.DataFrame([row], index=pd.DatetimeIndex([nxt]))])
+            ns = expr.Namespace(ext, ticker=t)
+            assumed = assumed or bool({"open", "gap"} & expr.names_in(spec.entry if isinstance(spec.entry, str) else ""))
+        else:
+            ns = expr.Namespace(df, ticker=t)
         rules = [("long" if spec.side != "short" else "short", spec.entry)]
         if spec.side == "both":
             rules.append(("short", spec.short_entry))
         for side, rule in rules:
             if bool(expr.evaluate(rule, ns).iloc[-1]):
-                sig.append({"ticker": t, "side": side, "close": round(float(df["close"].iloc[-1]), 4)})
+                rank = None
+                if spec.rank_by and isinstance(spec.rank_by, str):
+                    try:
+                        rank = float(expr.evaluate_value(spec.rank_by, expr.Namespace(df, ticker=t)).iloc[-1])
+                    except Exception:  # noqa: BLE001
+                        rank = None
+                if rank is None:
+                    rank = float((df["close"] * df["volume"]).rolling(20, min_periods=1).mean().iloc[-1])
+                sig.append({"ticker": t, "side": side, "close": round(float(df["close"].iloc[-1]), 4), "_rank": rank})
     if spec.universe_name == "NDX" and spec.point_in_time:
         cur = set(data.nasdaq100())
         sig = [s for s in sig if s["ticker"] in cur]
+    # like the engine: no second entry in a ticker already held (unless pyramiding), and only as many
+    # new positions as there are free slots, best-ranked first
+    skipped = []
+    if getattr(spec, "pyramiding", 1) <= 1:
+        skipped = [s["ticker"] for s in sig if s["ticker"] in held]
+        sig = [s for s in sig if s["ticker"] not in held]
+    free = max(0, int(spec.max_positions) - len(held))
+    sig.sort(key=lambda s: s["_rank"], reverse=not getattr(spec, "rank_ascending", False))
+    over = [s["ticker"] for s in sig[free:]]
+    sig = sig[:free]
+    for s_ in sig:
+        s_.pop("_rank", None)
     out["entry_signals"] = sig
+    out["skipped_already_held"] = skipped
+    out["skipped_no_free_slot"] = over
+    if assumed:
+        out["note"] = ("The rule depends on the next open (e.g. a gap): this preview assumes the market opens at "
+                       "today's close; the order only triggers if the actual open meets the condition.")
     fill = {"close": "at today's close (market-on-close)", "open": "at the next open (rule is open-time)",
             "next_open": "at the next open", "next_close": "at the next close"}[spec.entry_fill]
     out["action"] = (f"{len(sig)} entry signal(s) {fill}" if sig else "No new entry signals") + \
-                    (f"; {len(out['open_positions'])} position(s) open" if out["open_positions"] else "")
+                    (f"; {len(out['open_positions'])} position(s) open" if out["open_positions"] else "") + \
+                    (f"; {len(over)} more signal(s) with no free slot" if over else "")
     return out
 
 

@@ -116,6 +116,20 @@ def _prepare(strat: Strategy):
     tickers = [data.canonical(t) for t in strat.universe]
     dfs = data.load_many(tickers)
     start = pd.Timestamp(strat.start) if strat.start else None
+    if strat.universe_name == "NDX" and strat.point_in_time:
+        mem = data.membership()
+        if mem is not None and len(mem):
+            first_snap = mem.index[0]
+            if strat.end and pd.Timestamp(strat.end) < first_snap:
+                raise ValueError(f"Point-in-time Nasdaq-100 membership is only known from {first_snap.date()}, and this "
+                                 f"test ends on {pd.Timestamp(strat.end).date()}. Use a later period, or name the tickers "
+                                 "(or say 'using today's members only', which carries survivorship bias).")
+            if start is None or start < first_snap:
+                strat.notes.append(
+                    f"Membership: point-in-time Nasdaq-100 membership is known from {first_snap.date()}, so the test "
+                    f"starts there{'' if start is None else f' (not {start.date()})'}; an earlier start would need a "
+                    "member list from hindsight.")
+                start = first_snap
     end = pd.Timestamp(strat.end) if strat.end else None
     cal = None
     for df in dfs.values():
@@ -211,10 +225,7 @@ def _prepare(strat: Strategy):
         cov = data.coverage_note(str(cal[0].date()), str(cal[-1].date()))
         if cov and not any(n.startswith("Survivorship:") for n in strat.notes):
             strat.notes.append(cov)
-        if first is not None and cal[0] < first and not any(n.startswith("Membership:") for n in strat.notes):
-            strat.notes.append(
-                f"Membership: point-in-time Nasdaq-100 membership starts {first.date()}; before that the "
-                f"earliest known member list is used, so results before {first.year} still carry survivorship bias.")
+
     elif N > 1:
         live = valid.sum(axis=1)
         need = max(2, int(0.5 * N))

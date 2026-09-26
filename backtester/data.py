@@ -82,11 +82,12 @@ SIMS = {"SPYSIM": "US stock market (Fama-French market return) spliced into SPY"
         "VBRSIM": "US small-cap value (Fama-French small/high B/M) from 1926, spliced into VBR",
         "VTVSIM": "US large-cap value (Fama-French big/high B/M) from 1926, spliced into VTV",
         "VUGSIM": "US large-cap growth (Fama-French big/low B/M) from 1926, spliced into VUG",
-        "EFASIM": "Developed ex-US stocks (Fama-French) from 1990, spliced into EFA",
+        "EFASIM": "Developed ex-US stocks: Fama-French EAFE-region index (monthly) from 1975, daily from 1990, spliced into EFA",
+        "VNQSIM": "US REITs: FTSE Nareit All Equity REITs total return (monthly) from 1972, spliced into VNQ",
         "GLDSIM": "Gold (World Bank monthly average price, stepped daily) from 1960, spliced into GLD",
         "LQDSIM": "Investment-grade corporates priced off Moody's Aaa/Baa yields from 1953, spliced into LQD",
         "EEMSIM": "Emerging markets (Fama-French, monthly steps) from 1989, spliced into EEM",
-        "DBCSIM": "Commodities (World Bank spot price indexes, monthly steps) from 1960, spliced into DBC"}
+}
 
 
 def is_sim(ticker: str) -> bool:
@@ -265,8 +266,11 @@ def nasdaq100_ever() -> list[str]:
 
 
 def member_mask(tickers: list[str], index: pd.DatetimeIndex) -> tuple[np.ndarray, pd.Timestamp | None]:
-    """(T x N) bool: was ticker a Nasdaq-100 member on each date? Before the first snapshot every
-    currently-known member is allowed (and the caller is told when point-in-time data begins)."""
+    """(T x N) bool: was ticker a Nasdaq-100 member on each date?
+
+    Only dates covered by point-in-time snapshots can have members: before the first snapshot nobody
+    is treated as a member (using a later list there would be pure survivorship bias). The quality
+    and company-identity checks apply on every date."""
     mem = membership()
     cur = set(nasdaq100())
     out = np.zeros((len(index), len(tickers)), bool)
@@ -279,20 +283,17 @@ def member_mask(tickers: list[str], index: pd.DatetimeIndex) -> tuple[np.ndarray
     # each day uses the latest snapshot at or before it; the current list covers the months after the last snapshot
     aligned = snap.reindex(index.union(snap.index)).ffill().reindex(index).fillna(False).astype(bool).to_numpy()
     out[:] = aligned
+    out[index < first] = False
+    last = snap.index[-1]
+    after = index >= last + pd.offsets.MonthBegin(1)
+    if after.any():
+        out[after] = np.array([t in cur for t in tickers])
     # never treat a junk or recycled-ticker series as the index member
     for j, t in enumerate(tickers):
         if t in IDENTITY_FROM:
             out[:, j] &= np.asarray(index >= pd.Timestamp(IDENTITY_FROM[t]))
         q = quality(t)
         out[:, j] &= q.reindex(index).fillna(False).to_numpy(dtype=bool) if not q.empty else False
-    before = index < first
-    if before.any():
-        # no point-in-time data this early: fall back to the earliest snapshot
-        out[before] = snap.iloc[0].to_numpy()
-    last = snap.index[-1]
-    after = index >= last + pd.offsets.MonthBegin(1)
-    if after.any():
-        out[after] = np.array([t in cur for t in tickers])
     return out, first
 
 
@@ -328,7 +329,9 @@ def load(ticker: str) -> pd.DataFrame:
         # FRED): keep only NYSE sessions so month-ends line up with every real ticker. Levels are
         # total-return indexes, so a dropped day's return simply rolls into the next session.
         from . import calendar as _cal
-        keep = np.array([_cal.is_session(d) for d in df.index])
+        # (the modern holiday rules only from 1972: earlier NYSE calendars differed - Saturday sessions,
+        # fixed-date holidays - so older rows are kept as they are)
+        keep = np.array([d.year < 1972 or _cal.is_session(d) for d in df.index])
         df = df[keep]
     # opening prices that were never quoted: missing, or a flat bar (open = high = low = close), as
     # for mutual funds, simulated series and very old index data. Such an "open" is really the close.
@@ -337,7 +340,8 @@ def load(ticker: str) -> pd.DataFrame:
     # old records often carry the previous close as the "open": where that happens on most days of a
     # rolling quarter, the open was never really quoted
     stale = (raw["open"] - raw["close"].shift(1)).abs() <= 1e-9 * raw["close"].abs().clip(lower=1)
-    df["open_ok"] &= ~(stale.astype(float).rolling(63, min_periods=20, center=True).mean().fillna(0) > 0.5)
+    # causal: judged on the quarter up to the day before (so it never depends on later bars)
+    df["open_ok"] &= ~(stale.astype(float).rolling(63, min_periods=20).mean().shift(1).fillna(0) > 0.5)
     return df
 
 
@@ -394,12 +398,28 @@ def tbill_rate() -> pd.Series:
 
 
 @lru_cache(maxsize=1)
+@lru_cache(maxsize=1)
 def cpi() -> pd.Series:
-    f = DATA / "macro" / "CPIAUCSL.csv"
-    if not f.exists():
+    """US CPI, indexed by the date each month's figure was published (about the 15th of the following
+    month), so inflation-indexed cash flows and real returns only use CPI that was known at the time.
+    Seasonally adjusted (CPIAUCSL) from 1947, not-seasonally-adjusted CPIAUCNS back to 1913 before that."""
+    parts = []
+    for sid in ("CPIAUCSL", "CPIAUCNS"):
+        f = DATA / "macro" / f"{sid}.csv"
+        if f.exists():
+            d = pd.read_csv(f, parse_dates=["date"], index_col="date")["value"]
+            parts.append(pd.to_numeric(d, errors="coerce").dropna())
+    if not parts:
         return pd.Series(dtype=float)
-    d = pd.read_csv(f, parse_dates=["date"], index_col="date")["value"]
-    return pd.to_numeric(d, errors="coerce").dropna()
+    s = parts[0]
+    if len(parts) > 1 and len(parts[1]) and parts[1].index[0] < s.index[0]:
+        older = parts[1][parts[1].index < s.index[0]]
+        if len(older):
+            # splice: scale the older series to meet the newer one at the join
+            join = parts[1].reindex([s.index[0]]).iloc[0] if s.index[0] in parts[1].index else older.iloc[-1]
+            s = pd.concat([older * (s.iloc[0] / join), s])
+    s.index = s.index + pd.offsets.MonthBegin(1) + pd.Timedelta(days=14)
+    return s
 
 
 @lru_cache(maxsize=1)

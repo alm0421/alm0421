@@ -25,7 +25,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install yfinance pandas requests lxml openpyxl
+      - run: pip install yfinance pandas requests lxml openpyxl xlrd
       - run: python scripts/fetch_data.py
         env:
           # optional: free keys let the job fill in delisted former Nasdaq-100 members (see README)
