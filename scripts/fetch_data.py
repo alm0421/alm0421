@@ -115,6 +115,12 @@ IAU GLDM PDBC GSG CPER KWEB FXI EWJ EWZ EWG EWU VGK VPL VXUS BNDX EMB IJH IJR VB
 XBI XHB XRT XME KRE KBE ITB JETS TAN ICLN LIT URA BITO IBIT GBTC
 VFINX VUSTX VBMFX VFITX VWESX VGSIX VWINX VWELX VTSMX VGTSX VIPSX FSUTX
 BTC-USD ETH-USD
+SVIX UVIX SVOL TSLL TSLQ NVDL NVDS BITX CONL MSTU USD HIBL HIBS TARK SARK BSV BIV BLV VCIT VCSH VGLT SPTL SPIB
+SCHP STIP VTIP SPHQ SPLV XLG QQQM SCHG SCHB SCHX SCHA SCHF SCHE VEU IXUS IEMG ACWI VT VSS VBR VBK VOE VOT VNQI
+REET RWR SCHH GDX GDXJ SIL PPLT PALL DBA DBB DBE DBO UNG CORN WEAT BNO COPX TAIL CTA DBMF PFIX RPAR NTSX
+JPM XOM BRK-B JNJ UNH V MA HD PG CVX LLY ABBV MRK KO BAC WFC DIS MCD NKE ORCL CRM IBM GE CAT BA GS MS C T VZ
+PFE TMO DHR ABT NEE DUK SO LMT RTX UPS UNP MMM
+VTSAX VTIAX VBTLX VGSLX VIMAX VSMAX VBIAX VWIAX VFIAX FXAIX FSKAX FTIHX SWPPX VTMGX VEMAX VSIAX VGSTX
 """.split()
 ETFS = list(dict.fromkeys(ETFS))
 INDEXES = ["^NDX", "^GSPC", "^VIX", "^IRX", "^TNX", "^DJI", "^RUT", "^SP500TR", "^VIX3M", "^TYX", "^FVX"]
@@ -163,8 +169,8 @@ FACTORS = ROOT / "data" / "factors"
 SHARES = ROOT / "data" / "shares"
 
 
-def save_prices(t: str, df: pd.DataFrame) -> dict:
-    df.round(6).to_csv(PRICES / f"{t}.csv", float_format="%.6g")
+def save_prices(t: str, df: pd.DataFrame, precision: str = "%.6g") -> dict:
+    df.round(6).to_csv(PRICES / f"{t}.csv", float_format=precision)
     return {"first": str(df.index[0].date()), "last": str(df.index[-1].date()), "rows": len(df)}
 
 
@@ -313,7 +319,10 @@ def fetch_factors() -> None:
     base = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
     for name, fn in (("ff3_daily", "F-F_Research_Data_Factors_daily_CSV.zip"),
                      ("ff5_daily", "F-F_Research_Data_5_Factors_2x3_daily_CSV.zip"),
-                     ("mom_daily", "F-F_Momentum_Factor_daily_CSV.zip")):
+                     ("mom_daily", "F-F_Momentum_Factor_daily_CSV.zip"),
+                     ("port6_daily", "6_Portfolios_2x3_daily_CSV.zip"),
+                     ("dev_ff3_daily", "Developed_ex_US_3_Factors_Daily_CSV.zip"),
+                     ("ind49_daily", "49_Industry_Portfolios_Daily_CSV.zip")):
         try:
             z = zipfile.ZipFile(io.BytesIO(requests.get(base + fn, headers=UA, timeout=120).content))
             raw = z.read(z.namelist()[0]).decode("latin-1").splitlines()
@@ -330,7 +339,7 @@ def fetch_factors() -> None:
             df = pd.DataFrame(rows, columns=["date"] + header[1:])
             df["date"] = pd.to_datetime(df["date"], format="%Y%m%d").dt.strftime("%Y-%m-%d")
             for c in header[1:]:
-                df[c] = pd.to_numeric(df[c]) / 100.0
+                df[c] = pd.to_numeric(df[c], errors="coerce").where(lambda x: x > -99) / 100.0
             df.to_csv(FACTORS / f"{name}.csv", index=False)
             print(f"factors {name}: {len(df)} rows, columns {header[1:]}")
         except Exception as e:  # noqa: BLE001
@@ -375,7 +384,7 @@ def _series_file(t: str, level: pd.Series, note: str) -> None:
     df = pd.DataFrame({"open": level, "high": level, "low": level, "close": level, "volume": 0,
                        "dividend": 0.0, "adj_close": level})
     df.index.name = "date"
-    save_prices(t, df)
+    save_prices(t, df, precision="%.10g")  # full precision: daily returns are rebuilt from these levels
     print(f"sim {t}: {len(df)} rows {df.index[0].date()} .. {df.index[-1].date()} ({note})")
 
 
@@ -412,7 +421,67 @@ def build_sims() -> list[str]:
         made += ["TLTSIM", "IEFSIM", "SHYSIM"]
     except Exception as e:  # noqa: BLE001
         print(f"sim bonds failed: {e}", file=sys.stderr)
+    # more asset classes from Ken French's data library (value-weighted portfolios, daily)
+    try:
+        p6 = pd.read_csv(FACTORS / "port6_daily.csv", parse_dates=["date"], index_col="date")
+        col = {c.upper().replace(" ", ""): c for c in p6.columns}
+        for t, key, real, note in (("VBRSIM", "SMALLHIBM", "VBR", "US small-cap value (Fama-French small/high B/M)"),
+                                   ("VTVSIM", "BIGHIBM", "VTV", "US large-cap value (Fama-French big/high B/M)"),
+                                   ("VUGSIM", "BIGLOBM", "VUG", "US large-cap growth (Fama-French big/low B/M)")):
+            if key in col:
+                _series_file(t, _splice(p6[col[key]].dropna(), real), note + ", then " + real)
+                made.append(t)
+        small = [c for k, c in col.items() if k.startswith("SMALL") or k.startswith("ME1")]
+        if small:
+            _series_file("VBSIM", _splice(p6[small].mean(axis=1).dropna(), "VB"), "US small-cap (Fama-French small portfolios), then VB")
+            made.append("VBSIM")
+    except Exception as e:  # noqa: BLE001
+        print(f"sim size/value failed: {e}", file=sys.stderr)
+    try:
+        dev = pd.read_csv(FACTORS / "dev_ff3_daily.csv", parse_dates=["date"], index_col="date")
+        _series_file("EFASIM", _splice((dev["Mkt-RF"] + dev["RF"]).dropna(), "EFA"),
+                     "developed ex-US market (Fama-French, from 1990), then EFA")
+        made.append("EFASIM")
+    except Exception as e:  # noqa: BLE001
+        print(f"sim EFASIM failed: {e}", file=sys.stderr)
+    try:
+        ind = pd.read_csv(FACTORS / "ind49_daily.csv", parse_dates=["date"], index_col="date")
+        re_col = next(c for c in ind.columns if c.strip().lower() in ("rlest", "real estate"))
+        _series_file("VNQSIM", _splice(ind[re_col].dropna(), "VNQ"), "US real estate industry (Fama-French 49 industries), then VNQ")
+        made.append("VNQSIM")
+    except Exception as e:  # noqa: BLE001
+        print(f"sim VNQSIM failed: {e}", file=sys.stderr)
+    try:
+        y5 = pd.read_csv(MACRO / "DGS5.csv", parse_dates=["date"], index_col="date")["value"].astype(float)
+        _series_file("IEISIM", _splice(_bond_returns(y5, 5), "IEI"), "5-year Treasury off the 5-year yield, then IEI")
+        made.append("IEISIM")
+    except Exception as e:  # noqa: BLE001
+        print(f"sim IEISIM failed: {e}", file=sys.stderr)
+    try:
+        g = gold_monthly()
+        daily = g.resample("B").ffill()
+        _series_file("GLDSIM", _splice(daily.pct_change().dropna(), "GLD"),
+                     "gold (World Bank monthly average price, stepped daily) from 1960, then GLD")
+        made.append("GLDSIM")
+    except Exception as e:  # noqa: BLE001
+        print(f"sim GLDSIM failed: {e}", file=sys.stderr)
     return made
+
+
+def gold_monthly() -> pd.Series:
+    """Monthly gold price (USD/oz) from the World Bank 'Pink Sheet' historical data (1960 onward)."""
+    page = requests.get("https://www.worldbank.org/en/research/commodity-markets", headers=UA, timeout=60).text
+    m = re.search(r'https://thedocs\.worldbank\.org/[^"\']+CMO-Historical-Data-Monthly\.xlsx', page)
+    if not m:
+        raise RuntimeError("Pink Sheet link not found")
+    raw = pd.read_excel(io.BytesIO(requests.get(m.group(0), headers=UA, timeout=120).content),
+                        sheet_name="Monthly Prices", header=None)
+    hdr = next(i for i in range(min(len(raw), 20)) if any(str(v).strip() == "Gold" for v in raw.iloc[i]))
+    gcol = next(j for j, v in enumerate(raw.iloc[hdr]) if str(v).strip() == "Gold")
+    rows = raw.iloc[hdr + 1:]
+    rows = rows[rows[0].astype(str).str.fullmatch(r"\d{4}M\d{2}")]
+    idx = pd.to_datetime(rows[0].str.replace("M", "-") + "-01") + pd.offsets.MonthEnd(0)
+    return pd.Series(pd.to_numeric(rows[gcol], errors="coerce").to_numpy(), index=idx).dropna()
 
 
 def main() -> None:

@@ -76,7 +76,15 @@ SIMS = {"SPYSIM": "US stock market (Fama-French market return) spliced into SPY"
         "TLTSIM": "20-year Treasuries priced from FRED yields, spliced into TLT",
         "IEFSIM": "~9-year Treasuries from the 10-year yield, spliced into IEF",
         "SHYSIM": "2-year Treasuries from the 2-year yield, spliced into SHY",
-        "BILSIM": "1-month T-bills (Fama-French RF), spliced into BIL"}
+        "BILSIM": "1-month T-bills (Fama-French RF), spliced into BIL",
+        "IEISIM": "5-year Treasuries from the 5-year yield, spliced into IEI",
+        "VBSIM": "US small caps (Fama-French small portfolios) from 1926, spliced into VB",
+        "VBRSIM": "US small-cap value (Fama-French small/high B/M) from 1926, spliced into VBR",
+        "VTVSIM": "US large-cap value (Fama-French big/high B/M) from 1926, spliced into VTV",
+        "VUGSIM": "US large-cap growth (Fama-French big/low B/M) from 1926, spliced into VUG",
+        "VNQSIM": "US real estate (Fama-French 49-industry RlEst) from 1926, spliced into VNQ",
+        "EFASIM": "Developed ex-US stocks (Fama-French) from 1990, spliced into EFA",
+        "GLDSIM": "Gold (World Bank monthly average price, stepped daily) from 1960, spliced into GLD"}
 
 
 def is_sim(ticker: str) -> bool:
