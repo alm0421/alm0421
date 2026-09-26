@@ -802,6 +802,7 @@ def api_fetch(body):
         return {"ticker": t, "status": "already available"}
     if data.fetch_on_demand(t):
         data.load.cache_clear()
+        data._nasdaq100_ever.cache_clear()
         return {"ticker": t, "status": "downloaded"}
     raise ClientError(f"Could not download {t} (unknown symbol, or no internet access from this machine). No data for {t}: "
                       "add it to data/extra_tickers.txt and run the 'Fetch price data' workflow (GitHub Actions), then pull.")

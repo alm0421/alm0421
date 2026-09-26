@@ -1081,7 +1081,7 @@ def first_defined(rule, ns) -> pd.Timestamp | None:
 # f(x, n): reads only its series argument x (close/high/low when x is left out)
 _OPEN_SERIES_FUNCS = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "stdev", "zscore", "ret", "roc", "rsi",
                       "tret", "pct_rank", "max_drawdown", "ma_return", "stdev_return", "drawdown"}
-_OPEN_ONE_SERIES = {"cummax", "cummin", "down_streak", "up_streak"}
+_OPEN_ONE_SERIES = {"cummax", "cummin", "down_streak", "up_streak", "quoted"}   # quoted(x): x on the quoted basis
 _OPEN_ELEMENTWISE = _VALUE_FUNCS | {"crossover", "crossunder"}
 
 
