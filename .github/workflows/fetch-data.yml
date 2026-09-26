@@ -1,0 +1,38 @@
+name: Fetch price data
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/fetch_data.py
+      - .github/workflows/fetch-data.yml
+  schedule:
+    - cron: "17 22 * * 1-5"   # weekdays after the US close
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-data
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install yfinance pandas requests lxml
+      - run: python scripts/fetch_data.py
+      - name: Commit data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then echo "no changes"; exit 0; fi
+          git commit -m "data: refresh daily prices ($(date -u +%F))"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
