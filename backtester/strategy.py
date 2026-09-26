@@ -40,7 +40,8 @@ class Strategy:
     pyramiding: int = 1                          # max entries per ticker while the signal repeats
 
     # exits (first one to trigger wins)
-    hold_bars: int | None = None                 # exit N bars after entry
+    hold_bars: int | None = None                 # exit exactly N bars after the entry bar, at hold_exit_fill, whatever
+                                                 # the entry fill (0 = the close of an entry made at the open)
     hold_exit_fill: Literal["close", "open"] = "close"
     exit_when: str | None = None                 # expression; may use bars_held / entry_price / pnl /
                                                  # highest_since_entry / lowest_since_entry
@@ -100,12 +101,33 @@ class Strategy:
         from .expr import compile_expr, open_safe
         if not self.universe:
             raise ValueError("universe is empty")
-        if not any([self.hold_bars, self.exit_when, self.stop_loss, self.take_profit, self.trailing_stop,
+        if not any([self.hold_bars is not None, self.exit_when, self.stop_loss, self.take_profit, self.trailing_stop,
                     self.stop_atr, self.take_profit_atr, self.trailing_atr, self.side == "both"]):
             raise ValueError("strategy needs at least one exit rule (hold_bars, exit_when, stop_loss, "
                              "take_profit, trailing_stop, stop_atr, trailing_atr)")
-        if self.hold_bars is not None and self.hold_bars < 1:
-            raise ValueError("hold_bars must be at least 1")
+        try:
+            cap_ok = float(self.capital) > 0
+        except (TypeError, ValueError):
+            cap_ok = False
+        if not cap_ok:
+            raise ValueError(f"starting capital must be positive (got {self.capital!r})")
+        self._apply_hold_compat()
+        if self.hold_bars is not None:
+            if self.hold_bars < 0:
+                raise ValueError("hold_bars cannot be negative")
+            if self.hold_bars == 0 and not (self.hold_exit_fill == "close" and self.enters_before_close()):
+                raise ValueError("hold_bars 0 (exit at the close of the entry bar) needs an entry before the close: at the "
+                                 "open, the next open, or a limit/stop order. Otherwise hold at least 1 bar.")
+        for name in ("stop_loss", "trailing_stop", "take_profit"):
+            v = getattr(self, name)
+            if v is not None and v < 0:
+                raise ValueError(f"{name} cannot be negative (write 0.05 for 5%)")
+        if self.side in ("long", "both"):
+            for name, label in (("stop_loss", "stop loss"), ("trailing_stop", "trailing stop")):
+                v = getattr(self, name)
+                if v is not None and v >= 1:
+                    raise ValueError(f"A {v:.0%} {label} can never trigger on a long position (the price cannot fall "
+                                     f"{v:.0%} or more). Use a value below 100%, e.g. 0.05 for 5%.")
         if self.max_positions < 1:
             raise ValueError("max_positions must be at least 1")
         if self.pyramiding < 1:
@@ -154,6 +176,37 @@ class Strategy:
                              f"{self.leverage:g}x leverage ({1 / self.leverage:.0%}); lower one of them.")
         if self.position_size is None:
             self.position_size = self.leverage / self.max_positions
+        if self.sizing == "percent" and self.position_size > self.leverage + 1e-12:
+            # "200% per position" at 1x would be silently capped to 100%: run what was asked instead
+            need = float(self.position_size)
+            self.notes = [n for n in self.notes if not n.startswith("Leverage:")]
+            self.notes.append(f"Leverage: {need:.0%} per position needs {need:g}x leverage: using {need:g}x "
+                              f"(raised from {self.leverage:g}x).")
+            self.leverage = need
+            if self.maintenance_margin > 1 / self.leverage + 1e-12:
+                raise ValueError(f"{need:.0%} per position needs {need:g}x leverage, whose initial margin "
+                                 f"({1 / need:.0%}) is below the {self.maintenance_margin:.0%} maintenance margin; "
+                                 "lower the position size or set a lower maintenance margin.")
+
+    def enters_before_close(self) -> bool:
+        """True when entries fill before the close of their bar (at the open or intraday)."""
+        return self.entry_order != "market" or self.entry_fill in ("open", "next_open")
+
+    def _apply_hold_compat(self) -> None:
+        """"cover at the close" with no holding period, after an entry at the open, means the close of the entry
+        bar (hold 0). Older parsers wrote hold_bars 1 plus a note for it; read that as hold 0."""
+        if (self.hold_bars == 1 and self.hold_exit_fill == "close" and self.enters_before_close()
+                and any(n.startswith("No holding period stated: exiting at the first close after entry") for n in self.notes)):
+            self.hold_bars = 0
+
+    def hold_text(self) -> str:
+        """The time exit in words: exactly N bars after the entry bar, at the configured fill."""
+        n = self.hold_bars
+        if n is None:
+            return ""
+        if n == 0:
+            return f"at the {self.hold_exit_fill} of the entry bar"
+        return f"at the {self.hold_exit_fill} {n} bar{'s' if n != 1 else ''} after the entry bar"
 
     def to_json(self) -> str:
         d = asdict(self)
@@ -195,7 +248,7 @@ class Strategy:
             lines.append(f"Pyramiding: up to {self.pyramiding} entries per ticker")
         ex = []
         if self.hold_bars is not None:
-            ex.append(f"after {self.hold_bars} bar(s) at the {self.hold_exit_fill}")
+            ex.append(self.hold_text())
         if self.exit_when:
             when = {"close": "same close", "open": "same open", "next_open": "next open"}[self.exit_when_fill]
             ex.append(f"when {self.exit_when} ({when})")
@@ -233,6 +286,7 @@ class Strategy:
         lines.append(
             f"Sizing: ${f(self.capital, ',.0f')} start, up to {self.max_positions} position(s), {sz}"
             + (f", max {f(lev, 'g')}x gross exposure" if lev != 1 else "")
+            + (" (raised automatically: the position size needs it)" if any(n.startswith("Leverage:") for n in self.notes or []) else "")
             + (f", ranked by {'lowest' if self.rank_ascending else 'highest'} {self.rank_by}" if self.rank_by else "")
         )
         costs = []
@@ -253,7 +307,7 @@ class Strategy:
             costs.append(f"orders capped at {f(self.max_volume_pct, '.1%')} of volume")
         if self.borrow_fee:
             costs.append(f"{f(self.borrow_fee, '.2%')}/yr borrow fee")
-        if self.side != "long" and self.short_rebate_spread:
+        if self.side != "long" and self.short_rebate_spread and self.cash_rate not in (None, 0, 0.0, False, ""):
             costs.append(f"short proceeds earn the cash rate less {f(self.short_rebate_spread, '.2%')}")
         if (self.side != "long" or (self.leverage or 1) > 1) and self.maintenance_margin:
             costs.append(f"{f(self.maintenance_margin, '.0%')} maintenance margin")

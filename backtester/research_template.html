@@ -85,9 +85,9 @@ code { background:var(--surface-2); padding:2px 6px; border-radius:6px; font-siz
       [['Combinations tried (that traded)', `${mt.n_trials} of ${mt.n_combinations}`],
        ['Best Sharpe', `${num(mt.best_sharpe)} ${JSON.stringify(mt.best_params || [])}`],
        ['Spread (sd) of Sharpe across combinations', num(mt.sd_sharpe)],
-       ['Expected best Sharpe from luck alone', `${num(mt.expected_max_sharpe)} (rough rule sd × √(2 ln N): ${num(mt.expected_max_sharpe_simple)})`],
+       ['Expected best Sharpe from luck alone', { t: num(mt.expected_max_sharpe), title: 'Bailey & López de Prado expected maximum of N no-skill Sharpe ratios; the Deflated Sharpe Ratio tests against this threshold' }],
        ['Deflated Sharpe Ratio', isNum(mt.dsr) ? { t: pct(mt.dsr, 1) + (sig ? ' — significant at 95%' : ' — not significant'), c: sig ? 'pos' : 'neg' } : '—'],
-      ].forEach(([k, v]) => { const tr = el('tr'); tr.append(el('td', {}, k)); const td = el('td', {}, v && typeof v === 'object' ? v.t : v); if (v && v.c) td.className = v.c; tr.append(td); tb.append(tr); });
+      ].forEach(([k, v]) => { const tr = el('tr'); tr.append(el('td', {}, k)); const td = el('td', {}, v && typeof v === 'object' ? v.t : v); if (v && v.c) td.className = v.c; if (v && v.title) td.title = v.title; tr.append(td); tb.append(tr); });
       t.append(tb); c.append(t);
       c.append(el('p', { class: 'note' }, 'Trying many combinations and keeping the best inflates its Sharpe. The Deflated Sharpe Ratio (Bailey & López de Prado, 2014) is the probability that the best combination\'s true Sharpe is above zero once the number of tries, the spread of results, the sample length and the skew/fat tails of its daily returns are allowed for. It treats the combinations as independent; neighbouring parameters are correlated, so the real number of independent tries is smaller.'));
     }

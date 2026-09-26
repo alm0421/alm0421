@@ -47,6 +47,9 @@ def _values(spec: str) -> list:
     return out
 
 
+ARTICLES = ("the", "a", "an")
+
+
 def _label(text: str, m: re.Match) -> str:
     """A readable column label for one placeholder, with the placeholder written out in full.
 
@@ -65,8 +68,10 @@ def _label(text: str, m: re.Match) -> str:
     word = text[a:b]
     if a < m.start():  # glued on the left: "RSI({2..5})" names itself
         return word
-    before = text[:a].split()  # free-standing or only a suffix ("{1..3}%"): prefix the previous word
-    return f"{before[-1].rstrip(',.;:')} {word}" if before else word
+    before = [w.rstrip(',.;:') for w in text[:a].split()]  # free-standing or only a suffix ("{1..3}%"): prefix the
+    while before and before[-1].lower() in ARTICLES:     # previous word, skipping articles ("buy the {3,5}" -> "buy {3,5}")
+        before.pop()
+    return f"{before[-1]} {word}" if before and before[-1] else word
 
 
 def expand(text: str) -> tuple[list[str], list[str], list[tuple]]:

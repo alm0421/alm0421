@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Backtest: __TITLE__</title>
+<link rel="icon" href="data:,">
 <style>
 :root {
   color-scheme: light;
@@ -138,10 +139,12 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     <div class="row"><h2 id="eqTitle">Equity curve</h2>
       <div class="ctrls">
         <div class="seg" id="valSeg"><button data-v="nav" class="on">Growth of start capital</button><button data-v="equity">Account value</button></div>
+        <div class="seg" id="realSeg" title="Deflate by CPI to dollars of the start date"><button data-v="nominal" class="on">Nominal</button><button data-v="real">After inflation</button></div>
         <div class="seg" id="scaleSeg"><button data-v="log" class="on">Log</button><button data-v="lin">Linear</button></div>
       </div></div>
     <div class="legend" id="eqLegend"></div>
     <div class="chart" id="eqChart"></div>
+    <p class="note" id="eqNote"></p>
   </div>
 
   <div class="card">
@@ -151,8 +154,9 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   </div>
 
   <div class="card">
-    <div class="row"><h2>Head-to-head <span class="pill" id="commonPeriod"></span></h2></div>
-    <p class="note" style="margin-top:0">All columns are measured over the same period (the latest start date among them), so the comparison is like-for-like.</p>
+    <div class="row"><h2>Head-to-head <span class="pill" id="commonPeriod"></span></h2>
+      <div class="seg" id="cmpSeg"><button data-v="full" class="on">Whole period</button><button data-v="common">Common period</button></div></div>
+    <p class="note" style="margin-top:0" id="cmpNote"></p>
     <div class="xscroll"><table id="cmpTbl"></table></div>
   </div>
 
@@ -164,6 +168,9 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   <div class="card" id="cashCard">
     <h2>Cash flows <span class="pill runName"></span></h2>
     <div class="xscroll"><table class="kv" id="cashTbl"></table></div>
+    <h3 id="bcashTitle">The same cash flows into the benchmarks</h3>
+    <div class="xscroll"><table id="bcashTbl"></table></div>
+    <p class="note" id="bcashNote"></p>
   </div>
 
   <div class="card" id="priceCard">
@@ -184,8 +191,14 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     <div class="xscroll"><table id="holdTbl"></table></div>
   </div>
 
+  <div class="card" id="attrCard">
+    <h2 id="attrTitle">P&amp;L by holding <span class="pill runName"></span></h2>
+    <div class="scroll" style="max-height:420px"><table id="attrTbl"></table></div>
+    <p class="note" id="attrNote"></p>
+  </div>
+
   <div class="card">
-    <div class="row"><h2>Returns by year</h2><div class="legend" id="yrLegend"></div></div>
+    <div class="row"><h2>Returns by year <span class="pill runName"></span></h2><div class="legend" id="yrLegend"></div></div>
     <div class="chart" id="yrChart"></div>
     <div class="scroll" style="margin-top:12px"><table id="yrTbl"></table></div>
     <p class="note" id="partialNote"></p>
@@ -254,7 +267,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   const isNum = v => typeof v === 'number' && isFinite(v);
   const pct = (v, d = 2) => isNum(v) ? (v * 100).toFixed(d) + '%' : (v === 'inf' ? '∞' : '—');
   const num = (v, d = 2) => isNum(v) ? v.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) : (v === 'inf' ? '∞' : '—');
-  const usd = (v, d = 0) => isNum(v) ? (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) : '—';
+  const usd = (v, d = 0) => isNum(v) ? (v < 0 && Math.abs(v) >= 0.5 * Math.pow(10, -d) ? '-$' : '$') + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) : '—';
   const signCls = v => isNum(v) ? (v > 0 ? 'pos' : v < 0 ? 'neg' : '') : '';
   const compact = v => { const a = Math.abs(v); if (a >= 1e9) return (v / 1e9).toFixed(1) + 'B'; if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e8 ? 0 : 1) + 'M'; if (a >= 1e3) return (v / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k'; return v.toFixed(v < 10 ? 2 : 0); };
   const short = n => n.replace(' buy & hold', '');
@@ -294,17 +307,22 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const t = [
       ['Final value', Math.abs(st.end_equity) >= 1e6 ? '$' + compact(st.end_equity) : usd(st.end_equity), r.cash && r.cash.total_contributions ? `incl. ${usd(r.cash.total_contributions)} added` : `from ${usd(st.start_equity)}`],
       ['Total return', bigRet ? (1 + st.total_return).toLocaleString(undefined, { maximumFractionDigits: 0 }) + '×' : pct(st.total_return, 1), r.cash && r.cash.starting_balance ? 'time-weighted' : ''],
-      ['CAGR', pct(st.cagr), isNum(st.real_cagr) ? `after inflation ${pct(st.real_cagr)}` : `vol ${pct(st.volatility, 1)}`],
+      ['CAGR', pct(st.cagr), st.wiped_out ? 'wiped out: everything was lost' : isNum(st.real_cagr) ? `after inflation ${pct(st.real_cagr)}` : `vol ${pct(st.volatility, 1)}`],
       ['Sharpe', num(st.sharpe), `Sortino ${num(st.sortino)}`],
       ['Max drawdown', pct(st.max_drawdown, 1), `${st.max_dd_peak} → ${st.max_dd_trough}`],
       r.kind === 'allocation'
         ? ['Turnover', isNum(r.turnover) ? pct(r.turnover / 2, 0) + '/yr' : '—', `${r.rebalances || 0} rebalances`]
-        : ['Trades', ts.trades ? ts.trades.toLocaleString() : '0', ts.trades ? `${num(ts.trades_per_year, 1)} / year` : ''],
+        : ['Closed trades', ts.trades ? ts.trades.toLocaleString() : '0', (ts.trades ? `${num(ts.trades_per_year, 1)} / year` : '') + (ts.open_trades ? `${ts.trades ? ' · ' : ''}+${ts.open_trades} open` : '')],
       r.kind === 'allocation'
         ? ['Best / worst year', pct(st.best_year, 0) + ' / ' + pct(st.worst_year, 0), `${pct(st.pct_positive_months, 0)} of months up`]
-        : ['Win rate', ts.trades ? pct(ts.win_rate, 1) : '—', ts.trades ? `avg trade ${pct(ts.avg_return)}` : ''],
-      r.relative && isNum(r.relative.beta) ? ['Beta / alpha', num(r.relative.beta) + ' / ' + pct(r.relative.alpha_annual, 1), 'vs ' + short(r.primary_benchmark)] : ['Profit factor', num(ts.profit_factor), ''],
+        : ['Win rate', ts.trades ? pct(ts.win_rate, 1) : '—', ts.trades ? `closed trades · avg ${pct(ts.avg_return)}` : ''],
+      r.relative && isNum(r.relative.beta) ? ['Beta / alpha', num(r.relative.beta) + ' / ' + pct(r.relative.alpha_annual, 1), 'vs ' + short(r.primary_benchmark)]
+        : r.kind === 'allocation' ? ['Volatility', pct(st.volatility, 1), `Sortino ${num(st.sortino)}`] : ['Profit factor', num(ts.profit_factor), 'closed trades'],
     ];
+    if (r.kind === 'signal' && ts.open_trades) {  // the open positions' P&L gets its own tile; the win rate moves next to the count
+      t[5] = ['Closed trades', ts.trades ? ts.trades.toLocaleString() : '0', ts.trades ? `win rate ${pct(ts.win_rate, 1)} · ${num(ts.trades_per_year, 1)}/yr` : 'none closed yet'];
+      t[6] = ['Open P&L', usd(ts.open_pnl), `${ts.open_trades} position${ts.open_trades > 1 ? 's' : ''} still open, not in the trade stats`];
+    }
     $('tiles').replaceChildren();
     t.forEach(([k, v, d]) => { const x = el('div', { class: 'tile' }); x.append(el('div', { class: 'k' }, k), el('div', { class: 'v' }, v), el('div', { class: 'd' }, d)); $('tiles').append(x); });
   }
@@ -386,8 +404,9 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       const attrs = { d, fill: 'none', stroke: s.color, 'stroke-width': s.width || 2, 'stroke-linejoin': 'round' };
       if (s.dash) attrs['stroke-dasharray'] = '5 4';
       svg.append(svgEl('path', attrs));
-      let li = n - 1; while (li > 0 && !isNum(s.values[li])) li--;
-      if (opts.labels && isNum(s.values[li])) ends.push({ y: Y(s.values[li]), name: s.name, color: s.color });
+      const drawable = v => isNum(v) && (!log || v > 0);
+      let li = n - 1; while (li > 0 && !drawable(s.values[li])) li--;
+      if (opts.labels && drawable(s.values[li])) ends.push({ y: Y(s.values[li]), name: s.name, color: s.color });
     });
     if (opts.labels) {
       ends.sort((a, b) => a.y - b.y);
@@ -468,17 +487,29 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   }
 
   // ---------- equity + drawdown (all runs)
-  let scale = 'log', valMode = 'nav';
+  let scale = 'log', valMode = 'nav', realMode = 'nominal';
   const hasFlows = D.runs.some(r => r.cash && (r.cash.total_contributions || r.cash.total_withdrawals));
   if (!hasFlows) $('valSeg').classList.add('hide');
+  const canReal = Array.isArray(D.deflator) && D.deflator.some(isNum);
+  if (!canReal) $('realSeg').classList.add('hide');
+  const deflate = vals => vals.map((v, i) => isNum(v) && isNum(D.deflator[i]) && D.deflator[i] > 0 ? v / D.deflator[i] : null);
   function eqSeries() {
-    const s = D.runs.map((r, i) => ({ name: r.name === 'Strategy A' && !multi ? 'Strategy' : r.name, values: valMode === 'nav' ? r.nav : r.equity, color: runColor(i), width: 2.2 }));
-    return s.concat(D.benchmarks.map((b, j) => ({ name: b.name, values: b.values, color: benchColor(j), width: 1.5 })));
+    const real = realMode === 'real' && canReal;
+    const runVals = r => valMode === 'nav' ? (real ? deflate(r.nav) : r.nav) : (real ? (r.equity_real || deflate(r.equity)) : r.equity);
+    const s = D.runs.map((r, i) => ({ name: r.name === 'Strategy A' && !multi ? 'Strategy' : r.name, values: runVals(r), color: runColor(i), width: 2.2 }));
+    // account value: benchmarks that receive the same contributions and withdrawals as the (first) run
+    const benchVals = b => { const v = valMode === 'equity' && b.with_flows ? b.with_flows : b.values; return real ? deflate(v) : v; };
+    return s.concat(D.benchmarks.map((b, j) => ({ name: b.name + (valMode === 'equity' && b.with_flows ? ' (same cash flows)' : ''), values: benchVals(b), color: benchColor(j), width: 1.5 })));
   }
   function drawEquity() {
     const ser = eqSeries();
     legend($('eqLegend'), ser);
-    $('eqTitle').textContent = valMode === 'nav' ? 'Growth of the starting capital' : 'Account value (with cash flows)';
+    const realTxt = realMode === 'real' && canReal ? ` — after inflation, in dollars of ${D.dates[Math.min(1, D.dates.length - 1)]}` : '';
+    $('eqTitle').textContent = (valMode === 'nav' ? 'Growth of the starting capital' : 'Account value (with cash flows)') + realTxt;
+    const bf = D.benchmark_from || {};
+    const late = Object.keys(bf);
+    $('eqNote').textContent = late.length ? late.map(k => `${short(k)} starts ${bf[k]}`).join('; ') + (valMode === 'equity' && D.benchmarks.some(b => b.with_flows)
+      ? ' — it starts with the strategy\'s account balance on that day and then gets the same cash flows.' : ' — bought at the strategy\'s value on that day, so the curves compare from there.') : '';
     lineChart($('eqChart'), { series: ser, log: scale === 'log', labels: true, height: 380, fmt: (v, axis) => axis ? '$' + compact(v) : usd(v) });
     const dd = D.runs.map((r, i) => ({ name: multi ? r.name : 'Strategy', values: r.drawdown, color: runColor(i), area: !multi }));
     legend($('ddLegend'), multi ? dd : []);
@@ -486,11 +517,23 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   }
   $('scaleSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; scale = b.dataset.v; [...$('scaleSeg').children].forEach(x => x.classList.toggle('on', x === b)); drawEquity(); });
   $('valSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; valMode = b.dataset.v; [...$('valSeg').children].forEach(x => x.classList.toggle('on', x === b)); drawEquity(); });
+  $('realSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; realMode = b.dataset.v; [...$('realSeg').children].forEach(x => x.classList.toggle('on', x === b)); drawEquity(); });
 
   // ---------- head-to-head over the common window
+  const hasFull = D.common && D.common.full && Object.keys(D.common.full).length;
+  let cmpMode = hasFull ? 'full' : 'common';
+  if (!hasFull || !Object.keys(D.common.full_from || {}).length) $('cmpSeg').classList.add('hide');
+  $('cmpSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; cmpMode = b.dataset.v; [...$('cmpSeg').children].forEach(x => x.classList.toggle('on', x === b)); drawCompare(); });
   function drawCompare() {
-    const C = D.common; $('commonPeriod').textContent = `${C.start} → ${C.end}`;
-    const cols = Object.keys(C.columns);
+    const C = D.common, full = cmpMode === 'full' && hasFull, from = full ? (C.full_from || {}) : {};
+    const data = full ? C.full : C.columns;
+    $('commonPeriod').textContent = full ? `${C.full_start} → ${C.full_end}` : `${C.start} → ${C.end}`;
+    $('cmpNote').textContent = full
+      ? (Object.keys(from).length ? 'Each column covers the whole period where it has data; columns marked "from" start later, so their numbers cover less history. "Common period" compares everything over the same dates.'
+        : 'All columns are measured over the same period.')
+      : 'All columns are measured over the same period (the latest start date among them), so the comparison is like-for-like.';
+    const cols = Object.keys(data);
+    const lab = c => short(c) + (from[c] ? ` (from ${from[c]})` : '');
     const rows = [
       ['Final value of $10,000', s => usd(s.end_equity)], ['CAGR', s => pct(s.cagr)], ['Real CAGR (after inflation)', s => pct(s.real_cagr)],
       ['Volatility', s => pct(s.volatility, 1)], ['Sharpe', s => num(s.sharpe)], ['Sortino', s => num(s.sortino)],
@@ -499,7 +542,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ['Best year', s => pct(s.best_year, 1)], ['Worst year', s => pct(s.worst_year, 1)], ['Positive months', s => pct(s.pct_positive_months, 0)],
       ['VaR 95% (monthly)', s => pct(s.var_95_monthly, 1)], ['CVaR 95% (monthly)', s => pct(s.cvar_95_monthly, 1)],
     ];
-    table($('cmpTbl'), [''].concat(cols.map(short)), rows.map(([k, f]) => [k].concat(cols.map(c => f(C.columns[c])))));
+    table($('cmpTbl'), [''].concat(cols.map(lab)), rows.map(([k, f]) => [k].concat(cols.map(c => f(data[c])))));
   }
 
   // ---------- per-run tables
@@ -524,8 +567,11 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     ];
     table($('riskTbl'), null, rows);
     const tr = [];
-    if (ts.trades) tr.push(
-      { sect: r.kind === 'allocation' ? 'Holding periods' : 'Trades' },
+    if (r.kind === 'allocation') {
+      const nhp = (ts.trades || 0) + (ts.open_trades || 0);
+      tr.push({ sect: 'Holdings' }, ['Holding periods', nhp ? `${nhp.toLocaleString()} (${ts.open_trades || 0} still held)` : '0']);
+    } else if (ts.trades) tr.push(
+      { sect: 'Closed trades' },
       ['Count', ts.trades.toLocaleString() + (ts.short_trades ? ` (${ts.long_trades} long, ${ts.short_trades} short)` : '')], ['Per year', num(ts.trades_per_year, 1)],
       ['Win rate', pct(ts.win_rate, 1) + (ts.short_trades && ts.long_trades ? ` (long ${pct(ts.long_win_rate, 0)}, short ${pct(ts.short_win_rate, 0)})` : '')],
       ['Average / median', { t: pct(ts.avg_return) + ' / ' + pct(ts.median_return), c: signCls(ts.avg_return) }],
@@ -535,7 +581,9 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ['Average bars held', num(ts.avg_bars_held, 1)], ['Avg MAE / MFE', pct(ts.avg_mae) + ' / ' + pct(ts.avg_mfe)],
       ['t-stat of mean trade', { t: num(ts.t_stat), title: '|t| > 2 suggests the average trade is unlikely to be zero by chance' }],
       ['Costs paid', usd(ts.total_commission, 2)]);
-    else tr.push({ sect: 'Trades' }, ['Count', '0 — the entry condition never triggered']);
+    else tr.push({ sect: 'Closed trades' }, ['Count', ts.open_trades ? '0 — the only position is still open' : '0 — the entry condition never triggered']);
+    if (r.kind === 'signal' && ts.open_trades) tr.push({ sect: 'Still open at the end' }, ['Open positions', ts.open_trades],
+      ['Open P&L (marked at the last close)', { t: usd(ts.open_pnl, 2), c: signCls(ts.open_pnl) }], ['Value of open positions', usd(ts.open_value)]);
     tr.push({ sect: 'Exposure' }, ['Time in market', pct(ex.time_in_market, 1)], ['Average exposure', pct(ex.avg_exposure, 1)],
       ['Max positions held', ex.max_positions_held], ['Interest earned on cash', usd(r.interest, 0)]);
     if (r.kind === 'allocation') tr.push(['Turnover (one-sided, per year)', pct((r.turnover || 0) / 2, 0)], ['Rebalances', r.rebalances]);
@@ -547,7 +595,18 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ['Ending balance', usd(c.ending_balance)], ['Net investment gain', { t: usd(c.net_gain), c: signCls(c.net_gain) }],
       ['Money-weighted return (IRR)', pct(c.money_weighted_return)], ['Time-weighted return (CAGR)', pct(r.stats.cagr)],
       ['Money ran out?', c.ran_out ? 'Yes' : 'No'],
-    ]);
+    ].concat(r.withdrawal_rates && isNum(r.withdrawal_rates.swr) ? [
+      { sect: `Withdrawal rates over this history (${r.withdrawal_rates.from} → ${r.withdrawal_rates.to}, inflation-adjusted)` },
+      [{ t: 'Safe withdrawal rate', title: 'the largest inflation-adjusted yearly withdrawal, as a share of the starting balance, that lasts the whole period' }, pct(r.withdrawal_rates.swr)],
+      [{ t: 'Perpetual withdrawal rate', title: 'the largest one that keeps the balance, in dollars of the start date, at the starting balance' }, pct(r.withdrawal_rates.pwr)],
+      ['Safe rate in 95% of bootstrapped histories', pct(r.withdrawal_rates.swr_mc95)],
+    ] : []));
+    const bc = r.benchmark_cash || {}, bk = Object.keys(bc);
+    $('bcashTitle').classList.toggle('hide', !bk.length); $('bcashNote').textContent = '';
+    table($('bcashTbl'), bk.length ? ['', 'Starting balance', 'Withdrawals', 'Contributions', 'Ending balance', 'Money-weighted return', 'Ran out?'] : null,
+      bk.length ? [[multi ? r.name : 'Strategy', usd(c.starting_balance), usd(c.total_withdrawals), usd(c.total_contributions), usd(c.ending_balance), pct(c.money_weighted_return), c.ran_out ? 'Yes' : 'No']]
+        .concat(bk.map(k => { const x = bc[k]; return [short(k) + (x.from ? ` (from ${x.from})` : ''), usd(x.starting_balance), usd(x.total_withdrawals), usd(x.total_contributions), usd(x.ending_balance), pct(x.money_weighted_return), { t: x.ran_out ? 'Yes' : 'No', c: x.ran_out ? 'neg' : '' }]; })) : []);
+    if (bk.some(k => bc[k].from)) $('bcashNote').textContent = 'A benchmark that starts later starts with the strategy\'s account balance on its first day and then receives the same contributions and withdrawals (on their original schedule and inflation indexing).';
   }
 
   // ---------- price chart with trades
@@ -611,20 +670,55 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     if (PX.raf) return;
     PX.raf = requestAnimationFrame(() => { PX.raf = 0; if (PX.needBase) pxDraw(); PX.needBase = false; pxOverlay(); });
   }
+  // Tickers beyond the embedded ones are in charts/<TICKER>.js next to report.html: a script that registers its
+  // data in window.__charts, so it loads over http and from a local file (where fetch() of file:// is blocked).
+  const chartLoads = {};
+  function chartTickers(r) { return (r.chart_tickers && r.chart_tickers.length) ? r.chart_tickers : Object.keys(r.prices || {}); }
+  function hasChart(r, t) { return !!((r.prices || {})[t] || (r.chart_files || {})[t]); }
+  function loadChart(r, t) {
+    if (r.prices && r.prices[t]) return Promise.resolve(r.prices[t]);
+    const f = (r.chart_files || {})[t];
+    if (!f) return Promise.reject(new Error('no chart data for ' + t));
+    if (!chartLoads[f]) chartLoads[f] = new Promise((ok, fail) => {
+      const done = () => {
+        const d = (window.__charts || {})[f];
+        if (!d) return fail(new Error('empty ' + f));
+        if (!d.dates && d.d0) {  // dates are stored as the first date + day steps
+          let tm = Date.parse(d.d0); d.dates = [d.d0];
+          for (let i = 0; i < d.dd.length; i++) { tm += d.dd[i] * 864e5; d.dates.push(new Date(tm).toISOString().slice(0, 10)); }
+        }
+        r.prices = r.prices || {}; r.prices[t] = d; ok(d);
+      };
+      if (window.__charts && window.__charts[f]) return done();
+      const sc = document.createElement('script'); sc.src = f; sc.async = true;
+      sc.onload = done; sc.onerror = () => { delete chartLoads[f]; sc.remove(); fail(new Error('could not load ' + f)); };
+      document.head.appendChild(sc);
+    });
+    return chartLoads[f];
+  }
   function drawPrice() {
-    const r = R(), P = r.prices || {};
-    const tks = Object.keys(P);
+    const r = R();
+    const tks = chartTickers(r);
     $('priceCard').classList.toggle('hide', !tks.length);
     if (!tks.length) return;
     const sel0 = $('pxTicker').value;
-    $('pxTicker').replaceChildren(); tks.forEach(t => $('pxTicker').append(el('option', { value: t }, t)));
+    $('pxTicker').replaceChildren(); tks.forEach(t => $('pxTicker').append(el('option', { value: t }, t + ((r.prices || {})[t] ? '' : ' ·'))));
     if (tks.includes(sel0)) $('pxTicker').value = sel0;
     renderPrice();
+  }
+  function showChart(t, focus) {
+    const r = R(); $('pxTicker').value = t;
+    if (r.prices && r.prices[t]) { renderPrice(focus); return; }
+    PX.key = null; legend($('pxLegend'), [{ name: `Loading ${t}…`, color: css('--neutral') }], 'box');
+    const want = sel + '|' + t;
+    loadChart(r, t).then(() => { if (sel + '|' + $('pxTicker').value === want) { PX.key = null; renderPrice(focus); } })
+      .catch(() => { if (sel + '|' + $('pxTicker').value === want) $('pxLegend').textContent = `Couldn't load the chart for ${t} (${(r.chart_files || {})[t] || 'no file'}). Keep the charts folder next to report.html.`; });
   }
   function lowerBound(arr, v) { let a = 0, b = arr.length; while (a < b) { const c = (a + b) >> 1; if (arr[c] < v) a = c + 1; else b = c; } return a; }
   function renderPrice(focus) {
     pxDom();
-    const r = R(), t = $('pxTicker').value, P = r.prices[t]; if (!P) return;
+    const r = R(), t = $('pxTicker').value, P = (r.prices || {})[t];
+    if (!P) { if ((r.chart_files || {})[t]) showChart(t, focus); return; }
     const key = sel + '|' + t, n = P.dates.length;
     if (PX.key !== key) {
       PX.key = key; PX.P = P; PX.a = 0; PX.b = n;
@@ -940,18 +1034,54 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   // ---------- yearly
   function drawYearly() {
     const years = [...new Set(D.runs.flatMap(r => r.yearly.map(y => y.year)))].sort();
-    const ser = D.runs.map((r, i) => ({ name: r.name, color: runColor(i), values: years.map(y => { const f = r.yearly.find(x => x.year === y); return f ? f.return : null; }) }))
+    const ser = D.runs.map((r, i) => ({ name: multi ? r.name : 'Strategy', color: runColor(i), values: years.map(y => { const f = r.yearly.find(x => x.year === y); return f ? f.return : null; }) }))
       .concat(D.benchmarks.map((b, j) => ({ name: b.name, color: benchColor(j), values: years.map(y => D.benchmark_yearly[b.name][y]) })));
     legend($('yrLegend'), ser, 'box');
     barChart($('yrChart'), { cats: years, series: ser, fmt: (v, axis) => isNum(v) ? (v * 100).toFixed(axis ? 0 : 1) + '%' : '—' });
     const r = R();
     const bn = D.benchmarks.map(b => b.name);
-    const head = ['Year', multi ? r.name : 'Strategy', 'Max DD', 'Trades', 'Win rate', 'P&L', 'Exposure', 'End value'].concat(D.runs.length > 1 ? D.runs.filter((_, i) => i !== sel).map(x => x.name) : []).concat(bn.map(short));
-    table($('yrTbl'), head, r.yearly.map(y => [String(y.year) + (y.partial ? '*' : ''), { t: pct(y.return, 1), c: signCls(y.return) }, pct(y.max_drawdown, 1), y.trades, y.trades ? pct(y.win_rate, 0) : '—', usd(y.pnl), pct(y.exposure, 0), usd(y.end_equity)]
+    const alloc = r.kind === 'allocation';
+    const own = alloc
+      ? ['Year', multi ? r.name : 'Return', 'Real return', 'Inflation', 'Start balance', 'Contributions', 'Withdrawals', 'End balance', 'Max DD']
+      : ['Year', multi ? r.name : 'Strategy', 'Max DD', 'Closed trades', 'Win rate', 'P&L', 'Exposure', 'End value'];
+    const head = own.concat(D.runs.length > 1 ? D.runs.filter((_, i) => i !== sel).map(x => x.name) : []).concat(bn.map(short));
+    const ownCells = y => alloc
+      ? [String(y.year) + (y.partial ? '*' : ''), { t: pct(y.return, 1), c: signCls(y.return) }, { t: pct(y.real_return, 1), c: signCls(y.real_return) }, pct(y.inflation, 1),
+         usd(y.start_balance), y.contributions ? usd(y.contributions) : '—', y.withdrawals ? usd(y.withdrawals) : '—', usd(y.end_balance), pct(y.max_drawdown, 1)]
+      : [String(y.year) + (y.partial ? '*' : ''), { t: pct(y.return, 1), c: signCls(y.return) }, pct(y.max_drawdown, 1), y.trades, y.trades ? pct(y.win_rate, 0) : '—', usd(y.pnl), pct(y.exposure, 0), usd(y.end_equity)];
+    table($('yrTbl'), head, r.yearly.map(y => ownCells(y)
       .concat(D.runs.filter((_, i) => i !== sel).map(o => { const f = o.yearly.find(x => x.year === y.year); return f ? { t: pct(f.return, 1), c: signCls(f.return) } : '—'; }))
       .concat(bn.map(n => { const v = D.benchmark_yearly[n][y.year]; return { t: pct(v, 1), c: signCls(v) }; }))));
     const parts = r.yearly.filter(y => y.partial);
-    $('partialNote').textContent = parts.length ? '* partial year: ' + parts.map(y => `${y.year} (${y.from || ''} → ${y.to || ''})`).join(', ') : '';
+    $('partialNote').textContent = (parts.length ? '* partial year: ' + parts.map(y => `${y.year} (${y.from || ''} → ${y.to || ''})`).join(', ') + '. ' : '')
+      + (alloc ? 'Return is time-weighted (cash flows removed); balances are the account itself.' : 'Closed trades, win rate and P&L count trades by the year they closed.');
+  }
+
+  // ---------- P&L by holding / ticker
+  function drawAttribution() {
+    const r = R(), at = r.attribution || {}, rows = at.rows || [];
+    $('attrCard').classList.toggle('hide', !rows.length);
+    if (!rows.length) return;
+    const alloc = at.kind === 'allocation';
+    $('attrTitle').firstChild.textContent = alloc ? 'P&L by holding ' : 'P&L by ticker ';
+    const LIMIT = 500;
+    const head = alloc ? ['Ticker', 'P&L', 'Share of P&L', 'Dividends', 'Costs', 'Bought', 'Sold', 'Value at the end']
+      : ['Ticker', 'P&L', 'Share of P&L', 'Closed trades', 'Win rate', 'Open P&L', 'Dividends/fees', 'Costs'];
+    const body = rows.slice(0, LIMIT).map(x => alloc
+      ? [x.ticker, { t: usd(x.pnl), c: signCls(x.pnl) }, pct(x.share_of_pnl, 1), usd(x.dividends), usd(x.commissions), usd(x.bought), usd(x.sold), usd(x.end_value)]
+      : [x.ticker, { t: usd(x.pnl), c: signCls(x.pnl) }, pct(x.share_of_pnl, 1), x.trades, x.trades ? pct(x.win_rate, 0) : '—', x.open_pnl ? usd(x.open_pnl) : '—', usd(x.dividends), usd(x.commissions)]);
+    const pad = n => new Array(Math.max(0, n)).fill('');
+    body.push([{ t: 'Total' }, { t: usd(at.total_pnl), c: signCls(at.total_pnl) }].concat(pad(head.length - 2)));
+    body.push(['+ interest on cash', usd(at.interest)].concat(pad(head.length - 2)));
+    if (at.fees) body.push(['− fees', usd(-at.fees)].concat(pad(head.length - 2)));
+    const gain = at.total_pnl + at.interest - (at.fees || 0);
+    body.push([alloc && at.net_flows ? '= gain after cash flows' : '= gain', { t: usd(gain), c: signCls(gain) }].concat(pad(head.length - 2)));
+    table($('attrTbl'), head, body);
+    $('attrNote').textContent = (alloc ? 'Per holding: sales − purchases − costs + dividends + value still held. '
+      : 'Per ticker: the P&L of its trades (closed and still open), including dividends, fees and costs. ')
+      + `Final ${usd(at.end_equity)} − start ${usd(at.start_equity)}` + (at.net_flows ? ` − net cash flows ${usd(at.net_flows)}` : '')
+      + ` = ${usd(at.end_equity - at.start_equity - (at.net_flows || 0))}` + (Math.abs(at.check || 0) < 1 ? ', which the table adds up to.' : ` (differs from the table by ${usd(at.check, 2)}).`)
+      + (rows.length > LIMIT ? ` Showing the ${LIMIT} largest of ${rows.length}.` : '');
   }
 
   // ---------- monthly heatmap
@@ -1081,9 +1211,9 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     rows = rows.slice().sort((a, b) => { const x = key(a), y = key(b); return (x > y ? 1 : x < y ? -1 : 0) * (asc ? 1 : -1); });
     const tb = el('tbody'), LIMIT = 2000;
     rows.slice(0, LIMIT).forEach(t => {
-      const row = el('tr', r.prices && r.prices[t.ticker] ? { class: 'click' } : {});
+      const row = el('tr', hasChart(r, t.ticker) ? { class: 'click' } : {});
       cols.forEach(c => { const v = c[1](t); const td = el('td'); if (v && typeof v === 'object') { td.textContent = v.t; td.className = v.c; } else td.textContent = v == null ? '—' : v; row.append(td); });
-      if (r.prices && r.prices[t.ticker]) row.addEventListener('click', () => { $('pxTicker').value = t.ticker; renderPrice({ from: t.entry_date, to: t.exit_date }); $('priceCard').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+      if (hasChart(r, t.ticker)) row.addEventListener('click', () => { showChart(t.ticker, { from: t.entry_date, to: t.exit_date }); $('priceCard').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
       tb.append(row);
     });
     if (rows.length > LIMIT) { const row = el('tr'); row.append(el('td', { colspan: cols.length, class: 'muted' }, `${rows.length - LIMIT} more rows — see trades.csv or narrow the filter`)); tb.append(row); }
@@ -1102,7 +1232,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   $('tradeFilter').addEventListener('input', e => { tradeFilter = e.target.value; drawTrades(); });
   $('orderFilter').addEventListener('input', () => drawTrades());
 
-  function drawRun() { header(); tiles(); drawRiskTables(); drawPrice(); drawAlloc(); drawYearly(); drawHeat(); drawRolling(); drawMisc(); drawTradeCharts(); drawTrades(); }
+  function drawRun() { header(); tiles(); drawRiskTables(); drawPrice(); drawAlloc(); drawAttribution(); drawYearly(); drawHeat(); drawRolling(); drawMisc(); drawTradeCharts(); drawTrades(); }
   function drawAll() { drawEquity(); drawCompare(); drawRun(); }
 
   const ds = D.data || {};

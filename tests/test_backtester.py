@@ -115,7 +115,8 @@ def test_streak():
      "(down_days >= 3)", "close", 1, "open"),
     ("buy MSFT at the close when it is down exactly 3 days in a row, hold 2 days",
      "(down_days == 3)", "close", 2, "close"),
-    ("short QQQ at the open when it gaps up 1%, cover at the close", "(gap >= 0.01)", "open", 1, "close"),
+    # no holding period + an entry at the open: the close of the entry bar (hold 0)
+    ("short QQQ at the open when it gaps up 1%, cover at the close", "(gap >= 0.01)", "open", 0, "close"),
     ("buy SPY at the close on the last trading day of the month, sell at the close 5 days later",
      "(trading_days_left_in_month == 1)", "close", 5, "close"),
     ("buy AAPL at the next open when RSI(2) < 10, hold 3 days", "(rsi(close, 2) < 10)", "next_open", 3, "close"),
@@ -527,7 +528,7 @@ def test_leverage_and_optimiser_weights_run():
      lambda s: isinstance(s, Strategy) and s.exit_when == "not ((close > sma(close, 50)))"),
     # 6. "after 3 down days"
     ("buy QQQ at the open after 3 down days, sell at the close",
-     lambda s: s.entry == "ref((down_days >= 3), 1)" and s.entry_fill == "open" and s.hold_bars == 1),
+     lambda s: s.entry == "ref((down_days >= 3), 1)" and s.entry_fill == "open" and s.hold_bars == 0),
     # 7. time exit OR rule exit; a bare RSI takes the entry's period
     ("buy QQQ when RSI(2) is below 10, sell after 10 days or when RSI above 70",
      lambda s: s.hold_bars == 10 and s.exit_when == "(rsi(close, 2) > 70)"),
