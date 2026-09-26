@@ -38,3 +38,6 @@ Thumbs.db
 desktop.ini
 .idea/
 .vscode/
+
+# --- Backtest market data (vendor-licensed; fetch locally, never commit) ---
+backtests/data/

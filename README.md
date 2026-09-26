@@ -43,7 +43,7 @@ account, or sent to a live one. `TRADING_MODE` in the environment overrides it.
 | Mode | What happens to an order | Credentials needed |
 |---|---|---|
 | **`signal_only`** *(default)* | Recorded as an intent. **Nothing is transmitted.** | None |
-| `backtest` | **Refused.** No simulation engine ships in this release. | — |
+| `backtest` | **Refused.** Historical research runs through `scripts/run_backtest.py` instead (see [Backtesting](#backtesting-research-only)); it never routes orders. | — |
 | `paper` | Transmitted to the Alpaca **paper** endpoint. No real money. | Paper keys |
 | `live` | **Blocked.** See below. | — |
 
@@ -161,20 +161,54 @@ app/
 config/              config.yaml, universe.yaml
 scripts/             preflight.py, run_scanner.py, run_dashboard.py
 launchers/           Windows .bat and .ps1 launchers
-tests/               180 tests
+tests/               199 tests
 logs/  outputs/      Runtime output (gitignored)
 ```
 
 ## Tests
 
 ```bash
-python -m pytest            # 180 tests, no network access required
+python -m pytest            # 199 tests, no network access required
 ```
 
 Coverage focuses on the things that would cost money if wrong: mode separation,
 the live gate, every risk limit, order validation, position sizing, and
 indicator lookahead safety (proved by prefix-stability: truncating the future
 must not change any past value).
+
+---
+
+## Backtesting (research only)
+
+`app/backtest/` replays intraday strategies, translated from plain-English
+rule sheets into explicit parameters, against historical 1-minute bars. It never builds a broker; the `backtest` execution mode stays
+refused. The first strategy is the **HitchHiker scalp**
+(`app/backtest/hitchhiker.py`, whose docstring maps each cheat-sheet rule to a
+parameter).
+
+```bash
+# An alert list (date,time,symbol,direction) - each row arms one break entry
+python scripts/run_backtest.py --alerts backtests/alerts/hitchhiker_2026-09-25.csv \
+    --data-dir backtests/data/2026-09-25 --out backtests/reports/my_run
+
+# Mechanical scanner over every symbol/day in the data
+python scripts/run_backtest.py --scan --symbols NBIS CRCL SPY QQQ \
+    --data-dir backtests/data/2026-09-25 --out backtests/reports/scan
+
+# Years of 1-minute history via Alpaca (IEX feed; paper keys in .env)
+python scripts/run_backtest.py --scan --symbols NBIS CRCL SPY QQQ --fetch-alpaca \
+    --start 2025-01-01 --end 2026-09-25 --data-dir backtests/data/alpaca --out backtests/reports/scan_long
+```
+
+Each run writes `report.html` (equity curve vs SPY/QQQ buy & hold, drawdown,
+per-trade R, return/risk ratios, yearly and monthly returns, trade list, signal
+log, assumptions), plus `trades.csv`, `equity_curve.csv` and `summary.json`.
+Starting capital is $10,000, risking 1% of equity per trade with 2x buying power;
+see `--help` for every knob.
+
+Bar data lives in `backtests/data/<set>/<SYMBOL>_1min.csv` (columns
+`time_utc,open,high,low,close,volume`) and is **gitignored**: vendor market
+data may not be redistributed from this public repository.
 
 ---
 
