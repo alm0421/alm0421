@@ -103,7 +103,110 @@ def display_date(ts, first_bar=None):
     return ts
 
 
+def parse_blend(b) -> list[tuple[str, float]] | None:
+    """A blended benchmark as [(ticker, weight)], or None for a single ticker. Accepts {"SPY": 0.6, "AGG": 0.4},
+    "60 SPY 40 AGG", "60% SPY / 40% AGG", "SPY 60 AGG 40", "SPY:0.6, AGG:0.4" and "60/40 SPY/AGG". Weights may be
+    percentages or fractions; they must add up to 100%."""
+    import re
+    if isinstance(b, dict):
+        pairs = [(str(t), float(w)) for t, w in b.items()]
+    else:
+        s = str(b or "").strip()
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s+([\w.^-]+)\s*/\s*([\w.^-]+)", s)
+        if m:
+            pairs = [(m.group(3), float(m.group(1))), (m.group(4), float(m.group(2)))]
+        else:
+            toks = [t for t in re.split(r"[\s,/+:;=]+|(?<=\d)%", s) if t and t != "%"]
+            if len(toks) < 4 and not any(re.fullmatch(r"\d+(\.\d+)?", t) for t in toks):
+                return None
+            num = lambda t: re.fullmatch(r"\d+(\.\d+)?", t) is not None  # noqa: E731
+            pairs = []
+            if toks and num(toks[0]):          # 60 SPY 40 AGG
+                if len(toks) % 2:
+                    raise ValueError(f"Can't read the benchmark {b!r}: write e.g. \"60 SPY 40 AGG\"")
+                for i in range(0, len(toks), 2):
+                    if not num(toks[i]) or num(toks[i + 1]):
+                        raise ValueError(f"Can't read the benchmark {b!r}: write e.g. \"60 SPY 40 AGG\"")
+                    pairs.append((toks[i + 1], float(toks[i])))
+            else:                               # SPY 60 AGG 40
+                if len(toks) % 2:
+                    raise ValueError(f"Can't read the benchmark {b!r}: write e.g. \"60 SPY 40 AGG\"")
+                for i in range(0, len(toks), 2):
+                    if num(toks[i]) or not num(toks[i + 1]):
+                        raise ValueError(f"Can't read the benchmark {b!r}: write e.g. \"60 SPY 40 AGG\"")
+                    pairs.append((toks[i], float(toks[i + 1])))
+    if len(pairs) == 1 and not isinstance(b, dict):
+        return None
+    tot = sum(w for _, w in pairs)
+    if tot > 1.5:                               # percentages
+        pairs = [(t, w / 100) for t, w in pairs]
+        tot /= 100
+    if not pairs or any(w <= 0 for _, w in pairs) or abs(tot - 1) > 1e-6:
+        raise ValueError(f"Benchmark weights must be positive and add up to 100% (got {tot:.1%} in {b!r})")
+    out: dict[str, float] = {}
+    for t, w in pairs:
+        c = data.canonical(t.upper())
+        out[c] = out.get(c, 0.0) + w
+    return list(out.items())
+
+
+def benchmark_label(b) -> str:
+    """The benchmark as shown and stored: a ticker ("SPY") or a blend ("60% SPY / 40% AGG")."""
+    parts = parse_blend(b)
+    if parts is None:
+        return data.canonical(str(b).strip())
+    return " / ".join(f"{round(w * 100, 2):g}% {t}" for t, w in parts)
+
+
+def benchmark_first_date(b):
+    """The first date the benchmark (every part of a blend) has data, or None."""
+    parts = parse_blend(b) or [(b, 1.0)]
+    try:
+        return max(data.load(t).index[0] for t, _ in parts)
+    except (FileNotFoundError, data.DataError, KeyError):
+        return None
+
+
+def check_benchmark(b) -> None:
+    """Raise (with did-you-mean suggestions) for an unknown ticker or an unreadable blend."""
+    for t, _ in parse_blend(b) or [(b, 1.0)]:
+        data.load(t)
+
+
+def blend_growth(parts: list[tuple[str, float]], index: pd.DatetimeIndex) -> pd.Series | None:
+    """Growth of 1 in a blend of total returns rebalanced to its weights at the end of every month, from the
+    first date of `index` on which every part has data."""
+    try:
+        cs = [data.load(t)["adj_close"] for t, _ in parts]
+    except (FileNotFoundError, data.DataError):
+        return None
+    df = pd.concat([c.reindex(index.union(c.index)).ffill().reindex(index) for c in cs], axis=1).dropna()
+    if len(df) < 2:
+        return None
+    r = df.pct_change().to_numpy()[1:]
+    w0 = np.array([w for _, w in parts])
+    month = df.index.to_period("M")
+    val = np.empty(len(df))
+    val[0] = 1.0
+    hold = w0.copy()                    # dollar value in each part, per 1 of portfolio
+    for i in range(1, len(df)):
+        hold = hold * (1 + r[i - 1])
+        val[i] = hold.sum()
+        if i + 1 < len(df) and month[i + 1] != month[i]:
+            hold = w0 * val[i]          # rebalance at the month's last close
+    return pd.Series(val, index=df.index)
+
+
 def buy_and_hold(ticker: str, index: pd.DatetimeIndex, capital: float) -> pd.Series | None:
+    """Growth of `capital` in a ticker (total return), or in a blend such as "60% SPY / 40% AGG" rebalanced
+    monthly, from the first date of `index` it has data."""
+    try:
+        parts = parse_blend(ticker)
+    except ValueError:
+        return None
+    if parts is not None:
+        g = blend_growth(parts, index)
+        return None if g is None or g.empty else (capital * g).rename(benchmark_label(ticker))
     try:
         c = data.load(ticker)["adj_close"]
     except (FileNotFoundError, data.DataError):

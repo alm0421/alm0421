@@ -182,7 +182,7 @@ def default_benchmark(res: Result) -> str:
     SPYSIM (the US market spliced into SPY) so alpha, beta and the head-to-head cover the whole period."""
     b = getattr(res.strategy, "benchmark", None)
     if b:
-        return data.canonical(b)
+        return metrics.benchmark_label(b)
     if len(res.equity.index) > 1:
         spy = _first_date("SPY")
         first = res.equity.index[1]
@@ -218,8 +218,21 @@ def benchmark_series(res: Result, nav_: pd.Series | None = None) -> dict[str, pd
                 base = nav_.reindex(nav_.index.union(b.index[:1])).ffill().get(b.index[0])
                 if base is not None and np.isfinite(base) and base > 0:
                     b = b / float(b.iloc[0]) * float(base)
-            out[f"{t} buy & hold"] = b
+            out[bench_name(t)] = b
     return out
+
+
+def bench_name(t: str) -> str:
+    """The column name of a benchmark: "SPY buy & hold", or "60% SPY / 40% AGG blend" (rebalanced monthly)."""
+    try:
+        blend = metrics.parse_blend(t) is not None
+    except ValueError:
+        blend = False
+    return f"{metrics.benchmark_label(t)} blend" if blend else f"{t} buy & hold"
+
+
+def is_bench_col(c) -> bool:
+    return str(c).endswith(" buy & hold") or str(c).endswith(" blend")
 
 
 def benchmark_coverage(benches: dict[str, pd.Series], first_bar) -> dict[str, str]:
@@ -275,36 +288,13 @@ def _deflator(idx: pd.DatetimeIndex) -> list | None:
 
 
 def _primary_bench(res: Result, benches: dict[str, pd.Series]) -> tuple[str, pd.Series | None]:
-    primary = default_benchmark(res) + " buy & hold"
+    primary = bench_name(default_benchmark(res))
     return primary, benches.get(primary)
 
 
 # ------------------------------------------------------------------ indicator warm-up
 
-def rule_first_defined(rule, ns) -> pd.Timestamp | None:
-    """First date on which every indicator call in `rule` has a value (NaN during its look-back), or None."""
-    if not isinstance(rule, str) or not rule.strip() or ns is None:
-        return None
-    text = rule.strip()
-    try:
-        tree = ast.parse(text, mode="eval")
-    except SyntaxError:
-        return None
-    first = None
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        seg = ast.get_source_segment(text, node)
-        try:
-            v = expr.evaluate_value(seg, ns)
-        except Exception:  # noqa: BLE001 - e.g. sym("SPY") alone is not a series
-            continue
-        if not isinstance(v, pd.Series) or v.dtype == bool or not len(v):
-            continue
-        fv = v.first_valid_index()
-        if fv is not None:
-            first = fv if first is None else max(first, fv)
-    return first
+rule_first_defined = expr.first_defined
 
 
 def _ns(res: Result, t: str):
@@ -350,73 +340,9 @@ def warmup(res: Result) -> tuple[pd.Timestamp | None, list[str]]:
         if not isinstance(tree, dict):
             return None, []
         from . import portfolio as _pf
-        late: dict[str, pd.Timestamp] = {}
-        waited: dict[str, pd.Timestamp] = {}      # ranked / weighted members and the day their lookback completes
-        mode = getattr(s, "warmup", "all") or "all"
-
-        def member_date(k, rules) -> tuple[str, pd.Timestamp | None]:
-            """(label, first day the rules have a value) for a filter member: an asset on its own data, a group on
-            the data of its latest-starting ticker (a proxy for its simulated NAV)."""
-            if "asset" in k:
-                t = data.canonical(k["asset"])
-                cands = [t]
-            else:
-                cands = _pf.fixed_tickers(k)
-                t = k.get("name") or _pf.short_name(k, 40)
-            best = None
-            for c in cands:
-                ns = _ns(res, c)
-                if ns is None:
-                    continue
-                ds = [x for x in (rule_first_defined(r, ns) for r in rules) if x is not None]
-                d = max(ds) if ds else ns.df.index[0]
-                best = d if best is None else max(best, d)
-            return t, best
-
-        def walk(n):
-            if not isinstance(n, dict):
-                return
-            if "if" in n:
-                d = rule_first_defined(n["if"], _ns(res, data.canonical(n.get("on", "SPY"))))
-                if d is not None:
-                    dates.append(d)
-                walk(n.get("then"))
-                walk(n.get("else"))
-            elif "filter" in n:
-                f = n["filter"]
-                u = n.get("universe", "children")
-                rules = [f.get("by"), f.get("require")]
-                if not (isinstance(u, str) and u in ("NDX", "nasdaq100")):
-                    per = {}
-                    members = (n.get("children") or []) if u == "children" else [{"asset": t} for t in _pf._universe(n)]
-                    for k in members:
-                        lab, d = member_date(k, rules)
-                        if d is not None:
-                            per[lab] = d
-                    if per:
-                        need = min(int(f.get("n", 1)), len(per))
-                        d = max(per.values()) if mode == "all" else sorted(per.values())[need - 1]
-                        dates.append(d)
-                        late.update(per)
-                        if mode == "all":
-                            waited.update(per)
-                for k in (n.get("children") or []) if u == "children" else []:
-                    walk(k)
-                if n.get("fallback"):
-                    walk(n["fallback"])
-            elif "weights" in n:
-                kids = n.get("children") or []
-                if n["weights"] not in ("equal", "specified", "market_cap") and kids:
-                    lb = int(n.get("lookback") or (20 if n["weights"] == "inverse_vol" else 60))
-                    for k in kids:
-                        lab, d = member_date(k, [f"volatility({lb})"])
-                        if d is not None:
-                            dates.append(d)
-                            waited[lab] = max(d, waited.get(lab, d))
-                for k in kids:
-                    walk(k)
-        walk(tree)
-        warm = max(dates) if dates else None
+        # the simulation itself starts on the warm-up day (portfolio.run), so this normally finds nothing to trim;
+        # it still lists ranked assets that only get a value later (warmup "first")
+        warm, late, waited = _pf.warmup_dates(s, res.prices)
         start = warm if warm is not None and warm > first else first
         for t, d in sorted(late.items(), key=lambda kv: kv[1]):
             if d > start:
@@ -842,22 +768,27 @@ def _window_stats(series: dict, start, end, fb, rf, blank) -> dict:
 
 
 def common_window_stats(analyses: list[dict], rf="tbill") -> dict:
-    """Stats for every run and benchmark over their common period (like-for-like comparison: "columns"), and
-    over the whole test period where each exists ("full": a benchmark that starts later is measured from its
-    own first day and listed in "full_from")."""
-    series, blank = {}, set()
+    """Stats for every run and benchmark over the runs' common period (like-for-like comparison of the runs:
+    "columns"; a benchmark whose data starts later is measured from its own first day and listed in
+    "columns_from", so a young default benchmark such as QQQ does not cut the runs' period short), and over the
+    whole test period where each exists ("full": likewise listed in "full_from")."""
+    series, blank, runs = {}, set(), []
     for i, A in enumerate(analyses):
         name = _run_name(A["result"], i) if len(analyses) > 1 else "Strategy"
         series[name] = A["nav"]
+        runs.append(name)
         if A.get("no_trades"):
             blank.add(name)
     for k, v in analyses[0]["benchmarks"].items():
         series[k] = v
-    start = max(s.index[0] for s in series.values())
-    end = min(s.index[-1] for s in series.values())
+    start = max(series[k].index[0] for k in runs)
+    end = min(series[k].index[-1] for k in runs)
     fb = next((A.get("first_bar") for A in analyses if A.get("first_bar") is not None and A["result"].equity.index[0] == start), None)
     out = {"start": metrics.display_date(start, fb).date(), "end": end.date(), "columns": {}}
     out["columns"] = _window_stats(series, start, end, fb, rf, blank)
+    clim = (pd.Timestamp(fb) if fb is not None else start) + pd.Timedelta(days=LATE_DAYS)
+    out["columns_from"] = {k: str(metrics.display_date(series[k].index[0], fb).date()) for k in out["columns"]
+                           if k not in runs and len(series[k]) and series[k].index[0] > clim}
     # full period: from the earliest run's start to the latest end
     fstart = min(A["nav"].index[0] for A in analyses)
     fend = max(A["nav"].index[-1] for A in analyses)
@@ -903,6 +834,28 @@ def interpretation(s) -> str:
     return text
 
 
+def headline(A: dict) -> dict:
+    """The headline numbers and the one rule behind them, shared by the report tiles, the console and
+    summary.json: every headline figure (final value, total return, CAGR, Sharpe, drawdown) is measured from the
+    first day of the statistics, and the start value is the account value on that day. An allocation portfolio
+    starts trading after its warm-up, so it starts with the starting capital; a signal strategy's statistics start
+    after its rules' warm-up with the cash (plus interest) it held then."""
+    st = A["stats"]
+    res = A.get("result_full") or A["result"]
+    cap = float(res.equity.iloc[0]) if len(res.equity) else None
+    warm = A.get("warmup_start")
+    out = {"stats_start": st.get("start"), "stats_end": st.get("end"), "start_value": st.get("start_equity"),
+           "final_value": st.get("end_equity"), "capital": cap, "warmup": warm is not None}
+    if warm is not None:
+        out["rule"] = (f"Stats from {st.get('start')} (value ${st.get('start_equity'):,.2f}) after the warm-up; the "
+                       f"simulation starts {res.equity.index[1].date() if len(res.equity) > 1 else ''} with "
+                       f"${cap:,.2f}. Final value, returns and CAGR are all measured from the stats start.")
+    else:
+        out["rule"] = (f"Stats from {st.get('start')} (value ${st.get('start_equity'):,.2f}): final value, returns and "
+                       "CAGR are all measured from the start.")
+    return out
+
+
 def console_summary(A: dict) -> str:
     s, st, ts, ex = A["strategy"], A["stats"], A["trade_stats"], A["exposure"]
     L = ["=" * 78, s.description or s.name or "(strategy)", "-" * 78, interpretation(s)]
@@ -913,6 +866,9 @@ def console_summary(A: dict) -> str:
         L.append(f"{tag}: {w['message']}. {w['detail']}")
     L.append("-" * 78)
     L.append(f"Period            {st['start']} -> {st['end']}  ({st['years']:.1f} years)")
+    hl = headline(A)
+    if hl.get("warmup"):
+        L.append(f"                  {hl['rule']}")
     if A.get("cash"):
         c = A["cash"]
         L.append(f"Money             start ${c['starting_balance']:,.0f} + contributions ${c['total_contributions']:,.0f} "
@@ -985,7 +941,7 @@ def console_summary(A: dict) -> str:
     L.append("-" * 78)
     L.append("Returns by year")
     y = A["yearly"]
-    cols = [c for c in y.columns if str(c).endswith("buy & hold")]
+    cols = [c for c in y.columns if is_bench_col(c)]
     alloc = A["result"].kind == "allocation"
     if alloc:
         L.append(f"{'Year':8s} {'Return':>8s} {'Real':>7s} {'Infl.':>6s} {'Start $':>13s} {'Added $':>11s} {'Withdrawn $':>11s} {'End $':>13s} "
@@ -1072,6 +1028,7 @@ def run_payload(A: dict, i: int, idx: pd.DatetimeIndex) -> dict:
         "benchmark_cash": A.get("benchmark_cash") or {},
         "first_bar": A.get("first_bar"),
         "warmup_start": A.get("warmup_start"),
+        "headline": headline(A),
         "benchmark_from": A.get("benchmark_from") or {},
         "no_trades": bool(A.get("no_trades")),
         "trailing": A.get("trailing") or {},
@@ -1193,6 +1150,7 @@ def write_outputs(analyses: list[dict] | dict, out_dir: Path, excel: bool = True
                         "description": A["strategy"].description, "interpretation": interpretation(A["strategy"]),
                         "open_pnl": A["trade_stats"].get("open_pnl", 0.0), "open_trades": A["trade_stats"].get("open_trades", 0),
                         "warmup_start": A.get("warmup_start"), "benchmark_from": A.get("benchmark_from") or {},
+                        "headline": headline(A),
                         "notes": A["strategy"].notes, "kind": res.kind, "warnings": A.get("warnings", []),
                         "drawdowns": A["drawdowns"].to_dict("records"),
                         "withdrawal_rates": A.get("withdrawal_rates") or {},

@@ -336,7 +336,10 @@ def test_long_history_portfolio_benchmarks():
     assert spy["starting_balance"] == pytest.approx(res.equity[pd.Timestamp("1993-01-29")])
     C = report.common_window_stats([A], "tbill")
     assert str(C["full_start"]).startswith("1972") and C["full_from"]["SPY buy & hold"] == "1993-01-29"
-    assert "SPY buy & hold" in C["full"] and str(C["start"]).startswith("1999")   # like-for-like: from QQQ's start
+    # the common period is the strategies' (a young default benchmark such as QQQ doesn't cut it short); a
+    # benchmark that starts later is labelled with its own first date
+    assert "SPY buy & hold" in C["full"] and str(C["start"]).startswith("1972")
+    assert C["columns_from"]["QQQ buy & hold"].startswith("1999") and "SPYSIM buy & hold" not in C["columns_from"]
     # allocation tables: balances, not trade statistics
     y = A["yearly"]
     assert {"start_balance", "withdrawals", "end_balance", "inflation", "real_return"} <= set(y.columns)
@@ -353,9 +356,10 @@ def test_indicator_warm_up_starts_the_stats_later():
     from backtester import runner
     res = runner.run(parser.parse("hold QQQ when it is above its 10-month moving average, otherwise cash, rebalance monthly"))
     A = report.analyze(res, sensitivity=False, mc=False, detail=False)
-    assert A["warmup_start"] is not None and A["warmup_start"] > res.equity.index[1]
-    assert A["stats"]["start"] == A["warmup_start"].date()
-    assert any(n.startswith("Warm-up: stats start on") for n in res.strategy.notes)
+    # the portfolio itself starts trading after the warm-up, with the starting capital (nothing to trim)
+    assert A["warmup_start"] is None and res.equity.index[1] > data.load("QQQ").index[200]
+    assert A["stats"]["start_equity"] == pytest.approx(10_000)
+    assert any(n.startswith("Warm-up: the portfolio starts on") for n in res.strategy.notes)
 
 
 def test_signal_warm_up_skips_idle_bars_before_the_rule_is_defined(fake):

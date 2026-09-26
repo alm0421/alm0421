@@ -251,8 +251,10 @@ def test_warmup_waits_for_every_ranked_asset(fake, mode):
     warm, notes = report.warmup(res)
     b_ready = fake["B"].index[100]
     if mode == "all":
-        assert warm == b_ready
-        assert "all ranked assets have their full lookback" in notes[0] and "waited for B" in notes[0]
+        # the portfolio starts trading once every ranked asset has its lookback: nothing left to trim
+        assert warm is None and res.equity.index[1] == b_ready and res.equity.iloc[1] == pytest.approx(10_000)
+        n = next(x for x in res.strategy.notes if x.startswith("Warm-up:"))
+        assert "every ranked or weighted asset's lookback" in n and "waited for B" in n
     else:
         assert warm is None
         assert any(n.startswith("Lookback: B") for n in notes)

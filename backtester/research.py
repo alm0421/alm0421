@@ -48,6 +48,11 @@ def _values(spec: str) -> list:
 
 
 ARTICLES = ("the", "a", "an")
+CONNECTORS = {"than", "to", "of", "is", "are", "by", "at", "from", "over", "as", "with", "when", "if", "and", "or"}
+FILLERS = {"if", "when", "and", "or", "is", "the", "of"}
+UNITS = {"day", "days", "d", "week", "weeks", "month", "months", "year", "years", "bar", "bars"}
+INDICATOR_WORDS = {"rsi", "sma", "ema", "wma", "moving", "average", "return", "returns", "momentum", "volatility",
+                   "high", "low", "drawdown", "max", "stdev", "standard", "cumulative", "price", "change", "macd"}
 
 
 def _label(text: str, m: re.Match) -> str:
@@ -68,10 +73,32 @@ def _label(text: str, m: re.Match) -> str:
     word = text[a:b]
     if a < m.start():  # glued on the left: "RSI({2..5})" names itself
         return word
+    # a lookback followed by its unit and the indicator names what it measures: "{10,14} day RSI",
+    # "{10,14}-day RSI", "{3,6} month momentum"
+    after = re.findall(r"[^\s,;]+", text[b:])[:3]
+    tail = []
+    unit = re.sub(r"^.*?-", "", word[len(m.group(0)):]) if word != m.group(0) else ""
+    if not unit and after and after[0].lower().rstrip(".") in UNITS:
+        unit, after = after[0], after[1:]
+        tail.append(unit)
+    if unit.lower().rstrip(".") in UNITS and after and after[0].lower().strip("()") in INDICATOR_WORDS:
+        tail.append(after[0])
+        if len(after) > 1 and after[0].lower() == "moving" and after[1].lower().startswith("average"):
+            tail.append(after[1])
+    else:
+        tail = []
     before = [w.rstrip(',.;:') for w in text[:a].split()]  # free-standing or only a suffix ("{1..3}%"): prefix the
     while before and before[-1].lower() in ARTICLES:     # previous word, skipping articles ("buy the {3,5}" -> "buy {3,5}")
         before.pop()
-    return f"{before[-1]} {word}" if before and before[-1] else word
+    lead = []
+    while before and len(lead) < 3:
+        w = before.pop()
+        lead.insert(0, w)
+        if w.lower() not in CONNECTORS:  # "than {75..85}" says nothing on its own: "greater than {75..85}"
+            break
+    if tail and lead and lead[-1].lower() in FILLERS | CONNECTORS | {"its", "their"}:
+        lead = []
+    return " ".join(lead + [word] + tail) if lead and lead[-1] else " ".join([word] + tail)
 
 
 def expand(text: str) -> tuple[list[str], list[str], list[tuple]]:

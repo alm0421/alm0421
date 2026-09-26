@@ -320,7 +320,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const bigRet = st.total_return >= 100;
     const noTrades = !!r.no_trades;   // a signal strategy whose entry never triggered: only cash interest
     const t = [
-      ['Final value', Math.abs(st.end_equity) >= 1e6 ? '$' + compact(st.end_equity) : usd(st.end_equity), r.cash && r.cash.total_contributions ? `incl. ${usd(r.cash.total_contributions)} added` : `from ${usd(st.start_equity)}`],
+      ['Final value', Math.abs(st.end_equity) >= 1e6 ? '$' + compact(st.end_equity) : usd(st.end_equity), r.cash && r.cash.total_contributions ? `incl. ${usd(r.cash.total_contributions)} added` : r.warmup_start ? `from ${usd(st.start_equity)} on ${st.start}, after warm-up` : `from ${usd(st.start_equity)}`],
       noTrades ? ['Result', 'No trades', `the entry rule never triggered · cash interest alone ${pct(st.total_return, 1)}`]
         : ['Total return', bigRet ? (1 + st.total_return).toLocaleString(undefined, { maximumFractionDigits: 0 }) + '×' : pct(st.total_return, 1), r.cash && r.cash.starting_balance ? 'time-weighted' : ''],
       noTrades ? ['CAGR', '—', `interest only: ${pct(st.cagr)}/yr`]
@@ -542,13 +542,14 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   if (!hasFull || !Object.keys(D.common.full_from || {}).length) $('cmpSeg').classList.add('hide');
   $('cmpSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; cmpMode = b.dataset.v; [...$('cmpSeg').children].forEach(x => x.classList.toggle('on', x === b)); drawCompare(); });
   function drawCompare() {
-    const C = D.common, full = cmpMode === 'full' && hasFull, from = full ? (C.full_from || {}) : {};
+    const C = D.common, full = cmpMode === 'full' && hasFull, from = full ? (C.full_from || {}) : (C.columns_from || {});
     const data = full ? C.full : C.columns;
     $('commonPeriod').textContent = full ? `${C.full_start} → ${C.full_end}` : `${C.start} → ${C.end}`;
     $('cmpNote').textContent = full
       ? (Object.keys(from).length ? 'Each column covers the whole period where it has data; columns marked "from" start later, so their numbers cover less history. "Common period" compares everything over the same dates.'
         : 'All columns are measured over the same period.')
-      : 'All columns are measured over the same period (the latest start date among them), so the comparison is like-for-like.';
+      : (Object.keys(from).length ? 'The strategies are measured over the same period (the latest start among them); a benchmark marked "from" has data only from that date, so its numbers cover less history.'
+        : 'All columns are measured over the same period (the latest start date among the strategies), so the comparison is like-for-like.');
     const cols = Object.keys(data);
     const lab = c => short(c) + (from[c] ? ` (from ${from[c]})` : '');
     const rows = [

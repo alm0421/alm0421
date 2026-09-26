@@ -82,7 +82,18 @@ class Portfolio:
     # statistics start once every asset a filter / ranking / weighting measures has its full lookback ("all"),
     # or once enough of them have one to fill the filter's slots ("first")
     warmup: Literal["all", "first"] = "all"
-    benchmark: str | None = None                 # comparison ticker for alpha/beta (default SPY)
+    # (the portfolio starts trading on that day - nothing is bought during the warm-up - so the statistics start
+    # with the starting capital)
+    # indicator prices: "adjusted" = open/high/low/close on a total-return basis, dividends reinvested (Composer and
+    # Portfolio Visualizer); "quoted" = prices as quoted (TradingView). Trading and valuation always use quoted
+    # prices plus cash dividends; only the rules' indicators change.
+    price_basis: Literal["adjusted", "quoted"] = "adjusted"
+    # volatility targeting: at each rebalance, scale every risky weight by target_vol / the realised volatility of
+    # the target mix over target_vol_lookback days, capped at `leverage` (1 = never borrow); the rest is cash
+    target_vol: float | None = None
+    target_vol_lookback: int = 60
+    benchmark: str | dict | None = None          # comparison ticker for alpha/beta (default SPY), or a blend:
+                                                 # "60 SPY 40 AGG" / {"SPY": 0.6, "AGG": 0.4} (rebalanced monthly)
     name: str = ""
     description: str = ""
     notes: list[str] = field(default_factory=list)
@@ -96,11 +107,29 @@ class Portfolio:
             raise ValueError("leverage must be between 0 and 10")
         if not 0 <= self.maintenance_margin < 1:
             raise ValueError("maintenance_margin must be at least 0 and below 1")
+        if self.price_basis not in ("adjusted", "quoted"):
+            raise ValueError("price_basis must be 'adjusted' (total-return prices, as Composer and Portfolio Visualizer) "
+                             "or 'quoted' (prices as quoted, as TradingView)")
+        if self.target_vol is not None:
+            if not 0 < float(self.target_vol) < 5:
+                raise ValueError("target_vol is an annual fraction above 0 (0.10 = 10% a year)")
+            if int(self.target_vol_lookback) < 5:
+                raise ValueError("target_vol_lookback must be at least 5 days")
         if self.maintenance_margin > 1 / self.leverage + 1e-12:
             raise ValueError(f"maintenance_margin ({self.maintenance_margin:.0%}) is above the initial margin of "
                              f"{self.leverage:g}x leverage ({1 / self.leverage:.0%}): every close would be a margin call. "
                              f"Use at most {1 / self.maintenance_margin:g}x, or a lower maintenance_margin "
                              "(0 turns margin calls off).")
+        gross = max_gross(self.tree) * self.leverage
+        if self.maintenance_margin and gross > 0 and self.maintenance_margin > 1 / gross + 1e-12:
+            raise ValueError(f"The portfolio's gross exposure can reach {gross:.3g}x its equity (the sum of the absolute "
+                             f"weights, longs plus shorts{', times the leverage' if self.leverage != 1 else ''}), above the "
+                             f"{1 / self.maintenance_margin:.3g}x that a {self.maintenance_margin:.0%} maintenance margin "
+                             "allows, so every close would be a margin call. Use smaller weights or less leverage, or a "
+                             "lower maintenance_margin (0 turns margin calls off).")
+        if self.benchmark not in (None, ""):
+            from . import metrics
+            self.benchmark = metrics.benchmark_label(self.benchmark)
         for f in ("contribution_freq", "withdrawal_freq"):
             if getattr(self, f) not in FLOW_FREQS:
                 raise ValueError(f"{f} must be one of {FLOW_FREQS}")
@@ -193,6 +222,17 @@ class Portfolio:
             costs.append(f"{self.maintenance_margin:.0%} maintenance margin (margin calls cut positions at the close)"
                          if self.maintenance_margin else "no margin calls")
         lines.append("Costs: " + (", ".join(costs) if costs else "none"))
+        if self.target_vol:
+            cap = self.leverage
+            lines.append(f"Volatility target: {float(self.target_vol):.1%} a year: at each rebalance every holding is scaled "
+                         f"by the target over the {int(self.target_vol_lookback)}-day realised volatility of the target mix, "
+                         + (f"up to {cap:g}x (borrowing above 1x)" if cap > 1 else "never above 100% invested")
+                         + "; the rest is held in cash")
+        if _has_rules(self.tree):
+            lines.append("Indicators: " + ("computed on total-return prices (dividends reinvested), as Composer and "
+                                           "Portfolio Visualizer do" if self.price_basis == "adjusted" else
+                                           "computed on prices as quoted (not adjusted for dividends), as TradingView does")
+                         + "; trades and valuation use quoted prices plus cash dividends")
         cr = self.cash_rate
         lines.append("Cash: " + ("earns the 3-month T-bill rate" if cr == "tbill" else
                                  f"earns {float(cr):.2%}/yr" if cr else "earns nothing"))
@@ -289,6 +329,45 @@ def _has_short(n: dict) -> bool:
     if n.get("weights") == "specified" and any(w < 0 for w in n.get("w") or []):
         return True
     return any(_has_short(k) for k in _kids(n))
+
+
+def _has_rules(n) -> bool:
+    """Does the tree evaluate indicators (if-nodes, filters, look-back weightings)?"""
+    if not isinstance(n, dict):
+        return False
+    if "if" in n or "filter" in n or ("weights" in n and n["weights"] not in ("equal", "specified", "market_cap")):
+        return True
+    return any(_has_rules(k) for k in _kids(n))
+
+
+def _has_ndx(n) -> bool:
+    if not isinstance(n, dict):
+        return False
+    if "filter" in n and n.get("universe") in ("NDX", "nasdaq100"):
+        return True
+    return any(_has_ndx(k) for k in _kids(n))
+
+
+def max_gross(n) -> float:
+    """The largest gross exposure (sum of absolute weights, longs plus shorts) the tree can ask for, over every
+    branch an if-node or filter may take."""
+    if not isinstance(n, dict):
+        return 1.0
+    kind = _node_type(n)
+    if kind == "cash":
+        return 0.0
+    if kind == "weights":
+        kids = n.get("children") or []
+        if n["weights"] == "specified":
+            return float(sum(abs(float(w)) * max_gross(k) for w, k in zip(n.get("w") or [], kids)))
+        return max([max_gross(k) for k in kids] or [1.0])
+    if kind == "if":
+        return max(max_gross(n.get("then")), max_gross(n.get("else")))
+    if kind == "filter":
+        kids = (n.get("children") or []) if n.get("universe", "children") == "children" else []
+        out = max([max_gross(k) for k in kids] or [1.0])
+        return max(out, max_gross(n["fallback"])) if n.get("fallback") else out
+    return 1.0
 
 
 def _needs_nav(n: dict) -> bool:
@@ -658,6 +737,48 @@ def describe(n: dict, indent: int = 0) -> list[str]:
 OPTIMISERS = ("risk_parity", "min_variance", "max_sharpe", "max_diversification")
 
 
+_LEVEL_FUNCS = {"sma", "ema", "wma", "rma", "ma", "highest", "lowest", "vwap", "bb_upper", "bb_lower", "donchian_upper",
+                "donchian_lower", "keltner_upper", "keltner_lower", "supertrend", "sar", "weekly_sma", "monthly_sma",
+                "weekly_ema", "monthly_ema", "weekly_close", "monthly_close"}
+_LEVEL_NAMES = {"close", "open", "high", "low", "price"}
+LEVEL_NOTE = ("The rule `{rule}` compares a price level with a fixed number. Indicators use total-return prices "
+              "(price_basis \"adjusted\"), whose level starts at the first quoted close and then grows with the "
+              "dividends, so it is above today's quote for a dividend payer; set price_basis to \"quoted\" for a "
+              "fixed price level.")
+
+
+def price_level_threshold(rule) -> bool:
+    """Does the rule compare a price level (close, a moving average of it, another ticker's price) with a fixed
+    number? Such a comparison depends on the price basis; ratios, returns and oscillators do not."""
+    import ast
+    try:
+        tree = ast.parse(str(rule).strip(), mode="eval")
+    except SyntaxError:
+        return False
+
+    def is_num(x):
+        if isinstance(x, ast.UnaryOp) and isinstance(x.op, (ast.USub, ast.UAdd)):
+            x = x.operand
+        return isinstance(x, ast.Constant) and isinstance(x.value, (int, float)) and not isinstance(x.value, bool)
+
+    def is_level(x):
+        if isinstance(x, ast.Name):
+            return x.id in _LEVEL_NAMES
+        if isinstance(x, ast.Attribute):
+            return x.attr in _LEVEL_NAMES
+        if isinstance(x, ast.Call) and isinstance(x.func, ast.Name) and x.func.id in _LEVEL_FUNCS:
+            a = [y for y in x.args if not is_num(y)]
+            return not a or is_level(a[0])
+        return False
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare):
+            ops = [node.left] + list(node.comparators)
+            if any(is_num(o) for o in ops) and any(is_level(o) for o in ops):
+                return True
+    return False
+
+
 class _Evaluator:
     """Evaluates the tree to target weights at the close of day i of `cal`.
 
@@ -668,7 +789,8 @@ class _Evaluator:
 
     def __init__(self, p: Portfolio, cal: pd.DatetimeIndex, dfs: dict[str, pd.DataFrame], off: int = 0):
         self.p, self.cal, self.dfs, self.off = p, cal, dfs, off
-        self.ns = {t: expr.Namespace(df, ticker=t) for t, df in dfs.items()}
+        self.basis = getattr(p, "price_basis", "quoted") or "quoted"
+        self.ns = {t: expr.Namespace(df, ticker=t, price_basis=self.basis) for t, df in dfs.items()}
         self.cache: dict = {}
         self.close = {t: df["close"].reindex(cal).to_numpy() for t, df in dfs.items()}
         self._rets: dict = {}
@@ -690,6 +812,7 @@ class _Evaluator:
             else:
                 s = expr.evaluate_value(rule, ns).reindex(self.cal).to_numpy()
             self.cache[key] = s
+            self._rule_notes(rule, ns)
         return self.cache[key]
 
     def mseries(self, rule: str, m, kind: str) -> np.ndarray:
@@ -704,7 +827,17 @@ class _Evaluator:
             else:
                 s = expr.evaluate_value(rule, ns).to_numpy()
             self.cache[key] = s
+            self._rule_notes(rule, ns)
         return self.cache[key]
+
+    def _rule_notes(self, rule: str, ns) -> None:
+        """Notes a rule earns whenever it is evaluated (also inside a synthetic NAV, where other notes are quiet)."""
+        msgs = list(getattr(ns, "notes", []))
+        if self.basis == "adjusted" and price_level_threshold(rule):
+            msgs.append(LEVEL_NOTE.format(rule=rule))
+        for m in msgs:
+            if m not in self.p.notes:
+                self.p.notes.append(m)
 
     def vol(self, t: str, n: int) -> np.ndarray:
         return self.series(f"volatility({int(n)})", t, "value")
@@ -808,7 +941,7 @@ class _Evaluator:
             v = pd.Series(self.nav(n), index=self.cal)
             df = pd.DataFrame({"open": v, "high": v, "low": v, "close": v, "volume": 0.0, "adj_close": v,
                                "dividend": 0.0}, index=self.cal)
-            self._nav_ns[k] = expr.Namespace(df)
+            self._nav_ns[k] = expr.Namespace(df, price_basis=self.basis)
         return self._nav_ns[k]
 
     def mrets(self, m) -> np.ndarray:
@@ -1050,6 +1183,113 @@ def _flow_schedule(cal: pd.DatetimeIndex, freq: str, start, end, growth: float, 
     return days, mult
 
 
+def warmup_dates(p, frames=None) -> tuple[pd.Timestamp | None, dict, dict]:
+    """(warm, late, waited): the first day every rule of the tree can be evaluated, and per ranked member the day
+    its lookbacks complete.
+
+    warm is the latest of: each if-condition's indicators on its ticker; for each filter, the day its members have
+    both the ranking (and requirement) values and the filter weighting's lookback (inverse volatility, optimisers) -
+    every member with mode "all", enough to fill the N slots with mode "first"; each look-back weighting's
+    lookback on its members; and the volatility target's lookback on every fixed ticker. A group member is
+    measured on the data of its latest-starting ticker (a proxy for its simulated NAV). Only data up to each day
+    decides whether that day is warm, so the date does not depend on later data. Index universes (Nasdaq-100) are
+    left out: their members come and go."""
+    tree = getattr(p, "tree", None)
+    if not isinstance(tree, dict):
+        return None, {}, {}
+    basis = getattr(p, "price_basis", "quoted") or "quoted"
+    mode = getattr(p, "warmup", "all") or "all"
+    nss: dict = {}
+
+    def ns_of(t):
+        if t not in nss:
+            df = (frames or {}).get(t)
+            if df is None:
+                try:
+                    df = data.load(t)
+                except (FileNotFoundError, data.DataError, KeyError):
+                    df = None
+            nss[t] = expr.Namespace(df, ticker=t, price_basis=basis) if df is not None else None
+        return nss[t]
+
+    dates: list = []
+    late: dict = {}
+    waited: dict = {}
+
+    def member_date(k, rules):
+        if "asset" in k:
+            t = data.canonical(k["asset"])
+            cands = [t]
+        else:
+            cands = fixed_tickers(k)
+            t = k.get("name") or short_name(k, 40)
+        best = None
+        for c in cands:
+            ns = ns_of(c)
+            if ns is None:
+                continue
+            ds = [x for x in (expr.first_defined(r, ns) for r in rules) if x is not None]
+            d = max(ds) if ds else ns.df.index[0]
+            best = d if best is None else max(best, d)
+        return t, best
+
+    def wrule(kind, lb):
+        if kind in ("inverse_vol",) + OPTIMISERS:
+            return f"volatility({int(lb or (20 if kind == 'inverse_vol' else 60))})"
+        return None
+
+    def walk(n):
+        if not isinstance(n, dict):
+            return
+        if "if" in n:
+            d = expr.first_defined(n["if"], ns_of(data.canonical(n.get("on", "SPY"))))
+            if d is not None:
+                dates.append(d)
+            walk(n.get("then"))
+            walk(n.get("else"))
+        elif "filter" in n:
+            f = n["filter"]
+            u = n.get("universe", "children")
+            rules = [r for r in (f.get("by"), f.get("require"), wrule(f.get("weights", "equal"), f.get("lookback"))) if r]
+            if not (isinstance(u, str) and u in ("NDX", "nasdaq100")):
+                per = {}
+                members = (n.get("children") or []) if u == "children" else [{"asset": t} for t in _universe(n)]
+                for k in members:
+                    lab, d = member_date(k, rules)
+                    if d is not None:
+                        per[lab] = d
+                if per:
+                    need = min(int(f.get("n", 1)), len(per))
+                    dates.append(max(per.values()) if mode == "all" else sorted(per.values())[need - 1])
+                    late.update(per)
+                    if mode == "all":
+                        waited.update(per)
+            for k in (n.get("children") or []) if u == "children" else []:
+                walk(k)
+            if n.get("fallback"):
+                walk(n["fallback"])
+        elif "weights" in n:
+            kids = n.get("children") or []
+            r = wrule(n["weights"], n.get("lookback"))
+            if r and kids:
+                for k in kids:
+                    lab, d = member_date(k, [r])
+                    if d is not None:
+                        dates.append(d)
+                        waited[lab] = max(d, waited.get(lab, d))
+            for k in kids:
+                walk(k)
+    walk(tree)
+    if getattr(p, "target_vol", None):
+        r = f"volatility({int(getattr(p, 'target_vol_lookback', 60) or 60)})"
+        for t in fixed_tickers(tree):
+            ns = ns_of(t)
+            d = expr.first_defined(r, ns) if ns is not None else None
+            if d is not None:
+                dates.append(d)
+    return (max(dates) if dates else None), late, waited
+
+
 def run(p: Portfolio) -> Result:
     p.validate()
     names = tickers_in(p.tree)
@@ -1065,9 +1305,43 @@ def run(p: Portfolio) -> Result:
         late = [t for t in must if dfs[t].index[0] == first_common]
         p.notes.append(f"Start moved to {first_common.date()}, when {', '.join(late)} began trading.")
         start = first_common
+    if _has_ndx(p.tree) and p.point_in_time:
+        mem = data.membership()
+        if mem is not None and len(mem) and start < mem.index[0]:
+            m0 = mem.index[0]
+            p.notes.append(f"Start moved to {m0.date()}, when the point-in-time Nasdaq-100 membership data begins"
+                           + (f" (you asked for {pd.Timestamp(p.start).date()})" if p.start else "")
+                           + ": before it the filter would have no members to choose from.")
+            start = m0
     cal = cal[cal >= start]
     if p.end:
         cal = cal[cal <= pd.Timestamp(p.end)]
+    if _has_rules(p.tree):
+        basis_note = ("Indicator prices: total return (dividends reinvested; price_basis \"adjusted\", as Composer and "
+                      "Portfolio Visualizer). Trades and valuation use quoted prices plus cash dividends."
+                      if p.price_basis == "adjusted" else
+                      "Indicator prices: as quoted, not adjusted for dividends (price_basis \"quoted\", as TradingView). "
+                      "Composer and Portfolio Visualizer use total-return prices, so RSI and moving averages of dividend "
+                      "payers (bond funds, BIL) can differ from theirs.")
+        if basis_note not in p.notes:
+            p.notes.append(basis_note)
+    # the warm-up: start trading on the first day every rule, ranking and weighting lookback has its values, so
+    # nothing is bought on incomplete indicators and the statistics start with the starting capital
+    if len(cal) > 1:
+        warm, _, waited = warmup_dates(p, dfs)
+        if warm is not None and warm > cal[0]:
+            slow = sorted(((t, d) for t, d in waited.items() if d > cal[0]), key=lambda kv: kv[1], reverse=True)
+            who = ", ".join(f"{t} ({d.date()})" for t, d in slow[:6]) + (f" and {len(slow) - 6} more" if len(slow) > 6 else "")
+            if warm <= cal[-2]:
+                p.notes.append(f"Warm-up: the portfolio starts on {cal[cal >= warm][0].date()} instead of {cal[0].date()}, the "
+                               "first day every rule's indicators" + (" and every ranked or weighted asset's lookback" if waited else "")
+                               + " have values" + (f" (waited for {who})" if who else "")
+                               + ". Nothing is traded during the warm-up, so the statistics start with the starting capital."
+                               + (" Set warmup to \"first\" to start once enough assets can fill the slots." if slow and p.warmup == "all" else ""))
+                cal = cal[cal >= warm]
+            else:
+                p.notes.append(f"Warm-up: the rules' lookbacks are only complete on {warm.date()}, after the end of the "
+                               "period; the portfolio traded on incomplete indicators throughout.")
     # start on a day every fixed holding actually traded (not, say, a stock-market holiday on
     # which only a crypto or foreign series has a row)
     if must and len(cal):
@@ -1136,6 +1410,7 @@ def run(p: Portfolio) -> Result:
     ledger: list[tuple] = []          # (date, ticker, kind, shares, value, commission)
     turnover = 0.0
     n_rebal = 0
+    vol_scale: list = []              # (date, exposure multiplier) of each volatility-target decision
 
     def px_now(prices):
         return np.where(np.isfinite(prices), prices, last_px)
@@ -1300,7 +1575,10 @@ def run(p: Portfolio) -> Result:
         rebalanced_at_close = False
         if decide:
             new = ev.eval(p.tree, base + i)
-            if p.leverage != 1.0:
+            if p.target_vol:
+                new, k = _vol_target(p, ev, new, base + i)
+                vol_scale.append((cal[i], k))
+            elif p.leverage != 1.0:
                 new = {t: w * p.leverage for t, w in new.items() if t != "cash"}
             new = {t: w for t, w in new.items() if abs(w) > 1e-9 and t != "cash"}
             changed = set(new) != set(target) or any(abs(new.get(t, 0) - target.get(t, 0)) > 1e-9 for t in new)
@@ -1361,6 +1639,12 @@ def run(p: Portfolio) -> Result:
         p.notes.append(f"Margin call on {', '.join(str(d) for d in margin_days[:5])}{more}: equity fell below "
                        f"{mm:.0%} of gross exposure, so every position was cut pro rata at the close back to the "
                        "target leverage (orders marked 'margin call').")
+    if vol_scale:
+        ks = np.array([k for _, k in vol_scale if np.isfinite(k)])
+        if len(ks):
+            p.notes.append(f"Volatility target {float(p.target_vol):.0%}: the holdings were scaled by {ks.min():.2f}x to "
+                           f"{ks.max():.2f}x (median {np.median(ks):.2f}x) of the tree's weights; the rest was held in cash"
+                           + (" or borrowed" if ks.max() > 1 + 1e-9 else "") + ".")
     if lev_peak[2] is not None:
         p.notes.append(f"Between rebalances leverage drifted up to {lev_peak[0]:.1f}x gross exposure (on {lev_peak[2]}; "
                        f"target {lev_peak[1]:.1f}x)" + (f"; margin calls cap it at {1 / mm:g}x." if mm else
@@ -1386,8 +1670,31 @@ def run(p: Portfolio) -> Result:
                  kind="allocation", orders=od)
     res.extras.update({"fees": fees, "flows": fl, "turnover_annual": turnover / max((cal[-1] - cal[0]).days / 365.25, 1e-9),
                        "rebalances": n_rebal,
+                       "vol_scale": pd.Series([k for _, k in vol_scale], index=pd.DatetimeIndex([d for d, _ in vol_scale]), dtype=float),
                        "attribution": _attribution(tick, tcash, tdiv, tcom, shares, end_px, od)})
     return res
+
+
+def _vol_target(p: Portfolio, ev: "_Evaluator", new: dict[str, float], i: int) -> tuple[dict[str, float], float]:
+    """Scale the target weights so the mix's realised volatility over the lookback (daily total returns, ending
+    at the decision's close i) matches p.target_vol, never above p.leverage times the weights."""
+    cap = float(p.leverage)
+    risky = {t: w for t, w in new.items() if t != "cash" and abs(w) > 1e-12}
+    if not risky:
+        return {}, 1.0
+    n = int(p.target_vol_lookback or 60)
+    lo = max(0, i - n + 1)
+    R = np.column_stack([ev.rets(t)[lo: i + 1] for t in risky])
+    w = np.array(list(risky.values()))
+    R = R[np.isfinite(R).all(axis=1)]
+    if len(R) < max(5, min(n, 20)):
+        ev.note(f"Volatility target: fewer than {max(5, min(n, 20))} days of returns on some rebalance dates; "
+                "the tree's weights were used unscaled then.")
+        k = min(1.0, cap)
+    else:
+        vol = float(np.std(R @ w, ddof=1) * np.sqrt(252))
+        k = cap if vol <= 1e-12 else min(cap, float(p.target_vol) / vol)
+    return {t: x * k for t, x in risky.items()}, k
 
 
 def _attribution(tick, tcash, tdiv, tcom, shares, end_px, od: pd.DataFrame) -> pd.DataFrame:
