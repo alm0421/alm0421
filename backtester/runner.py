@@ -41,6 +41,23 @@ def _identity_notes(spec: Spec, res: Result) -> None:
                     spec.notes.append(n)
     except Exception:  # noqa: BLE001 - a warning must never break a backtest
         pass
+    _corporate_action_note(spec, res)
+
+
+def _corporate_action_note(spec: Spec, res: Result) -> None:
+    """List the reconciled corporate-action days (data.reconcile_actions) of the tickers actually held."""
+    from . import data
+    try:
+        hw = res.holdings
+        eq = res.equity
+        if hw is None or hw.empty or not len(eq):
+            return
+        held = [t for t in hw.columns if (hw[t] != 0).any()]
+        n = data.corporate_action_note(held, eq.index[0], eq.index[-1])
+        if n and n not in spec.notes:
+            spec.notes.append(n)
+    except Exception:  # noqa: BLE001 - a note must never break a backtest
+        pass
 
 
 def from_dict(d: dict) -> Spec:

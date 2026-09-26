@@ -147,11 +147,26 @@ def _prepare(strat: Strategy):
         cal = cal[cal <= end]
     if len(cal) < 2:
         raise ValueError("no price data in the requested period")
+    rules = " ".join(str(r) for r in (strat.rank_by, strat.entry, strat.short_entry, strat.exit_when) if r)
+    if strat.universe_name == "NDX" and strat.point_in_time and "market_cap" in rules:
+        # ranking / selecting members by market cap needs share counts for most of them: start where they do
+        names = list(dfs)
+        elig, _ = data.member_mask(names, cal)
+        elig &= np.column_stack([dfs[t]["close"].reindex(cal).notna().to_numpy() for t in names])
+        d, msg = data.mcap_start(elig, names, cal)
+        if msg:
+            strat.notes.append(msg)
+        if d is not None and d > cal[0]:
+            cal = cal[cal >= d]
+            if len(cal) < 2:
+                raise ValueError(f"Market-cap data only covers enough of the Nasdaq-100 from {d.date()}, at the end of "
+                                 "this period.")
 
     tick = list(dfs)
     T, N = len(cal), len(tick)
     arr = lambda: np.full((T, N), np.nan)  # noqa: E731
     O, H, L, C, V, DIV, ATR, VOL, LEVEL, ADV = (arr() for _ in range(10))
+    SF = np.ones((T, N))   # split-adjusted -> as-traded units (data.as_traded_factor)
     long_sig = np.zeros((T, N), bool)
     short_sig = np.zeros((T, N), bool)
     exit_ = np.zeros((T, N), bool)
@@ -182,6 +197,7 @@ def _prepare(strat: Strategy):
         # average daily volume of the 20 bars before the order's bar (known when it is placed)
         ADV[:, j] = df["volume"].rolling(20, min_periods=1).mean().shift(1).reindex(cal)
         DIV[:, j] = a["dividend"].fillna(0.0)
+        SF[:, j] = data.as_traded_factor(t, cal, df)
         ATR[:, j] = ns["atr"](strat.atr_period).reindex(cal)
         VOL[:, j] = ns["volatility"](20).reindex(cal)
         if strat.side in ("long", "both"):
@@ -231,6 +247,15 @@ def _prepare(strat: Strategy):
         member &= valid
         long_sig &= member
         short_sig &= member
+        if strat.rank_by and "market_cap" in strat.rank_by:
+            ranked_ok = np.isfinite(rank) & member
+            n_el = member.sum(axis=1)
+            thin = (n_el > 0) & (ranked_ok.sum(axis=1) < data.MCAP_MIN_COVERAGE * n_el)
+            if thin.any():
+                k = int(np.argmax(thin))
+                strat.notes.append(f"Thin ranking: on {int(thin.sum())} day(s) fewer than {data.MCAP_MIN_COVERAGE:.0%} of the "
+                                   f"index members had a {strat.rank_by} value (first {cal[k].date()}: "
+                                   f"{int(ranked_ok[k].sum())} of {int(n_el[k])}), so the ranking there covers a subset.")
     if strat.entry_fill in ("open", "next_open") and strat.entry_order == "market":
         fill_ok = OK if strat.entry_fill == "open" else np.vstack([OK[1:], np.ones((1, N), bool)])
         # judged only on the bars where the ticker can be traded (for an index universe: while a member), so a
@@ -261,7 +286,7 @@ def _prepare(strat: Strategy):
             strat.notes.append(
                 f"Coverage: until {cal[thin[-1]].date()} fewer than half of the {N} tickers had price history, "
                 f"so early results come from a small subset. Add 'since <year>' to focus on the period with full coverage.")
-    return dict(dfs=dfs, cal=cal, tick=tick, O=O, H=H, L=L, C=C, V=V, DIV=DIV, ATR=ATR, VOL=VOL, ADV=ADV,
+    return dict(dfs=dfs, cal=cal, tick=tick, O=O, H=H, L=L, C=C, V=V, DIV=DIV, ATR=ATR, VOL=VOL, ADV=ADV, SF=SF,
                 LEVEL=LEVEL, long_sig=long_sig, short_sig=short_sig, exit_sig=exit_, rank=rank,
                 per_trade_exit=per_trade_exit, namespaces=namespaces, delist=delist, traded=traded)
 
@@ -276,6 +301,7 @@ def run(strat: Strategy) -> Result:
     LEVEL, long_sig, short_sig, exit_sig, rank = P["LEVEL"], P["long_sig"], P["short_sig"], P["exit_sig"], P["rank"]
     namespaces = P["namespaces"]
     ADV = P["ADV"]
+    SF = P["SF"]
     T, N = C.shape
     slip = strat.slippage_bps / 1e4
     rate = _daily_rate(cal, strat.cash_rate)
@@ -316,9 +342,16 @@ def run(strat: Strategy) -> Result:
     def note_gross(prices: np.ndarray) -> None:
         bar_gross[0] = max(bar_gross[0], gross(prices))
 
-    def commission(shares: float, value: float) -> float:
-        return (strat.commission + strat.commission_per_share * shares + strat.commission_pct * abs(value)
-                + broker_commission(strat.commission_model, shares, value))
+    def commission(shares: float, value: float, f: float = 1.0) -> float:
+        """Costs of an order of `shares` split-adjusted shares worth `value`; per-share fees, minimums and caps
+        apply to the shares as traded that day (shares / f, f = SF[i, k]: data.split_factor_after)."""
+        q = shares / f
+        return (strat.commission + strat.commission_per_share * q + strat.commission_pct * abs(value)
+                + broker_commission(strat.commission_model, q, value))
+
+    def whole(shares: float, f: float) -> float:
+        """Round down to whole shares as traded that day (f split-adjusted shares make one as-traded share)."""
+        return np.floor(shares / f + 1e-9) * f
 
     def slip_for(i: int, k: int, shares: float) -> float:
         """Slippage per side as a fraction: fixed bps, plus (volume model) half the spread and a square-root
@@ -337,7 +370,7 @@ def run(strat: Strategy) -> Result:
         elif strat.sizing == "fixed_dollars":
             value = strat.fixed_amount
         elif strat.sizing == "fixed_shares":
-            value = strat.fixed_amount * fill
+            value = strat.fixed_amount * SF[i, k] * fill    # a number of shares as traded that day
         elif strat.sizing == "risk":
             dist = fill * strat.stop_loss if strat.stop_loss else strat.stop_atr * ATR[ib, k]
             if not np.isfinite(dist) or dist <= 0:
@@ -363,15 +396,16 @@ def run(strat: Strategy) -> Result:
             vol_known = np.nan
         if strat.max_volume_pct and vol_known > 0:
             shares = min(shares, strat.max_volume_pct * vol_known)
+        f = SF[i, k]
         if not strat.fractional_shares:
-            shares = np.floor(shares)
-        if sgn == 1 and shares * fill + commission(shares, shares * fill) > S["cash"] + (strat.leverage - 1) * max(eq, 0) + 1e-9:
+            shares = whole(shares, f)
+        if sgn == 1 and shares * fill + commission(shares, shares * fill, f) > S["cash"] + (strat.leverage - 1) * max(eq, 0) + 1e-9:
             avail = S["cash"] + (strat.leverage - 1) * max(eq, 0)
-            shares = max(0.0, (avail - strat.commission) / (fill * (1 + strat.commission_pct) + strat.commission_per_share))
+            shares = max(0.0, (avail - strat.commission) / (fill * (1 + strat.commission_pct) + strat.commission_per_share / f))
             if strat.commission_model:  # one fixed-point step: the fee of a larger order is an upper bound
-                shares = max(0.0, (avail - commission(shares, shares * fill)) / fill)
+                shares = max(0.0, (avail - commission(shares, shares * fill, f)) / fill)
             if not strat.fractional_shares:
-                shares = np.floor(shares)
+                shares = whole(shares, f)
         return max(shares, 0.0)
 
     def open_pos(i: int, k: int, px: float, at_open: bool, sgn: int, prices: np.ndarray) -> bool:
@@ -392,7 +426,7 @@ def run(strat: Strategy) -> Result:
             elif shares > 0:
                 S["small"] += 1
             return False
-        com = commission(shares, shares * fill)
+        com = commission(shares, shares * fill, SF[i, k])
         S["cash"] -= sgn * shares * fill + com
         lot = Lot(shares, fill, i, at_open, com)
         if k in positions:  # pyramiding
@@ -438,7 +472,7 @@ def run(strat: Strategy) -> Result:
         remaining = []
         for lot in p.lots:
             q = lot.shares * fraction
-            com = commission(q, q * fill)
+            com = commission(q, q * fill, SF[i, p.k])
             S["cash"] += p.sign * q * fill - com
             share_in = lot.commission * fraction
             inc = lot.income * fraction
@@ -451,14 +485,20 @@ def run(strat: Strategy) -> Result:
             trades.append({
                 "ticker": tick[p.k], "side": "long" if p.sign == 1 else "short",
                 "entry_date": cal[lot.bar].date(), "entry_fill": "open" if lot.at_open else "close",
-                "entry_price": lot.price,
+                # shares and prices as traded (not adjusted for later splits); a split while held changes the
+                # count: exit_shares x exit_price = shares x entry_price x (1 + price return)
+                "entry_price": lot.price * SF[lot.bar, p.k],
                 "exit_date": cal[i].date(),
                 "exit_fill": "open" if at_open else ("intraday" if reason in INTRADAY_REASONS else "close"),
-                "exit_price": fill, "shares": q, "position_value": cost, "pnl": pnl,
+                "exit_price": fill * SF[i, p.k], "shares": q / SF[lot.bar, p.k], "exit_shares": q / SF[i, p.k],
+                "entry_split_factor": SF[lot.bar, p.k], "exit_split_factor": SF[i, p.k],
+                "position_value": cost, "pnl": pnl,
                 "return": pnl / cost if cost else 0.0, "bars_held": i - lot.bar, "exit_reason": reason,
                 "mae": mae, "mfe": mfe, "commission": share_in + com, "income": inc,
-                **({"stop_level": p.init_stop, "trail_level": p.init_trail, "target_level": p.init_tgt,
-                    "atr_at_entry": p.atr_at_entry} if stops_used else {}),
+                **({k: (v * SF[lot.bar, p.k] if v is not None else v)          # as traded, like entry_price
+                    for k, v in (("stop_level", p.init_stop), ("trail_level", p.init_trail),
+                                 ("target_level", p.init_tgt), ("atr_at_entry", p.atr_at_entry))}
+                   if stops_used else {}),
             })
             if fraction < 1.0:
                 lot.shares -= q

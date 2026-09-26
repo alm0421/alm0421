@@ -52,7 +52,7 @@ def exit_instructions(spec: Strategy, res) -> tuple[list[dict], list[dict]]:
             when = {"close": "at today's close", "open": "at today's open", "intraday": "today (intraday)"}.get(fill, fill)
             exits.append({"ticker": t, "side": side, "action": word[side][0], "when": when,
                           "order": {"close": "MOC", "open": "MOO"}.get(fill, "STOP/LIMIT"), "reason": reason,
-                          "date": str(last.date()), "shares": round(float(g["shares"].sum()), 6),
+                          "date": str(last.date()), "shares": round(float(g["exit_shares" if "exit_shares" in g else "shares"].sum()), 6),
                           "price": round(float(g["exit_price"].iloc[-1]), 4), "done": True})
     for st in res.extras.get("open_state", []) or []:
         t, side = st["ticker"], st["side"]

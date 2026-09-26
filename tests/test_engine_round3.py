@@ -114,7 +114,7 @@ def test_hold_zero_is_the_close_of_an_entry_bar_entered_at_the_open(fake):
 def test_msft_reference_still_sells_at_the_next_close():
     s = parser.parse("buy at the close Microsoft when it trades down 5 days in a row, hold for 1 day, and sell at the close")
     r = engine.run(s)
-    c = data.load("MSFT")["close"]
+    c = data.quoted_close("MSFT")        # trade prices are as traded (MSFT has split nine times since 1987)
     t = r.trades.iloc[3]
     nxt = c.index[c.index.get_loc(pd.Timestamp(t.entry_date)) + 1]
     assert (r.trades.bars_held == 1).all() and pd.Timestamp(t.exit_date) == nxt and t.exit_price == pytest.approx(c[nxt])

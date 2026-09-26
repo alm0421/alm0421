@@ -927,6 +927,21 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
         if isinstance(n, str) and n.startswith("Warning:"):
             warnings.append({"code": "interpretation", "level": "warn", "message": "Check the interpretation",
                              "detail": n[len("Warning:"):].strip()})
+    # Nasdaq-100 point-in-time universes: the survivorship coverage belongs in the headline, not only in the notes
+    if any(isinstance(n, str) and n.startswith("Survivorship:") for n in s.notes) and len(res.equity):
+        try:
+            sv = data.survivorship(str(res.equity.index[0].date()), str(res.equity.index[-1].date()))
+        except Exception:  # noqa: BLE001 - a caveat must never break a report
+            sv = None
+        if sv:
+            detail = []
+            if sv.get("bias"):
+                detail.append(sv["bias"]["text"])
+            if sv.get("missing"):
+                detail.append("Biggest missing members: " + ", ".join(f"{t} ({k} member-months)" for t, k in sv["missing"])
+                              + ". " + data.TIINGO_HINT)
+            warnings.insert(0, {"code": "survivorship", "level": "warn", "message": sv["headline"],
+                                "detail": " ".join(detail), "coverage": sv["coverage"]})
     if not no_trades:
         for c in metrics.caveats(stats):
             warnings.append({"code": "volatility_drag", "level": "info", "message": "Negative CAGR with a positive Sharpe ratio",
@@ -1141,6 +1156,9 @@ def console_summary(A: dict) -> str:
     hl = headline(A)
     if hl.get("warmup"):
         L.append(f"                  {hl['rule']}")
+    sv = next((w for w in A.get("warnings") or [] if w.get("code") == "survivorship"), None)
+    if sv:
+        L.append(f"!! {sv['message']}")
     if A.get("cash"):
         c = A["cash"]
         L.append(f"Money             start ${c['starting_balance']:,.0f} + contributions ${c['total_contributions']:,.0f} "
