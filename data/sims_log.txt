@@ -2,15 +2,30 @@ all simulated series built
 
 Model vs fund on their overlap:
 validate SPYSIM vs SPY 1993-03..2026-07: monthly correlation 0.987, tracking error 2.45%/yr, CAGR model 10.95% vs fund 10.79%, volatility 15.3% vs 14.8%
+validate VTISIM vs VTSMX 1992-05..2026-07: monthly correlation 0.999, tracking error 0.62%/yr, CAGR model 11.00% vs fund 10.69%, volatility 15.1% vs 15.1%
 validate TLTSIM vs TLT 2002-08..2026-08: monthly correlation 0.987, tracking error 2.56%/yr, CAGR model 3.51% vs fund 3.49%, volatility 11.9% vs 13.5%
 validate IEFSIM vs IEF 2002-08..2026-08: monthly correlation 0.990, tracking error 1.01%/yr, CAGR model 2.99% vs fund 3.48%, volatility 6.9% vs 6.6%
 validate SHYSIM vs SHY 2002-08..2026-08: monthly correlation 0.985, tracking error 0.29%/yr, CAGR model 1.90% vs fund 1.97%, volatility 1.6% vs 1.5%
 validate IEISIM vs IEI 2007-02..2026-08: monthly correlation 0.994, tracking error 0.50%/yr, CAGR model 2.34% vs fund 2.83%, volatility 4.2% vs 3.9%
-validate VBRSIM vs VBR 2004-03..2026-07: monthly correlation 0.966, tracking error 5.85%/yr, CAGR model 9.21% vs fund 9.55%, volatility 21.6% vs 19.1%
-validate VTVSIM vs VTV 2004-03..2026-07: monthly correlation 0.934, tracking error 8.34%/yr, CAGR model 10.94% vs fund 9.60%, volatility 20.1% vs 14.5%
+VTVSIM model choice vs VIVAX: big/high B/M: tracking error 8.06%/yr (404 months); 1/3 big/high + 2/3 big/neutral B/M: tracking error 3.78%/yr (404 months); 25 portfolios: 2 largest size x 2 highest B/M quintiles: tracking error 7.07%/yr (404 months); 25 portfolios: largest size x B/M quintiles 3-5: tracking error 5.70%/yr (404 months) -> 1/3 big/high + 2/3 big/neutral B/M
+validate VTVSIM vs VIVAX 1992-12..2026-07: monthly correlation 0.973, tracking error 3.78%/yr, CAGR model 11.24% vs fund 10.12%, volatility 16.0% vs 14.7%
+validate VTVSIM vs VTV 2004-03..2026-07: monthly correlation 0.981, tracking error 3.63%/yr, CAGR model 9.86% vs fund 9.60%, volatility 16.5% vs 14.5%
+VUGSIM model choice vs VIGRX: big/low B/M: tracking error 2.96%/yr (404 months); 2/3 big/low + 1/3 big/neutral B/M: tracking error 4.92%/yr (404 months); 25 portfolios: 2 largest size x 2 lowest B/M quintiles: tracking error 5.92%/yr (404 months) -> big/low B/M
+validate VUGSIM vs VIGRX 1992-12..2026-07: monthly correlation 0.986, tracking error 2.96%/yr, CAGR model 11.63% vs fund 11.39%, volatility 15.3% vs 16.5%
 validate VUGSIM vs VUG 2004-03..2026-07: monthly correlation 0.989, tracking error 2.92%/yr, CAGR model 12.36% vs fund 12.08%, volatility 14.8% vs 16.5%
-validate VBKSIM vs VBK 2004-03..2026-07: monthly correlation 0.966, tracking error 5.66%/yr, CAGR model 8.99% vs fund 9.71%, volatility 21.5% vs 19.6%
-validate VBSIM vs VB 2004-03..2026-07: monthly correlation 0.980, tracking error 4.15%/yr, CAGR model 9.83% vs fund 9.81%, volatility 20.3% vs 19.0%
+VBRSIM model choice vs VISVX: small/high B/M: tracking error 6.40%/yr (338 months); 1/2 small/high + 1/2 small/neutral B/M: tracking error 5.42%/yr (338 months); 25 portfolios: size quintiles 2-3 x 2 highest B/M quintiles: tracking error 4.91%/yr (338 months) -> 25 portfolios: size quintiles 2-3 x 2 highest B/M quintiles
+validate VBRSIM vs VISVX 1998-06..2026-07: monthly correlation 0.974, tracking error 4.91%/yr, CAGR model 10.47% vs fund 9.21%, volatility 21.1% vs 19.4%
+validate VBRSIM vs VBR 2004-03..2026-07: monthly correlation 0.976, tracking error 4.87%/yr, CAGR model 10.00% vs fund 9.55%, volatility 21.2% vs 19.1%
+VBKSIM model choice vs VISGX: small/low B/M: tracking error 8.08%/yr (338 months); 1/2 small/low + 1/2 small/neutral B/M: tracking error 6.08%/yr (338 months); 25 portfolios: size quintiles 2-3 x 2 lowest B/M quintiles: tracking error 5.38%/yr (338 months) -> 25 portfolios: size quintiles 2-3 x 2 lowest B/M quintiles
+validate VBKSIM vs VISGX 1998-06..2026-07: monthly correlation 0.969, tracking error 5.38%/yr, CAGR model 9.96% vs fund 8.97%, volatility 21.8% vs 20.7%
+validate VBKSIM vs VBK 2004-03..2026-07: monthly correlation 0.979, tracking error 4.12%/yr, CAGR model 11.29% vs fund 9.71%, volatility 20.0% vs 19.6%
+VBSIM model choice vs NAESX: small portfolios of the 6 size x B/M: tracking error 3.63%/yr (441 months); 25 portfolios: size quintiles 2-3: tracking error 3.39%/yr (441 months) -> 25 portfolios: size quintiles 2-3
+validate VBSIM vs NAESX 1980-02..2026-07: monthly correlation 0.934, tracking error 7.42%/yr, CAGR model 13.09% vs fund 7.75%, volatility 18.9% vs 20.7%
+validate VBSIM vs VB 2004-03..2026-07: monthly correlation 0.986, tracking error 3.36%/yr, CAGR model 10.89% vs fund 9.81%, volatility 19.9% vs 19.0%
+VOESIM model choice vs VOE: 25 portfolios: size quintiles 3-4 x 2 highest B/M quintiles: tracking error 6.73%/yr (239 months); 25 portfolios: size quintile 3 x B/M quintiles 3-5: tracking error 6.95%/yr (239 months) -> 25 portfolios: size quintiles 3-4 x 2 highest B/M quintiles
+validate VOESIM vs VOE 2006-09..2026-07: monthly correlation 0.957, tracking error 6.73%/yr, CAGR model 9.82% vs fund 9.46%, volatility 21.2% vs 17.6%
+VOTSIM model choice vs VOT: 25 portfolios: size quintiles 3-4 x 2 lowest B/M quintiles: tracking error 5.01%/yr (239 months); 25 portfolios: size quintile 3 x B/M quintiles 1-3: tracking error 6.70%/yr (239 months) -> 25 portfolios: size quintiles 3-4 x 2 lowest B/M quintiles
+validate VOTSIM vs VOT 2006-09..2026-07: monthly correlation 0.964, tracking error 5.01%/yr, CAGR model 11.69% vs fund 9.88%, volatility 18.8% vs 18.6%
 validate MIDSIM vs IJH 2000-06..2026-07: monthly correlation 0.982, tracking error 3.83%/yr, CAGR model 9.93% vs fund 9.69%, volatility 19.2% vs 17.7%
 French international index 'all' column MKT: Ind_all.Dat, 612 months 1975-01..2025-12
 validate EFASIM vs EFA 2001-09..2026-07: monthly correlation 0.984, tracking error 2.95%/yr, CAGR model 7.74% vs fund 6.64%, volatility 16.2% vs 16.7%
@@ -26,6 +41,30 @@ BNDXSIM model: 799 months 1960-02..2026-08, countries ['AU', 'BE', 'CA', 'CH', '
 validate BNDXSIM model vs BNDX 2013-07..2026-07: monthly correlation 0.704, tracking error 3.03%/yr, CAGR model 1.77% vs fund 2.45%, volatility 3.8% vs 4.1%
 validate BNDXSIM vs PFORX 1993-01..2026-07: monthly correlation 0.597, tracking error 3.49%/yr, CAGR model 4.59% vs fund 5.95%, volatility 3.9% vs 3.9%
 validate EEMSIM vs EEM 2003-05..2026-07: monthly correlation 0.968, tracking error 5.22%/yr, CAGR model 11.26% vs fund 9.66%, volatility 19.7% vs 20.8%
-validate VNQSIM vs VNQ 2004-10..2026-07: monthly correlation 0.998, tracking error 1.46%/yr, CAGR model 8.06% vs fund 7.68%, volatility 21.2% vs 21.5%
+validate VWOSIM vs VEIEX 1994-06..2026-07: monthly correlation 0.971, tracking error 5.12%/yr, CAGR model 7.00% vs fund 6.32%, volatility 20.5% vs 21.4%
+validate VXUSSIM vs VGTSX 1996-05..2026-07: monthly correlation 0.989, tracking error 2.53%/yr, CAGR model 7.36% vs fund 5.95%, volatility 16.4% vs 16.8%
+validate VNQSIM model vs VNQ 2004-10..2026-07: monthly correlation 0.998, tracking error 1.46%/yr, CAGR model 8.06% vs fund 7.68%, volatility 21.2% vs 21.5%
+validate VNQSIM vs VGSIX 1996-06..2026-07: monthly correlation 0.998, tracking error 1.38%/yr, CAGR model 9.49% vs fund 9.09%, volatility 19.4% vs 19.7%
 validate GLDSIM vs GLD 2004-12..2026-08: monthly correlation 0.975, tracking error 3.93%/yr, CAGR model 11.20% vs fund 10.66%, volatility 17.6% vs 17.3%
+DBCSIM: tracking error vs DBC from 2006: AQR model 7.53%/yr, PCRIX 8.12%/yr
 validate DBCSIM vs DBC 2006-03..2025-04: monthly correlation 0.918, tracking error 7.52%/yr, CAGR model 2.44% vs fund 0.39%, volatility 15.3% vs 18.5%
+validate VCLTSIM model vs VCLT 2009-12..2026-08: monthly correlation 0.959, tracking error 3.08%/yr, CAGR model 4.10% vs fund 4.29%, volatility 9.7% vs 10.8%
+validate VCLTSIM vs VWESX 1980-02..2026-08: monthly correlation 0.918, tracking error 3.72%/yr, CAGR model 8.72% vs fund 7.58%, volatility 9.1% vs 9.2%
+validate MUBSIM (VWITX) vs MUB 2007-10..2026-08: monthly correlation 0.929, tracking error 1.98%/yr, CAGR model 3.20% vs fund 3.04%, volatility 4.4% vs 5.2%
+validate EMBSIM (FNMIX) vs EMB 2008-01..2026-08: monthly correlation 0.905, tracking error 4.84%/yr, CAGR model 5.54% vs fund 4.58%, volatility 10.2% vs 11.4%
+French country index Japan.Dat: 612 months 1975-01..2025-12
+validate EWJSIM vs EWJ 1996-04..2026-07: monthly correlation 0.940, tracking error 5.98%/yr, CAGR model 3.83% vs fund 2.79%, volatility 16.9% vs 17.6%
+French country index UK.Dat: 612 months 1975-01..2025-12
+validate EWUSIM vs EWU 1996-04..2025-11: monthly correlation 0.973, tracking error 3.84%/yr, CAGR model 6.61% vs fund 5.79%, volatility 16.4% vs 16.5%
+French country index Germany.Dat: 612 months 1975-01..2025-12
+validate EWGSIM vs EWG 1996-04..2025-11: monthly correlation 0.986, tracking error 4.14%/yr, CAGR model 7.03% vs fund 6.27%, volatility 21.0% vs 23.0%
+French country index Canada.Dat: 588 months 1977-01..2025-12
+validate EWCSIM vs EWC 1996-04..2025-11: monthly correlation 0.985, tracking error 3.48%/yr, CAGR model 9.75% vs fund 8.68%, volatility 19.4% vs 20.1%
+French country index Austrlia.Dat: 612 months 1975-01..2025-12
+validate EWASIM vs EWA 1996-04..2025-11: monthly correlation 0.972, tracking error 5.10%/yr, CAGR model 8.38% vs fund 7.37%, volatility 21.0% vs 21.6%
+French country index France.Dat: 612 months 1975-01..2025-12
+validate EWQSIM vs EWQ 1996-04..2025-11: monthly correlation 0.981, tracking error 4.06%/yr, CAGR model 8.38% vs fund 7.24%, volatility 19.9% vs 20.7%
+French country index Swtzrlnd.Dat: 612 months 1975-01..2025-12
+validate EWLSIM vs EWL 1996-04..2025-11: monthly correlation 0.974, tracking error 3.75%/yr, CAGR model 8.48% vs fund 7.55%, volatility 15.6% vs 16.5%
+French country index HongKong.Dat: 612 months 1975-01..2025-12
+validate EWHSIM vs EWH 1996-04..2025-11: monthly correlation 0.958, tracking error 6.86%/yr, CAGR model 5.49% vs fund 4.84%, volatility 22.5% vs 24.0%
