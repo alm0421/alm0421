@@ -51,6 +51,7 @@ class Strategy:
     fractional_shares: bool = True
     point_in_time: bool = True                   # only enter index stocks while they were members
     universe_name: str | None = None             # e.g. "NDX" when the universe is an index
+    benchmark: str | None = None                 # comparison ticker for alpha/beta (default SPY)
 
     # costs and financing
     commission: float = 0.0                      # $ per order
@@ -162,12 +163,12 @@ class Strategy:
             ex.append("opposite signal")
         lines.append("Exit: " + "; ".join(ex))
         sz = {
-            "percent": f"{self.position_size:.0%} of equity each",
-            "fixed_dollars": f"${self.fixed_amount:,.0f} each",
-            "fixed_shares": f"{self.fixed_amount:g} shares each",
-            "risk": f"risking {self.risk_per_trade:.2%} of equity to the stop",
-            "volatility": f"sized to {self.target_vol:.0%} annualised volatility each",
-        }[self.sizing]
+            "percent": lambda: f"{self.position_size:.0%} of equity each",
+            "fixed_dollars": lambda: f"${self.fixed_amount:,.0f} each",
+            "fixed_shares": lambda: f"{self.fixed_amount:g} shares each",
+            "risk": lambda: f"risking {self.risk_per_trade:.2%} of equity to the stop",
+            "volatility": lambda: f"sized to {self.target_vol:.0%} annualised volatility each",
+        }[self.sizing]()
         lines.append(
             f"Sizing: ${self.capital:,.0f} start, up to {self.max_positions} position(s), {sz}"
             + (f", max {self.leverage:g}x gross exposure" if self.leverage != 1 else "")

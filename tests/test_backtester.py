@@ -128,7 +128,8 @@ def test_parser_cases(text, entry, fill, hold, hold_fill):
 def test_parser_open_entry_never_peeks_at_close():
     s = parser.parse("buy QQQ at the open when it gaps down 1% and SPY is above its 200 day moving average, sell at the close")
     assert s.entry_fill == "open"
-    assert 'ref((sym("SPY").close > sma(sym("SPY").close, 200)), 1)' in s.entry
+    assert "gap <= -0.01" in s.entry
+    assert 'ref((sym("SPY").close > sma(sym("SPY").close, 200)), 1)' in s.entry.replace("'", '"')
 
 
 def test_parser_refuses_unknown():

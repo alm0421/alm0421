@@ -112,10 +112,29 @@ INDEXES = ["^NDX", "^GSPC", "^VIX", "^IRX", "^TNX", "^DJI", "^RUT"]
 EXTRA = ETFS + INDEXES
 
 # Symbol changes: membership lists use the old symbol, Yahoo keeps history under the new one.
-RENAMES = {"FB": "META", "PCLN": "BKNG", "DISCA": "WBD", "GOOG": "GOOG", "BRCM": "AVGO"}
-# BRCM (Broadcom Corp) was acquired by Avago, which took the AVGO name; history differs, so only
-# use a rename when Yahoo's history for the new symbol genuinely continues the old company.
-RENAMES.pop("BRCM")
+# Only renames where Yahoo's history for the new symbol genuinely continues the same company.
+RENAMES = {"FB": "META", "PCLN": "BKNG", "DISCA": "WBD", "RIMM": "BB", "MYL": "VTRS", "NLOK": "GEN",
+           "SYMC": "GEN", "JDSU": "VIAV", "JDSUD": "VIAV", "HANS": "MNST", "CTRP": "TCOM", "WLTW": "WTW",
+           "UAUA": "UAL", "KFT": "MDLZ", "KLA": "KLAC", "ERICY": "ERIC", "WFMI": "WFM", "LINTA": "QRTEA"}
+
+
+def fetch_stooq(t: str) -> pd.DataFrame | None:
+    """Secondary source for delisted US stocks (no dividends; split-adjusted closes used as adj_close)."""
+    try:
+        r = requests.get(f"https://stooq.com/q/d/l/?s={t.lower().replace('-', '.')}.us&i=d", headers=UA, timeout=30)
+        if r.status_code != 200 or not r.text.lower().startswith("date"):
+            return None
+        df = pd.read_csv(io.StringIO(r.text), parse_dates=["Date"], index_col="Date")
+        if len(df) < 20:
+            return None
+        df = df.rename(columns=str.lower)
+        df["adj_close"] = df["close"]
+        df["dividend"], df["split"] = 0.0, 0.0
+        df.index.name = "date"
+        return df[["open", "high", "low", "close", "adj_close", "volume", "dividend", "split"]]
+    except Exception as e:  # noqa: BLE001
+        print(f"stooq {t}: {e}", file=sys.stderr)
+        return None
 
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 # Wikimedia asks automated clients for a descriptive user agent with a contact URL (browser-like
@@ -285,6 +304,13 @@ def main() -> None:
     ndx, source = constituents()
     try:
         membership = update_membership()
+        # the live constituent list is this month's snapshot (Wikipedia's format may not parse)
+        cur_month = str(pd.Timestamp.today().to_period("M"))
+        if source != "fallback" and cur_month not in set(membership["month"]):
+            row = pd.DataFrame([{"month": cur_month, "revid": "live:" + source, "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                 "count": str(len(ndx)), "tickers": " ".join(ndx)}])
+            membership = pd.concat([membership, row]).sort_values("month")
+            membership.to_csv(MEMBERSHIP, index=False)
         hist_members = sorted({t for row in membership["tickers"] for t in row.split()})
     except Exception as e:  # noqa: BLE001
         print(f"membership history failed: {e}", file=sys.stderr)
@@ -310,6 +336,10 @@ def main() -> None:
             df = pd.read_csv(PRICES / f"{src}.csv", parse_dates=["date"], index_col="date")
         else:
             df = fetch_with_retry(src, tries=2)
+        if df is None or len(df) < 5:
+            df = fetch_stooq(t)
+            if df is not None:
+                print(f"former {t}: {len(df)} rows from stooq")
         if df is None or len(df) < 5:
             former_missing.append(t)
             continue
