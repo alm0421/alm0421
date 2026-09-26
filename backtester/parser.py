@@ -147,7 +147,7 @@ def find_tickers(text: str, strict: bool = False) -> list[str]:
     found: list[tuple[int, str]] = []
     unknown: list[str] = []
     stripped = re.sub(r"`[^`]*`", " ", text)
-    for m in re.finditer(r"(?<![\w^])(\$|\^)?([A-Z]{1,5}(?:\.[A-Z])?)\b", stripped):
+    for m in re.finditer(r"(?<![\w^])(\$|\^)?([A-Z]{1,5}(?:SIM|-USD|\.[A-Z])?)\b", stripped):
         sym = m.group(2)
         pre = m.group(1) or ""
         if pre == "^":
@@ -799,7 +799,7 @@ SIGNAL_HINT = re.compile(
 def looks_like_allocation(text: str) -> bool:
     t = _normalize(text)
     # "SPY 60%, TLT 30%, GLD 10%": ticker-first weights (uppercase, known tickers only)
-    tw = re.findall(r"(?<![\w^])(\^?[A-Z]{1,5}) \d+(?:\.\d+)?%", t)
+    tw = re.findall(r"(?<![\w^])(\^?[A-Z]{1,5}(?:SIM|-USD)?) \d+(?:\.\d+)?%", t)
     if len(tw) >= 2 and all(data.canonical(x) in _known() for x in tw):
         return True
     if not ALLOC_HINT.search(t):
