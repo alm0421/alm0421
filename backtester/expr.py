@@ -61,6 +61,23 @@ def wilder(x: pd.Series, n: int) -> pd.Series:
     return y
 
 
+def ema_tv(x: pd.Series, n: int) -> pd.Series:
+    """EMA as TradingView's ta.ema: seeded with the simple average of the first n values."""
+    n = int(n)
+    v = x.to_numpy(dtype=float)
+    ok = np.isfinite(v)
+    run = np.convolve(ok.astype(int), np.ones(n, int), "full")[: len(v)] if len(v) else ok
+    first = np.flatnonzero(run >= n)
+    y = pd.Series(np.nan, index=x.index)
+    if not len(first):
+        return y
+    i = int(first[0])
+    seed = pd.Series(v[i:].copy(), index=x.index[i:])
+    seed.iloc[0] = v[i - n + 1: i + 1].mean()
+    y.iloc[i:] = seed.ewm(alpha=2 / (n + 1), adjust=False).mean().to_numpy()
+    return y
+
+
 def rsi_wilder(x: pd.Series, n: int) -> pd.Series:
     d = x.diff()
     up = wilder(d.clip(lower=0), n)
@@ -171,7 +188,7 @@ class Namespace(dict):
 
         def ema(*a):
             x, n = pick(a, c, 20)
-            return x.ewm(span=n, adjust=False, min_periods=n).mean()
+            return ema_tv(x, n)
 
         def rma(*a):  # Wilder's moving average
             x, n = pick(a, c, 14)
@@ -289,10 +306,10 @@ class Namespace(dict):
 
         def macd(fast=12, slow=26, x=None):
             base = c if x is None else _s(x, c)
-            return base.ewm(span=int(fast), adjust=False).mean() - base.ewm(span=int(slow), adjust=False).mean()
+            return ema_tv(base, int(fast)) - ema_tv(base, int(slow))
 
         def macd_signal(fast=12, slow=26, sig=9):
-            return macd(fast, slow).ewm(span=int(sig), adjust=False).mean()
+            return ema_tv(macd(fast, slow), int(sig))
 
         def macd_hist(fast=12, slow=26, sig=9):
             return macd(fast, slow) - macd_signal(fast, slow, sig)
@@ -386,27 +403,41 @@ class Namespace(dict):
             return pd.Series(st, index=c.index)
 
         def sar(step=0.02, max_step=0.2):
-            """Parabolic SAR."""
-            h, l = hi.to_numpy(), lo.to_numpy()
-            out = np.full(len(h), np.nan)
-            if len(h) < 2:
+            """Parabolic SAR, bar for bar as TradingView's ta.sar reference implementation."""
+            h, l, cl = hi.to_numpy(), lo.to_numpy(), c.to_numpy()
+            n = len(h)
+            out = np.full(n, np.nan)
+            if n < 2:
                 return pd.Series(out, index=c.index)
-            up, af, ep, s = True, step, h[0], l[0]
-            for i in range(1, len(h)):
-                s = s + af * (ep - s)
-                if up:
-                    s = min(s, l[i - 1], l[i - 2] if i > 1 else l[i - 1])
-                    if l[i] < s:
-                        up, s, ep, af = False, ep, l[i], step
-                    elif h[i] > ep:
-                        ep, af = h[i], min(af + step, max_step)
+            res = mm = acc = np.nan
+            below = False
+            for i in range(1, n):
+                first_bar = False
+                if i == 1:
+                    if cl[1] > cl[0]:
+                        below, mm, res = True, h[1], l[0]
+                    else:
+                        below, mm, res = False, l[1], h[0]
+                    first_bar, acc = True, step
+                res = res + acc * (mm - res)
+                if below:
+                    if res > l[i]:
+                        first_bar, below = True, False
+                        res, mm, acc = max(h[i], mm), l[i], step
                 else:
-                    s = max(s, h[i - 1], h[i - 2] if i > 1 else h[i - 1])
-                    if h[i] > s:
-                        up, s, ep, af = True, ep, h[i], step
-                    elif l[i] < ep:
-                        ep, af = l[i], min(af + step, max_step)
-                out[i] = s
+                    if res < h[i]:
+                        first_bar, below = True, True
+                        res, mm, acc = min(l[i], mm), h[i], step
+                if not first_bar:
+                    if below and h[i] > mm:
+                        mm, acc = h[i], min(acc + step, max_step)
+                    elif not below and l[i] < mm:
+                        mm, acc = l[i], min(acc + step, max_step)
+                if below:
+                    res = min(res, l[i - 1]) if i < 2 else min(res, l[i - 1], l[i - 2])
+                else:
+                    res = max(res, h[i - 1]) if i < 2 else max(res, h[i - 1], h[i - 2])
+                out[i] = res
             return pd.Series(out, index=c.index)
 
         def crossover(a, b):
@@ -481,6 +512,25 @@ class Namespace(dict):
                 s.iloc[-1] = False  # the period is not over yet: more sessions follow on the exchange calendar
             return s
 
+        def _tf(freq: str, src: str):
+            """weekly(expr) / monthly(expr): evaluate `expr` on completed weekly/monthly bars built from
+            the daily ones; each value is known from its period's last trading day onward."""
+            per = df.index.to_period(freq)
+            g = df.groupby(per)
+            agg = pd.DataFrame({
+                "open": g["open"].first(), "high": g["high"].max(), "low": g["low"].min(),
+                "close": g["close"].last(), "volume": g["volume"].sum(),
+                "dividend": g["dividend"].sum() if "dividend" in df else 0.0,
+                "adj_close": g["adj_close"].last() if "adj_close" in df else g["close"].last(),
+            })
+            agg["open_ok"] = True
+            ends = pd.Series(df.index, index=df.index).groupby(per).max()
+            agg.index = pd.DatetimeIndex(ends.reindex(agg.index).to_numpy())
+            if len(df) and _cal.next_sessions(df.index[-1])[0].to_period(freq) == per[-1]:
+                agg = agg.iloc[:-1]  # the period in progress at the data edge is not complete
+            val = evaluate_value(src, Namespace(agg, ticker=self.ticker)) if len(agg) else pd.Series(dtype=float)
+            return val.reindex(df.index).ffill()
+
         def sym(ticker: str) -> Bars:
             return Bars(data.load(ticker), df.index)
 
@@ -511,7 +561,7 @@ class Namespace(dict):
             "monthly_close": lambda x=None: _periodic_close("M", x),
             "is_week_end": lambda: is_period_end("W-FRI"), "is_month_end": lambda: is_period_end("M"),
             "is_quarter_end": lambda: is_period_end("Q"), "is_year_end": lambda: is_period_end("Y"),
-            "sym": sym, "abs": np.abs, "maximum": np.maximum, "minimum": np.minimum,
+            "_tf": _tf, "sym": sym, "abs": np.abs, "maximum": np.maximum, "minimum": np.minimum,
             "log": np.log, "sqrt": np.sqrt,
         }
 
@@ -617,6 +667,19 @@ def _check_timeframes(tree) -> None:
                                          f"day, not a {per} indicator. Use {hint}, which works on completed {per} bars.")
 
 
+class _Timeframes(ast.NodeTransformer):
+    """weekly(<expr>) -> _tf("W-FRI", "<expr>"), monthly(<expr>) -> _tf("M", "<expr>")."""
+    def visit_Call(self, node):
+        if isinstance(node.func, ast.Name) and node.func.id in ("weekly", "monthly"):
+            if len(node.args) != 1 or node.keywords:
+                raise ValueError(f"{node.func.id}() takes one expression, e.g. {node.func.id}(macd_hist())")
+            freq = "W-FRI" if node.func.id == "weekly" else "M"
+            return ast.Call(func=ast.Name(id="_tf", ctx=ast.Load()),
+                            args=[ast.Constant(freq), ast.Constant(ast.unparse(node.args[0]))], keywords=[])
+        self.generic_visit(node)
+        return node
+
+
 def compile_expr(text: str):
     tree = ast.parse(text.strip(), mode="eval")
     _check_timeframes(tree)
@@ -627,6 +690,7 @@ def compile_expr(text: str):
             raise ValueError(f"only {sorted(_ATTRS)} can follow a '.', e.g. sym(\"SPY\").close")
         if isinstance(node, ast.Name) and node.id.startswith("_"):
             raise ValueError("private names are not allowed")
+    tree = _Timeframes().visit(tree)
     tree = ast.fix_missing_locations(_Vectorize().visit(tree))
     return compile(tree, "<rule>", "eval")
 
@@ -678,7 +742,7 @@ _ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "m
                  "donchian_upper", "donchian_lower", "keltner_upper", "keltner_lower", "supertrend", "sar",
                  "weekly_sma", "monthly_sma", "weekly_close", "monthly_close", "is_week_end",
                  "weekly_rsi", "monthly_rsi", "weekly_ema", "monthly_ema", "weekly_ret", "monthly_ret",
-                 "is_month_end", "is_quarter_end", "is_year_end", "bars_since", "count"}
+                 "is_month_end", "is_quarter_end", "is_year_end", "bars_since", "count", "weekly", "monthly"}
 
 
 def open_safe(rule) -> bool:
