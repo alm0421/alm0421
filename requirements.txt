@@ -1,6 +1,11 @@
 pandas>=2.2
 numpy>=1.26
-yfinance>=0.2.40   # only needed to download data
+scipy>=1.11        # portfolio optimiser
+openpyxl>=3.1      # Excel export
+pytest
+# only needed to download data (the GitHub Action does this for you):
+yfinance>=0.2.40
 requests
 lxml
-pytest
+# optional: PDF export from the command line (--pdf); the site's "Save as PDF" button needs nothing
+# playwright

@@ -581,6 +581,25 @@ def run(p: Portfolio) -> Result:
         eq_close = value(c)
         if cash < -1e-6 * max(eq_close, 1.0) and eq_close > 0 and target:
             trade_to(target, c, i, "raise cash")
+        # invest new contributions at the close in the current target mix (no selling)
+        if f > 0 and target and not sched[i]:
+            pv = px_now(c)
+            live = {t: w for t, w in target.items() if t != "cash" and np.isfinite(pv[idx[t]]) and pv[idx[t]] > 0}
+            tot = sum(live.values())
+            if tot > 0:
+                budget = min(f, max(cash, 0.0))
+                for t, w in live.items():
+                    j = idx[t]
+                    amt = budget * w / tot * (1 - p.commission_pct) / (1 + slip)
+                    q = amt / pv[j] if p.fractional_shares else np.floor(amt / pv[j])
+                    if q <= 0:
+                        continue
+                    fill = pv[j] * (1 + slip)
+                    com = p.commission + p.commission_pct * q * fill
+                    cash -= q * fill + com
+                    shares[j] += q
+                    orders.append({"date": cal[i].date(), "ticker": t, "side": "buy", "shares": q, "price": fill,
+                                   "value": q * fill, "commission": com, "reason": "contribution"})
         # reinvest dividends into the same holding at the close
         if got and p.reinvest_dividends:
             for j in np.flatnonzero(div_cash > 0):

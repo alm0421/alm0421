@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backtester</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Cpath d=%22M1 13 L5 8 L8 10 L15 3%22 stroke=%22%232a78d6%22 stroke-width=%222%22 fill=%22none%22/%3E%3C/svg%3E">
+<style>
+:root { color-scheme: light; --bg:#f5f5f3; --surface:#fcfcfb; --surface-2:#f0efec; --border:#e2e1dc; --text:#0b0b0b; --text-2:#52514e; --text-3:#7a7974;
+  --accent:#2a78d6; --accent-text:#ffffff; --good:#1a7f37; --bad:#c62828; --warn:#eda100; --grid:#e8e7e3; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme: dark; --bg:#121211; --surface:#1a1a19; --surface-2:#242422; --border:#33332f; --text:#fff; --text-2:#c3c2b7; --text-3:#8f8e86; --accent:#3987e5; --accent-text:#ffffff; --good:#4cc26b; --bad:#ff7b72; --warn:#c98500; --grid:#2b2b28; } }
+:root[data-theme="dark"] { color-scheme: dark; --bg:#121211; --surface:#1a1a19; --surface-2:#242422; --border:#33332f; --text:#fff; --text-2:#c3c2b7; --text-3:#8f8e86; --accent:#3987e5; --accent-text:#ffffff; --good:#4cc26b; --bad:#ff7b72; --warn:#c98500; --grid:#2b2b28; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+header { position:sticky; top:0; z-index:10; background:var(--surface); border-bottom:1px solid var(--border); }
+.bar { max-width:1320px; margin:0 auto; padding:10px 16px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+.brand { font-weight:700; font-size:16px; }
+nav { display:flex; gap:4px; flex-wrap:wrap; }
+nav a { color:var(--text-2); text-decoration:none; padding:6px 10px; border-radius:8px; font-size:13.5px; }
+nav a.on { background:var(--surface-2); color:var(--text); font-weight:600; }
+main { max-width:1320px; margin:0 auto; padding:16px; }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; min-width:0; }
+h2 { font-size:16px; margin:0 0 10px; } h3 { font-size:13.5px; margin:12px 0 6px; color:var(--text-2); }
+textarea, input, select { font:inherit; color:var(--text); background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:7px 10px; }
+textarea { width:100%; resize:vertical; min-height:70px; font-size:15px; }
+input[type=number] { width:110px; } input.w { width:100%; }
+.btn { font:inherit; border:1px solid var(--border); background:var(--surface); color:var(--text); border-radius:8px; padding:7px 14px; cursor:pointer; }
+.btn:hover { background:var(--surface-2); }
+.btn.primary { background:var(--accent); color:var(--accent-text); border-color:var(--accent); font-weight:600; }
+.btn.small { padding:3px 9px; font-size:12.5px; }
+.btn:disabled { opacity:.5; cursor:default; }
+.row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:10px; }
+.grid label, label.f { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text-2); }
+.chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.chip { border:1px solid var(--border); background:var(--surface-2); border-radius:99px; padding:3px 10px; font-size:12px; cursor:pointer; color:var(--text-2); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chip:hover { color:var(--text); }
+.interp { white-space:pre-wrap; font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--surface-2); border-radius:8px; padding:10px 12px; color:var(--text-2); min-height:44px; overflow-x:auto; }
+.err { color:var(--bad); white-space:pre-wrap; }
+.note { color:var(--text-2); font-size:12.5px; }
+.warn { border-left:3px solid var(--warn); padding:4px 10px; font-size:12.5px; color:var(--text-2); margin-top:6px; }
+iframe { width:100%; height:86vh; border:1px solid var(--border); border-radius:12px; background:var(--bg); }
+table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+th, td { padding:6px 8px; border-bottom:1px solid var(--grid); text-align:left; white-space:nowrap; }
+th { font-size:12px; color:var(--text-2); }
+td.n { text-align:right; }
+.pos { color:var(--good); } .neg { color:var(--bad); }
+.xscroll { overflow-x:auto; }
+.hide { display:none !important; }
+.tabs2 { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-bottom:12px; }
+.tabs2 button { font:inherit; border:0; background:none; padding:6px 12px; cursor:pointer; color:var(--text-2); }
+.tabs2 button.on { background:var(--surface-2); color:var(--text); font-weight:600; }
+.node { border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:8px; padding:8px 10px; margin:6px 0; background:var(--surface); }
+.node .kids { margin-left:14px; }
+.node .hd { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.node .lab { font-size:12px; color:var(--text-3); }
+.spin { display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:sp 0.8s linear infinite; vertical-align:middle; }
+@keyframes sp { to { transform:rotate(360deg); } }
+details summary { cursor:pointer; color:var(--text-2); font-size:13px; }
+code { background:var(--surface-2); padding:1px 5px; border-radius:5px; font-size:12.5px; }
+pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); padding:10px; border-radius:8px; }
+</style>
+</head>
+<body>
+<header><div class="bar"><div class="brand">📈 Backtester</div>
+  <nav id="nav">
+    <a href="#backtest">Backtest</a><a href="#build">Build</a><a href="#compare">Compare</a><a href="#research">Research</a>
+    <a href="#signals">Signals &amp; paper</a><a href="#history">History</a><a href="#data">Data</a>
+  </nav><div class="note" id="dataStamp" style="margin-left:auto"></div></div></header>
+<main>
+
+<!-- BACKTEST -->
+<section id="p-backtest">
+  <div class="card">
+    <h2>Describe a strategy</h2>
+    <textarea id="text" placeholder="e.g. buy Microsoft at the close when it is down 5 days in a row, hold 1 day and sell at the close"></textarea>
+    <div class="chips" id="examples"></div>
+    <h3>How it will be run</h3>
+    <div class="interp" id="interp">Type a strategy above; its interpretation appears here as you type.</div>
+    <div id="interpNotes"></div>
+    <details style="margin-top:10px"><summary>Settings (override anything in the sentence)</summary>
+      <div class="grid" style="margin-top:8px">
+        <label>Starting capital ($)<input id="o_capital" type="number" placeholder="10000"></label>
+        <label>Start date<input id="o_start" type="date"></label>
+        <label>End date<input id="o_end" type="date"></label>
+        <label>Slippage (bps per side)<input id="o_slippage_bps" type="number" step="0.5"></label>
+        <label>Commission ($ per order)<input id="o_commission" type="number" step="0.01"></label>
+        <label>Benchmark<input id="o_benchmark" list="tickerList" placeholder="SPY"></label>
+        <label>Risk-free for Sharpe<select id="o_rf"><option value="tbill">3-month T-bills</option><option value="0">0%</option></select></label>
+        <label>Name<input id="o_name" placeholder="optional label"></label>
+      </div></details>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" id="runBtn">Run backtest</button>
+      <button class="btn" id="toBuild">Edit as blocks</button>
+      <button class="btn" id="toSignals">Today's signals</button>
+      <button class="btn" id="shareBtn">Copy share link</button>
+      <span id="runStatus" class="note"></span>
+    </div>
+  </div>
+  <div id="result" class="hide">
+    <div class="row" style="margin-bottom:8px"><span class="note" id="resultMeta"></span><span style="flex:1"></span>
+      <a class="btn small" id="openTab" target="_blank">Open report in new tab</a>
+      <span id="dlLinks" class="row"></span></div>
+    <iframe id="frame" title="Backtest report"></iframe>
+  </div>
+</section>
+
+<!-- BUILD -->
+<section id="p-build" class="hide">
+  <div class="card">
+    <div class="tabs2" id="buildMode"><button data-v="portfolio" class="on">Portfolio (blocks)</button><button data-v="signal">Signal strategy (rules)</button></div>
+    <p class="note" id="buildHelp"></p>
+    <div id="bPortfolio">
+      <div id="tree"></div>
+      <h3>Portfolio settings</h3>
+      <div class="grid">
+        <label>Rebalance<select id="p_rebalance"><option>daily</option><option>weekly</option><option selected>monthly</option><option>quarterly</option><option>yearly</option><option value="none">none (buy and hold)</option></select></label>
+        <label>Drift band (%)<input id="p_drift_band" type="number" step="0.5" placeholder="off"></label>
+        <label>Trade at<select id="p_fill"><option value="close">the close</option><option value="next_open">next open</option></select></label>
+        <label>Starting capital ($)<input id="p_capital" type="number" value="10000"></label>
+        <label>Contribution ($)<input id="p_contribution" type="number" value="0"></label>
+        <label>Contribution every<select id="p_contribution_freq"><option>monthly</option><option>quarterly</option><option>yearly</option></select></label>
+        <label>Withdrawal ($)<input id="p_withdrawal" type="number" value="0"></label>
+        <label>Withdrawal (% of balance)<input id="p_withdrawal_pct" type="number" step="0.1" value="0"></label>
+        <label>Withdraw every<select id="p_withdrawal_freq"><option>monthly</option><option>quarterly</option><option selected>yearly</option></select></label>
+        <label>Grow flows with CPI<select id="p_inflation_adjust"><option value="false">no</option><option value="true">yes</option></select></label>
+        <label>Slippage (bps)<input id="p_slippage_bps" type="number" value="0"></label>
+        <label>Commission (% of value)<input id="p_commission_pct" type="number" step="0.01" value="0"></label>
+        <label>Start<input id="p_start" type="date"></label><label>End<input id="p_end" type="date"></label>
+      </div>
+    </div>
+    <div id="bSignal" class="hide">
+      <div class="grid">
+        <label style="grid-column:1/-1">Tickers (comma separated) or NDX<input id="s_universe" class="w" value="MSFT"></label>
+        <label>Side<select id="s_side"><option>long</option><option>short</option><option>both</option></select></label>
+        <label>Entry fill<select id="s_entry_fill"><option>close</option><option>open</option><option>next_open</option><option>next_close</option></select></label>
+        <label>Order<select id="s_entry_order"><option>market</option><option>limit</option><option>stop</option></select></label>
+        <label>Order level (rule)<input id="s_entry_level" placeholder="close * 0.98"></label>
+        <label style="grid-column:1/-1">Entry rule<input id="s_entry" class="w" value="down_days >= 5"></label>
+        <label style="grid-column:1/-1">Short entry rule (side = both)<input id="s_short_entry" class="w"></label>
+        <label style="grid-column:1/-1">Exit rule<input id="s_exit_when" class="w" placeholder="close > sma(close, 5)"></label>
+        <label>Hold bars<input id="s_hold_bars" type="number" value="1"></label>
+        <label>Exit fill<select id="s_hold_exit_fill"><option>close</option><option>open</option></select></label>
+        <label>Stop loss (%)<input id="s_stop_loss" type="number" step="0.1"></label>
+        <label>Take profit (%)<input id="s_take_profit" type="number" step="0.1"></label>
+        <label>Trailing stop (%)<input id="s_trailing_stop" type="number" step="0.1"></label>
+        <label>ATR stop (x)<input id="s_stop_atr" type="number" step="0.1"></label>
+        <label>Chandelier stop (x ATR)<input id="s_trailing_atr" type="number" step="0.1"></label>
+        <label>Max positions<input id="s_max_positions" type="number" value="1"></label>
+        <label>Sizing<select id="s_sizing"><option>percent</option><option>fixed_dollars</option><option>fixed_shares</option><option>risk</option><option>volatility</option></select></label>
+        <label>% of equity per position<input id="s_position_size" type="number" step="1"></label>
+        <label>Risk per trade (%)<input id="s_risk_per_trade" type="number" step="0.1"></label>
+        <label>Target vol (%)<input id="s_target_vol" type="number" step="1"></label>
+        <label>Fixed amount ($ or shares)<input id="s_fixed_amount" type="number"></label>
+        <label>Leverage (x)<input id="s_leverage" type="number" step="0.1" value="1"></label>
+        <label>Pyramiding<input id="s_pyramiding" type="number" value="1"></label>
+        <label>Slippage (bps)<input id="s_slippage_bps" type="number" value="0"></label>
+        <label>Commission ($/order)<input id="s_commission" type="number" step="0.01" value="0"></label>
+        <label>Commission (%)<input id="s_commission_pct" type="number" step="0.01" value="0"></label>
+        <label>Borrow fee (%/yr)<input id="s_borrow_fee" type="number" step="0.1" value="0"></label>
+        <label>Starting capital ($)<input id="s_capital" type="number" value="10000"></label>
+        <label>Start<input id="s_start" type="date"></label><label>End<input id="s_end" type="date"></label>
+      </div>
+      <details style="margin-top:8px"><summary>Rule language reference</summary><pre class="help" id="helpExpr"></pre></details>
+    </div>
+    <details style="margin-top:10px"><summary>JSON (edit directly or paste a strategy.json)</summary>
+      <textarea id="specJson" style="min-height:180px;font:12px ui-monospace,monospace"></textarea>
+      <div class="row" style="margin-top:6px"><button class="btn small" id="fromJson">Load JSON into the editor</button><button class="btn small" id="toJson">Show editor as JSON</button></div></details>
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="buildRun">Run</button><span id="buildStatus" class="note"></span></div>
+  </div>
+  <div id="buildResult" class="hide"><iframe id="buildFrame" title="Report"></iframe></div>
+</section>
+
+<!-- COMPARE -->
+<section id="p-compare" class="hide">
+  <div class="card"><h2>Compare strategies side by side</h2>
+    <p class="note">Tick runs from your history and/or type more strategies. Everything is compared over the same period in one report.</p>
+    <div class="xscroll"><table id="cmpHist"></table></div>
+    <h3>More strategies (one per box)</h3>
+    <div id="cmpTexts"></div>
+    <div class="row" style="margin-top:8px"><button class="btn small" id="cmpAdd">+ Add another</button><button class="btn primary" id="cmpRun">Compare</button><span class="note" id="cmpStatus"></span></div>
+  </div>
+  <div id="cmpResult" class="hide"><iframe id="cmpFrame" title="Comparison"></iframe></div>
+</section>
+
+<!-- RESEARCH -->
+<section id="p-research" class="hide">
+  <div class="card">
+    <div class="tabs2" id="resMode"><button data-v="sweep" class="on">Parameter sweep</button><button data-v="walkforward">Walk-forward</button><button data-v="optimize">Portfolio optimiser</button></div>
+    <div id="r_sweepwalk">
+      <p class="note">Put <code>{2..5}</code>, <code>{5..25 step 5}</code> or <code>{1,3,5}</code> where a number should vary, e.g. <code>buy QQQ when RSI({2..5}) is below {5..25 step 5}, hold {1,3,5} days</code>.</p>
+      <textarea id="r_text">buy QQQ at the close when RSI({2..5}) is below {5..25 step 5}, hold {1,3,5} days</textarea>
+      <div class="grid" style="margin-top:8px">
+        <label>Optimise<select id="r_objective"><option value="sharpe">Sharpe</option><option value="cagr">CAGR</option><option value="calmar">Calmar</option><option value="sortino">Sortino</option><option value="profit_factor">Profit factor</option></select></label>
+        <label class="wf">In-sample (years)<input id="r_is" type="number" value="5"></label>
+        <label class="wf">Out-of-sample (years)<input id="r_oos" type="number" value="1"></label>
+        <label class="wf">Windows<select id="r_anchored"><option value="false">rolling</option><option value="true">anchored</option></select></label>
+        <label>Start<input id="r_start" type="date"></label><label>End<input id="r_end" type="date"></label>
+        <label>Slippage (bps)<input id="r_slip" type="number" value="0"></label>
+      </div>
+    </div>
+    <div id="r_opt" class="hide">
+      <div class="grid">
+        <label style="grid-column:1/-1">Tickers<input id="o_tickers" class="w" value="SPY QQQ TLT GLD"></label>
+        <label>Max weight (%)<input id="o_max" type="number" value="100"></label>
+        <label>Min weight (%)<input id="o_min" type="number" value="0"></label>
+        <label>From<input id="o_from" type="date"></label><label>To<input id="o_to" type="date"></label>
+        <label>Test out of sample from<input id="o_test" type="date"></label>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px"><button class="btn primary" id="resRun">Run</button><span class="note" id="resStatus"></span></div>
+  </div>
+  <div id="resResult" class="hide"><iframe id="resFrame" title="Research"></iframe></div>
+</section>
+
+<!-- SIGNALS -->
+<section id="p-signals" class="hide">
+  <div class="card"><h2>What does the strategy say to do today?</h2>
+    <textarea id="sigText"></textarea>
+    <div class="row" style="margin-top:8px"><button class="btn primary" id="sigRun">Scan latest data</button><span class="note" id="sigStatus"></span></div>
+    <div id="sigOut" style="margin-top:10px"></div>
+  </div>
+  <div class="card"><h2>Paper trading (forward test)</h2>
+    <p class="note">Save a strategy today; its results from now on use only data that arrives after it was saved. The daily data job updates everything automatically; a webhook (Slack, Discord, …) can receive each day's signals — see README.</p>
+    <div class="row"><input id="paperName" placeholder="name, e.g. rsi2-ndx"><button class="btn" id="paperAdd">Start paper trading the strategy above</button><span class="note" id="paperStatus"></span></div>
+    <div class="xscroll" style="margin-top:10px"><table id="paperTbl"></table></div>
+  </div>
+</section>
+
+<!-- HISTORY -->
+<section id="p-history" class="hide">
+  <div class="card"><h2>Saved runs</h2><div class="xscroll"><table id="histTbl"></table></div></div>
+</section>
+
+<!-- DATA -->
+<section id="p-data" class="hide">
+  <div class="card"><h2>Data</h2><div id="dataStatus"></div>
+    <h3>Search tickers</h3><input id="tkSearch" placeholder="type to filter"><div id="tkList" class="chips"></div>
+    <details style="margin-top:10px"><summary>Rule language reference</summary><pre class="help" id="helpExpr2"></pre></details>
+  </div>
+</section>
+<datalist id="tickerList"></datalist>
+</main>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const el = (t, a = {}, x) => { const e = document.createElement(t); for (const k in a) e.setAttribute(k, a[k]); if (x != null) e.textContent = x; return e; };
+  const isNum = v => typeof v === 'number' && isFinite(v);
+  const pct = (v, d = 2) => isNum(v) ? (v * 100).toFixed(d) + '%' : '—';
+  const num = (v, d = 2) => isNum(v) ? v.toFixed(d) : '—';
+  const usd = v => isNum(v) ? '$' + Math.round(v).toLocaleString() : '—';
+  async function api(path, body, method) {
+    const r = await fetch(path, { method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    const j = await r.json().catch(() => ({ error: 'Bad response from server' }));
+    if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  }
+  let STATUS = null;
+
+  // ---------- routing
+  const pages = ['backtest', 'build', 'compare', 'research', 'signals', 'history', 'data'];
+  function route() {
+    const h = location.hash.replace('#', '');
+    const [page, qs] = h.split('?');
+    const p = pages.includes(page) ? page : 'backtest';
+    pages.forEach(x => $('p-' + x).classList.toggle('hide', x !== p));
+    [...$('nav').children].forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + p));
+    if (p === 'history') loadHistory();
+    if (p === 'compare') loadCompare();
+    if (p === 'signals') loadPaper();
+    if (p === 'data') loadData();
+    if (qs) {
+      const q = new URLSearchParams(qs);
+      if (q.get('q') && p === 'backtest') { $('text').value = q.get('q'); interpret(); if (q.get('run')) runBacktest(); }
+      if (q.get('r') && p === 'backtest') showResult(q.get('r'));
+    }
+  }
+  window.addEventListener('hashchange', route);
+
+  // ---------- backtest
+  const opt = () => { const o = {}; ['capital', 'start', 'end', 'slippage_bps', 'commission', 'benchmark', 'name'].forEach(k => { const v = $('o_' + k).value; if (v !== '') o[k] = v; }); return o; };
+  let timer = null, lastSpec = null;
+  async function interpret() {
+    const t = $('text').value.trim();
+    $('interpNotes').replaceChildren();
+    if (!t) { $('interp').textContent = 'Type a strategy above; its interpretation appears here as you type.'; lastSpec = null; return; }
+    try {
+      const j = await api('/api/parse', { text: t, options: opt() });
+      $('interp').classList.remove('err'); $('interp').textContent = j.interpretation; lastSpec = j.spec;
+      j.notes.forEach(n => $('interpNotes').append(el('div', { class: /survivorship|Coverage|Membership|refer|read as/.test(n) ? 'warn' : 'note' }, 'Note: ' + n)));
+    } catch (e) { $('interp').classList.add('err'); $('interp').textContent = e.message; lastSpec = null; }
+  }
+  $('text').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(interpret, 450); });
+  document.querySelectorAll('[id^=o_]').forEach(x => x.addEventListener('change', interpret));
+  function showResult(id, meta) {
+    $('result').classList.remove('hide');
+    $('frame').src = `/r/${id}/report.html`;
+    $('openTab').href = `/r/${id}/report.html`;
+    $('resultMeta').textContent = meta || '';
+    const dl = $('dlLinks'); dl.replaceChildren();
+    [['Excel', 'report.xlsx'], ['Trades CSV', 'trades.csv'], ['Equity CSV', 'equity.csv'], ['Strategy JSON', 'strategy.json']].forEach(([n, f]) => { const a = el('a', { class: 'btn small', href: `/r/${id}/${f}`, download: '' }, n); dl.append(a); });
+  }
+  async function runBacktest() {
+    const t = $('text').value.trim(); if (!t) return;
+    $('runBtn').disabled = true; $('runStatus').replaceChildren(el('span', { class: 'spin' }), document.createTextNode(' running…'));
+    try {
+      const j = await api('/api/run', { text: t, options: opt(), rf: $('o_rf').value === '0' ? 0 : 'tbill' });
+      const s = j.summary;
+      $('runStatus').textContent = '';
+      showResult(j.id, `${s.start} → ${s.end} · CAGR ${pct(s.cagr)} · Sharpe ${num(s.sharpe)} · max drawdown ${pct(s.max_drawdown, 1)} · final ${usd(s.final)}`);
+      history.replaceState(null, '', `#backtest?q=${encodeURIComponent(t)}`);
+    } catch (e) { $('runStatus').textContent = ''; $('interp').classList.add('err'); $('interp').textContent = e.message; }
+    $('runBtn').disabled = false;
+  }
+  $('runBtn').addEventListener('click', runBacktest);
+  $('text').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runBacktest(); });
+  $('shareBtn').addEventListener('click', () => { const u = `${location.origin}/#backtest?q=${encodeURIComponent($('text').value.trim())}&run=1`; navigator.clipboard && navigator.clipboard.writeText(u); $('runStatus').textContent = 'Link copied: ' + u; });
+  $('toBuild').addEventListener('click', async () => { await interpret(); if (lastSpec) { loadSpec(lastSpec); location.hash = '#build'; } });
+  $('toSignals').addEventListener('click', () => { $('sigText').value = $('text').value; location.hash = '#signals'; scan(); });
+
+  // ---------- block editor (portfolio tree)
+  const TYPES = { asset: 'Asset', cash: 'Cash', weights: 'Weighted group', if: 'If / else', filter: 'Filter (top/bottom N)' };
+  let tree = { weights: 'specified', w: [0.6, 0.4], children: [{ asset: 'SPY' }, { asset: 'TLT' }] };
+  const typeOf = n => n.asset !== undefined ? 'asset' : n.cash ? 'cash' : n.weights ? 'weights' : n.if !== undefined ? 'if' : n.filter ? 'filter' : 'asset';
+  const blank = t => ({ asset: { asset: 'SPY' }, cash: { cash: true }, weights: { weights: 'equal', children: [{ asset: 'SPY' }, { asset: 'TLT' }] },
+    if: { if: 'close > sma(close, 200)', on: 'SPY', then: { asset: 'QQQ' }, else: { asset: 'TLT' } },
+    filter: { filter: { select: 'top', n: 3, by: 'ret(126)', weights: 'equal' }, universe: 'children', children: [{ asset: 'QQQ' }, { asset: 'SPY' }, { asset: 'TLT' }, { asset: 'GLD' }] } })[t];
+  function field(label, input) { const l = el('label', { class: 'f' }); l.append(document.createTextNode(label), input); return l; }
+  function inp(val, on, attrs = {}) { const i = el('input', attrs); i.value = val ?? ''; i.addEventListener('change', () => on(i.value)); return i; }
+  function sel(opts, val, on) { const s = el('select'); opts.forEach(o => { const op = el('option', { value: o[0] }, o[1]); if (o[0] === val) op.selected = true; s.append(op); }); s.addEventListener('change', () => on(s.value)); return s; }
+  function renderNode(n, replace, remove) {
+    const t = typeOf(n), box = el('div', { class: 'node' }), hd = el('div', { class: 'hd' });
+    hd.append(sel(Object.entries(TYPES), t, v => replace(blank(v))));
+    if (t === 'asset') hd.append(inp(n.asset, v => { n.asset = v.toUpperCase(); }, { list: 'tickerList', placeholder: 'ticker', style: 'width:110px' }));
+    if (t === 'weights') {
+      hd.append(sel([['equal', 'equal'], ['specified', 'specified %'], ['inverse_vol', 'inverse volatility'], ['market_cap', 'market cap']], n.weights, v => { n.weights = v; if (v === 'specified') n.w = n.children.map(() => +(1 / n.children.length).toFixed(4)); else delete n.w; draw(); }));
+      if (n.weights === 'inverse_vol') hd.append(field('lookback days', inp(n.lookback || 20, v => n.lookback = +v, { type: 'number', style: 'width:80px' })));
+    }
+    if (t === 'if') {
+      hd.append(el('span', { class: 'lab' }, 'if'), inp(n.if, v => n.if = v, { style: 'min-width:260px;flex:1', placeholder: 'close > sma(close, 200)' }), el('span', { class: 'lab' }, 'on'), inp(n.on || 'SPY', v => n.on = v.toUpperCase(), { list: 'tickerList', style: 'width:90px' }));
+    }
+    if (t === 'filter') {
+      const f = n.filter;
+      hd.append(sel([['top', 'top'], ['bottom', 'bottom']], f.select, v => f.select = v), inp(f.n, v => f.n = +v, { type: 'number', style: 'width:60px' }),
+        el('span', { class: 'lab' }, 'by'), inp(f.by, v => f.by = v, { style: 'width:130px', placeholder: 'ret(126)' }),
+        el('span', { class: 'lab' }, 'weight'), sel([['equal', 'equal'], ['inverse_vol', 'inverse vol'], ['market_cap', 'market cap']], f.weights || 'equal', v => f.weights = v),
+        el('span', { class: 'lab' }, 'from'), sel([['children', 'the list below'], ['NDX', 'Nasdaq-100 (point-in-time)']], n.universe === 'NDX' ? 'NDX' : 'children', v => { n.universe = v; if (v === 'NDX') delete n.children; else n.children = n.children || [{ asset: 'QQQ' }, { asset: 'SPY' }]; draw(); }),
+        el('span', { class: 'lab' }, 'only if'), inp(f.require || '', v => { if (v) f.require = v; else delete f.require; }, { style: 'width:150px', placeholder: 'ret(126) > 0' }));
+    }
+    if (remove) { const x = el('button', { class: 'btn small' }, '✕'); x.onclick = remove; hd.append(x); }
+    box.append(hd);
+    const kids = el('div', { class: 'kids' });
+    if (t === 'weights' || (t === 'filter' && n.universe !== 'NDX')) {
+      (n.children || []).forEach((c, i) => {
+        const row = el('div', { class: 'row' });
+        if (t === 'weights' && n.weights === 'specified') row.append(field('%', inp(Math.round((n.w[i] || 0) * 1000) / 10, v => n.w[i] = (+v) / 100, { type: 'number', style: 'width:70px' })));
+        const holder = el('div', { style: 'flex:1;min-width:0' });
+        holder.append(renderNode(c, nn => { n.children[i] = nn; draw(); }, n.children.length > 1 ? () => { n.children.splice(i, 1); if (n.w) n.w.splice(i, 1); draw(); } : null));
+        row.append(holder); kids.append(row);
+      });
+      const add = el('button', { class: 'btn small' }, '+ add'); add.onclick = () => { n.children.push({ asset: 'SPY' }); if (n.w) n.w.push(0); draw(); }; kids.append(add);
+    }
+    if (t === 'if') {
+      kids.append(el('div', { class: 'lab' }, 'then'), renderNode(n.then, nn => { n.then = nn; draw(); }));
+      kids.append(el('div', { class: 'lab' }, 'otherwise'), renderNode(n.else, nn => { n.else = nn; draw(); }));
+    }
+    if (t === 'filter') { kids.append(el('div', { class: 'lab' }, 'fallback (when nothing qualifies)'), renderNode(n.fallback || { cash: true }, nn => { n.fallback = nn; draw(); })); }
+    box.append(kids);
+    return box;
+  }
+  function draw() { $('tree').replaceChildren(renderNode(tree, nn => { tree = nn; draw(); })); }
+
+  let buildMode = 'portfolio';
+  function setBuildMode(m) {
+    buildMode = m; [...$('buildMode').children].forEach(b => b.classList.toggle('on', b.dataset.v === m));
+    $('bPortfolio').classList.toggle('hide', m !== 'portfolio'); $('bSignal').classList.toggle('hide', m !== 'signal');
+    $('buildHelp').textContent = m === 'portfolio' ? 'Build an allocation like a Composer symphony: weighted groups, if/else switches and top-N filters, nested as deep as you like. Conditions use the rule language (see Data → reference).'
+      : 'Every field of a signal strategy. Rules use the rule language, e.g. rsi(2) < 10 and close > sma(close, 200).';
+  }
+  $('buildMode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setBuildMode(b.dataset.v); });
+  const P_FIELDS = ['rebalance', 'drift_band', 'fill', 'capital', 'contribution', 'contribution_freq', 'withdrawal', 'withdrawal_pct', 'withdrawal_freq', 'inflation_adjust', 'slippage_bps', 'commission_pct', 'start', 'end'];
+  const S_FIELDS = ['side', 'entry_fill', 'entry_order', 'entry_level', 'entry', 'short_entry', 'exit_when', 'hold_bars', 'hold_exit_fill', 'stop_loss', 'take_profit', 'trailing_stop', 'stop_atr', 'trailing_atr', 'max_positions', 'sizing', 'position_size', 'risk_per_trade', 'target_vol', 'fixed_amount', 'leverage', 'pyramiding', 'slippage_bps', 'commission', 'commission_pct', 'borrow_fee', 'capital', 'start', 'end'];
+  const PCT = new Set(['drift_band', 'withdrawal_pct', 'commission_pct', 'stop_loss', 'take_profit', 'trailing_stop', 'position_size', 'risk_per_trade', 'target_vol', 'borrow_fee']);
+  function toForm(prefix, fields, spec) { fields.forEach(f => { const e = $(prefix + f); if (!e) return; let v = spec[f]; if (v == null) v = ''; if (PCT.has(f) && v !== '') v = +(v * 100).toFixed(6); if (typeof v === 'boolean') v = String(v); e.value = v; }); }
+  function fromForm(prefix, fields) { const o = {}; fields.forEach(f => { const e = $(prefix + f); if (!e) return; let v = e.value; if (v === '') return; if (v === 'true' || v === 'false') v = v === 'true'; else if (e.type === 'number') v = +v; if (PCT.has(f)) v = v / 100; o[f] = v; }); return o; }
+  function specFromEditor() {
+    if (buildMode === 'portfolio') return Object.assign({ kind: 'allocation', tree: JSON.parse(JSON.stringify(tree)) }, fromForm('p_', P_FIELDS));
+    const s = fromForm('s_', S_FIELDS);
+    const u = $('s_universe').value.trim();
+    if (u.toUpperCase() === 'NDX') { s.universe = (STATUS && STATUS.nasdaq100) || []; s.universe_name = 'NDX'; }
+    else s.universe = u.split(/[\s,]+/).filter(Boolean).map(x => x.toUpperCase());
+    ['short_entry', 'exit_when', 'entry_level'].forEach(k => { if (!s[k]) s[k] = null; });
+    return s;
+  }
+  function loadSpec(spec) {
+    if (spec.tree) { setBuildMode('portfolio'); tree = JSON.parse(JSON.stringify(spec.tree)); draw(); toForm('p_', P_FIELDS, spec); }
+    else { setBuildMode('signal'); toForm('s_', S_FIELDS, spec); $('s_universe').value = spec.universe_name === 'NDX' ? 'NDX' : (spec.universe || []).join(', '); }
+    $('specJson').value = JSON.stringify(spec, null, 2);
+  }
+  $('toJson').addEventListener('click', () => $('specJson').value = JSON.stringify(specFromEditor(), null, 2));
+  $('fromJson').addEventListener('click', () => { try { loadSpec(JSON.parse($('specJson').value)); $('buildStatus').textContent = ''; } catch (e) { $('buildStatus').textContent = 'Invalid JSON: ' + e.message; } });
+  $('buildRun').addEventListener('click', async () => {
+    $('buildStatus').replaceChildren(el('span', { class: 'spin' }), document.createTextNode(' running…'));
+    try { const j = await api('/api/run', { spec: specFromEditor() }); $('buildStatus').textContent = j.interpretation.split('\n')[0]; $('buildResult').classList.remove('hide'); $('buildFrame').src = j.url; }
+    catch (e) { $('buildStatus').textContent = e.message; }
+  });
+
+  // ---------- compare
+  let cmpSel = new Set();
+  async function loadCompare() {
+    const rows = (await api('/api/runs')).filter(r => r.kind === 'signal' || r.kind === 'allocation').slice(0, 40);
+    const t = $('cmpHist'); t.replaceChildren();
+    const hr = el('tr'); ['', 'When', 'Strategy', 'CAGR', 'Sharpe', 'Max DD'].forEach(h => hr.append(el('th', {}, h))); t.append(hr);
+    if (!rows.length) { const tr = el('tr'); tr.append(el('td', { colspan: 6, class: 'note' }, 'No saved runs yet — run backtests first, or type strategies below.')); t.append(tr); }
+    rows.forEach(r => { const tr = el('tr'); const cb = el('input', { type: 'checkbox' }); cb.checked = cmpSel.has(r.id); cb.onchange = () => cb.checked ? cmpSel.add(r.id) : cmpSel.delete(r.id); const td = el('td'); td.append(cb); tr.append(td, el('td', {}, r.created.replace('T', ' ')), el('td', {}, (r.label || r.text || '').slice(0, 90)), el('td', { class: 'n' }, pct(r.cagr)), el('td', { class: 'n' }, num(r.sharpe)), el('td', { class: 'n' }, pct(r.max_drawdown, 1))); t.append(tr); });
+    if (!$('cmpTexts').children.length) { addCmpText('60/40 SPY/TLT rebalanced quarterly'); addCmpText('buy and hold QQQ'); }
+  }
+  function addCmpText(v) { const ta = el('textarea', { style: 'min-height:44px;margin-top:6px' }); ta.value = v || ''; $('cmpTexts').append(ta); }
+  $('cmpAdd').addEventListener('click', () => addCmpText(''));
+  $('cmpRun').addEventListener('click', async () => {
+    $('cmpStatus').replaceChildren(el('span', { class: 'spin' }), document.createTextNode(' running…'));
+    try { const j = await api('/api/compare', { ids: [...cmpSel], texts: [...$('cmpTexts').children].map(t => t.value) }); $('cmpStatus').textContent = ''; $('cmpResult').classList.remove('hide'); $('cmpFrame').src = j.url; }
+    catch (e) { $('cmpStatus').textContent = e.message; }
+  });
+
+  // ---------- research
+  let resMode = 'sweep';
+  $('resMode').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; resMode = b.dataset.v; [...$('resMode').children].forEach(x => x.classList.toggle('on', x === b)); $('r_sweepwalk').classList.toggle('hide', resMode === 'optimize'); $('r_opt').classList.toggle('hide', resMode !== 'optimize'); document.querySelectorAll('.wf').forEach(x => x.classList.toggle('hide', resMode !== 'walkforward')); });
+  document.querySelectorAll('.wf').forEach(x => x.classList.add('hide'));
+  $('resRun').addEventListener('click', async () => {
+    $('resStatus').replaceChildren(el('span', { class: 'spin' }), document.createTextNode(' running… (sweeps run in parallel)'));
+    try {
+      let j;
+      const o = {}; if ($('r_start').value) o.start = $('r_start').value; if ($('r_end').value) o.end = $('r_end').value; if ($('r_slip').value) o.slippage_bps = $('r_slip').value;
+      if (resMode === 'sweep') j = await api('/api/sweep', { text: $('r_text').value, objective: $('r_objective').value, options: o });
+      else if (resMode === 'walkforward') j = await api('/api/walkforward', { text: $('r_text').value, objective: $('r_objective').value, in_sample: $('r_is').value, out_sample: $('r_oos').value, anchored: $('r_anchored').value === 'true', options: o });
+      else j = await api('/api/optimize', { tickers: $('o_tickers').value, max_weight: $('o_max').value / 100, min_weight: $('o_min').value / 100, start: $('o_from').value, end: $('o_to').value, test_start: $('o_test').value });
+      $('resStatus').textContent = ''; $('resResult').classList.remove('hide'); $('resFrame').src = j.url;
+    } catch (e) { $('resStatus').textContent = e.message; }
+  });
+
+  // ---------- signals & paper
+  async function scan() {
+    const t = $('sigText').value.trim(); if (!t) return;
+    $('sigStatus').replaceChildren(el('span', { class: 'spin' }));
+    const out = $('sigOut'); out.replaceChildren();
+    try {
+      const j = await api('/api/signals', { text: t });
+      $('sigStatus').textContent = 'as of ' + j.as_of;
+      out.append(el('p', {}, j.action || ''));
+      if (j.entry_signals) { const tb = el('table'); const hr = el('tr'); ['Signal', 'Ticker', 'Close'].forEach(h => hr.append(el('th', {}, h))); tb.append(hr); j.entry_signals.forEach(s => { const tr = el('tr'); tr.append(el('td', {}, s.side), el('td', {}, s.ticker), el('td', { class: 'n' }, num(s.close))); tb.append(tr); }); if (j.entry_signals.length) out.append(el('h3', {}, 'New entries'), tb); }
+      if (j.open_positions && j.open_positions.length) { const tb = el('table'); const hr = el('tr'); ['Ticker', 'Side', 'Since', 'Entry', 'Last', 'Unrealised'].forEach(h => hr.append(el('th', {}, h))); tb.append(hr); j.open_positions.forEach(p => { const tr = el('tr'); tr.append(el('td', {}, p.ticker), el('td', {}, p.side), el('td', {}, p.since), el('td', { class: 'n' }, num(p.entry_price)), el('td', { class: 'n' }, num(p.last_price)), el('td', { class: 'n ' + (p.unrealized_return >= 0 ? 'pos' : 'neg') }, pct(p.unrealized_return))); tb.append(tr); }); out.append(el('h3', {}, 'Positions the strategy would hold now'), tb); }
+      if (j.target_weights) { const tb = el('table'); Object.entries(j.target_weights).forEach(([k, v]) => { const tr = el('tr'); tr.append(el('td', {}, k), el('td', { class: 'n' }, pct(v, 1))); tb.append(tr); }); out.append(el('h3', {}, 'Target allocation now'), tb); }
+    } catch (e) { $('sigStatus').textContent = ''; out.append(el('div', { class: 'err' }, e.message)); }
+  }
+  $('sigRun').addEventListener('click', scan);
+  async function loadPaper() {
+    const t = $('paperTbl'); t.replaceChildren();
+    const hr = el('tr'); ['Name', 'Since', 'Days', 'Return', 'Max DD', 'Today'].forEach(h => hr.append(el('th', {}, h))); t.append(hr);
+    try { const rows = await api('/api/paper'); if (!rows.length) { const tr = el('tr'); tr.append(el('td', { colspan: 6, class: 'note' }, 'No paper strategies yet.')); t.append(tr); }
+      rows.forEach(r => { const tr = el('tr'); tr.append(el('td', {}, r.name), el('td', {}, r.registered), el('td', { class: 'n' }, r.days || 0), el('td', { class: 'n' }, pct(r.return)), el('td', { class: 'n' }, pct(r.max_drawdown, 1)), el('td', {}, (r.today && r.today.action) || r.note || '')); t.append(tr); });
+    } catch (e) { const tr = el('tr'); tr.append(el('td', { colspan: 6, class: 'err' }, e.message)); t.append(tr); }
+  }
+  $('paperAdd').addEventListener('click', async () => { try { const j = await api('/api/paper', { text: $('sigText').value, name: $('paperName').value }); $('paperStatus').textContent = 'Saved to ' + j.saved + ' — commit it to keep it.'; loadPaper(); } catch (e) { $('paperStatus').textContent = e.message; } });
+
+  // ---------- history
+  async function loadHistory() {
+    const rows = await api('/api/runs');
+    const t = $('histTbl'); t.replaceChildren();
+    const hr = el('tr'); ['When', 'Type', 'Strategy', 'Period', 'CAGR', 'Sharpe', 'Max DD', 'Final', ''].forEach(h => hr.append(el('th', {}, h))); t.append(hr);
+    if (!rows.length) { const tr = el('tr'); tr.append(el('td', { colspan: 9, class: 'note' }, 'Nothing yet.')); t.append(tr); }
+    rows.forEach(r => {
+      const tr = el('tr'), act = el('td');
+      const open = el('a', { class: 'btn small', href: `/r/${r.id}/report.html`, target: '_blank' }, 'Open'); act.append(open);
+      if (r.kind === 'signal' || r.kind === 'allocation') { const re = el('button', { class: 'btn small' }, 'Edit'); re.onclick = () => { if (r.spec && r.spec.description) { $('text').value = r.spec.description; location.hash = '#backtest'; interpret(); } }; act.append(re);
+        const sh = el('button', { class: 'btn small' }, 'Share'); sh.onclick = () => { const u = `${location.origin}/#backtest?r=${r.id}`; navigator.clipboard && navigator.clipboard.writeText(u); sh.textContent = 'Copied'; }; act.append(sh); }
+      const del = el('button', { class: 'btn small' }, 'Delete'); del.onclick = async () => { await api('/api/runs/' + r.id, null, 'DELETE'); loadHistory(); }; act.append(del);
+      tr.append(el('td', {}, r.created.replace('T', ' ')), el('td', {}, r.kind), el('td', {}, (r.label || r.text || '').slice(0, 80)), el('td', {}, r.start ? `${r.start} → ${r.end}` : ''),
+        el('td', { class: 'n' }, pct(r.cagr)), el('td', { class: 'n' }, num(r.sharpe)), el('td', { class: 'n' }, pct(r.max_drawdown, 1)), el('td', { class: 'n' }, usd(r.final)), act);
+      t.append(tr);
+    });
+  }
+
+  // ---------- data
+  async function loadData() {
+    if (!STATUS) STATUS = await api('/api/status');
+    const d = STATUS.data, box = $('dataStatus'); box.replaceChildren();
+    [['Last update', d.updated_utc], ['Tickers with price history', d.tickers], ['Current Nasdaq-100 members', d.nasdaq100_current],
+     ['Former members with history', d.former_members_with_data], ['Former members without history', d.former_members_missing],
+     ['Point-in-time membership from', d.membership_from], ['T-bill rate / CPI / factors', [d.has_tbill, d.has_cpi, d.has_factors].map(x => x ? 'yes' : 'no').join(' / ')]]
+      .forEach(([k, v]) => box.append(el('div', {}, `${k}: ${v ?? '—'}`)));
+    const all = [...STATUS.nasdaq100, ...STATUS.etfs, ...STATUS.indexes, ...STATUS.former];
+    const drawT = () => { const q = $('tkSearch').value.toUpperCase(); $('tkList').replaceChildren(...all.filter(t => !q || t.includes(q)).slice(0, 400).map(t => el('span', { class: 'chip' }, t))); };
+    $('tkSearch').oninput = drawT; drawT();
+  }
+
+  // ---------- init
+  (async () => {
+    try {
+      STATUS = await api('/api/status');
+      $('dataStamp').textContent = 'data to ' + (STATUS.data.updated_utc || '').slice(0, 10);
+      STATUS.examples.forEach(x => { const c = el('span', { class: 'chip', title: x }, x); c.onclick = () => { $('text').value = x; interpret(); }; $('examples').append(c); });
+      const dl = $('tickerList'); [...STATUS.nasdaq100, ...STATUS.etfs, ...STATUS.indexes].forEach(t => dl.append(el('option', { value: t })));
+      $('helpExpr').textContent = STATUS.help; $('helpExpr2').textContent = STATUS.help;
+    } catch (e) { $('dataStamp').textContent = e.message; }
+    setBuildMode('portfolio'); draw(); $('specJson').value = JSON.stringify(specFromEditor(), null, 2);
+    route();
+  })();
+})();
+</script>
+</body>
+</html>

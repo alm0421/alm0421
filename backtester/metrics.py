@@ -1,4 +1,9 @@
-"""Performance statistics."""
+"""Performance statistics.
+
+All return-based statistics use time-weighted returns (external cash flows removed), so
+contributions and withdrawals do not distort CAGR, volatility, Sharpe or drawdowns. Sharpe, Sortino
+and alpha are measured against the 3-month T-bill rate unless a fixed rate is given.
+"""
 from __future__ import annotations
 
 import numpy as np
@@ -8,11 +13,61 @@ from . import data
 
 TRADING_DAYS = 252
 
+CRISES = [
+    ("1987 crash", "1987-10-01", "1987-12-04"),
+    ("1990 recession", "1990-07-16", "1990-10-11"),
+    ("1998 LTCM", "1998-07-17", "1998-10-08"),
+    ("Dot-com bust", "2000-03-24", "2002-10-09"),
+    ("Global financial crisis", "2007-10-09", "2009-03-09"),
+    ("2010 flash crash", "2010-04-23", "2010-07-02"),
+    ("2011 euro crisis", "2011-04-29", "2011-10-03"),
+    ("2015-16 selloff", "2015-07-20", "2016-02-11"),
+    ("Q4 2018", "2018-09-20", "2018-12-24"),
+    ("COVID crash", "2020-02-19", "2020-03-23"),
+    ("2022 bear market", "2022-01-03", "2022-10-12"),
+    ("2025 tariff shock", "2025-02-19", "2025-04-08"),
+]
+
+
+# ------------------------------------------------------------------ return series
+
+def twr_returns(equity: pd.Series, flows: pd.Series | None = None) -> pd.Series:
+    """Daily time-weighted returns: flows arrive at the start of the day."""
+    prev = equity.shift(1)
+    f = flows.reindex(equity.index).fillna(0.0) if flows is not None else 0.0
+    base = prev + f
+    r = (equity / base - 1).where(base > 0)
+    return r.iloc[1:].fillna(0.0)
+
+
+def nav(equity: pd.Series, flows: pd.Series | None = None) -> pd.Series:
+    """Growth of the starting capital with cash flows removed (time-weighted index)."""
+    r = twr_returns(equity, flows)
+    out = (1 + r).cumprod() * equity.iloc[0]
+    return pd.concat([equity.iloc[:1], out])
+
+
+def rf_daily(index: pd.DatetimeIndex, rf) -> pd.Series:
+    if rf == "tbill":
+        s = data.tbill_rate()
+        if s.empty:
+            return pd.Series(0.0, index=index)
+        return (s.reindex(index.union(s.index)).ffill().reindex(index).fillna(0.0) / TRADING_DAYS)
+    return pd.Series(float(rf or 0.0) / TRADING_DAYS, index=index)
+
+
+def monthly_returns(nav_: pd.Series) -> pd.Series:
+    me = nav_.resample("ME").last()
+    first = nav_.iloc[0]
+    prev = me.shift(1)
+    prev.iloc[0] = first
+    return (me / prev - 1).dropna()
+
 
 def buy_and_hold(ticker: str, index: pd.DatetimeIndex, capital: float) -> pd.Series | None:
     try:
-        c = data.load(ticker)["close"]
-    except FileNotFoundError:
+        c = data.load(ticker)["adj_close"]
+    except (FileNotFoundError, data.DataError):
         return None
     c = c.reindex(index.union(c.index)).ffill().reindex(index).dropna()
     if c.empty:
@@ -33,7 +88,7 @@ def drawdown_table(equity: pd.Series, top: int = 5) -> pd.DataFrame:
     idx = dd.index
     for i, v in enumerate(vals):
         if v < 0 and not in_dd:
-            in_dd, peak_i = True, i - 1 if i > 0 else 0
+            in_dd, peak_i = True, max(i - 1, 0)
         elif v >= 0 and in_dd:
             seg = vals[peak_i:i]
             t = peak_i + int(np.argmin(seg))
@@ -47,51 +102,105 @@ def drawdown_table(equity: pd.Series, top: int = 5) -> pd.DataFrame:
     if out.empty:
         return out
     out["days_to_trough"] = [(t - p).days for p, t in zip(out.peak, out.trough)]
-    out["days_to_recover"] = [(r - t).days if r is not None else None for t, r in zip(out.trough, out.recovery)]
-    out["total_days"] = [((r if r is not None else idx[-1]) - p).days for p, r in zip(out.peak, out.recovery)]
+    out["days_to_recover"] = [(r - t).days if r is not None and not pd.isna(r) else None for t, r in zip(out.trough, out.recovery)]
+    out["total_days"] = [((r if r is not None and not pd.isna(r) else idx[-1]) - p).days for p, r in zip(out.peak, out.recovery)]
+    out["recovery"] = [r.date() if r is not None and not pd.isna(r) else None for r in out["recovery"]]
+    out["peak"] = [p.date() for p in out["peak"]]
+    out["trough"] = [t.date() for t in out["trough"]]
     return out.sort_values("depth").head(top).reset_index(drop=True)
 
 
-def equity_stats(equity: pd.Series, rf: float = 0.0) -> dict:
-    r = equity.pct_change().dropna()
-    years = (equity.index[-1] - equity.index[0]).days / 365.25
-    total = equity.iloc[-1] / equity.iloc[0] - 1
-    cagr = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1 if years > 0 and equity.iloc[-1] > 0 else np.nan
-    ex = r - rf / TRADING_DAYS
-    vol = r.std() * np.sqrt(TRADING_DAYS)
-    sharpe = ex.mean() / r.std() * np.sqrt(TRADING_DAYS) if r.std() > 0 else np.nan
+def xirr(dates: list, amounts: list) -> float:
+    """Money-weighted annual return for cash flows (negative = invested, positive = received)."""
+    if len(amounts) < 2 or not any(a > 0 for a in amounts) or not any(a < 0 for a in amounts):
+        return np.nan
+    t0 = dates[0]
+    years = np.array([(d - t0).days / 365.25 for d in dates])
+    a = np.array(amounts, dtype=float)
+
+    def npv(r):
+        return np.sum(a / (1 + r) ** years)
+    lo, hi = -0.99, 10.0
+    flo, fhi = npv(lo), npv(hi)
+    if np.sign(flo) == np.sign(fhi):
+        return np.nan
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        fm = npv(mid)
+        if np.sign(fm) == np.sign(flo):
+            lo, flo = mid, fm
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+# ------------------------------------------------------------------ statistics
+
+def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None) -> dict:
+    """Statistics for an equity curve; time-weighted if flows are given."""
+    nv = nav(equity, flows) if flows is not None and flows.abs().sum() > 0 else equity
+    r = nv.pct_change().iloc[1:].fillna(0.0)
+    years = (nv.index[-1] - nv.index[0]).days / 365.25
+    total = nv.iloc[-1] / nv.iloc[0] - 1
+    cagr = (nv.iloc[-1] / nv.iloc[0]) ** (1 / years) - 1 if years > 0 and nv.iloc[-1] > 0 else np.nan
+    rfd = rf_daily(r.index, rf)
+    ex = r - rfd
+    sd = r.std()
+    vol = sd * np.sqrt(TRADING_DAYS)
+    sharpe = ex.mean() / sd * np.sqrt(TRADING_DAYS) if sd > 0 else np.nan
     downside = np.sqrt((np.minimum(ex, 0) ** 2).mean()) * np.sqrt(TRADING_DAYS)
     sortino = ex.mean() * TRADING_DAYS / downside if downside > 0 else np.nan
-    dd = drawdown(equity)
+    mr = monthly_returns(nv)
+    rfm = rf_daily(mr.index, rf) * 21
+    mex = mr - rfm
+    sharpe_m = mex.mean() / mr.std() * np.sqrt(12) if len(mr) > 2 and mr.std() > 0 else np.nan
+    mdown = np.sqrt((np.minimum(mex, 0) ** 2).mean()) * np.sqrt(12) if len(mr) > 2 else np.nan
+    sortino_m = mex.mean() * 12 / mdown if mdown and mdown > 0 else np.nan
+    dd = drawdown(nv)
     mdd = dd.min()
     trough = dd.idxmin()
-    peak = equity[:trough].idxmax()
-    rec = equity[trough:][equity[trough:] >= equity[peak]]
+    peak = nv[:trough].idxmax()
+    rec = nv[trough:][nv[trough:] >= nv[peak]]
     recovery = rec.index[0] if len(rec) else None
-    # longest time under water
-    under = (dd < 0).astype(int).to_numpy()
-    longest, run_start, cur = 0, None, None
+    under = (dd < 0).to_numpy()
+    longest, cur = 0, None
     for i, u in enumerate(under):
         if u and cur is None:
             cur = i
         if (not u or i == len(under) - 1) and cur is not None:
-            end = i
-            length = (equity.index[end] - equity.index[max(cur - 1, 0)]).days
-            if length > longest:
-                longest, run_start = length, cur
+            length = (nv.index[i] - nv.index[max(cur - 1, 0)]).days
+            longest = max(longest, length)
             cur = None
     ulcer = np.sqrt((dd.pow(2)).mean()) * 100
+    yr = nv.groupby(nv.index.year).last()
+    yprev = yr.shift(1)
+    yprev.iloc[0] = nv.iloc[0]
+    yret = yr / yprev - 1
+    var95 = -np.percentile(r, 5) if len(r) > 20 else np.nan
+    cvar95 = -r[r <= np.percentile(r, 5)].mean() if len(r) > 20 else np.nan
+    mvar95 = -np.percentile(mr, 5) if len(mr) > 12 else np.nan
+    mcvar95 = -mr[mr <= np.percentile(mr, 5)].mean() if len(mr) > 12 else np.nan
+    gains, losses = r[r > 0].sum(), -r[r < 0].sum()
+    real = np.nan
+    c = data.cpi()
+    if not c.empty and years > 0:
+        ci = c.reindex(nv.index.union(c.index)).ffill().reindex(nv.index)
+        if ci.notna().iloc[0] and ci.notna().iloc[-1]:
+            real = ((nv.iloc[-1] / nv.iloc[0]) / (ci.iloc[-1] / ci.iloc[0])) ** (1 / years) - 1
     return {
-        "start": equity.index[0].date(),
-        "end": equity.index[-1].date(),
+        "start": nv.index[0].date(),
+        "end": nv.index[-1].date(),
         "years": years,
-        "start_equity": equity.iloc[0],
-        "end_equity": equity.iloc[-1],
+        "start_equity": float(equity.iloc[0]),
+        "end_equity": float(equity.iloc[-1]),
         "total_return": total,
         "cagr": cagr,
+        "real_cagr": real,
         "volatility": vol,
         "sharpe": sharpe,
         "sortino": sortino,
+        "sharpe_monthly": sharpe_m,
+        "sortino_monthly": sortino_m,
         "max_drawdown": mdd,
         "max_dd_peak": peak.date(),
         "max_dd_trough": trough.date(),
@@ -99,9 +208,42 @@ def equity_stats(equity: pd.Series, rf: float = 0.0) -> dict:
         "longest_underwater_days": longest,
         "calmar": cagr / abs(mdd) if mdd < 0 else np.nan,
         "ulcer_index": ulcer,
+        "ulcer_performance": (cagr - float(rfd.mean() * TRADING_DAYS)) / (ulcer / 100) if ulcer > 0 else np.nan,
         "best_day": r.max() if len(r) else np.nan,
         "worst_day": r.min() if len(r) else np.nan,
+        "best_month": mr.max() if len(mr) else np.nan,
+        "worst_month": mr.min() if len(mr) else np.nan,
+        "best_year": yret.max() if len(yret) else np.nan,
+        "worst_year": yret.min() if len(yret) else np.nan,
         "pct_positive_days": (r > 0).mean() if len(r) else np.nan,
+        "pct_positive_months": (mr > 0).mean() if len(mr) else np.nan,
+        "var_95_daily": var95,
+        "cvar_95_daily": cvar95,
+        "var_95_monthly": mvar95,
+        "cvar_95_monthly": mcvar95,
+        "skew": float(r.skew()) if len(r) > 3 else np.nan,
+        "kurtosis": float(r.kurt()) if len(r) > 3 else np.nan,
+        "gain_pain": gains / losses if losses > 0 else np.nan,
+        "tail_ratio": (np.percentile(r, 95) / -np.percentile(r, 5)) if len(r) > 20 and np.percentile(r, 5) < 0 else np.nan,
+    }
+
+
+def cashflow_stats(equity: pd.Series, flows: pd.Series | None) -> dict:
+    if flows is None or flows.abs().sum() == 0:
+        return {}
+    f = flows[flows != 0]
+    contributed = float(f[f > 0].sum())
+    withdrawn = float(-f[f < 0].sum())
+    dates = [equity.index[0]] + list(f.index) + [equity.index[-1]]
+    amounts = [-float(equity.iloc[0])] + [-float(x) for x in f] + [float(equity.iloc[-1])]
+    return {
+        "starting_balance": float(equity.iloc[0]),
+        "total_contributions": contributed,
+        "total_withdrawals": withdrawn,
+        "ending_balance": float(equity.iloc[-1]),
+        "net_gain": float(equity.iloc[-1]) - float(equity.iloc[0]) - contributed + withdrawn,
+        "money_weighted_return": xirr(dates, amounts),
+        "ran_out": bool((equity.iloc[1:] <= 0).any()),
     }
 
 
@@ -122,6 +264,7 @@ def trade_stats(trades: pd.DataFrame, years: float) -> dict:
 
     n = len(trades)
     t_stat = r.mean() / (r.std() / np.sqrt(n)) if n > 1 and r.std() > 0 else np.nan
+    has_mae = "mae" in trades and trades["mae"].notna().any()
     return {
         "trades": n,
         "trades_per_year": n / years if years > 0 else np.nan,
@@ -139,25 +282,136 @@ def trade_stats(trades: pd.DataFrame, years: float) -> dict:
         "avg_bars_held": trades["bars_held"].mean(),
         "max_consecutive_wins": max_run(pnl > 0),
         "max_consecutive_losses": max_run(pnl <= 0),
-        "avg_mae": trades["mae"].mean(),
-        "avg_mfe": trades["mfe"].mean(),
+        "avg_mae": trades["mae"].mean() if has_mae else np.nan,
+        "avg_mfe": trades["mfe"].mean() if has_mae else np.nan,
         "t_stat": t_stat,
         "total_commission": trades["commission"].sum(),
+        "long_trades": int((trades["side"] == "long").sum()),
+        "short_trades": int((trades["side"] == "short").sum()),
+        "long_win_rate": (trades.loc[trades.side == "long", "pnl"] > 0).mean() if (trades.side == "long").any() else np.nan,
+        "short_win_rate": (trades.loc[trades.side == "short", "pnl"] > 0).mean() if (trades.side == "short").any() else np.nan,
     }
 
 
-def relative_stats(equity: pd.Series, bench: pd.Series | None, rf: float = 0.0) -> dict:
-    if bench is None or len(bench) < 30:
+def relative_stats(nav_: pd.Series, bench: pd.Series | None, rf="tbill") -> dict:
+    """Regression and capture statistics vs a benchmark over the overlapping period."""
+    if bench is None or len(bench.dropna()) < 30:
         return {}
-    df = pd.concat([equity.pct_change(), bench.pct_change()], axis=1, join="inner").dropna()
+    df = pd.concat([nav_.pct_change(), bench.pct_change()], axis=1, join="inner").dropna()
     if len(df) < 30:
         return {}
-    s, b = df.iloc[:, 0] - rf / TRADING_DAYS, df.iloc[:, 1] - rf / TRADING_DAYS
+    rfd = rf_daily(df.index, rf)
+    s, b = df.iloc[:, 0] - rfd, df.iloc[:, 1] - rfd
     beta = np.cov(s, b)[0, 1] / b.var()
     alpha = (s.mean() - beta * b.mean()) * TRADING_DAYS
-    active = s - b
-    ir = active.mean() / active.std() * np.sqrt(TRADING_DAYS) if active.std() > 0 else np.nan
-    return {"beta": beta, "alpha_annual": alpha, "correlation": s.corr(b), "information_ratio": ir}
+    active = df.iloc[:, 0] - df.iloc[:, 1]
+    te = active.std() * np.sqrt(TRADING_DAYS)
+    ir = active.mean() * TRADING_DAYS / te if te > 0 else np.nan
+    corr = s.corr(b)
+    # capture ratios on monthly returns
+    m = pd.concat([monthly_returns((1 + df.iloc[:, 0]).cumprod()), monthly_returns((1 + df.iloc[:, 1]).cumprod())], axis=1).dropna()
+    up, dn = m[m.iloc[:, 1] > 0], m[m.iloc[:, 1] < 0]
+
+    def geo(x):
+        return (1 + x).prod() ** (1 / len(x)) - 1 if len(x) else np.nan
+    upc = geo(up.iloc[:, 0]) / geo(up.iloc[:, 1]) if len(up) else np.nan
+    dnc = geo(dn.iloc[:, 0]) / geo(dn.iloc[:, 1]) if len(dn) else np.nan
+    ann = (1 + df.iloc[:, 0]).prod() ** (TRADING_DAYS / len(df)) - 1
+    rf_ann = float(rfd.mean() * TRADING_DAYS)
+    return {"beta": beta, "alpha_annual": alpha, "correlation": corr, "r_squared": corr ** 2,
+            "tracking_error": te, "information_ratio": ir,
+            "treynor": (ann - rf_ann) / beta if beta else np.nan,
+            "up_capture": upc, "down_capture": dnc, "period_start": df.index[0].date()}
+
+
+def rolling_series(nav_: pd.Series, bench: pd.Series | None, rf="tbill") -> dict:
+    r = nav_.pct_change()
+    out = {}
+    out["return_12m"] = nav_ / nav_.shift(TRADING_DAYS) - 1
+    out["return_36m_ann"] = (nav_ / nav_.shift(3 * TRADING_DAYS)) ** (1 / 3) - 1
+    ex = r - rf_daily(r.index, rf)
+    out["sharpe_6m"] = ex.rolling(126).mean() / r.rolling(126).std() * np.sqrt(TRADING_DAYS)
+    out["vol_3m"] = r.rolling(63).std() * np.sqrt(TRADING_DAYS)
+    if bench is not None:
+        b = bench.reindex(nav_.index).pct_change()
+        out["beta_6m"] = r.rolling(126).cov(b) / b.rolling(126).var()
+    return out
+
+
+def rolling_summary(nav_: pd.Series) -> dict:
+    """Best / worst / average rolling-period annualised returns (Portfolio Visualizer style)."""
+    out = {}
+    for yrs in (1, 3, 5, 10):
+        n = yrs * TRADING_DAYS
+        if len(nav_) <= n + 5:
+            continue
+        rr = (nav_ / nav_.shift(n)) ** (1 / yrs) - 1
+        rr = rr.dropna()
+        out[f"{yrs}y"] = {"avg": rr.mean(), "best": rr.max(), "worst": rr.min(), "pct_positive": (rr > 0).mean()}
+    return out
+
+
+def crisis_table(series: dict[str, pd.Series]) -> list[dict]:
+    rows = []
+    for name, a, b in CRISES:
+        a, b = pd.Timestamp(a), pd.Timestamp(b)
+        row = {"event": name, "start": a.date(), "end": b.date()}
+        any_val = False
+        for k, s in series.items():
+            if s is None:
+                continue
+            seg = s[(s.index >= a - pd.Timedelta(days=5)) & (s.index <= b)]
+            seg0 = s[s.index <= a]
+            if len(seg0) == 0 or s.index[0] > a:
+                row[k] = None
+                continue
+            end = s[s.index <= b]
+            row[k] = float(end.iloc[-1] / seg0.iloc[-1] - 1) if len(end) else None
+            any_val = any_val or row[k] is not None
+        if any_val:
+            rows.append(row)
+    return rows
+
+
+def factor_regression(nav_: pd.Series, rf="tbill") -> dict:
+    """Fama-French 5 factors + momentum regression on daily excess returns (OLS with t-stats)."""
+    f = data.factors()
+    if f.empty:
+        return {}
+    r = nav_.pct_change().dropna()
+    df = pd.concat([r.rename("r"), f], axis=1, join="inner").dropna()
+    if len(df) < 120 or "RF" not in df:
+        return {}
+    y = df["r"] - df["RF"]
+    cols = [c for c in ("Mkt-RF", "SMB", "HML", "RMW", "CMA", "Mom") if c in df]
+    X = np.column_stack([np.ones(len(df))] + [df[c].to_numpy() for c in cols])
+    coef, *_ = np.linalg.lstsq(X, y.to_numpy(), rcond=None)
+    resid = y.to_numpy() - X @ coef
+    dof = len(y) - X.shape[1]
+    s2 = resid @ resid / dof
+    cov = s2 * np.linalg.inv(X.T @ X)
+    se = np.sqrt(np.diag(cov))
+    tstat = coef / se
+    ss_tot = ((y - y.mean()) ** 2).sum()
+    r2 = 1 - (resid @ resid) / ss_tot if ss_tot > 0 else np.nan
+    names = ["alpha"] + cols
+    return {"period_start": df.index[0].date(), "period_end": df.index[-1].date(), "r_squared": r2,
+            "observations": len(df),
+            "coefficients": [{"factor": n, "loading": float(c * (TRADING_DAYS if n == "alpha" else 1)),
+                              "t_stat": float(t)} for n, c, t in zip(names, coef, tstat)]}
+
+
+def correlation_matrix(series: dict[str, pd.Series]) -> dict:
+    df = pd.concat({k: v for k, v in series.items() if v is not None}, axis=1).dropna()
+    if len(df) < 60:
+        return {}
+    m = monthly_returns_frame(df).corr()
+    return {"names": list(m.columns), "matrix": m.round(4).to_numpy().tolist()}
+
+
+def monthly_returns_frame(df: pd.DataFrame) -> pd.DataFrame:
+    me = df.resample("ME").last()
+    return me.pct_change().dropna()
 
 
 def yearly_returns(series: dict[str, pd.Series]) -> pd.DataFrame:
@@ -166,25 +420,28 @@ def yearly_returns(series: dict[str, pd.Series]) -> pd.DataFrame:
         if eq is None:
             continue
         ye = eq.groupby(eq.index.year).last()
-        first = eq.iloc[0]
         prev = ye.shift(1)
-        prev.iloc[0] = first
+        prev.iloc[0] = eq.iloc[0]
         cols[name] = ye / prev - 1
     return pd.DataFrame(cols)
 
 
-def yearly_detail(equity: pd.Series, trades: pd.DataFrame, exposure: pd.Series) -> pd.DataFrame:
-    g = equity.groupby(equity.index.year)
+def yearly_detail(nav_: pd.Series, trades: pd.DataFrame, exposure: pd.Series) -> pd.DataFrame:
     rows = {}
-    for y, eq in g:
-        prev = equity[equity.index.year < y]
+    for y, eq in nav_.groupby(nav_.index.year):
+        prev = nav_[nav_.index.year < y]
         base = prev.iloc[-1] if len(prev) else eq.iloc[0]
         path = pd.concat([pd.Series([base]), eq]).reset_index(drop=True)
+        first, last = eq.index[0], eq.index[-1]
+        partial = (not len(prev)) and (first.month > 1 or first.day > 7) or (last.month < 12 or last.day < 24)
         rows[y] = {
             "return": eq.iloc[-1] / base - 1,
             "max_drawdown": (path / path.cummax() - 1).min(),
             "end_equity": eq.iloc[-1],
             "exposure": exposure[exposure.index.year == y].mean(),
+            "partial": bool(partial),
+            "from": first.date() if partial else None,
+            "to": last.date() if partial else None,
         }
     out = pd.DataFrame(rows).T
     if trades is not None and not trades.empty:
@@ -198,46 +455,66 @@ def yearly_detail(equity: pd.Series, trades: pd.DataFrame, exposure: pd.Series) 
     return out
 
 
-def monthly_table(equity: pd.Series) -> pd.DataFrame:
-    me = equity.resample("ME").last()
-    prev = me.shift(1)
-    prev.iloc[0] = equity.iloc[0]
-    m = me / prev - 1
+def monthly_table(nav_: pd.Series) -> pd.DataFrame:
+    m = monthly_returns(nav_)
     tbl = pd.DataFrame({"year": m.index.year, "month": m.index.month, "r": m.values})
-    out = tbl.pivot(index="year", columns="month", values="r")
-    out.columns = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][: len(out.columns)] if len(out.columns) == 12 else [pd.Timestamp(2000, c, 1).strftime("%b") for c in out.columns]
+    out = tbl.pivot(index="year", columns="month", values="r").reindex(columns=range(1, 13))
+    out.columns = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     return out
 
 
-def monte_carlo(equity: pd.Series, sims: int = 1000, block: int = 20, seed: int = 7) -> dict:
-    """Block bootstrap of daily returns: distribution of CAGR and max drawdown."""
-    r = equity.pct_change().dropna().to_numpy()
+def monte_carlo(equity: pd.Series, flows: pd.Series | None = None, sims: int = 1000, block: int = 20,
+                seed: int = 7) -> dict:
+    """Block bootstrap of daily time-weighted returns. With cash flows, the same flow schedule is
+    replayed on each resampled path, giving a probability that the money lasts."""
+    r = twr_returns(equity, flows).to_numpy()
     n = len(r)
     if n < block * 3:
         return {}
     rng = np.random.default_rng(seed)
     nb = int(np.ceil(n / block))
-    cagr, mdd = np.empty(sims), np.empty(sims)
     years = n / TRADING_DAYS
+    cagr, mdd, final = np.empty(sims), np.empty(sims), np.empty(sims)
+    fl = flows.reindex(equity.index).fillna(0.0).to_numpy()[1:] if flows is not None else np.zeros(n)
+    has_flows = np.abs(fl).sum() > 0
+    ruined = 0
     for s in range(sims):
         starts = rng.integers(0, n - block, nb)
         path = np.concatenate([r[a:a + block] for a in starts])[:n]
-        eq = np.cumprod(1 + path)
-        cagr[s] = eq[-1] ** (1 / years) - 1
-        mdd[s] = (eq / np.maximum.accumulate(eq) - 1).min()
-    q = [5, 50, 95]
-    return {
-        "sims": sims,
-        "cagr_p5": np.percentile(cagr, q[0]), "cagr_p50": np.percentile(cagr, q[1]), "cagr_p95": np.percentile(cagr, q[2]),
-        "mdd_p5": np.percentile(mdd, q[0]), "mdd_p50": np.percentile(mdd, q[1]), "mdd_p95": np.percentile(mdd, q[2]),
+        g = np.cumprod(1 + path)
+        cagr[s] = g[-1] ** (1 / years) - 1 if g[-1] > 0 else -1.0
+        mdd[s] = (g / np.maximum.accumulate(g) - 1).min()
+        if has_flows:
+            v = float(equity.iloc[0])
+            dead = False
+            for t in range(n):
+                v = (v + fl[t]) * (1 + path[t])
+                if v <= 0:
+                    dead = True
+                    v = 0.0
+                    break
+            final[s] = v
+            ruined += dead
+        else:
+            final[s] = float(equity.iloc[0]) * g[-1]
+    q = lambda a, p: float(np.percentile(a, p))  # noqa: E731
+    out = {
+        "sims": sims, "block_days": block,
+        "cagr_p5": q(cagr, 5), "cagr_p50": q(cagr, 50), "cagr_p95": q(cagr, 95),
+        "mdd_p5": q(mdd, 5), "mdd_p50": q(mdd, 50), "mdd_p95": q(mdd, 95),
+        "final_p5": q(final, 5), "final_p50": q(final, 50), "final_p95": q(final, 95),
         "prob_loss": float((cagr < 0).mean()),
     }
+    if has_flows:
+        out["success_rate"] = 1 - ruined / sims
+    return out
 
 
-def exposure_stats(exposure: pd.Series, positions: pd.Series) -> dict:
+def exposure_stats(exposure: pd.Series, positions: pd.Series, in_market: pd.Series | None = None) -> dict:
+    im = in_market if in_market is not None else positions > 0
     return {
-        "time_in_market": (positions > 0).mean(),
-        "avg_exposure": exposure.mean(),
+        "time_in_market": float(im.iloc[1:].mean()) if len(im) > 1 else 0.0,
+        "avg_exposure": float(exposure.iloc[1:].mean()) if len(exposure) > 1 else 0.0,
         "max_positions_held": int(positions.max()),
-        "avg_positions_when_invested": positions[positions > 0].mean() if (positions > 0).any() else 0.0,
+        "avg_positions_when_invested": float(positions[positions > 0].mean()) if (positions > 0).any() else 0.0,
     }

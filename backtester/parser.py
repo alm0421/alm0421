@@ -628,6 +628,10 @@ SIGNAL_HINT = re.compile(
 
 def looks_like_allocation(text: str) -> bool:
     t = _normalize(text)
+    # "SPY 60%, TLT 30%, GLD 10%": ticker-first weights (uppercase, known tickers only)
+    tw = re.findall(r"(?<![\w^])(\^?[A-Z]{1,5}) \d+(?:\.\d+)?%", t)
+    if len(tw) >= 2 and all(data.canonical(x) in _known() for x in tw):
+        return True
     if not ALLOC_HINT.search(t):
         return False
     strong = re.search(r"\b(?:rebalanc\w*|buy and hold|equal[- ]weight|inverse[- ]volatility|(?:top|bottom) \d+(?![\d.%]|\s*%)|rotat|dual momentum|otherwise hold|allocat|contribut|withdraw|\d+/\d+)", t, re.I)
@@ -882,7 +886,16 @@ def parse_signal(text: str) -> Strategy:
                 cond = "`True`"
             else:
                 raise ParseError("No entry condition found. Say e.g. 'buy MSFT at the close when it is down 5 days in a row'.")
-        parts = parse_conditions(cond, universe, as_list=True)
+        pron = re.fullmatch(r"(?i)\s*(?:it |the price )?(?:crosses|falls|drops|closes|goes|moves|is|trades)?(?: back)? ?(below|under|above|over)(?: (?:it|them|that|the average|the line))?\s*", cond)
+        other = parsed.get("long" if side == "short" else "short")
+        if pron and other:
+            flip = _flip(other["entry"], below=pron.group(1).lower() in ("below", "under"))
+            if not flip:
+                raise ParseError(f"'{cond.strip()}' refers back to the other rule, which has no comparison to reverse.")
+            parts = [flip]
+            notes.append(f"'{cond.strip()}' was read as the reverse of the {'long' if side == 'short' else 'short'} rule: {flip}.")
+        else:
+            parts = parse_conditions(cond, universe, as_list=True)
         if fill == "open":
             late = [p for p in parts if not _open_safe(p)]
             if late:
@@ -1314,6 +1327,12 @@ def parse_allocation(text: str) -> Portfolio:
             rb = "none"
     if buy_hold and rb != "none":
         notes.append("'Buy and hold' with a rebalance schedule: the schedule wins.")
+    if wd_pct and infl:
+        # "withdraw 4% a year adjusted for inflation" is the classic 4% rule: 4% of the starting
+        # balance, then that dollar amount rising with CPI
+        wd, wd_pct = wd_pct * pk.get("capital", 10_000.0), 0.0
+        notes.append(f"Read as the '4% rule': withdraw ${wd:,.0f} in the first year (that % of the starting balance), "
+                     "then the same amount grown with inflation. Say 'withdraw 4% of the balance each year' for a percentage of the current balance.")
     p = Portfolio(tree=tree, rebalance=rb, drift_band=band, fill=fill, contribution=contrib, contribution_freq=cfreq,
                   withdrawal=wd, withdrawal_pct=wd_pct, withdrawal_freq=wfreq, inflation_adjust=infl,
                   description=raw, notes=notes, **pk,
