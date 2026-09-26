@@ -191,7 +191,7 @@ def components_section(wikitext: str) -> str:
     Many revisions also carry 'Changes in 20XX' lists (dropped companies) and mention ETFs such as
     TQQQ in prose; scraping the whole article mixed those in. Take the text from the components
     heading to the next level-2 heading, and drop history subsections inside it."""
-    m = re.search(r"(?im)^==\s*(?:current\s+)?(?:components|constituents|index components|companies)\b[^=\n]*==\s*$", wikitext)
+    m = re.search(r"(?im)^==(?!=)\s*(?![^=\n]*(?:historical|former|changes|past))[^=\n]*\b(?:components?|constituents|companies)\b[^=\n]*==\s*$", wikitext)
     if not m:
         return wikitext
     rest = wikitext[m.end():]
@@ -223,9 +223,12 @@ def wiki_tickers(wikitext: str) -> set[str]:
     return found
 
 
-def wiki_revision_at(ts: str) -> tuple[int, str, str] | None:
+WIKI_TITLES = ["Nasdaq-100", "List of NASDAQ-100 companies"]  # the list moved to its own article in late 2025
+
+
+def wiki_revision_at(ts: str, title: str = "Nasdaq-100") -> tuple[int, str, str] | None:
     r = requests.get(WIKI_API, headers=WIKI_UA, timeout=30, params={
-        "action": "query", "prop": "revisions", "titles": "Nasdaq-100", "rvlimit": 1, "rvstart": ts,
+        "action": "query", "prop": "revisions", "titles": title, "rvlimit": 1, "rvstart": ts,
         "rvdir": "older", "rvprop": "ids|timestamp|content", "rvslots": "main", "format": "json",
         "formatversion": 2, "maxlag": 5})
     if r.status_code != 200 or "json" not in r.headers.get("content-type", ""):
@@ -256,22 +259,28 @@ def update_membership() -> pd.DataFrame:
         if key in done and key != str(months[-1]):
             continue
         ts = (m.to_timestamp(how="start")).strftime("%Y-%m-%dT00:00:00Z")
-        try:
-            got = wiki_revision_at(ts)
-        except Exception as e:  # noqa: BLE001
-            print(f"membership {key}: {e}", file=sys.stderr)
-            fails += 1
-            time.sleep(2)
+        found = None
+        for title in WIKI_TITLES:
+            try:
+                got = wiki_revision_at(ts, title)
+            except Exception as e:  # noqa: BLE001
+                print(f"membership {key} ({title}): {e}", file=sys.stderr)
+                fails += 1
+                time.sleep(2)
+                continue
+            fails = 0
+            time.sleep(0.2)
+            if not got:
+                continue
+            revid, stamp, text = got
+            syms = {s.replace(".", "-") for s in wiki_tickers(text)} - NOT_MEMBERS
+            if 85 <= len(syms) <= 115:
+                found = (revid, stamp, syms)
+                break
+            print(f"membership {key}: {title} revision {revid} gave {len(syms)} symbols, skipped")
+        if not found:
             continue
-        fails = 0
-        time.sleep(0.2)
-        if not got:
-            continue
-        revid, stamp, text = got
-        syms = {s.replace(".", "-") for s in wiki_tickers(text)} - NOT_MEMBERS
-        if not (85 <= len(syms) <= 115):
-            print(f"membership {key}: revision {revid} gave {len(syms)} symbols, skipped")
-            continue
+        revid, stamp, syms = found
         rows.append({"month": key, "revid": str(revid), "timestamp": stamp, "count": str(len(syms)),
                      "tickers": " ".join(sorted(syms)), "parser": MEMBERSHIP_PARSER})
     if rows:
