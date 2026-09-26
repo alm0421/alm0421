@@ -686,7 +686,11 @@ def fetch_shares(tickers: list[str]) -> None:
 # ------------------------------------------------------------------ SEC EDGAR share counts
 
 # SEC asks automated clients for a descriptive User-Agent with a contact; the repository is the contact
-SEC_UA = {"User-Agent": "backtester-data-job https://github.com/alm0421/alm0421", "Accept-Encoding": "gzip, deflate"}
+# SEC's fair-access policy refuses requests whose User-Agent has no contact e-mail (403 on every call). The repo's
+# GitHub no-reply address is used by default; set SEC_CONTACT (a repository variable or secret) to override it.
+import os as _os
+SEC_UA = {"User-Agent": "backtester-data-job " + (_os.environ.get("SEC_CONTACT") or "alm0421@users.noreply.github.com"),
+          "Accept-Encoding": "gzip, deflate"}
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 # delisted former members, absent from company_tickers.json (each checked against data.sec.gov/submissions:
@@ -760,6 +764,9 @@ def fetch_sec_shares(tickers: list[str]) -> None:
     except Exception as e:  # noqa: BLE001
         print(f"sec tickers failed: {e}", file=sys.stderr)
         ciks = {}
+        errors = [f"company_tickers.json: {e}"]
+    else:
+        errors = []
     ciks.update(SEC_CIKS)
     got, missing = 0, []
     for t in tickers:
@@ -787,7 +794,10 @@ def fetch_sec_shares(tickers: list[str]) -> None:
         except Exception as e:  # noqa: BLE001
             print(f"sec shares {t} failed: {e}", file=sys.stderr)
             missing.append(t)
+            if len(errors) < 5:
+                errors.append(f"{t}: {e}")
     (folder / "fetch_log.txt").write_text(f"{got} tickers with SEC share counts\n"
+                                              + ("errors (first 5): " + " | ".join(errors) + "\n" if errors else "")
                                               + ("no CIK or no counts: " + " ".join(missing) + "\n" if missing else ""))
 
 

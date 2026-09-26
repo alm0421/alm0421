@@ -228,7 +228,9 @@ def test_sec_companyfacts_parser():
     assert s.loc["2014-07-23"] == pytest.approx(5_987_867_000, rel=1e-3)
     assert fd.sec_ticker_map({"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
                               "1": {"cik_str": 1067983, "ticker": "BRK.B", "title": "x"}}) == {"AAPL": 320193, "BRK-B": 1067983}
-    assert "backtester" in fd.SEC_UA["User-Agent"] and "@" not in fd.SEC_UA["User-Agent"]
+    ua = fd.SEC_UA["User-Agent"]
+    # SEC needs a contact e-mail: the repo's GitHub no-reply address (never a personal one) unless SEC_CONTACT is set
+    assert "backtester" in ua and ("SEC_CONTACT" in __import__("os").environ or ua.endswith("@users.noreply.github.com"))
 
 
 def test_sec_counts_fill_before_yahoo(monkeypatch, tmp_path):
