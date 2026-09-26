@@ -318,13 +318,36 @@ def cmd_optimize(argv: list[str]) -> int:
     p.add_argument("--lookback", type=int, default=60, metavar="MONTHS", help="trailing window for --rolling (default 60)")
     p.add_argument("--rebalance", default="quarterly", choices=["monthly", "quarterly", "yearly"],
                    help="rebalancing used in the suggested sentences")
+    g = p.add_argument_group("forecast inputs (instead of the historical means / volatilities / correlations)")
+    g.add_argument("--expected-return", action="append", default=[], metavar="TICKER=RET",
+                   help="repeatable or comma-separated: 'SPY=7%%,TLT=4%%' (annual)")
+    g.add_argument("--expected-vol", action="append", default=[], metavar="TICKER=VOL", help="e.g. 'SPY=16%%'")
+    g.add_argument("--correlation", action="append", default=[], metavar="A/B=RHO", help="repeatable: 'SPY/TLT=-0.2'")
+    g = p.add_argument_group("Black-Litterman")
+    g.add_argument("--view", action="append", default=[],
+                   help="repeatable: 'SPY = 8%% @ 60%%' (absolute) or 'QQQ > SPY by 2%% @ 50%%' (relative); confidence default 50%%")
+    g.add_argument("--prior", help="equilibrium weights: 'market-cap' (default), 'equal', or 'SPY=60%%,TLT=40%%'")
+    g.add_argument("--tau", type=float, default=0.05, help="uncertainty of the prior (default 0.05)")
+    g.add_argument("--risk-aversion", type=float, default=2.5, help="delta in pi = delta * cov * w (default 2.5)")
+    g = p.add_argument_group("benchmark-relative and resampling")
+    g.add_argument("--benchmark", help="a ticker or blend, e.g. SPY or '60%% SPY 40%% AGG': adds min tracking error and max information ratio")
+    g.add_argument("--target-active", type=float, help="min tracking error subject to at least this return over the benchmark (e.g. 0.01)")
+    g.add_argument("--resample", type=int, default=0, metavar="N", help="Michaud resampled frontier with N draws (e.g. 200)")
+    p.add_argument("--json", action="store_true", help="print the full result as JSON")
     p.add_argument("--out")
     a = p.parse_args(argv)
+    j = lambda xs: ",".join(xs) or None  # noqa: E731
     R = research.optimize(a.tickers, a.start, a.end, a.max_weight, a.min_weight, a.test_start,
                           constraints=a.constraint, target_return=a.target_return, target_vol=a.target_vol,
                           rolling_months=a.rolling, lookback_months=a.lookback, rebalance=a.rebalance,
                           methods=[m.strip() for m in a.methods.split(",") if m.strip()] if a.methods else None,
-                          omega_threshold=a.omega_threshold)
+                          omega_threshold=a.omega_threshold, expected_returns=j(a.expected_return),
+                          expected_vols=j(a.expected_vol), correlations=a.correlation or None, views=a.view or None,
+                          prior=a.prior, tau=a.tau, risk_aversion=a.risk_aversion, benchmark=a.benchmark,
+                          target_active=a.target_active, resample=a.resample)
+    if a.json:
+        print(json.dumps(report._clean(R), indent=1, default=str))
+        return 0
     print(research_report.optimize_console(R))
     out = Path(a.out) if a.out else report.ROOT / "reports" / ("optimize-" + report.slug("-".join(a.tickers)))
     path = research_report.write_optimize(R, out)

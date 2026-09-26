@@ -118,11 +118,39 @@ def optimize_console(R: dict) -> str:
            for t, (a, b) in (c.get("bounds") or {}).items()] + [g["text"] for g in c.get("groups") or []]
     if lim:
         L.append("Constraints: " + "; ".join(lim))
-    L.append(f"  {'':26s} {'return':>7s} {'vol':>7s} {'Sharpe':>6s} {'Sortino':>7s} {'CVaR95m':>7s} {'DivR':>5s}")
+    inp = R.get("inputs") or {}
+    if inp.get("source") in ("forecast", "black_litterman"):
+        L.append("Inputs: " + ("forecasts given" if inp["source"] == "forecast" else "Black-Litterman posterior")
+                 + " (historical in brackets)")
+        for r in inp.get("table") or []:
+            L.append(f"  {r['ticker']:8s} return {pct(r['return'], 1):>7s} ({pct(r['hist_return'], 1)})   "
+                     f"vol {pct(r['vol'], 1):>6s} ({pct(r['hist_vol'], 1)})")
+    bl = R.get("black_litterman")
+    if bl:
+        L.append(f"Black-Litterman: prior {bl['prior']}, tau {bl['tau']:g}, risk aversion {bl['risk_aversion']:g}")
+        L.append(f"  {'':8s} {'prior w':>8s} {'equilib.':>9s} {'posterior':>9s} {'history':>8s}")
+        for t, w in bl["prior_weights"].items():
+            L.append(f"  {t:8s} {pct(w, 1):>8s} {pct(bl['equilibrium_returns'][t], 1):>9s} {pct(bl['posterior_returns'][t], 1):>9s} "
+                     f"{pct(bl['historical_returns'][t], 1):>8s}")
+        for v in bl["views"]:
+            L.append(f"  view {v['text']!r}: confidence {pct(v['confidence'], 0)}, prior implied {pct(v['prior_value'], 2)}"
+                     f" -> posterior {pct(v['posterior_value'], 2)}")
+    b = R.get("benchmark")
+    if b:
+        L.append(f"Benchmark {b['name']}: expected return {pct(b['return'], 1)}, volatility {pct(b['vol'], 1)}"
+                 + ("" if b.get("investable") else " (not made of these tickers: tracking error from its monthly returns)"))
+    L.append(f"  {'':26s} {'return':>7s} {'vol':>7s} {'Sharpe':>6s} {'Sortino':>7s} {'CVaR95m':>7s} {'DivR':>5s}"
+             + (f" {'TE':>6s} {'IR':>6s}" if b else ""))
     for name, p in R["portfolios"].items():
         L.append(f"  {_fit(name, 26)} {pct(p['exp_return'], 1):>7s} {pct(p['exp_vol'], 1):>7s} {num(p['exp_sharpe']):>6s} "
-                 f"{num(p.get('exp_sortino')):>7s} {pct(p.get('cvar_95_monthly'), 1):>7s} {num(p.get('diversification_ratio')):>5s}")
+                 f"{num(p.get('exp_sortino')):>7s} {pct(p.get('cvar_95_monthly'), 1):>7s} {num(p.get('diversification_ratio')):>5s}"
+                 + (f" {pct(p.get('tracking_error'), 1):>6s} {num(p.get('information_ratio')):>6s}" if b else ""))
         L.append(f"  {'':26s} {p.get('sentence', '')}")
+        if p.get("weights_sd"):
+            L.append(f"  {'':26s} spread across draws: " + ", ".join(f"{t} ±{pct(x, 0)}" for t, x in p["weights_sd"].items()))
+    rs = R.get("resampled")
+    if rs:
+        L.append(rs["note"])
     for n in R.get("notes") or []:
         L.append("Note: " + n)
     if R.get("test"):

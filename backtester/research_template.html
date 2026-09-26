@@ -128,11 +128,26 @@ code { background:var(--surface-2); padding:2px 6px; border-radius:6px; font-siz
     if (lim.length) root.append(el('div', { class: 'note' }, 'Constraints: ' + lim.join('; ')));
     (D.notes || []).forEach(n => root.append(el('div', { class: 'note' }, 'Note: ' + n)));
     const P = Object.entries(D.portfolios);
+    const IN = D.inputs || {}, BL = D.black_litterman, BM = D.benchmark;
+    if (IN.source && IN.source !== 'historical') {
+      const ci = card(IN.source === 'black_litterman' ? 'Inputs: Black-Litterman posterior' : 'Inputs: forecasts');
+      ci.append(el('p', { class: 'note' }, IN.source === 'black_litterman'
+        ? `Expected returns are the Black-Litterman posterior: the equilibrium returns implied by the prior weights (${BL.prior}; π = δΣw with risk aversion δ = ${BL.risk_aversion}), blended with the views below according to their confidence (τ = ${BL.tau}). The covariance is Σ + M (the historical covariance plus the uncertainty of the estimate).`
+        : 'The expected returns, volatilities and correlations given replace the historical figures; the others stay historical.'));
+      table(ci, ['Asset', 'Expected return', 'Historical return', 'Volatility', 'Historical volatility'].concat(BL ? ['Prior weight', 'Equilibrium return'] : []),
+        IN.table.map(r => [r.ticker, pct(r.return, 1), pct(r.hist_return, 1), pct(r.vol, 1), pct(r.hist_vol, 1)].concat(BL ? [pct(BL.prior_weights[r.ticker], 1), pct(BL.equilibrium_returns[r.ticker], 1)] : [])));
+      if (BL && BL.views.length) {
+        ci.append(el('h2', { style: 'margin-top:14px' }, 'Views'));
+        table(ci, ['View', 'Kind', 'Confidence', 'Implied by the prior', 'Posterior'], BL.views.map(v => [v.text, v.kind, pct(v.confidence, 0), pct(v.prior_value, 2), pct(v.posterior_value, 2)]));
+        ci.append(el('p', { class: 'note' }, 'Confidence sets each view’s uncertainty Ω = (1 − c)/c · p τΣ p′ (Idzorek-style): 100% makes the posterior satisfy the view exactly; 50% is the He-Litterman default.'));
+      }
+    }
+    if (BM) root.append(el('div', { class: 'note' }, `Benchmark ${BM.name}: expected return ${pct(BM.return, 1)}, volatility ${pct(BM.vol, 1)}` + (BM.investable ? ' (made of these tickers: the minimum tracking error portfolio can hold it exactly).' : ' (tracking error from its monthly returns).')));
     const c = card('Efficient frontier');
     c.append(el('p', { class: 'note' }, 'The line is the lowest volatility for each expected return under the constraints. Grey dots are the assets; numbered dots are the portfolios in the table below.'));
     const box = el('div', { class: 'chart' }); c.append(box);
     const W = box.clientWidth || 900, H = 360, m = { l: 56, r: 16, t: 10, b: 30 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
-    const pts = D.frontier.map(p => [p.vol, p.return]).concat(D.assets.map(a => [a.vol, a.return])).concat(P.map(([n, p]) => [p.exp_vol, p.exp_return]));
+    const pts = D.frontier.map(p => [p.vol, p.return]).concat(D.assets.map(a => [a.vol, a.return])).concat(P.map(([n, p]) => [p.exp_vol, p.exp_return])).concat(BM ? [[BM.vol, BM.return]] : []).concat(((D.resampled || {}).frontier || []).map(p => [p.vol, p.return]));
     const vx = pts.map(p => p[0]), vy = pts.map(p => p[1]); const x0 = 0, x1 = Math.max(...vx) * 1.1, y0 = Math.min(0, ...vy), y1 = Math.max(...vy) * 1.1;
     const X = v => m.l + (v - x0) / (x1 - x0) * iw, Y = v => m.t + (1 - (v - y0) / (y1 - y0)) * ih;
     const svg = S('svg', { viewBox: `0 0 ${W} ${H}`, height: H });
@@ -140,13 +155,20 @@ code { background:var(--surface-2); padding:2px 6px; border-radius:6px; font-siz
     const lab = S('text', { x: m.l + iw, y: m.t + ih - 6, 'text-anchor': 'end' }); lab.textContent = 'volatility →'; svg.append(lab);
     const lab2 = S('text', { x: m.l + 4, y: m.t + 10 }); lab2.textContent = '↑ expected return'; svg.append(lab2);
     if (D.frontier.length) svg.append(S('path', { d: 'M' + D.frontier.map(p => X(p.vol).toFixed(1) + ',' + Y(p.return).toFixed(1)).join('L'), fill: 'none', stroke: col(0), 'stroke-width': 2 }));
+    const RF = (D.resampled || {}).frontier || [];
+    if (RF.length) { svg.append(S('path', { d: 'M' + RF.map(p => X(p.vol).toFixed(1) + ',' + Y(p.return).toFixed(1)).join('L'), fill: 'none', stroke: col(2), 'stroke-width': 2, 'stroke-dasharray': '6 4' }));
+      c.append(el('p', { class: 'note' }, `Dashed: the resampled frontier (${D.resampled.draws} draws). ${D.resampled.note}`)); }
     D.assets.forEach(a => { const g = S('g'); g.append(S('circle', { cx: X(a.vol), cy: Y(a.return), r: 5, fill: css('--text-3') })); const tt = S('title'); tt.textContent = `${a.ticker}: return ${pct(a.return, 1)}, volatility ${pct(a.vol, 1)}`; g.append(tt); svg.append(g); const tx = S('text', { x: X(a.vol) + 8, y: Y(a.return) + 4 }); tx.textContent = a.ticker; svg.append(tx); });
+    if (BM) { const g = S('g'); g.append(S('rect', { x: X(BM.vol) - 5, y: Y(BM.return) - 5, width: 10, height: 10, fill: css('--text-2') })); const tt = S('title'); tt.textContent = `Benchmark ${BM.name}: return ${pct(BM.return, 1)}, volatility ${pct(BM.vol, 1)}`; g.append(tt); svg.append(g); const tx = S('text', { x: X(BM.vol) + 8, y: Y(BM.return) + 4 }); tx.textContent = 'benchmark'; svg.append(tx); }
     P.forEach(([n, p], i) => { const g = S('g'); g.append(S('circle', { cx: X(p.exp_vol), cy: Y(p.exp_return), r: 9, fill: col(1), stroke: css('--surface'), 'stroke-width': 2 })); const tx = S('text', { x: X(p.exp_vol), y: Y(p.exp_return) + 4, 'text-anchor': 'middle' }); tx.textContent = i + 1; tx.style.fill = '#fff'; tx.style.fontSize = '10px'; g.append(tx); const tt = S('title'); tt.textContent = `${i + 1}. ${n}: return ${pct(p.exp_return, 1)}, volatility ${pct(p.exp_vol, 1)}, Sharpe ${num(p.exp_sharpe)}`; g.append(tt); svg.append(g); });
     box.append(svg);
     const c2 = card('Optimised portfolios');
     const tks = D.tickers;
-    table(c2, ['Portfolio', 'Exp. return', 'Exp. vol', 'Sharpe', 'Sortino', 'CVaR 95% (month)', 'Div. ratio'].concat(tks),
-      P.map(([n, p], i) => [`${i + 1}. ${n}`, pct(p.exp_return), pct(p.exp_vol), num(p.exp_sharpe), num(p.exp_sortino), pct(p.cvar_95_monthly), num(p.diversification_ratio)].concat(tks.map(t => pct(p.weights[t] || 0, 1)))));
+    table(c2, ['Portfolio', 'Exp. return', 'Exp. vol', 'Sharpe', 'Sortino', 'CVaR 95% (month)', 'Div. ratio'].concat(BM ? ['Tracking error', 'Active return', 'Info. ratio'] : []).concat(tks),
+      P.map(([n, p], i) => [`${i + 1}. ${n}`, pct(p.exp_return), pct(p.exp_vol), num(p.exp_sharpe), num(p.exp_sortino), pct(p.cvar_95_monthly), num(p.diversification_ratio)]
+        .concat(BM ? [pct(p.tracking_error), pct(p.active_return), num(p.information_ratio)] : [])
+        .concat(tks.map(t => pct(p.weights[t] || 0, 1) + (p.weights_sd && p.weights_sd[t] != null ? ' ±' + pct(p.weights_sd[t], 0) : '')))));
+    if (P.some(([n, p]) => p.weights_sd)) c2.append(el('p', { class: 'note' }, '± is the standard deviation of that weight across the resampling draws.'));
     c2.append(el('h2', { style: 'margin-top:14px' }, 'Risk contributions (share of portfolio variance)'));
     table(c2, ['Portfolio'].concat(tks), P.map(([n, p]) => [n].concat(tks.map(t => pct((p.risk_contributions || {})[t] || 0, 0)))));
     c2.append(el('h2', { style: 'margin-top:14px' }, 'Backtest one of these'));

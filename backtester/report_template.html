@@ -226,6 +226,12 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     <div class="xscroll"><table id="holdTbl"></table></div>
   </div>
 
+  <div class="card hide" id="riskCard">
+    <h2>Risk contribution by holding <span class="pill runName"></span></h2>
+    <div class="scroll" style="max-height:420px"><table id="riskTbl"></table></div>
+    <p class="note" id="riskNote"></p>
+  </div>
+
   <div class="card" id="attrCard">
     <h2 id="attrTitle">P&amp;L by holding <span class="pill runName"></span></h2>
     <div class="scroll" style="max-height:420px"><table id="attrTbl"></table></div>
@@ -640,7 +646,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       [{ t: 'Safe withdrawal rate', title: 'the largest inflation-adjusted yearly withdrawal, as a share of the starting balance, that lasts the whole period' }, pct(r.withdrawal_rates.swr)],
       [{ t: 'Perpetual withdrawal rate', title: 'the largest one that keeps the balance, in dollars of the start date, at the starting balance' }, pct(r.withdrawal_rates.pwr)],
       ['Safe rate in 95% of bootstrapped histories', pct(r.withdrawal_rates.swr_mc95)],
-    ] : []));
+    ].concat(r.withdrawal_rates.percentiles ? ['10', '25', '50', '75', '90'].map(p => [{ t: `Bootstrapped histories, ${p}th percentile: safe / perpetual`, title: 'each bootstrapped history\'s own highest safe (lasts to the end) and perpetual (keeps the real starting balance) rate, as a share of the starting balance; the 10th percentile is the cautious one' },
+      `${pct(r.withdrawal_rates.percentiles.safe[p])} / ${pct(r.withdrawal_rates.percentiles.perpetual[p])}`]) : []) : []));
     const bc = r.benchmark_cash || {}, bk = Object.keys(bc);
     $('bcashTitle').classList.toggle('hide', !bk.length); $('bcashNote').textContent = '';
     table($('bcashTbl'), bk.length ? ['', 'Starting balance', 'Withdrawals', 'Contributions', 'Ending balance', 'Money-weighted return', 'Ran out?'] : null,
@@ -1381,6 +1388,19 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       + (alloc ? 'Return is time-weighted (cash flows removed); balances are the account itself.' : 'Closed trades, win rate and P&L count trades by the year they closed.');
   }
 
+  // ---------- risk contribution (allocation runs)
+  function drawRiskContrib() {
+    const rc = R().risk_contributions || {}, rows = rc.rows || [];
+    $('riskCard').classList.toggle('hide', !rows.length);
+    if (!rows.length) return;
+    const dd = rc.drawdown;
+    table($('riskTbl'), ['Holding', 'Avg weight', 'Volatility', 'Marginal contribution', 'Share of volatility (daily)', 'Share (monthly)', 'Share of realised variance'].concat(dd ? ['Share of max drawdown'] : []),
+      rows.map(x => [x.ticker, pct(x.avg_weight, 1), pct(x.vol, 1), pct(x.mcr, 1), pct(x.share, 1), pct(x.share_monthly, 1), pct(x.share_realised, 1)].concat(dd ? [pct(x.drawdown_share, 1)] : [])));
+    $('riskNote').textContent = `Each holding's share of the portfolio's volatility, ${rc.start} → ${rc.end}. Daily and monthly: the average weights w and the covariance Σ of the holdings' total returns over the run, contribution = w × (Σw)/σ (marginal contribution × weight), adding up to the portfolio volatility ${pct(rc.vol_daily, 1)} (daily) / ${pct(rc.vol_monthly, 1)} (monthly). Realised: with the actual drifting weights, cov(holding's daily contribution, portfolio return) / variance (realised volatility ${pct(rc.vol_realised, 1)}).`
+      + (dd ? ` Max drawdown ${dd.peak} → ${dd.trough}: each holding's part of the ${pct(dd.asset_return, 1)} fall of the holdings (cash interest, costs and cash flows aside; the account fell ${pct(dd.depth, 1)}).` : '')
+      + (rc.n_assets > rows.length ? ` Showing ${rows.length} of ${rc.n_assets} holdings.` : '') + ' A share above the weight means the holding adds more than its size in risk; negative shares are diversifiers.';
+  }
+
   // ---------- P&L by holding / ticker
   function drawAttribution() {
     const r = R(), at = r.attribution || {}, rows = at.rows || [];
@@ -1583,7 +1603,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   $('tradeFilter').addEventListener('input', e => { tradeFilter = e.target.value; drawTrades(); });
   $('orderFilter').addEventListener('input', () => drawTrades());
 
-  function drawRun() { header(); tiles(); drawRiskTables(); drawTrailing(); drawAssets(); drawPrice(); drawAlloc(); drawAttribution(); drawYearly(); drawHeat(); drawRolling(); drawMisc(); drawTradeCharts(); drawTrades(); }
+  function drawRun() { header(); tiles(); drawRiskTables(); drawTrailing(); drawAssets(); drawPrice(); drawAlloc(); drawRiskContrib(); drawAttribution(); drawYearly(); drawHeat(); drawRolling(); drawMisc(); drawTradeCharts(); drawTrades(); }
   function drawAll() { drawEquity(); drawCompare(); drawRun(); }
 
   const ds = D.data || {};

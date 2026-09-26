@@ -21,8 +21,8 @@ python -m backtester "buy at the close Microsoft when it trades down 5 days in a
 | **Gallery** | Library strategies and saved runs with their headline numbers. Fork one into the editor, or export/import a strategy JSON file. |
 | **Community** | Strategies people published with "Publish to the community gallery" (Backtest and Build pages: a name, an author and a description; the strategy is backtested first). Search, sort by CAGR, Sharpe or max drawdown, **Fork** into the editor or **Run**. Kept in `data/community.json` (`BACKTESTER_COMMUNITY` points elsewhere). |
 | **Compare** | Put several strategies (from history or typed) in one report. Every column is compared over the same period. |
-| **Research** | A parameter sweep (`hold {1..5} days`) with a heatmap. Walk-forward optimisation (rolling or anchored). A portfolio optimiser: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity, max diversification, max return / max drawdown, max Omega (at a threshold return), target return, target volatility, inverse volatility and equal weight (pick any subset), with per-asset and group limits (`SPY+QQQ <= 70%`), the efficient frontier, an out-of-sample check and rolling (walk-forward) re-optimisation compared with the static weights. A target that can't be reached says what can ("the minimum achievable volatility is 9.1%"). |
-| **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), and any number of cash-flow phases (contribute, then withdraw). |
+| **Research** | A parameter sweep (`hold {1..5} days`) with a heatmap. Walk-forward optimisation (rolling or anchored). A portfolio optimiser: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity, max diversification, max return / max drawdown, max Omega (at a threshold return), target return, target volatility, inverse volatility and equal weight (pick any subset), with per-asset and group limits (`SPY+QQQ <= 70%`), the efficient frontier, an out-of-sample check and rolling (walk-forward) re-optimisation compared with the static weights. A target that can't be reached says what can ("the minimum achievable volatility is 9.1%"). **Inputs**: historical means by default, or your expected returns (and optionally volatilities and correlations), or **Black-Litterman** (market-cap, equal or given prior weights plus absolute/relative views with confidences; the posterior feeds every objective). **Benchmark-relative**: min tracking error (optionally with a return floor) and max information ratio against a ticker or blend. **Resampled frontier** (Michaud): average the optimal weights over N simulated histories. |
+| **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates, also per percentile of the paths (10th-90th, as Portfolio Visualizer; for contribute-then-withdraw plans measured from the balance when withdrawals start) (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), and any number of cash-flow phases (contribute, then withdraw). |
 | **Factors** | Regress a ticker, portfolio, sentence or saved run on CAPM, Fama-French 3, Carhart 4, Fama-French 5 or FF5 + momentum for the US or a region (developed, developed ex US, Europe, Japan, Asia Pacific ex Japan, North America, emerging), AQR's quality (QMJ) and betting-against-beta (BAB) factors, and the bond factors TERM and DEF, monthly (French's official monthly files) or daily: loadings with t-stats, R², annualised alpha and rolling 36-month loadings. **Style analysis** (Sharpe 1992) finds the asset-class mix that best tracks the returns, with rolling 36-month weights. |
 | **Correlations** | The correlation matrix of daily or monthly total returns over a chosen period, a rolling correlation of any pair, and per-asset statistics (CAGR, volatility, Sharpe, max drawdown, best/worst year, first date of data), like Portfolio Visualizer's asset correlations. |
 | **Signals & paper** | Shows what a strategy says to do on the latest bar: new entries, open positions and target weights. You can also start a forward test ("paper trading") that only uses data arriving after you saved it. |
@@ -51,6 +51,7 @@ buy Nasdaq 100 stocks when RSI(2) is below 5, sell half at +3%, take profit at 6
 
 ```text
 hold 60% SPY and 40% TLT, rebalance quarterly           60/40 SPY/TLT     SPY 60%, TLT 30%, GLD 10%
+60% VTI 40% BND                                          VTI 60% BND 40%   VTI 60, BND 40 (bare numbers must add to 100)
 buy and hold QQQ, add $500 every month
 hold 60% SPY and 40% AGG, withdraw 4% per year adjusted for inflation, starting with $1,000,000
 hold 70% QQQ and 30% TLT, rebalance when any weight drifts 5% from target
@@ -66,6 +67,9 @@ hold 60% SPY and 40% TLT, vs 60/40 SPY/AGG
 rotate monthly between QQQ, SPY and TLT by 3 month return
 dual momentum between SPY and EFA with AGG as the safe asset
 hold the top 3 sector ETFs by 6 month momentum
+hold the top 2 of SPY, EFA, TLT and GLD by average of 1, 3, 6 and 12 month return, rebalance monthly
+hold the top 2 of SPY, EFA, TLT and GLD by 12 month return skipping the last month      (= "12-1 momentum")
+hold the top 2 of SPY, EFA, TLT and GLD by 12 month return divided by volatility         (= "risk-adjusted momentum")
 if the 10 day RSI of QQQ is greater than 79 then buy UVXY else buy TQQQ
 if QQQ 10 day RSI is greater than SPY 10 day RSI then hold QQQ else hold SPY
 if SPY is above its 200 day moving average then (if TQQQ RSI(10) is above 79 then hold UVXY else hold TQQQ) else (if SPY RSI(10) is below 30 then hold TECL else hold BIL)
@@ -111,7 +115,7 @@ Build page.
 | Exits | hold N days, sell when …, "sell after 10 days or when RSI is above 70", "sell when it's over 70", "sell when it is falling", "sell when they turn down" (*it* / *they* = what the entry is about: its indicator, e.g. the 50-day MA of "buy when the 50 day moving average is rising", or the price; refused if the entry is about several things; shown as a **Warning**), a bare "RSI" takes the entry's period, "sell when it crosses back below", "sell at the open when …" (same open if the rule is known at the open, e.g. a gap; otherwise checked at the close and sold at the next open), "cover at the next open when …", % stop, ATR stop, trailing / chandelier stop, "move the stop to breakeven after +2%", take profit, sell half at +X%, "cover when it closes above it". "buy TSLA while …" / "hold TSLA when …" with no exit: in the market while the condition holds |
 | Sizing | max N positions (with a short list of k < 10 tickers and no limit: k slots at 1/k each; otherwise 10 at 10%), X% per position, risk X% per trade, target X% volatility, $X or N shares per trade, 2x leverage |
 | Costs | bps or % slippage, volume-based slippage / market impact, $ per trade, $ per share, % commission, IBKR commissions (fixed or tiered), borrow fee, margin rate, short rebate X% below T-bills, 30% maintenance margin / no margin calls, cap at X% of volume |
-| Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, "when/whenever … hold X, otherwise Y", "unless … hold X, otherwise Y", top/bottom N by momentum/RSI/volatility, "the 2 of … with the highest …", "the best/worst performing of … over 10 days", "only if their 60 day return beats BIL's", rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
+| Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, "when/whenever … hold X, otherwise Y", "unless … hold X, otherwise Y", top/bottom N by momentum/RSI/volatility, ranking periods ("average of 1, 3, 6 and 12 month return" = the mean of the four total returns; "12 month return skipping the last month" / "12-1 momentum" = `ref(tret(tr, 231), 21)`; "12 month return divided by volatility" / "risk-adjusted momentum" = `tret(tr, 252) / volatility(252)`), "the 2 of … with the highest …", "the best/worst performing of … over 10 days", "only if their 60 day return beats BIL's", rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
 | Directions in holdings | "buy/hold/go long X" = long; "short X", "go short X", "sell short X", "X short" = a short position (-100% of the slice plus the proceeds in cash); "sell X", "exit X", "cover X", "sell everything", "exit" in an if/otherwise branch = cash. "sell X" inside a list ("hold TQQQ and sell TMF") is refused as ambiguous. Two identical branches get a note; a comparison of a value with itself is refused |
 | Ranking by drawdown | "by max drawdown" and "by drawdown" both rank by the size of the drawdown (a positive number, as Composer): "top 1" selects the most drawn down, "bottom 1" or "smallest drawdown" the least; the notes say which |
 | Higher timeframes | the weekly RSI is above 50, weekly RSI(14), the monthly 10 SMA, weekly 20 EMA (computed on completed weeks/months only) |
@@ -176,7 +180,12 @@ never quietly drops them or swaps in a different ticker.
 - For portfolios: P&L by holding (sales − purchases − costs + dividends + value still held; with
   interest and fees it adds up to the gain after cash flows, to the cent), benchmarks that receive
   the same contributions and withdrawals, the account value in today's dollars, and with
-  withdrawals the safe and perpetual withdrawal rates over the tested history.
+  withdrawals the safe and perpetual withdrawal rates over the tested history (and by percentile of
+  bootstrapped histories).
+- For portfolios, risk contribution by holding: each holding's share of the portfolio's volatility
+  (average weight x marginal contribution, from the covariance of daily and of monthly total returns over
+  the run; plus the realised share with the actual drifting weights) and of the loss in its maximum
+  drawdown. Also in the Excel export (sheet "Risk contributions").
 - Benchmarks are bought at the close of the strategy's first bar, like the strategy.
 - A Monte Carlo block bootstrap (with "chance the money lasts" when there are withdrawals) and a
   transaction-cost sensitivity table.
@@ -204,6 +213,9 @@ python -m backtester style QQQ [--assets "SPY EFA EEM IEF BIL"] [--window 36]
 python -m backtester montecarlo --weights "SPY 60 IEF 40" --withdrawal 50000 --horizon mortality --age 65 --sex joint --age2 63
 python -m backtester correlation SPY TLT GLD EFASIM --window 36 --freq monthly [--pair SPY,TLT] [--start 2000-01-01]
 python -m backtester optimize SPY TLT GLD --methods omega,max_return_over_maxdd --omega-threshold 0.03
+python -m backtester optimize SPY TLT GLD --expected-return "SPY=7%,TLT=4%,GLD=3%" --expected-vol "SPY=16%" --correlation "SPY/TLT=-0.2"
+python -m backtester optimize SPY QQQ TLT GLD --view "SPY = 8% @ 60%" --view "QQQ > TLT by 3% @ 40%" --prior "SPY=40%,QQQ=20%,TLT=30%,GLD=10%"
+python -m backtester optimize SPY QQQ TLT GLD --benchmark "60% SPY 40% TLT" --target-active 0.01 --resample 200 [--json]
 python -m backtester signals "buy Nasdaq 100 stocks when RSI(2) is below 5, hold 3 days" [--webhook URL]
 python -m backtester paper add "hold the top 5 Nasdaq 100 stocks by 6 month momentum" --name mom5 ; python -m backtester paper report
 python -m backtester --tickers MSFT --entry "down_days >= 5" --hold 1        # explicit rules
@@ -497,6 +509,30 @@ notes. Keep in mind:
 - sentences can name them like any ticker ("hold 60% SPYSIM and 40% TLTSIM", "vs SPYSIM"). A
   portfolio that starts before SPY existed is compared with SPYSIM by default.
 
+## Optimiser inputs
+
+- **Historical** (default): the means and covariance of the fit period's monthly total returns.
+- **Forecasts**: `--expected-return "SPY=7%,TLT=4%"` replaces those assets' means; `--expected-vol` and
+  `--correlation "SPY/TLT=-0.2"` replace single volatilities and correlations (the rest stay historical; an
+  inconsistent correlation matrix is refused).
+- **Black-Litterman**: views (`--view "SPY = 8% @ 60%"` absolute, `--view "QQQ > SPY by 2%"` relative;
+  confidence 50% by default) and/or a prior (`--prior market-cap|equal|"SPY=60%,TLT=40%"`). The prior's
+  implied equilibrium excess returns are pi = delta x cov x w (delta = `--risk-aversion`, 2.5); each view's
+  uncertainty is (1 - c)/c x p (tau cov) p' (`--tau` 0.05; 100% confidence makes the view hold exactly); the
+  posterior mean pi + tau cov P'(P tau cov P' + Omega)^-1 (Q - P pi) and covariance cov + M replace the
+  historical ones. Funds have no market capitalisation here, so an unspecified prior falls back to equal
+  weights with a note.
+- Scenario-based objectives (Sortino, CVaR, Omega, return/drawdown) use the historical months re-shaped
+  (linearly) to have exactly the forecast/posterior mean and covariance.
+- **Benchmark** (`--benchmark SPY` or `"60% SPY 40% AGG"`): min tracking error (subject to `--target-active`,
+  an excess return over the benchmark, or `--target-return`) and max information ratio, and every portfolio's
+  tracking error, active return and information ratio. A benchmark made of the optimised tickers is
+  investable: min tracking error then returns its weights exactly.
+- **Resampling** (`--resample N`, Michaud): N histories of the same length are drawn from a multivariate
+  normal with the inputs' means and covariance, each is optimised, and the weights are averaged
+  ("Resampled max Sharpe", ...; ± shows each weight's spread across draws); the resampled frontier averages
+  the frontier portfolios rank by rank.
+
 ## Monte Carlo
 
 Monthly steps over complete months (a month still in progress at the end of the data is left out). Return models: **historical** (block bootstrap: whole months are drawn together for
@@ -511,6 +547,11 @@ the start of each period, pro rata, and the portfolio is rebalanced on its sched
   starting balance, that succeeds in at least the target share of paths (95% by default).
 - *Perpetual withdrawal rate*: the largest such withdrawal that keeps the median final balance, in
   today's dollars, at the starting balance.
+- *By percentile* (as Portfolio Visualizer): each path's own safe rate (the highest it pays in full to the
+  end) and perpetual rate (the highest that also keeps its real balance), at the 10th/25th/50th/75th/90th
+  percentile of the paths. The 10th percentile is the cautious figure: 90% of paths sustain at least that.
+  For a plan that contributes and then withdraws, the rates are a share of each path's balance at the start
+  of the withdrawals (and run over the remaining years).
 - The first flow is at the very start, as in the backtest, so a portfolio sentence gives the same number of
   contributions in both.
 - Stress tests: `worst_sequence` puts the worst historical run of N years (default 10) at the start of every

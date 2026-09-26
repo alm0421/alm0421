@@ -250,7 +250,12 @@ OPT_METHODS = {
     "max_return_over_maxdd": "Max return / max drawdown", "omega": "Max Omega",
     "target_return": "Target return", "target_vol": "Target volatility",
     "inverse_vol": "Inverse volatility", "equal": "Equal weight",
+    "min_tracking_error": "Min tracking error", "max_information_ratio": "Max information ratio",
 }
+BENCH_METHODS = ("min_tracking_error", "max_information_ratio")
+# objectives that only need expected returns and covariances: the ones the resampled frontier re-solves
+RESAMPLABLE = ("max_sharpe", "min_variance", "target_return", "target_vol", "max_diversification", "risk_parity",
+               "min_tracking_error", "max_information_ratio")
 _CON = re.compile(r"^\s*(?:(?P<lo>-?[\d.]+%?)\s*(?:<=|<)\s*)?(?P<names>[A-Za-z0-9^.\-_]+(?:\s*\+\s*[A-Za-z0-9^.\-_]+)*)"
                   r"\s*(?P<op><=|>=|=|<|>)\s*(?P<val>-?[\d.]+%?)\s*$")
 
@@ -335,7 +340,12 @@ class _Opt:
     and linear group constraints."""
 
     def __init__(self, R: np.ndarray, tickers: list[str], rf_annual: float, bounds: dict, groups: list[dict],
-                 min_weight: float = 0.0, max_weight: float = 1.0, omega_threshold: float = 0.0):
+                 min_weight: float = 0.0, max_weight: float = 1.0, omega_threshold: float = 0.0,
+                 bench: np.ndarray | None = None, wb: np.ndarray | None = None, te_target: tuple | None = None):
+        """bench: the benchmark's monthly returns over the same months (a ticker or blend outside the universe);
+        wb: the benchmark as weights of these tickers (an investable benchmark: tracking error is then exact,
+        sqrt((w - wb)' cov (w - wb))). te_target: ("return", x) or ("active", x), the return floor of the
+        minimum tracking error portfolio."""
         self.R = R
         self.omega_l = (1 + float(omega_threshold)) ** (1 / 12) - 1   # monthly threshold of the Omega ratio
         self.t = tickers
@@ -371,6 +381,32 @@ class _Opt:
         self.A = np.array(A) if A else np.zeros((0, n))
         self.b = np.array(b) if b else np.zeros(0)
         self.x0 = self._feasible()
+        self.wb = None if wb is None else np.asarray(wb, float)
+        self.bench = None if bench is None or wb is not None else np.asarray(bench, float)
+        self.te_target = te_target
+        if self.wb is not None:
+            self.mu_b = float(self.wb @ self.mu)
+        elif self.bench is not None:
+            self.mu_b = float(self.bench.mean() * 12)
+            full = np.cov(np.column_stack([R, self.bench]), rowvar=False) * 12
+            self.cb, self.vb = full[:n, n], float(full[n, n])
+
+    @property
+    def has_bench(self) -> bool:
+        return self.wb is not None or self.bench is not None
+
+    def te2(self, w):
+        """Annualised tracking-error variance against the benchmark."""
+        if self.wb is not None:
+            d = w - self.wb
+            return float(d @ self.cov @ d)
+        return float(w @ self.cov @ w - 2 * w @ self.cb + self.vb)
+
+    def te(self, w):
+        return float(np.sqrt(max(self.te2(w), 0.0)))
+
+    def active(self, w):
+        return float(w @ self.mu - self.mu_b)
 
     # -- helpers
     def _lp(self, c):
@@ -544,6 +580,22 @@ class _Opt:
             return self.solve(fun, starts=[x for x in (p, self.x0) if x is not None])
         if method == "min_cvar":
             return self.min_cvar()
+        if method in BENCH_METHODS:
+            if not self.has_bench:
+                return None
+            wr = self.max_return()
+            wb = self.project(self.wb) if self.wb is not None else None
+            starts = [x for x in (wb, self.x0, wr) if x is not None]
+            if method == "min_tracking_error":
+                extra = []
+                if self.te_target:
+                    kind, x = self.te_target
+                    floor = x + (self.mu_b if kind == "active" else 0.0)
+                    if wr is None or wr @ self.mu < floor - 1e-9:
+                        return None
+                    extra = [{"type": "ineq", "fun": lambda w: w @ self.mu - floor}]
+                return self.solve(lambda w: self.te2(w) * 100, extra=extra, starts=starts)
+            return self.solve(lambda w: -self.active(w) / max(self.te(w), 1e-6), starts=starts)
         if method == "max_return_over_maxdd":
             return self.max_return_over_maxdd()
         if method == "omega":
@@ -594,7 +646,195 @@ class _Opt:
                 "exp_return": ret, "exp_vol": v, "exp_sharpe": (ret - self.rf) / v if v > 0 else np.nan,
                 "exp_sortino": (ret - self.rf) / dd if dd > 0 else np.nan, "cvar_95_monthly": self.cvar(w),
                 "diversification_ratio": float(w @ self.sd) / v if v > 0 else np.nan,
-                "risk_contributions": {t: float(x) for t, x, wi in zip(self.t, rc, w) if wi > 1e-4}}
+                "risk_contributions": {t: float(x) for t, x, wi in zip(self.t, rc, w) if wi > 1e-4},
+                **({"tracking_error": self.te(w), "active_return": self.active(w),
+                    "information_ratio": self.active(w) / self.te(w) if self.te(w) > 1e-9 else np.nan}
+                   if self.has_bench else {})}
+
+
+# ------------------------------------------------------------------ optimiser inputs: forecasts, Black-Litterman
+
+_TK = r"[A-Za-z0-9^][A-Za-z0-9^.\-_]*"
+
+
+def _items(x, seps=r"[;\n,]") -> list:
+    if x is None:
+        return []
+    if isinstance(x, str):
+        return [p.strip() for p in re.split(seps, x) if p.strip()]
+    return list(x)
+
+
+def parse_asset_values(items, known: list[str] | None = None, what: str = "value") -> dict[str, float]:
+    """'SPY=7%, TLT=4%', 'SPY 7%; TLT 0.04', {'SPY': 0.07} or ['SPY:7%'] -> {ticker: fraction}."""
+    if isinstance(items, dict):
+        pairs = list(items.items())
+    else:
+        pairs = []
+        for raw in _items(items):
+            m = re.fullmatch(rf"\s*({_TK})\s*(?:=|:|\s)\s*(-?[\d.]+%?)\s*", str(raw))
+            if not m:
+                raise ValueError(f"Could not read the {what} {raw!r}. Write e.g. 'SPY=7%'.")
+            pairs.append((m.group(1), m.group(2)))
+    out = {}
+    for t, v in pairs:
+        t = data.canonical(str(t))
+        if known is not None and t not in known:
+            raise ValueError(f"The {what} for {t}: {t} is not among the tickers ({', '.join(known)}).")
+        out[t] = _frac(v) if isinstance(v, str) else float(v)
+    return out
+
+
+def parse_correlations(items, known: list[str]) -> dict[tuple[str, str], float]:
+    """'SPY/TLT=-0.2; SPY,GLD=0.1' (or a list, or {'SPY/TLT': -0.2}) -> {(a, b): rho}."""
+    pairs = list(items.items()) if isinstance(items, dict) else [(None, x) for x in _items(items, r"[;\n]")]
+    out = {}
+    for k, raw in pairs:
+        text = f"{k}={raw}" if k is not None else str(raw)
+        m = re.fullmatch(rf"\s*({_TK})\s*[/,&\s]\s*({_TK})\s*[=:]?\s*(-?[\d.]+)\s*", text)
+        if not m:
+            raise ValueError(f"Could not read the correlation {text!r}. Write e.g. 'SPY/TLT=-0.2'.")
+        a, b, v = data.canonical(m.group(1)), data.canonical(m.group(2)), float(m.group(3))
+        for t in (a, b):
+            if t not in known:
+                raise ValueError(f"The correlation {text.strip()!r} names {t}, which is not among the tickers.")
+        if a == b or not -1 <= v <= 1:
+            raise ValueError(f"The correlation {text.strip()!r} must link two different tickers with a value in [-1, 1].")
+        out[(a, b)] = v
+    return out
+
+
+_VIEW_CONF = (r"(?:\s*(?:@|,|with|at)?\s*(?:(?:a )?confidence(?: of)?|conf\.?)?\s*[:=]?\s*\(?(?P<c>[\d.]+%?)\)?"
+              r"(?:\s*(?:confidence|conf\.?|confident|sure))?)?")
+
+
+def parse_views(items, known: list[str]) -> list[dict]:
+    """Black-Litterman views, one per item (a list, or text separated by ';' or new lines):
+
+        absolute: 'SPY = 8%', 'SPY 8%', 'SPY will return 8%'
+        relative: 'QQQ > SPY by 2%', 'QQQ - SPY = 2%', 'QQQ outperforms SPY by 2%', 'TLT underperforms SPY by 3%'
+
+    each optionally followed by a confidence, '@ 60%' / 'confidence 60%' / '(60%)'; the default is 50%. Returns
+    [{"p": {ticker: coefficient}, "q": annual value, "confidence": c, "kind": "absolute"|"relative", "text"}]."""
+    out = []
+    for raw in _items(items, r"[;\n]"):
+        if isinstance(raw, dict):
+            p = {data.canonical(k): float(v) for k, v in (raw.get("p") or {}).items()}
+            view = {"p": p, "q": float(raw["q"]), "confidence": float(raw.get("confidence", 0.5)),
+                    "kind": raw.get("kind") or ("absolute" if len(p) == 1 else "relative"), "text": raw.get("text") or str(raw)}
+        else:
+            text = str(raw).strip()
+            m = re.fullmatch(rf"(?i)\s*(?P<a>{_TK}?)\s*(?P<op>>|<| - |outperforms?|beats?|underperforms?|lags?|trails?)\s*(?P<b>{_TK})"
+                             rf"\s*(?:by|=|:)?\s*(?P<q>-?[\d.]+%?)(?:\s*(?:a|per) year)?{_VIEW_CONF}\s*", text)
+            if m:
+                a, b = data.canonical(m.group("a")), data.canonical(m.group("b"))
+                op = m.group("op").strip().lower()
+                sign = -1.0 if op == "<" or re.match(r"under|lag|trail", op) else 1.0
+                view = {"p": {a: 1.0, b: -1.0}, "q": sign * _frac(m.group("q")), "kind": "relative", "text": text}
+            else:
+                m = re.fullmatch(rf"(?i)\s*(?P<a>{_TK}?)\s*(?:=|:|will return|returns?|expected(?: return)?(?: of)?)?\s*(?P<q>-?[\d.]+%?)"
+                                 rf"(?:\s*(?:a|per) year)?{_VIEW_CONF}\s*", text)
+                if not m:
+                    raise ValueError(f"Could not read the view {text!r}. Write e.g. 'SPY = 8% @ 60%' (absolute) or "
+                                     "'QQQ > SPY by 2% @ 50%' (relative).")
+                view = {"p": {data.canonical(m.group("a")): 1.0}, "q": _frac(m.group("q")), "kind": "absolute", "text": text}
+            c = m.group("c")
+            view["confidence"] = _frac(c) if c else 0.5
+        for t in view["p"]:
+            if t not in known:
+                raise ValueError(f"The view {view['text']!r} names {t}, which is not among the tickers.")
+        if not 0 < view["confidence"] <= 1:
+            raise ValueError(f"The view {view['text']!r}: the confidence must be above 0% and at most 100%.")
+        if view["kind"] == "relative" and len(view["p"]) < 2:
+            raise ValueError(f"The view {view['text']!r} compares a ticker with itself.")
+        out.append(view)
+    return out
+
+
+def black_litterman(cov: np.ndarray, w_eq: np.ndarray, P: np.ndarray | None = None, Q: np.ndarray | None = None,
+                    confidence: np.ndarray | None = None, tau: float = 0.05, delta: float = 2.5) -> dict:
+    """Black-Litterman posterior (excess returns, annual).
+
+    Prior: the implied equilibrium excess returns pi = delta * cov @ w_eq (reverse optimisation of the
+    equilibrium weights). Views P @ mu = Q + e, e ~ N(0, Omega) with Omega_kk = (1 - c_k) / c_k * p_k (tau cov) p_k'
+    (Idzorek's confidence in the closed form PyPortfolioOpt uses: 50% = the He-Litterman default diag(P tau cov P'),
+    100% = the view holds exactly). Posterior mean and the covariance of that estimate:
+
+        mu  = pi + tau cov P' (P tau cov P' + Omega)^-1 (Q - P pi)
+        M   = tau cov - tau cov P' (P tau cov P' + Omega)^-1 P tau cov
+
+    (the same as [(tau cov)^-1 + P' Omega^-1 P]^-1 [(tau cov)^-1 pi + P' Omega^-1 Q], written so that a 100% view,
+    Omega = 0, is allowed). The covariance of returns used afterwards is cov + M."""
+    cov = np.asarray(cov, float)
+    w_eq = np.asarray(w_eq, float)
+    pi = delta * cov @ w_eq
+    tS = tau * cov
+    if P is None or not len(P):
+        return {"pi": pi, "mu": pi.copy(), "cov": cov + tS, "M": tS, "omega": np.zeros((0, 0))}
+    P = np.atleast_2d(np.asarray(P, float))
+    Q = np.asarray(Q, float)
+    c = np.asarray(confidence if confidence is not None else np.full(len(Q), 0.5), float)
+    base = np.einsum("ij,jk,ik->i", P, tS, P)
+    omega = np.diag((1 - c) / c * base)
+    K = P @ tS @ P.T + omega
+    if np.linalg.matrix_rank(K) < len(K):
+        raise ValueError("The views contradict or repeat each other at 100% confidence; lower a confidence or drop a view.")
+    mu = pi + tS @ P.T @ np.linalg.solve(K, Q - P @ pi)
+    M = tS - tS @ P.T @ np.linalg.solve(K, P @ tS)
+    return {"pi": pi, "mu": mu, "cov": cov + M, "M": M, "omega": omega}
+
+
+def _nearest_psd(S: np.ndarray, eps: float = 1e-10) -> np.ndarray:
+    v, V = np.linalg.eigh((S + S.T) / 2)
+    return (V * np.maximum(v, eps)) @ V.T
+
+
+def _chol(S: np.ndarray) -> np.ndarray:
+    k = len(S)
+    for j in (0.0, 1e-12, 1e-10, 1e-8):
+        try:
+            return np.linalg.cholesky(S + np.eye(k) * j * max(1e-12, float(np.trace(S)) / k))
+        except np.linalg.LinAlgError:
+            continue
+    return np.linalg.cholesky(_nearest_psd(S, 1e-10))
+
+
+def retarget(R: np.ndarray, mean: np.ndarray, cov: np.ndarray) -> np.ndarray:
+    """Re-shape the historical scenarios R (T x k) so that their sample mean is `mean` and their sample covariance
+    is `cov` exactly (both per period): Y = mean + (R - m) Lh^-T Ln', with Lh Lh' the sample covariance of R and
+    Ln Ln' = cov. The months keep their joint ordering and shape (fat tails, co-crashes), so the scenario-based
+    objectives (Sortino, CVaR, Omega, drawdown) stay consistent with the forecast means and covariances."""
+    m = R.mean(axis=0)
+    Lh = _chol(np.cov(R, rowvar=False).reshape(R.shape[1], R.shape[1]))
+    Ln = _chol(cov)
+    X = np.linalg.solve(Lh, (R - m).T).T          # (R - m) Lh^-T
+    return mean + X @ Ln.T
+
+
+def _market_caps(tickers: list[str], asof) -> dict[str, float]:
+    out = {}
+    for t in tickers:
+        try:
+            mc = data.market_cap(t)
+        except Exception:  # noqa: BLE001 - no share data is the same as no market cap
+            mc = pd.Series(dtype=float)
+        mc = mc[mc.index <= pd.Timestamp(asof)].dropna() if len(mc) else mc
+        if len(mc):
+            out[t] = float(mc.iloc[-1])
+    return out
+
+
+def _bench_weights(benchmark) -> dict[str, float]:
+    """'SPY', '60% SPY 40% AGG', 'SPY 60 AGG 40', 'SPY:60,AGG:40' or {'SPY': 0.6, 'AGG': 0.4} -> weights adding to 1."""
+    from .montecarlo import parse_weights
+    if isinstance(benchmark, dict):
+        w = {data.canonical(k): float(v) for k, v in benchmark.items()}
+    else:
+        w = parse_weights(str(benchmark))
+    if any(v < 0 for v in w.values()) or sum(w.values()) <= 0:
+        raise ValueError("Benchmark weights must be positive.")
+    tot = sum(w.values())
+    return {k: v / tot for k, v in w.items()}
 
 
 def _monthly_stats(r: pd.Series, rf_monthly: pd.Series | None = None) -> dict:
@@ -621,20 +861,186 @@ def _rf_monthly(index: pd.DatetimeIndex) -> pd.Series:
     return me.reindex(me.index.union(index)).ffill().reindex(index).fillna(0.0) / 12
 
 
-def _methods(target_return, target_vol, methods=None) -> list[str]:
+def _methods(target_return, target_vol, methods=None, bench: bool = False) -> list[str]:
     if methods:
         bad = [m for m in methods if m not in OPT_METHODS]
         if bad:
             raise ValueError(f"Unknown objective(s) {', '.join(bad)}; choose from {', '.join(OPT_METHODS)}.")
+        if not bench and any(m in BENCH_METHODS for m in methods):
+            raise ValueError("Min tracking error and max information ratio need a benchmark (a ticker or a blend).")
     return [m for m in OPT_METHODS if not (m == "target_return" and target_return is None)
-            and not (m == "target_vol" and target_vol is None) and (not methods or m in methods)]
+            and not (m == "target_vol" and target_vol is None) and not (m in BENCH_METHODS and not bench)
+            and (not methods or m in methods)]
+
+
+def _inputs(R: np.ndarray, tickers: list[str], rf: float, fit_end, expected_returns=None, expected_vols=None,
+            correlations=None, views=None, prior=None, tau: float = 0.05, risk_aversion: float = 2.5,
+            bench_extra: np.ndarray | None = None) -> dict:
+    """The expected returns and covariance the optimiser uses (annual): historical by default; forecasts
+    (expected returns, volatilities, correlations) replace the historical figures they name; Black-Litterman
+    (a prior and/or views) replaces the expected returns with its posterior and the covariance with cov + M.
+    Returns the (re-shaped) monthly scenarios and a description for the report."""
+    n = len(tickers)
+    mu_h = R.mean(axis=0) * 12
+    cov_h = np.cov(R, rowvar=False).reshape(n, n) * 12
+    sd_h = np.sqrt(np.diag(cov_h))
+    corr_h = cov_h / np.outer(sd_h, sd_h)
+    er = parse_asset_values(expected_returns, tickers, "expected return") if expected_returns else {}
+    ev = parse_asset_values(expected_vols, tickers, "volatility") if expected_vols else {}
+    cr = parse_correlations(correlations, tickers) if correlations else {}
+    vw = parse_views(views, tickers) if views else []
+    use_bl = bool(vw) or prior not in (None, "", "none")
+    if er and use_bl:
+        raise ValueError("Give either expected returns or Black-Litterman views/prior, not both: the Black-Litterman "
+                         "posterior replaces the expected returns.")
+    if any(v <= 0 for v in ev.values()):
+        raise ValueError("Volatilities must be positive.")
+    notes: list[str] = []
+    sd = np.array([ev.get(t, sd_h[j]) for j, t in enumerate(tickers)])
+    corr = corr_h.copy()
+    for (a, b), v in cr.items():
+        i, j = tickers.index(a), tickers.index(b)
+        corr[i, j] = corr[j, i] = v
+    if cr and np.linalg.eigvalsh(corr).min() < -1e-10:
+        raise ValueError("The correlations given are inconsistent with each other and the historical ones (the correlation "
+                         "matrix is not positive semi-definite). Change them, or give fewer.")
+    cov = corr * np.outer(sd, sd)
+    mu = np.array([er.get(t, mu_h[j]) for j, t in enumerate(tickers)])
+    out = {"source": "historical", "notes": notes}
+    if er or ev or cr:
+        out["source"] = "forecast"
+        miss = [t for t in tickers if t not in er] if er else []
+        if miss:
+            notes.append(f"No expected return given for {', '.join(miss)}: the historical mean was used.")
+    if use_bl:
+        pri = prior if prior not in (None, "", "none") else "market_cap"
+        if isinstance(pri, str) and pri.lower().replace("-", "_").replace(" ", "_") in ("market_cap", "market", "cap", "caps"):
+            caps = _market_caps(tickers, fit_end)
+            if len(caps) == n and sum(caps.values()) > 0:
+                w_eq = np.array([caps[t] for t in tickers]) / sum(caps.values())
+                pname = f"market capitalisation on {pd.Timestamp(fit_end).date()}"
+            elif prior in (None, "", "none"):
+                w_eq = np.full(n, 1 / n)
+                pname = "equal weights"
+                notes.append("Black-Litterman prior: no market capitalisation for " + ", ".join(t for t in tickers if t not in caps)
+                             + " (funds have no share counts here), so the equilibrium weights are equal; give --prior "
+                               "weights (e.g. 'SPY=60%, TLT=40%') for a market portfolio.")
+            else:
+                raise ValueError("No market capitalisation for " + ", ".join(t for t in tickers if t not in caps)
+                                 + ": give the equilibrium (prior) weights instead, e.g. 'SPY=60%, TLT=40%', or 'equal'.")
+        elif isinstance(pri, str) and pri.lower() == "equal":
+            w_eq, pname = np.full(n, 1 / n), "equal weights"
+        else:
+            pw = parse_asset_values(pri, tickers, "prior weight")
+            if any(v < 0 for v in pw.values()) or sum(pw.values()) <= 0:
+                raise ValueError("Prior (equilibrium) weights must be positive.")
+            w_eq = np.array([pw.get(t, 0.0) for t in tickers]) / sum(pw.values())
+            pname = "given weights (market capitalisations or a policy portfolio)"
+        P = np.array([[v["p"].get(t, 0.0) for t in tickers] for v in vw]) if vw else None
+        # views state total returns; the model works in excess returns (a relative view is unchanged)
+        Q = np.array([v["q"] - (rf if v["kind"] == "absolute" else 0.0) for v in vw]) if vw else None
+        bl = black_litterman(cov, w_eq, P, Q, np.array([v["confidence"] for v in vw]) if vw else None, tau, risk_aversion)
+        mu, cov = bl["mu"] + rf, bl["cov"]
+        out["source"] = "black_litterman"
+        out["black_litterman"] = {
+            "prior": pname, "tau": tau, "risk_aversion": risk_aversion,
+            "prior_weights": {t: float(x) for t, x in zip(tickers, w_eq)},
+            "equilibrium_returns": {t: float(x + rf) for t, x in zip(tickers, bl["pi"])},
+            "posterior_returns": {t: float(x) for t, x in zip(tickers, mu)},
+            "historical_returns": {t: float(x) for t, x in zip(tickers, mu_h)},
+            "views": [{"text": v["text"], "kind": v["kind"], "p": v["p"], "q": v["q"], "confidence": v["confidence"],
+                       "omega": float(bl["omega"][k, k]),
+                       "prior_value": float(sum(c * (bl["pi"][tickers.index(t)] + (rf if v["kind"] == "absolute" else 0))
+                                                for t, c in v["p"].items())),
+                       "posterior_value": float(sum(c * (mu[tickers.index(t)] - (0 if v["kind"] == "absolute" else rf))
+                                                    for t, c in v["p"].items()))} for k, v in enumerate(vw)],
+        }
+    changed = out["source"] != "historical"
+    k = n + (1 if bench_extra is not None else 0)
+    if changed:
+        J = R if bench_extra is None else np.column_stack([R, bench_extra])
+        cov_j = np.cov(J, rowvar=False).reshape(k, k) * 12
+        mean_j = J.mean(axis=0) * 12
+        mean_j[:n] = mu
+        if bench_extra is not None:
+            # the benchmark keeps its own mean and volatility and its historical correlations with each asset
+            sdj = np.sqrt(np.diag(cov_j))
+            cj = cov_j / np.outer(sdj, sdj)
+            new_sd = np.concatenate([np.sqrt(np.diag(cov)), [sdj[n]]])
+            cov_j = cj * np.outer(new_sd, new_sd)
+            cov_j[:n, :n] = cov
+            if np.linalg.eigvalsh(cov_j).min() < -1e-12:
+                cov_j = _nearest_psd(cov_j)
+        cov_j[:n, :n] = cov
+        Y = retarget(J, mean_j / 12, cov_j / 12)
+        out["R"], out["bench"] = Y[:, :n], (Y[:, n] if bench_extra is not None else None)
+    else:
+        out["R"], out["bench"] = R, bench_extra
+    out["mu"], out["cov"] = mu, cov
+    out["table"] = [{"ticker": t, "hist_return": float(mu_h[j]), "hist_vol": float(sd_h[j]), "return": float(mu[j]),
+                     "vol": float(np.sqrt(cov[j, j]))} for j, t in enumerate(tickers)]
+    return out
+
+
+def _resample(Rm: np.ndarray, bench: np.ndarray | None, draws: int, tickers, rf, bounds, groups, min_weight, max_weight,
+              omega_threshold, wb, te_target, methods: list[str], targets: dict, base: "_Opt", points: int = 15,
+              seed: int = 11) -> dict:
+    """Michaud resampling: draw `draws` sets of T months from a multivariate normal with the inputs' means and
+    covariances (the estimation error of a T-month sample), re-optimise each and average the weights. The
+    resampled frontier averages the frontier portfolios rank by rank (the k-th of `points` equally spaced returns
+    between each draw's minimum-variance and maximum-return portfolios) and is evaluated with the inputs."""
+    T, n = Rm.shape
+    J = Rm if bench is None else np.column_stack([Rm, bench])
+    mean, cov = J.mean(axis=0), np.cov(J, rowvar=False).reshape(J.shape[1], J.shape[1])
+    rng = np.random.default_rng(seed)
+    L = _chol(cov)
+    ws = {m: [] for m in methods}
+    fr = []
+    for _ in range(int(draws)):
+        X = mean + rng.standard_normal((T, J.shape[1])) @ L.T
+        try:
+            o = _Opt(X[:, :n], tickers, rf, bounds, groups, min_weight, max_weight, omega_threshold,
+                     bench=X[:, n] if bench is not None else None, wb=wb, te_target=te_target)
+        except ValueError:
+            continue
+        for m in methods:
+            w = o.weights(m, targets.get(m))
+            if w is None and m in ("target_return", "target_vol", "min_tracking_error"):
+                # the target is out of reach in this draw: its closest attainable portfolio
+                w = o.max_return() if m != "target_vol" else o.weights("min_variance")
+                w = o.clean(w) if w is not None else None
+            if w is not None:
+                ws[m].append(w)
+        w0, w1 = o.weights("min_variance"), o.max_return()
+        if w0 is None or w1 is None:
+            continue
+        row, prev = [], w0
+        for tgt in np.linspace(float(w0 @ o.mu), float(w1 @ o.mu), points):
+            w = o.solve(lambda w: w @ o.cov @ w * 100, extra=[{"type": "eq", "fun": lambda w, t=tgt: w @ o.mu - t}],
+                        starts=[prev, w1])
+            prev = w if w is not None else prev
+            row.append(prev)
+        fr.append(row)
+    out = {"draws": int(draws), "portfolios": {}, "frontier": []}
+    for m, lst in ws.items():
+        if lst:
+            W = np.array(lst)
+            w = base.clean(W.mean(axis=0))
+            out["portfolios"][m] = {"w": w, "sd": W.std(axis=0), "n": len(lst)}
+    if fr:
+        F = np.array(fr).mean(axis=0)
+        out["frontier"] = [{"return": float(w @ base.mu), "vol": base.vol(w), "weights": w.round(4).tolist()} for w in F]
+    return out
 
 
 def optimize(tickers: list[str], start: str | None = None, end: str | None = None, max_weight: float = 1.0,
              min_weight: float = 0.0, test_start: str | None = None, points: int = 30,
              constraints=None, target_return: float | None = None, target_vol: float | None = None,
              rolling_months: int | None = None, lookback_months: int = 60, rebalance: str = "quarterly",
-             methods: list[str] | None = None, omega_threshold: float = 0.0) -> dict:
+             methods: list[str] | None = None, omega_threshold: float = 0.0,
+             expected_returns=None, expected_vols=None, correlations=None, views=None, prior=None,
+             tau: float = 0.05, risk_aversion: float = 2.5, benchmark=None, target_active: float | None = None,
+             resample: int = 0, resample_seed: int = 11) -> dict:
     """Long-only portfolio optimisation on monthly total returns.
 
     Objectives: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity (equal risk
@@ -644,6 +1050,21 @@ def optimize(tickers: list[str], start: str | None = None, end: str | None = Non
     weight - all subject to per-asset min/max weights and group constraints ("SPY+QQQ <= 70%").
     `methods` limits the run to some of them (keys of OPT_METHODS).
 
+    Inputs (default: the historical means and covariances of the fit period):
+      expected_returns / expected_vols: {ticker: annual} (or "SPY=7%, TLT=4%") replace the historical figures;
+      correlations: {"SPY/TLT": -0.2} or "SPY/TLT=-0.2; ..." replace single historical correlations.
+      views / prior: Black-Litterman. prior = "market_cap" (default; equal weights with a note when a ticker has
+      no market capitalisation), "equal", or weights {ticker: w}; views like "SPY = 8% @ 60%", "QQQ > SPY by 2%".
+      tau and risk_aversion (delta) are the model's scalars. The posterior replaces the expected returns.
+    Scenario-based objectives (Sortino, CVaR, Omega, return/drawdown) use the historical months re-shaped to the
+    same means and covariances (see `retarget`).
+
+    benchmark: a ticker or blend ("60% SPY 40% AGG"): adds min tracking error (subject to `target_active`, the
+    excess return over the benchmark, or else `target_return`, when given) and max information ratio, and the
+    tracking error / information ratio of every portfolio.
+    resample: Michaud resampled efficiency with this many draws: "Resampled ..." versions of the mean-variance
+    objectives and a resampled frontier.
+
     test_start: estimate before it and evaluate after it (daily, out of sample).
     rolling_months: walk-forward - every N months re-optimise on the trailing `lookback_months` and
     hold the weights for the next N months; the stitched out-of-sample curve is compared with the
@@ -652,36 +1073,58 @@ def optimize(tickers: list[str], start: str | None = None, end: str | None = Non
     tickers = list(dict.fromkeys(data.canonical(t) for t in tickers))
     if len(tickers) < 2:
         raise ValueError("Give at least two tickers.")
-    px = pd.concat({t: data.load(t)["adj_close"] for t in tickers}, axis=1).dropna()
+    bw = _bench_weights(benchmark) if benchmark not in (None, "", {}) else None
+    load = tickers + [t for t in (bw or {}) if t not in tickers]
+    px = pd.concat({t: data.load(t)["adj_close"] for t in load}, axis=1).dropna()
     if start:
         px = px[px.index >= pd.Timestamp(start)]
     if end:
         px = px[px.index <= pd.Timestamp(end)]
     fit = px if not test_start else px[px.index < pd.Timestamp(test_start)]
-    mr = metrics.monthly_returns_frame(fit)
+    mr_all = metrics.monthly_returns_frame(fit)
+    mr = mr_all[tickers]
     if len(mr) < 24:
-        raise ValueError("Need at least 24 months of overlapping history for these tickers.")
+        raise ValueError("Need at least 24 months of overlapping history for these tickers"
+                         + (" and the benchmark." if bw else "."))
     bounds, groups = parse_constraints(constraints or [], tickers)
     rfm = _rf_monthly(mr.index)
     rf = float(rfm.mean() * 12)
-    opt = _Opt(mr.to_numpy(), tickers, rf, bounds, groups, min_weight, max_weight, omega_threshold)
+    wb, bench_r, bname = None, None, None
+    if bw:
+        bname = " ".join(f"{v:.0%} {k}" for k, v in bw.items()) if len(bw) > 1 else next(iter(bw))
+        if set(bw) <= set(tickers):
+            wb = np.array([bw.get(t, 0.0) for t in tickers])      # investable: a portfolio of these tickers
+        else:
+            bench_r = (mr_all[list(bw)] * pd.Series(bw)).sum(axis=1).to_numpy()   # rebalanced monthly
+    te_target = ("active", float(target_active)) if target_active is not None else (
+        ("return", float(target_return)) if target_return is not None and bw else None)
+    inp = _inputs(mr.to_numpy(), tickers, rf, mr.index[-1], expected_returns, expected_vols, correlations, views, prior,
+                  tau, risk_aversion, bench_r)
+    opt = _Opt(inp["R"], tickers, rf, bounds, groups, min_weight, max_weight, omega_threshold,
+               bench=inp["bench"], wb=wb, te_target=te_target)
     ports = {}
-    notes = []
+    notes = list(inp["notes"])
     infeasible = {}
-    for m in _methods(target_return, target_vol, methods):
-        tgt = target_return if m == "target_return" else target_vol if m == "target_vol" else None
+    meths = _methods(target_return, target_vol, methods, bench=bw is not None)
+    targets = {"target_return": target_return, "target_vol": target_vol}
+    names = {}
+    for m in meths:
+        tgt = targets.get(m)
         w = opt.weights(m, tgt)
         name = OPT_METHODS[m] + (f" {tgt:.1%}" if tgt is not None else "") + (
             f" (threshold {omega_threshold:.1%}/yr)" if m == "omega" and omega_threshold else "")
+        if m == "min_tracking_error" and te_target:
+            name += (f" (≥ {te_target[1]:+.1%} over the benchmark)" if te_target[0] == "active" else f" (return ≥ {te_target[1]:.1%})")
+        names[m] = name
         if w is None:
-            msg = f"{name}: no portfolio meets the constraints" + (" and the target." if tgt is not None else ".")
+            msg = f"{name}: no portfolio meets the constraints" + (" and the target." if tgt is not None or (m == "min_tracking_error" and te_target) else ".")
             if m == "target_vol":
                 mv = opt.weights("min_variance")
                 if mv is not None:
                     infeasible["min_vol"] = opt.vol(mv)
                     msg = (f"{name}: out of reach - the minimum achievable volatility is {opt.vol(mv):.1%} "
                            f"(the minimum-variance portfolio{' under these constraints' if bounds or groups else ''}).")
-            elif m == "target_return":
+            elif m in ("target_return", "min_tracking_error"):
                 wr = opt.max_return()
                 if wr is not None:
                     infeasible["max_return"] = float(wr @ opt.mu)
@@ -707,6 +1150,22 @@ def optimize(tickers: list[str], start: str | None = None, end: str | None = Non
             if w is not None:
                 prev = w
                 frontier.append({"return": float(w @ opt.mu), "vol": opt.vol(w), "weights": w.round(4).tolist()})
+    resampled = None
+    if resample:
+        if not 5 <= int(resample) <= 2000:
+            raise ValueError("Resample between 5 and 2,000 times.")
+        rm = [m for m in meths if m in RESAMPLABLE]
+        rs = _resample(opt.R, opt.bench, int(resample), tickers, rf, bounds, groups, min_weight, max_weight,
+                       omega_threshold, wb, te_target, rm, targets, opt, seed=resample_seed)
+        for m, r in rs["portfolios"].items():
+            d = opt.describe(r["w"])
+            d.update({"method": m, "resampled": r["n"], "weights_sd": {t: float(x) for t, x, wi in zip(tickers, r["sd"], r["w"]) if wi > 1e-4},
+                      "rounded": round_weights(d["weights"]), "sentence": weights_sentence(d["weights"], rebalance)})
+            ports["Resampled " + names.get(m, OPT_METHODS[m]).lower()[:1] + names.get(m, OPT_METHODS[m])[1:]] = d
+        resampled = {"draws": rs["draws"], "frontier": rs["frontier"], "seed": resample_seed,
+                     "note": f"Michaud resampling: {rs['draws']} simulated {len(mr)}-month histories drawn from the inputs "
+                             "(multivariate normal), each optimised; the weights are averaged. The spread of the weights "
+                             "across draws (±) shows how much of each allocation is estimation noise."}
     assets = [{"ticker": t, "return": float(opt.mu[i]), "vol": float(opt.sd[i])} for i, t in enumerate(tickers)]
     fin = lambda x: None if not np.isfinite(x) else float(x)  # noqa: E731
     out = {"tickers": tickers, "fit_start": mr.index[0].date(), "fit_end": mr.index[-1].date(), "rf": rf,
@@ -714,23 +1173,41 @@ def optimize(tickers: list[str], start: str | None = None, end: str | None = Non
            "omega_threshold": omega_threshold,
            "constraints": {"min_weight": min_weight, "max_weight": max_weight,
                            "bounds": {t: [fin(a), fin(b)] for t, (a, b) in bounds.items()},
-                           "groups": groups, "target_return": target_return, "target_vol": target_vol},
-           "correlation": mr.corr().round(3).to_numpy().tolist()}
+                           "groups": groups, "target_return": target_return, "target_vol": target_vol,
+                           "target_active": target_active},
+           "correlation": mr.corr().round(3).to_numpy().tolist(),
+           "inputs": {"source": inp["source"], "table": inp["table"]}}
+    if inp["source"] != "historical":
+        c = opt.cov / np.outer(opt.sd, opt.sd)
+        out["inputs"]["correlation"] = c.round(3).tolist()
+        if inp["source"] == "forecast":
+            notes.append("Forecast inputs: the expected returns, volatilities and correlations given replace the historical "
+                         "ones; the scenario-based objectives use the historical months re-shaped to match them.")
+    if inp.get("black_litterman"):
+        out["black_litterman"] = inp["black_litterman"]
+    if bw:
+        out["benchmark"] = {"name": bname, "weights": bw, "investable": wb is not None, "return": opt.mu_b,
+                            "vol": float(np.sqrt(wb @ opt.cov @ wb)) if wb is not None else float(np.sqrt(opt.vb))}
+    if resampled:
+        out["resampled"] = resampled
     if test_start:
         test = px[px.index >= pd.Timestamp(test_start)]
         out["test_start"] = test.index[0].date() if len(test) else None
         out["test"] = {}
         for name, p in ports.items():
             w = pd.Series(p["weights"]).reindex(tickers).fillna(0)
-            ret = (test.pct_change().fillna(0) @ w)
+            ret = (test[tickers].pct_change().fillna(0) @ w)
             eq = 10_000 * (1 + ret).cumprod()
             if len(eq) > 20:
                 st = metrics.equity_stats(eq)
                 out["test"][name] = {"cagr": st["cagr"], "volatility": st["volatility"], "sharpe": st["sharpe"], "max_drawdown": st["max_drawdown"]}
     if rolling_months:
-        out["rolling"] = rolling_optimize(px, tickers, int(rolling_months), int(lookback_months), bounds, groups,
-                                          min_weight, max_weight, target_return, target_vol, ports, methods,
-                                          omega_threshold)
+        if inp["source"] != "historical":
+            notes.append("Walk-forward: each window is fitted on its own trailing history; the forecasts and views apply "
+                         "to the static portfolios only.")
+        out["rolling"] = rolling_optimize(px[tickers], tickers, int(rolling_months), int(lookback_months), bounds, groups,
+                                          min_weight, max_weight, target_return, target_vol, ports,
+                                          [m for m in meths if m not in BENCH_METHODS], omega_threshold)
     return out
 
 

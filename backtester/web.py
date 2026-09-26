@@ -589,7 +589,13 @@ def api_research(body, kind):
                               lookback_months=int(num("lookback_months") or 60),
                               rebalance=body.get("rebalance") or "quarterly",
                               methods=_method_list(body.get("methods")),
-                              omega_threshold=num("omega_threshold") or 0.0)
+                              omega_threshold=num("omega_threshold") or 0.0,
+                              expected_returns=body.get("expected_returns") or None,
+                              expected_vols=body.get("expected_vols") or None,
+                              correlations=body.get("correlations") or None, views=body.get("views") or None,
+                              prior=body.get("prior") or None, tau=num("tau") or 0.05,
+                              risk_aversion=num("risk_aversion") or 2.5, benchmark=body.get("benchmark") or None,
+                              target_active=num("target_active"), resample=int(num("resample") or 0))
         research_report.write_optimize(R, out)
         label = "Optimise: " + " ".join(tickers)
     row = {"id": rid, "created": datetime.now().isoformat(timespec="seconds"), "kind": kind, "label": label[:120],

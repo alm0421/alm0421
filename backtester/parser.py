@@ -1927,6 +1927,10 @@ def looks_like_allocation(text: str) -> bool:
     tw = re.findall(r"(?<![\w^])(\^?[A-Z]{1,5}(?:SIM|-USD)?) \d+(?:\.\d+)?%", t)
     if len(tw) >= 2 and all(data.canonical(x) in _known() for x in tw):
         return True
+    # "60% VTI 40% BND" / "VTI 60, BND 40": a list of known tickers with weights and no separators
+    lead = re.match(r"(?i)\s*(?:(?:hold|own|buy and hold|invest in|allocate)\s+)?(.+?)(?=,\s*(?:re-?balanc|rebalance|with|from|since|starting|between)\b|$)", t)
+    if lead and _bare_weights(lead.group(1).strip(" ,.")) != lead.group(1).strip(" ,."):
+        return True
     # "if C [then] X else Y" is a regime switch between holdings (Composer), whatever the branches say
     if re.match(r"(?is)\s*[(\[]?\s*if\b", t) and (
             re.search(r"(?i)\b(?:else|otherwise)\b", _mask(t))
@@ -2864,8 +2868,46 @@ def value_phrase(text: str, ctx: Ctx | None = None, default_n: int | None = None
     c = ctx.c
     tr = "tr" if ctx.base else f"{ctx.c[:-len('.close')]}.tr"
     U = r"(day|week|month|year|bar|session)s?"
+    if "`" not in s:
+        s = _lookback_lists(s)
+        # "risk-adjusted momentum", "12 month volatility-adjusted return" = the return divided by its volatility
+        mr = re.search(rf"(?:risk|volatility|vol)[- ]adjusted (?:(\d+) {U} )?(?:total )?(?:returns?|momentum|performance)"
+                       rf"(?: over (?:the )?(?:last |past )?(\d+) {U})?|(\d+) {U} (?:risk|volatility|vol)[- ]adjusted "
+                       rf"(?:total )?(?:returns?|momentum|performance)", s)
+        if mr:
+            g = mr.groups()
+            n, u = next(((g[i], g[i + 1]) for i in (0, 2, 4) if g[i]), (None, None))
+            if n is None:
+                n, u = "12", "month"
+                notes.append(f"No lookback given for '{mr.group(0).strip()}': using 12 months.")
+            s = f"{s[: mr.start()]} {n} {u} return divided by {n} {u} volatility {s[mr.end():]}"
+        md = re.fullmatch(r"\s*(.+?)\s+(?:divided by|/|per unit of)\s+(.+?)\s*", s)
+        if md:
+            left, right = md.group(1), md.group(2)
+            rn = re.search(rf"(\d+) {U}", left)
+            if re.fullmatch(r"(?:its |their |the )?(?:annuali[sz]ed |realized |realised |historical |daily )?(?:volatility|vol|risk)",
+                            right.strip()):
+                # "... divided by volatility": over the same lookback as the return
+                right = f"{rn.group(1)} {rn.group(2)} volatility" if rn else f"{default_n or 252} day volatility"
+            a, na = value_phrase(left, ctx, default_n, total)
+            b, nb = value_phrase(right, ctx, default_n, total)
+            a_ = f"({a})" if re.search(r" [-+*/] ", a) else a
+            b_ = f"({b})" if re.search(r" [-+*/] ", b) else b
+            notes.extend(na + nb)
+            notes.append(f"'{text.strip()}' = {a_} / {b_}: the return per unit of volatility (annualised standard deviation "
+                         "of daily price returns), so a steadier gain ranks above a jumpier one of the same size.")
+            return f"{a_} / {b_}", notes
     pats = [
         (rf"`([^`]+)`", lambda m: m.group(1)),
+        # "average of 1, 3, 6 and 12 month return" (after _lookback_lists: "average of 1/3/6/12 month return")
+        (rf"(?:the )?(?:average|avg\.?|mean|blend(?:ed)?)(?: of)?(?: the)? (\d+(?:/\d+)+) {U} (?:total )?(?:returns?|momentum|performance)"
+         rf"|(\d+(?:/\d+)+) {U} (?:average|avg\.?|mean|blend(?:ed)?) (?:total )?(?:returns?|momentum|performance)",
+         lambda m: _avg_returns(m.group(1) or m.group(3), m.group(2) or m.group(4), tr, c, total)),
+        # "12 month return skipping the last month", "12 month momentum excluding the most recent month"
+        (rf"(?:(\d+) {U} )?(?:cumulative |total |trailing )?(?:returns?|momentum|performance)(?: over (?:the )?(?:last |past |prior )?(\d+) {U})?"
+         rf",? (?:skipping|skip|excluding|exclude|ex|except(?: for)?|without|ignoring|leaving out|lagged by|lagged|ending) (?:the )?"
+         rf"(?:last |latest |most recent |recent |past |final )?(?:(\d+|one|a) )?{U}(?: ago)?",
+         lambda m: _skip_return(m, tr, c, total)),
         # before the moving-average patterns, whose bare "ma" would otherwise match inside "market"
         (r"\bmarket[- ]cap(?:itali[sz]ation)?\b", lambda m: "market_cap" if ctx.base else _unsupported("market cap of another ticker")),
         (rf"(?:(\d+) {U} )?(?:moving average|average|mean|ma) of (?:the )?(?:daily )?returns?(?: over (?:the )?(?:last |past )?(\d+) {U})?",
@@ -2953,6 +2995,47 @@ def _skip_momentum(n: int, skip: int, tr: str, c: str, total: bool) -> str:
     look, lag = (n - skip) * 21, skip * 21
     _note(f"'{n}-{skip} momentum' = the {n}-month return skipping the latest {skip} month{'s' if skip > 1 else ''}: the "
           f"{look}-day return ending {lag} trading days ago (ref(..., {lag})).")
+    return f"ref(tret({tr}, {look}), {lag})" if total else f"ref(ret({c}, {look}), {lag})"
+
+
+_NUM_LIST = re.compile(r"(?<![\d.%$/])(\d+)-?((?:\s*(?:,\s*(?:and\s+|&\s*)?|\band\b\s*|&\s*|/)\s*\d+-?)+)\s*[- ]?(day|week|month|year)(s?)\b",
+                       re.I)
+
+
+def _lookback_lists(s: str) -> str:
+    """'1, 3, 6 and 12 month' / '1-, 3-, 6- and 12-month' / '1/3/6/12 month' -> '1/3/6/12 month' (one token, so the
+    commas are not read as separators between options)."""
+    def fix(m):
+        nums = [m.group(1)] + re.findall(r"\d+", m.group(2))
+        return "/".join(nums) + f" {m.group(3)}{m.group(4)}"
+    return _NUM_LIST.sub(fix, s)
+
+
+def _avg_returns(nums: str, unit: str, tr: str, c: str, total: bool) -> str:
+    """'average of 1/3/6/12 month return' -> the plain average of those total returns."""
+    ns = [_period(n, unit) for n in nums.split("/")]
+    if len(set(ns)) < len(ns) or min(ns) < 1:
+        raise ParseError(f"'average of {nums.replace('/', ', ')} {unit} return': give different lookbacks.")
+    parts = [f"tret({tr}, {n})" if total else f"ret({c}, {n})" for n in ns]
+    _note(f"'average of {', '.join(nums.split('/'))} {unit} returns' = the plain average of the {len(ns)} "
+          f"{'total ' if total else ''}returns over {', '.join(str(n) for n in ns)} trading days "
+          f"(({' + '.join(parts)}) / {len(ns)}).")
+    return f"({' + '.join(parts)}) / {len(ns)}"
+
+
+def _skip_return(m, tr: str, c: str, total: bool) -> str:
+    """'12 month return skipping the last month' -> the return from 12 months ago to 1 month ago."""
+    g = m.groups()
+    if not (g[0] or g[2]):
+        raise ParseError(f"'{m.group(0).strip()}': give the lookback, e.g. '12 month return skipping the last month'.")
+    n = _period(g[0] or g[2], g[1] or g[3])
+    k = g[4] if g[4] and g[4].isdigit() else "1"
+    lag = _period(k, g[5])
+    if not 0 < lag < n:
+        raise ParseError(f"'{m.group(0).strip()}': the skipped period must be shorter than the lookback.")
+    look = n - lag
+    _note(f"'{m.group(0).strip()}' = the return over the {n} trading days up to {lag} trading days ago: the {look}-day "
+          f"return ending {lag} days ago (ref(..., {lag})), so the most recent {lag} days are left out.")
     return f"ref(tret({tr}, {look}), {lag})" if total else f"ref(ret({c}, {look}), {lag})"
 
 
@@ -3322,7 +3405,7 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     m = _msearch(r"(?is)(?:the )?(top|bottom|best|worst|strongest|weakest|highest|lowest) (\d+) (?:of |among |from |in )?(?:the )?(.+?) (?:by|ranked by|based on|sorted by|according to|with the (?:highest|lowest|best|strongest|weakest)) (.+)$", s, flags=re.I | re.S, match=True)
     if m:
         word, n, uni, rest = m.groups()
-        parts = _split_top_level(rest, r",|;")
+        parts = _split_top_level(_lookback_lists(rest), r",|;")
         metric_text, opts = parts[0], parts[1:]
         # weighting may be glued to the metric: "... by 6 month return inverse volatility weighted"
         mm = re.search(r"(?i)\s+((?:weighted |weight )?(?:by |using )?(?:equal(?:ly)?|inverse[- ]vol(?:atility)?|risk[- ]parity|min(?:imum)?[- ]variance|max(?:imum)?[- ](?:sharpe|diversification)|market[- ]cap)\b.*)$", metric_text)
@@ -3461,6 +3544,8 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
         kids = [_node(x, notes) for x in names]
         return _weights_node([w / sum(ws) for w in ws], kids, s)
 
+    # "60% VTI 40% BND", "VTI 60% BND 40%", "VTI 60, BND 40": weights with no separator (or bare numbers adding to 100)
+    s = _bare_weights(s)
     # weighted list: 60% SPY, 30% TLT and 10% (if ... else ...)   /   SPY 60%, TLT 40%
     items = _split_top_level(s, r",| and | plus |;")
     pct_re = re.compile(r"(?is)^(-?\d+(?:\.\d+)?)% (?:in |of |into )?(?:the )?(.+)$|^(.+?) (-?\d+(?:\.\d+)?)%$")
@@ -3523,6 +3608,42 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     if len(items) == 1:
         return items[0]
     return {"weights": "equal", "children": items}
+
+
+_BW_TK = r"[\^$]?[A-Za-z][A-Za-z0-9.\-]{0,9}"
+_BW_SEP = r"(?:\s*,\s*(?:and\s+)?|\s+and\s+|\s*;\s*|\s+|\s*\+\s*)"
+
+
+def _one_ticker(w: str) -> str | None:
+    if w.lower() == "cash":
+        return "cash"
+    probe = w.upper() if re.fullmatch(r"[a-z^$]{1,6}", w) else w
+    try:
+        tk = find_tickers(probe, strict=True)
+    except ParseError:
+        return None
+    return tk[0] if len(tk) == 1 and data.canonical(probe.lstrip("$")) == tk[0] else None
+
+
+def _bare_weights(s: str) -> str:
+    """'60% VTI 40% BND' / 'VTI 60% BND 40%' / 'VTI 60, BND 40' (numbers adding up to 100) -> '60% VTI, 40% BND'.
+    Only when every token pairs one known ticker with one weight; anything else is returned unchanged."""
+    t = s.strip()
+    num = r"-?\d+(?:\.\d+)?"
+    for pat, pct_needed in ((rf"(?:{num}%\s*{_BW_TK})(?:{_BW_SEP}{num}%\s*{_BW_TK})+", True),
+                            (rf"(?:{_BW_TK}\s*:?\s*{num}%?)(?:{_BW_SEP}{_BW_TK}\s*:?\s*{num}%?)+", False)):
+        if not re.fullmatch(pat, t):
+            continue
+        pairs = (re.findall(rf"({num})%\s*({_BW_TK})", t) if pct_needed else
+                 [(w, k) for k, w in re.findall(rf"({_BW_TK})\s*:?\s*({num})%?", t)])
+        tks = [_one_ticker(k) for _, k in pairs]
+        if len(pairs) < 2 or any(x is None for x in tks):
+            return s
+        ws = [float(w) for w, _ in pairs]
+        if not pct_needed and "%" not in t and abs(sum(ws) - 100) > 1e-6:
+            return s     # bare numbers are weights only when they add up to 100
+        return ", ".join(f"{w}% {k}" for (w, _), k in zip(pairs, tks))
+    return s
 
 
 def _weights_node(ws: list[float], kids: list[dict], s: str) -> dict:

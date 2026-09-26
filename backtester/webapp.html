@@ -296,7 +296,22 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label>Re-optimise every (months)<input id="o_roll" type="number" placeholder="off"></label>
         <label>on the trailing (months)<input id="o_look" type="number" value="60"></label>
         <label style="grid-column:1/-1">Constraints (one per line or separated by ;)<textarea id="o_cons" style="min-height:44px;font-size:13px" placeholder="e.g. SPY+QQQ <= 70%; TLT >= 10%; GLD <= 20%; 20% <= TLT+IEF <= 60%"></textarea></label>
+        <label>Benchmark (ticker or blend)<input id="o_bench" placeholder="e.g. SPY or 60% SPY 40% AGG"></label>
+        <label>Min excess over benchmark (%/yr)<input id="o_tact" type="number" step="0.5" placeholder="optional"></label>
+        <label>Resampled frontier: draws<input id="o_resample" type="number" min="0" max="2000" placeholder="off (e.g. 200)"></label>
       </div>
+      <details style="margin-top:8px"><summary class="note">Forecast inputs and Black-Litterman (instead of historical means)</summary>
+        <div class="grid" style="margin-top:6px">
+          <label>Expected returns (%/yr)<input id="o_er" class="w" placeholder="e.g. SPY=7%, TLT=4%, GLD=3%"></label>
+          <label>Volatilities (%/yr)<input id="o_ev" class="w" placeholder="optional, e.g. SPY=16%"></label>
+          <label>Correlations<input id="o_corr" class="w" placeholder="optional, e.g. SPY/TLT=-0.2; SPY/GLD=0.1"></label>
+          <label>Black-Litterman prior<input id="o_prior" placeholder="market-cap, equal, or SPY=60%, TLT=40%"></label>
+          <label>τ (tau)<input id="o_tau" type="number" step="0.01" value="0.05"></label>
+          <label>Risk aversion δ<input id="o_delta" type="number" step="0.1" value="2.5"></label>
+          <label style="grid-column:1/-1">Views (one per line; confidence after @, default 50%)<textarea id="o_views" style="min-height:44px;font-size:13px" placeholder="SPY = 8% @ 60%&#10;QQQ > TLT by 3% @ 40%"></textarea></label>
+        </div>
+        <p class="note">Expected returns replace the historical means (volatilities and correlations likewise, the rest stay historical). Views or a prior switch on Black-Litterman: the equilibrium returns implied by the prior weights, blended with the views by confidence; its posterior feeds every objective. Give expected returns or views, not both.</p>
+      </details>
       <div class="note" style="margin-top:8px">Objectives <span class="chips" id="o_methods" style="display:inline-flex;margin:0 0 0 6px"></span></div>
       <p class="note">Max return / max drawdown maximises CAGR over the worst drawdown of the historical monthly path (searched from several starting portfolios); max Omega maximises the Omega ratio (gains over losses around the threshold, solved exactly as a linear programme). An unreachable target volatility or return is reported with the reachable range. Long-history series such as SPYSIM and TLTSIM can be used as tickers when present.</p>
     </div>
@@ -1172,7 +1187,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   let resMode = 'sweep';
   const OPT_M = [['max_sharpe', 'Max Sharpe'], ['min_variance', 'Min variance'], ['max_sortino', 'Max Sortino'], ['min_cvar', 'Min CVaR'], ['risk_parity', 'Risk parity'],
     ['max_diversification', 'Max diversification'], ['max_return_over_maxdd', 'Max return / max drawdown'], ['omega', 'Max Omega'], ['target_return', 'Target return'], ['target_vol', 'Target volatility'],
-    ['inverse_vol', 'Inverse volatility'], ['equal', 'Equal weight']];
+    ['inverse_vol', 'Inverse volatility'], ['equal', 'Equal weight'], ['min_tracking_error', 'Min tracking error (benchmark)'], ['max_information_ratio', 'Max information ratio (benchmark)']];
   OPT_M.forEach(([k, lab]) => { const c = el('span', { class: 'chip on', 'data-m': k, role: 'button', tabindex: '0', title: 'include / leave out' }, lab);
     c.onclick = () => c.classList.toggle('on'); c.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); c.click(); } }; $('o_methods').append(c); });
   $('resMode').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; resMode = b.dataset.v; [...$('resMode').children].forEach(x => x.classList.toggle('on', x === b)); $('r_sweepwalk').classList.toggle('hide', resMode === 'optimize'); $('r_opt').classList.toggle('hide', resMode !== 'optimize'); document.querySelectorAll('.wf').forEach(x => x.classList.toggle('hide', resMode !== 'walkforward')); });
@@ -1186,7 +1201,10 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       else if (resMode === 'walkforward') j = await api('/api/walkforward', { text: $('r_text').value, objective: $('r_objective').value, in_sample: $('r_is').value, out_sample: $('r_oos').value, anchored: $('r_anchored').value === 'true', options: o });
       else j = await api('/api/optimize', { tickers: $('o_tickers').value, max_weight: $('o_max').value / 100, min_weight: $('o_min').value / 100, start: $('o_from').value, end: $('o_to').value, test_start: $('o_test').value,
         constraints: $('o_cons').value, target_return: $('o_tret').value === '' ? null : $('o_tret').value / 100, target_vol: $('o_tvol').value === '' ? null : $('o_tvol').value / 100, rolling_months: $('o_roll').value || null, lookback_months: $('o_look').value || 60,
-        omega_threshold: ($('o_omega').value || 0) / 100, methods: [...$('o_methods').querySelectorAll('.chip.on')].map(c => c.dataset.m) });
+        omega_threshold: ($('o_omega').value || 0) / 100, methods: [...$('o_methods').querySelectorAll('.chip.on')].map(c => c.dataset.m).filter(m => $('o_bench').value.trim() || !['min_tracking_error', 'max_information_ratio'].includes(m)),
+        benchmark: $('o_bench').value.trim(), target_active: $('o_tact').value === '' ? null : $('o_tact').value / 100, resample: $('o_resample').value || 0,
+        expected_returns: $('o_er').value.trim(), expected_vols: $('o_ev').value.trim(), correlations: $('o_corr').value.trim(), views: $('o_views').value.trim(),
+        prior: $('o_prior').value.trim(), tau: $('o_tau').value, risk_aversion: $('o_delta').value });
       $('resStatus').textContent = ''; $('resResult').classList.remove('hide'); $('resFrame').src = j.url;
     } catch (e) { $('resStatus').textContent = e.message; }
   });
@@ -1566,8 +1584,12 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       R.withdrawals ? tile('Median total withdrawn', compact(R.withdrawals.total['50']), `${compact(R.withdrawals.total_real['50'])} in today's dollars`) : null,
       tile('Median final balance', compact(R.final['50']), `${compact(R.final_real['50'])} in today's dollars`),
       tile('10th percentile final', compact(R.final['10']), `${compact(R.final_real['10'])} real`),
-      showWR ? tile('Safe withdrawal rate', pct(R.safe_withdrawal_rate), `${pct(st.success_target, 0)} success, grows with inflation`) : null,
-      showWR ? tile('Perpetual withdrawal rate', pct(R.perpetual_withdrawal_rate), 'keeps the median real balance') : null,
+      showWR ? (R.withdrawal_rates && R.withdrawal_rates.basis === 'withdrawal_start'
+        ? tile('Safe withdrawal rate', pct(R.withdrawal_rates.safe_at_target), `${pct(st.success_target, 0)} success, of the balance in year ${R.withdrawal_rates.from_year}`)
+        : tile('Safe withdrawal rate', pct(R.safe_withdrawal_rate), `${pct(st.success_target, 0)} success, grows with inflation`)) : null,
+      showWR ? (R.withdrawal_rates && R.withdrawal_rates.basis === 'withdrawal_start'
+        ? tile('Perpetual withdrawal rate', pct(R.withdrawal_rates.perpetual['50']), `median path, of the balance in year ${R.withdrawal_rates.from_year}`)
+        : tile('Perpetual withdrawal rate', pct(R.perpetual_withdrawal_rate), 'keeps the median real balance')) : null,
       tile('Median annual return', pct(R.annual_return['50']), `${pct(R.annual_return_real['50'])} after inflation`)].filter(Boolean));
     const n = $('mcNotes'); n.replaceChildren();
     const who = st.mode === 'strategy' ? `${st.name} (its own monthly returns resampled)` : Object.entries(st.weights).map(([t, w]) => `${(w * 100).toFixed(1)}% ${t}`).join(', ') + `, rebalanced ${st.rebalance}`;
@@ -1586,7 +1608,16 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     table($('mcTable'), ['', '10th', '25th', '50th (median)', '75th', '90th'], [
       row('Final balance', R.final, usd), row("Final balance (today's dollars)", R.final_real, usd),
       row('Annual return', R.annual_return, v => pct(v)), row('Annual return after inflation', R.annual_return_real, v => pct(v)),
-      row('Max drawdown', R.max_drawdown, v => pct(v, 1))].concat(R.withdrawals ? [row('Total withdrawn', R.withdrawals.total, usd), row("Total withdrawn (today's dollars)", R.withdrawals.total_real, usd)] : []).concat(R.depletion_years && Object.keys(R.depletion_years).length ? [row('Years until money ran out (failed paths)', R.depletion_years, v => num(v, 1))] : []));
+      row('Max drawdown', R.max_drawdown, v => pct(v, 1))].concat(R.withdrawals ? [row('Total withdrawn', R.withdrawals.total, usd), row("Total withdrawn (today's dollars)", R.withdrawals.total_real, usd)] : []).concat(R.depletion_years && Object.keys(R.depletion_years).length ? [row('Years until money ran out (failed paths)', R.depletion_years, v => num(v, 1))] : [])
+      .concat(mcRateRows(R, row)));
+    const wr = R.withdrawal_rates;
+    if (wr && showWR) n.append(el('p', { class: 'note' }, `Safe and perpetual withdrawal rates by percentile: each path's own highest inflation-adjusted yearly withdrawal, as a share of ${wr.basis === 'start' ? 'the start balance' : `that path's balance at the start of year ${wr.from_year}, when the withdrawals begin (median ${usd(wr.base_balance['50'])})`}, that it pays in full for ${num(wr.years, 0)} years (safe) or that also keeps its real balance (perpetual). The 10th percentile is the cautious figure: 90% of paths sustain at least that rate; ${pct(wr.success_target, 0)} of paths sustain ${pct(wr.safe_at_target)}.`));
+  }
+  function mcRateRows(R, row) {
+    const wr = R.withdrawal_rates;
+    if (!wr || R.show_withdrawal_rates === false) return [];
+    const of = wr.basis === 'start' ? 'of start balance' : `of balance in year ${wr.from_year}`;
+    return [row(`Safe withdrawal rate (${of})`, wr.safe, v => pct(v)), row(`Perpetual withdrawal rate (${of})`, wr.perpetual, v => pct(v))];
   }
 
   // ---------------------------------------------------------------- Factors

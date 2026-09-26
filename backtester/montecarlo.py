@@ -308,6 +308,53 @@ def perpetual_withdrawal_rate(P, cum_infl, start) -> float:
     return max(lo, 0.0)
 
 
+def _rate_paths(P: np.ndarray, cum_infl: np.ndarray, base: np.ndarray, rate: np.ndarray, m0: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """Per path: withdraw rate[i] * base[i] (grown with inflation from month m0) at the start of every year from
+    month m0 on. Returns (survived every withdrawal, final balance in dollars of month m0)."""
+    sims, months = P.shape
+    b = base.astype(float).copy()
+    alive = np.ones(sims, bool)
+    for m in range(m0, months):
+        if (m - m0) % 12 == 0:
+            b = b - rate * base * cum_infl[:, m] / cum_infl[:, m0]
+            alive &= b > 0
+            b = np.maximum(b, 0.0)
+        b = b * (1 + P[:, m])
+    return alive, b / (cum_infl[:, months] / cum_infl[:, m0])
+
+
+def withdrawal_rates_by_path(P: np.ndarray, cum_infl: np.ndarray, base, m0: int = 0, iters: int = 36) -> tuple[np.ndarray, np.ndarray]:
+    """Each path's own safe and perpetual withdrawal rates (Portfolio Visualizer's per-percentile SWR / PWR):
+    safe = the highest constant inflation-adjusted yearly withdrawal, as a share of `base` (the balance at month m0,
+    per path), that the path pays in full every year to the end; perpetual = the highest that leaves the path's
+    final balance, in dollars of month m0, at or above `base`. Found by bisection on every path at once."""
+    sims = P.shape[0]
+    base = np.broadcast_to(np.asarray(base, float), (sims,)).copy()
+    ok = base > 0
+    base_ = np.where(ok, base, 1.0)
+    out = []
+    for kind in ("safe", "perpetual"):
+        lo, hi = np.zeros(sims), np.ones(sims)
+        for _ in range(iters):
+            mid = (lo + hi) / 2
+            alive, real = _rate_paths(P, cum_infl, base_, mid, m0)
+            good = alive if kind == "safe" else real >= base_ * (1 - 1e-12)
+            lo, hi = np.where(good, mid, lo), np.where(good, hi, mid)
+        out.append(np.where(ok, lo, 0.0))
+    return out[0], out[1]
+
+
+def withdrawal_rate_table(P: np.ndarray, cum_infl: np.ndarray, base, m0: int = 0, success: float = 0.95) -> dict:
+    """Percentiles (PERCENTILES) of the per-path safe and perpetual withdrawal rates. The 10th percentile is the
+    pessimistic one: 90% of paths could sustain at least that rate. `safe_at_target` is the highest rate that
+    `success` of the paths sustain (the same definition as safe_withdrawal_rate on this basis)."""
+    swr, pwr = withdrawal_rates_by_path(P, cum_infl, base, m0)
+    q = lambda a: {str(p): float(np.percentile(a, p)) for p in PERCENTILES}  # noqa: E731
+    k = max(1, int(np.ceil(success * len(swr) - 1e-9)))
+    return {"safe": q(swr), "perpetual": q(pwr), "safe_at_target": float(np.sort(swr)[::-1][k - 1]),
+            "success_target": success}
+
+
 def _max_drawdown(P: np.ndarray) -> np.ndarray:
     g = np.cumprod(1 + P, axis=1)
     g = np.concatenate([np.ones((len(P), 1)), g], axis=1)
@@ -503,6 +550,24 @@ def run(s: Settings) -> dict:
         "hist_stats": {"mean_annual": (hist.mean() * 12).to_dict(), "vol_annual": (hist.std() * np.sqrt(12)).to_dict(),
                        "correlation": hist.corr().round(3).to_numpy().tolist(), "tickers": tick},
     }
+    # per-path safe / perpetual rates by percentile; a contribute-then-withdraw plan measures them from each path's
+    # balance when the withdrawals start (the accumulation phase replays its own cash flows first)
+    wd_start = min((cf.start_year for cf in s.flows if cf.amount < 0 or cf.pct < 0), default=1)
+    m0 = (wd_start - 1) * 12 if has_contrib and has_wd else 0
+    if (out["show_withdrawal_rates"] or m0) and m0 < months:
+        base = B[:, m0] if m0 else np.full(sims, float(s.start_balance))
+        wr = withdrawal_rate_table(P, cum_infl, base, m0, s.success_target)
+        wr["basis"] = "withdrawal_start" if m0 else "start"
+        wr["from_year"] = wd_start if m0 else 1
+        wr["years"] = (months - m0) / 12
+        if m0:
+            wr["base_balance"] = q(base)
+            wr["base_balance_real"] = q(base / cum_infl[:, m0])
+            out["show_withdrawal_rates"] = True
+            notes.append(f"Withdrawal rates are measured from each path's balance at the start of year {wd_start}, when the "
+                         f"withdrawals begin (median ${np.median(base):,.0f}), over the remaining {wr['years']:g} years; "
+                         "contributions after that are left out of them.")
+        out["withdrawal_rates"] = wr
     if has_wd:
         short = SIM["requested"] - SIM["withdrawn"]
         out["withdrawals"] = {"total": q(SIM["withdrawn"]), "total_real": q(SIM["withdrawn_real"]),
@@ -645,9 +710,21 @@ def console(R: dict) -> str:
         W = R["withdrawals"]
         L.append(f"Total withdrawn (median; withdrawals never exceed the balance): ${W['total']['50']:,.0f} "
                  f"(${W['total_real']['50']:,.0f} in today's dollars); paths that could not pay in full: {W['share_of_paths_short']:.1%}")
-    if R.get("show_withdrawal_rates", True):
+    wr = R.get("withdrawal_rates") or {}
+    if R.get("show_withdrawal_rates", True) and wr.get("basis") != "withdrawal_start":
         L.append(f"Safe withdrawal rate ({st['success_target']:.0%} success, inflation-adjusted, from the start balance): "
                  f"{pc(R['safe_withdrawal_rate'])}   perpetual withdrawal rate: {pc(R['perpetual_withdrawal_rate'])}")
+    if R.get("show_withdrawal_rates", True) and wr:
+        of = ("the start balance" if wr["basis"] == "start" else
+              f"each path's balance at the start of year {wr['from_year']} (median {money(wr['base_balance']['50'])})")
+        L.append(f"Withdrawal rates by percentile of the paths (a year's withdrawal as a share of {of}, then grown with "
+                 f"inflation; over {wr['years']:g} years):")
+        L.append(f"{'':>28s} " + " ".join(f"{p + 'th':>13s}" for p in wr["safe"]))
+        L.append(f"{'Safe withdrawal rate':>28s} " + " ".join(f"{pc(v):>13s}" for v in wr["safe"].values()))
+        L.append(f"{'Perpetual withdrawal rate':>28s} " + " ".join(f"{pc(v):>13s}" for v in wr["perpetual"].values()))
+        L.append(f"{'':>28s} safe: paid in full to the end; perpetual: also keeps the real balance. The 10th percentile is "
+                 f"the cautious figure (90% of paths sustain at least that); {wr['success_target']:.0%} of paths sustain "
+                 f"{pc(wr['safe_at_target'])}.")
     return "\n".join(L)
 
 
@@ -685,6 +762,9 @@ def historical_withdrawal_rates(monthly: pd.Series, start: float = 1.0) -> dict:
     Ib = infl.to_numpy()[idx]
     cib = np.concatenate([np.ones((len(Pb), 1)), np.cumprod(1 + Ib, axis=1)], axis=1)
     out["swr_mc95"] = safe_withdrawal_rate(Pb, cib, start, 0.95)
+    # the same bootstrapped histories, path by path: safe and perpetual rates by percentile
+    t = withdrawal_rate_table(Pb, cib, start, 0, 0.95)
+    out["percentiles"] = {"safe": t["safe"], "perpetual": t["perpetual"]}
     return out
 
 

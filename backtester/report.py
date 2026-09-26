@@ -992,6 +992,9 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
             cs["from"] = b0.date()
             cs["note"] = "starts with the portfolio's balance on its first day"
         A["benchmark_cash"][k] = cs
+    if res.kind == "allocation":
+        from . import risk
+        A["risk_contributions"] = risk.risk_contributions(res, nv)
     A["withdrawal_rates"] = {}
     if res.kind == "allocation" and (getattr(s, "withdrawal", 0) or getattr(s, "withdrawal_pct", 0)):
         from . import montecarlo
@@ -1207,6 +1210,16 @@ def console_summary(A: dict) -> str:
     if wr:
         L.append(f"Withdrawal rates  safe {pct(wr.get('swr'), 2)}   perpetual {pct(wr.get('pwr'), 2)}   "
                  f"(inflation-adjusted, over this history {wr['from']} -> {wr['to']}); 95% bootstrap safe rate {pct(wr.get('swr_mc95'), 2)}")
+        if wr.get("percentiles"):
+            wp = wr["percentiles"]
+            L.append("  bootstrapped safe / perpetual by percentile  " + "  ".join(
+                f"{p}th {pct(wp['safe'][p], 1)}/{pct(wp['perpetual'][p], 1)}" for p in wp["safe"]))
+    rc = A.get("risk_contributions") or {}
+    if rc.get("rows"):
+        L.append("Risk contribution (share of volatility, avg weights x daily covariance)  " + "   ".join(
+            f"{x['ticker']} {pct(x['share'], 0)}" for x in rc["rows"][:8])
+            + (f"; of the max drawdown  " + "   ".join(f"{x['ticker']} {pct(x.get('drawdown_share'), 0)}" for x in rc["rows"][:8])
+               if rc.get("drawdown") else ""))
     at = A.get("attribution")
     if at is not None and len(at):
         L.append(("P&L by holding  " if A["result"].kind == "allocation" else "P&L by ticker   ") + "   ".join(f"{r.ticker} ${r.pnl:,.0f}" for r in at.head(8).itertuples())
@@ -1307,6 +1320,7 @@ def run_payload(A: dict, i: int, idx: pd.DatetimeIndex) -> dict:
         # per-ticker P&L (allocation runs): sum(pnl) + interest - fees == end - start - net flows
         "attribution": _attribution_payload(A),
         "withdrawal_rates": A.get("withdrawal_rates") or {},
+        "risk_contributions": A.get("risk_contributions") or {},
         "benchmark_cash": A.get("benchmark_cash") or {},
         "first_bar": A.get("first_bar"),
         "warmup_start": A.get("warmup_start"),
@@ -1428,6 +1442,7 @@ def write_outputs(analyses: list[dict] | dict, out_dir: Path, excel: bool = True
         summary = {k: A.get(k) for k in ("stats", "cash", "trade_stats", "exposure", "relative", "monte_carlo",
                                          "sensitivity", "rolling_summary", "crises", "factors")}
         summary.update({"trailing": A.get("trailing") or {}, "asset_stats": A.get("asset_stats") or [],
+                        "risk_contributions": A.get("risk_contributions") or {},
                         "no_trades": bool(A.get("no_trades")),
                         "description": A["strategy"].description, "interpretation": interpretation(A["strategy"]),
                         "open_pnl": A["trade_stats"].get("open_pnl", 0.0), "open_trades": A["trade_stats"].get("open_trades", 0),
@@ -1483,6 +1498,9 @@ def _excel(A: dict, path: Path) -> None:
             A["attribution"].to_excel(xw, sheet_name="Attribution", index=False)
         if res.holdings is not None and not res.holdings.empty:
             res.holdings.resample("ME").last().to_excel(xw, sheet_name="Holdings (month-end)", index_label="date")
+        if A.get("risk_contributions"):
+            from . import risk
+            risk.frame(A["risk_contributions"]).to_excel(xw, sheet_name="Risk contributions", index=False)
 
 
 def to_pdf(html_path: Path, pdf_path: Path) -> bool:
