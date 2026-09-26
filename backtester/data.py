@@ -297,6 +297,13 @@ def load(ticker: str) -> pd.DataFrame:
     adj = raw["adj_close"] if "adj_close" in raw else raw["close"]
     df["adj_close"] = adj.where(adj > 0, raw["close"]).ffill()
     df["quote_close"] = df["close"]
+    if t.endswith("SIM") and len(df):
+        # simulated series are built from sources with other calendars (Fama-French, World Bank,
+        # FRED): keep only NYSE sessions so month-ends line up with every real ticker. Levels are
+        # total-return indexes, so a dropped day's return simply rolls into the next session.
+        from . import calendar as _cal
+        keep = np.array([_cal.is_session(d) for d in df.index])
+        df = df[keep]
     # opening prices that were never quoted: missing, or a flat bar (open = high = low = close), as
     # for mutual funds, simulated series and very old index data. Such an "open" is really the close.
     flat = (raw["open"] == raw["close"]) & (raw["high"] == raw["low"]) & (raw["high"] == raw["close"])

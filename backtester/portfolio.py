@@ -631,7 +631,17 @@ class _Evaluator:
         return bool(self.members.get(t, np.zeros(len(self.cal), bool))[i])
 
     def has(self, t: str, i: int) -> bool:
-        return np.isfinite(self.close[t][i])
+        """Has the ticker started trading by bar i? A missing price on a day it has already traded
+        (another calendar's holiday) uses its last price rather than dropping it to cash."""
+        c = self.close[t]
+        if np.isfinite(c[i]):
+            return True
+        if not hasattr(self, "_first"):
+            self._first = {}
+        if t not in self._first:
+            ok = np.flatnonzero(np.isfinite(c))
+            self._first[t] = int(ok[0]) if len(ok) else len(c)
+        return i > self._first[t] and i - self._first[t] > 0 and np.isfinite(c[max(0, i - 10): i]).any()
 
     def rets(self, t: str) -> np.ndarray:
         if t not in self._rets:
@@ -777,7 +787,7 @@ class _Evaluator:
             if self.has(t, i):
                 return {t: 1.0}
             if i >= self.off:
-                self.note(f"{t} had no price on some rebalance dates (before it listed); its slice was held in cash then.")
+                self.note(f"{t} had no price yet on some rebalance dates (before its history starts); its slice was held in cash then.")
             return {"cash": 1.0}
         if n.get("cash"):
             return {"cash": 1.0}
@@ -928,6 +938,14 @@ def run(p: Portfolio) -> Result:
     cal = cal[cal >= start]
     if p.end:
         cal = cal[cal <= pd.Timestamp(p.end)]
+    # start on a day every fixed holding actually traded (not, say, a stock-market holiday on
+    # which only a crypto or foreign series has a row)
+    if must and len(cal):
+        both = np.ones(len(cal), bool)
+        for t in must:
+            both &= np.isin(cal.values, dfs[t].index.values)
+        if both.any():
+            cal = cal[int(np.argmax(both)):]
     if len(cal) < 2:
         raise ValueError("no price data in the requested period")
     # rule indicators come from each ticker's full history; synthetic NAVs of groups (filters or weightings
