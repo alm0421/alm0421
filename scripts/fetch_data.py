@@ -476,6 +476,15 @@ def _splice(sim_ret: pd.Series, real: str) -> pd.Series:
     return 100 * (1 + ret).cumprod()
 
 
+SIM_LOG: list[str] = []
+
+
+def _simlog(msg: str) -> None:
+    import traceback
+    SIM_LOG.append(msg + "\n" + traceback.format_exc(limit=3))
+    print(msg, flush=True)
+
+
 def build_sims() -> list[str]:
     """SPYSIM / TLTSIM / IEFSIM / SHYSIM / BILSIM: long total-return histories for portfolio research."""
     made = []
@@ -486,7 +495,7 @@ def build_sims() -> list[str]:
         _series_file("BILSIM", _splice(ff["RF"], "BIL"), "1-month T-bill (Fama-French RF) before BIL, then BIL")
         made += ["SPYSIM", "BILSIM"]
     except Exception as e:  # noqa: BLE001
-        print(f"sim SPYSIM failed: {e}", file=sys.stderr)
+        _simlog(f"sim SPYSIM failed: {e}")
     try:
         y = {sid: pd.read_csv(MACRO / f"{sid}.csv", parse_dates=["date"], index_col="date")["value"].astype(float)
              for sid in ("DGS10", "DGS20", "DGS30", "DGS2")}
@@ -498,7 +507,7 @@ def build_sims() -> list[str]:
         _series_file("SHYSIM", _splice(_bond_returns(short, 2), "SHY"), "2-year Treasury off the 2-year yield (1-year before 1976), then SHY")
         made += ["TLTSIM", "IEFSIM", "SHYSIM"]
     except Exception as e:  # noqa: BLE001
-        print(f"sim bonds failed: {e}", file=sys.stderr)
+        _simlog(f"sim bonds failed: {e}")
     # more asset classes from Ken French's data library (value-weighted portfolios, daily)
     try:
         p6 = pd.read_csv(FACTORS / "port6_daily.csv", parse_dates=["date"], index_col="date")
@@ -514,7 +523,7 @@ def build_sims() -> list[str]:
             _series_file("VBSIM", _splice(p6[small].mean(axis=1).dropna(), "VB"), "US small-cap (Fama-French small portfolios), then VB")
             made.append("VBSIM")
     except Exception as e:  # noqa: BLE001
-        print(f"sim size/value failed: {e}", file=sys.stderr)
+        _simlog(f"sim size/value failed: {e}")
     try:
         dev = pd.read_csv(FACTORS / "dev_ff3_daily.csv", parse_dates=["date"], index_col="date")
         daily = (dev["Mkt-RF"] + dev["RF"]).dropna()
@@ -526,19 +535,19 @@ def build_sims() -> list[str]:
             daily = pd.concat([early_daily[early_daily.index < daily.index[0]], daily])
             note = "developed ex-US: Fama-French EAFE index (monthly steps) from 1975, daily from 1990, then EFA"
         except Exception as e:  # noqa: BLE001
-            print(f"EAFE monthly failed: {e}", file=sys.stderr)
+            _simlog(f"EAFE monthly failed: {e}")
             note = "developed ex-US market (Fama-French, from 1990), then EFA"
         _series_file("EFASIM", _splice(daily, "EFA"), note)
         made.append("EFASIM")
     except Exception as e:  # noqa: BLE001
-        print(f"sim EFASIM failed: {e}", file=sys.stderr)
+        _simlog(f"sim EFASIM failed: {e}")
     # (the Fama-French real-estate industry is operating companies, not REITs: a poor VNQ proxy, so no VNQSIM)
     try:
         y5 = pd.read_csv(MACRO / "DGS5.csv", parse_dates=["date"], index_col="date")["value"].astype(float)
         _series_file("IEISIM", _splice(_bond_returns(y5, 5), "IEI"), "5-year Treasury off the 5-year yield, then IEI")
         made.append("IEISIM")
     except Exception as e:  # noqa: BLE001
-        print(f"sim IEISIM failed: {e}", file=sys.stderr)
+        _simlog(f"sim IEISIM failed: {e}")
     try:
         # investment-grade corporates: a 10-year par bond at the average of Moody's Aaa and Baa yields
         # (daily from 1986, monthly before), then LQD
@@ -554,7 +563,7 @@ def build_sims() -> list[str]:
                      "investment-grade corporates priced off Moody's Aaa/Baa yields, then LQD")
         made.append("LQDSIM")
     except Exception as e:  # noqa: BLE001
-        print(f"sim LQDSIM failed: {e}", file=sys.stderr)
+        _simlog(f"sim LQDSIM failed: {e}")
     try:
         em = pd.read_csv(FACTORS / "em_ff5_monthly.csv", parse_dates=["date"], index_col="date")
         r = (em["Mkt-RF"] + em["RF"]).dropna()
@@ -563,7 +572,7 @@ def build_sims() -> list[str]:
         _series_file("EEMSIM", _splice(daily, "EEM"), "emerging markets (Fama-French, monthly, from 1989), then EEM")
         made.append("EEMSIM")
     except Exception as e:  # noqa: BLE001
-        print(f"sim EEMSIM failed: {e}", file=sys.stderr)
+        _simlog(f"sim EEMSIM failed: {e}")
     # (no DBCSIM: free spot-price indexes overstate a commodity-futures position badly in the 1970s -
     # 36x over 1971-82 against about 4x for the S&P GSCI total return - so commodities start with DBC)
     try:
@@ -573,7 +582,7 @@ def build_sims() -> list[str]:
         _series_file("VNQSIM", _splice(daily, "VNQ"), "US REITs: FTSE Nareit All Equity REITs total return (monthly steps) from 1972, then VNQ")
         made.append("VNQSIM")
     except Exception as e:  # noqa: BLE001
-        print(f"sim VNQSIM failed: {e}", file=sys.stderr)
+        _simlog(f"sim VNQSIM failed: {e}")
     try:
         g = gold_monthly()
         daily = g.resample("B").ffill()
@@ -581,7 +590,7 @@ def build_sims() -> list[str]:
                      "gold (World Bank monthly average price, stepped daily) from 1960, then GLD")
         made.append("GLDSIM")
     except Exception as e:  # noqa: BLE001
-        print(f"sim GLDSIM failed: {e}", file=sys.stderr)
+        _simlog(f"sim GLDSIM failed: {e}")
     return made
 
 
@@ -781,6 +790,7 @@ def main() -> None:
     }
     (ROOT / "data" / "universe.json").write_text(json.dumps(meta, indent=1))
     KEYED_FILE.write_text(json.dumps(sorted(KEYED_OK), indent=1))
+    (ROOT / "data" / "sims_log.txt").write_text("\n".join(SIM_LOG) or "all simulated series built\n")
     print(f"done: {len(ok)} current/ETF ok, {len(former_ok)} former members ok, "
           f"{len(former_missing)} former members without data, {len(failed)} failed {failed}")
     if len(ok) < len(tickers) * 0.85:
