@@ -528,7 +528,7 @@ def build_sims() -> list[str]:
         dev = pd.read_csv(FACTORS / "dev_ff3_daily.csv", parse_dates=["date"], index_col="date")
         daily = (dev["Mkt-RF"] + dev["RF"]).dropna()
         try:
-            eafe = french_international_index("EAFE")          # monthly USD returns from 1975
+            eafe = french_international_index("all")           # all 13+ developed markets ex-US, monthly USD, from 1975
             early = eafe[eafe.index < daily.index[0]]
             lvl = (1 + early).cumprod()
             early_daily = lvl.resample("B").ffill().pct_change().dropna()
@@ -601,21 +601,27 @@ def french_international_index(name: str) -> pd.Series:
     url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_International_Indices.zip"
     z = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
     names = z.namelist()
-    pick = next((n for n in names if name.lower() in n.lower()), None)
+    pick = next((n for n in names if f"_{name.lower()}." in n.lower() or n.lower().startswith(name.lower())), None)
     if pick is None:
         raise RuntimeError(f"{name} not in {names[:20]}")
     raw = z.read(pick).decode("latin-1").splitlines()
-    hdr_i = next(i for i, l in enumerate(raw) if "mkt" in l.lower() and "," in l)
-    header = [h.strip() for h in raw[hdr_i].split(",")]
-    col = next(i for i, h in enumerate(header) if h.lower() == "mkt")
+    # .Dat text: whitespace-separated; the first value-weighted block has a header naming "Mkt"
+    def cells(line):
+        return [x for x in re.split(r"[\s,]+", line.strip()) if x]
+    hdr_i = next(i for i, l in enumerate(raw) if any(c.lower() == "mkt" for c in cells(l)))
+    header = cells(raw[hdr_i])
     out = {}
     for l in raw[hdr_i + 1:]:
-        parts = [x.strip() for x in l.split(",")]
+        parts = cells(l)
         if not parts or not re.fullmatch(r"\d{6}", parts[0]):
             if out:
                 break
             continue
-        v = float(parts[col])
+        vals = parts[1:]
+        # the header may or may not name the date column
+        hdr = header[1:] if len(header) == len(parts) else header
+        col = next(i for i, h in enumerate(hdr) if h.lower() == "mkt")
+        v = float(vals[col])
         if v <= -99:
             continue
         out[pd.Timestamp(parts[0][:4] + "-" + parts[0][4:] + "-01") + pd.offsets.MonthEnd(0)] = v / 100
@@ -629,7 +635,7 @@ def nareit_monthly() -> pd.Series:
     content = requests.get(url, headers=UA, timeout=120).content
     book = pd.read_excel(io.BytesIO(content), sheet_name=None, header=None)
     for name, raw in book.items():
-        txt = raw.astype(str)
+        txt = raw.map(lambda v: "" if v is None or (isinstance(v, float) and v != v) else str(v))
         hits = [(r, c) for r in range(min(len(raw), 15)) for c in range(raw.shape[1])
                 if "all equity" in txt.iat[r, c].lower()]
         if not hits:
