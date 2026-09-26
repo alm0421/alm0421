@@ -171,20 +171,27 @@ class Strategy:
         return cls(**d)
 
     def summary(self) -> str:
-        side = {"long": "Buy", "short": "Short", "both": "Long/short"}[self.side]
+        def f(v, spec: str, default: str = "?") -> str:
+            """Format a number, tolerating None / strings from hand-written specs."""
+            try:
+                return format(float(v), spec)
+            except (TypeError, ValueError):
+                return default if v in (None, "") else str(v)
+
+        side = {"long": "Buy", "short": "Short", "both": "Long/short"}.get(self.side, str(self.side))
         fill = {"close": "at the close of the signal day", "open": "at the open of the signal day",
                 "next_open": "at the next day's open",
-                "next_close": "at the next day's close"}[self.entry_fill]
+                "next_close": "at the next day's close"}.get(self.entry_fill, f"at {self.entry_fill}")
         if self.entry_order != "market":
             fill = f"with a {self.entry_order} order at {self.entry_level} (valid {self.order_valid_bars} bar(s))"
-        u = self.universe
+        u = list(self.universe or [])
         uni = self.universe_name or (", ".join(u) if len(u) <= 6 else f"{len(u)} tickers ({', '.join(u[:4])}, ...)")
         if self.universe_name:
             uni += f" ({len(u)} tickers{', point-in-time membership' if self.point_in_time else ', current members only'})"
         lines = [f"{side} {uni} {fill} when: {self.entry}"]
         if self.side == "both":
             lines.append(f"Short when: {self.short_entry}" + (" (signals reverse the position)" if self.reverse else ""))
-        if self.pyramiding > 1:
+        if (self.pyramiding or 1) > 1:
             lines.append(f"Pyramiding: up to {self.pyramiding} entries per ticker")
         ex = []
         if self.hold_bars is not None:
@@ -193,60 +200,67 @@ class Strategy:
             when = {"close": "same close", "open": "same open", "next_open": "next open"}[self.exit_when_fill]
             ex.append(f"when {self.exit_when} ({when})")
         if self.stop_loss:
-            ex.append(f"stop loss {self.stop_loss:.1%}")
+            ex.append(f"stop loss {f(self.stop_loss, '.1%')}")
         if self.stop_atr:
-            ex.append(f"stop {self.stop_atr:g}x ATR({self.atr_period})")
+            ex.append(f"stop {f(self.stop_atr, 'g')}x ATR({self.atr_period})")
         if self.take_profit:
-            ex.append(f"take profit {self.take_profit:.1%}")
+            ex.append(f"take profit {f(self.take_profit, '.1%')}")
         if self.take_profit_atr:
-            ex.append(f"take profit {self.take_profit_atr:g}x ATR({self.atr_period})")
+            ex.append(f"take profit {f(self.take_profit_atr, 'g')}x ATR({self.atr_period})")
         if self.trailing_stop:
-            ex.append(f"trailing stop {self.trailing_stop:.1%}")
+            ex.append(f"trailing stop {f(self.trailing_stop, '.1%')}")
         if self.trailing_atr:
-            ex.append(f"chandelier stop {self.trailing_atr:g}x ATR({self.atr_period}) from the high")
-        for so in self.scale_out:
-            ex.append(f"sell {so['fraction']:.0%} at +{so['at']:.1%}")
+            ex.append(f"chandelier stop {f(self.trailing_atr, 'g')}x ATR({self.atr_period}) from the high")
+        for so in self.scale_out or []:
+            ex.append(f"sell {f(so.get('fraction'), '.0%')} at +{f(so.get('at'), '.1%')}")
         if self.side == "both" and not ex:
             ex.append("opposite signal")
-        lines.append("Exit: " + "; ".join(ex))
+        lines.append("Exit: " + ("; ".join(ex) if ex else "none"))
+        lev = self.leverage if self.leverage not in (None, "") else 1.0
+        size = self.position_size
+        if size in (None, ""):
+            try:
+                size = float(lev) / max(int(self.max_positions or 1), 1)
+            except (TypeError, ValueError):
+                size = None
         sz = {
-            "percent": lambda: f"{self.position_size:.0%} of equity each",
-            "fixed_dollars": lambda: f"${self.fixed_amount:,.0f} each",
-            "fixed_shares": lambda: f"{self.fixed_amount:g} shares each",
-            "risk": lambda: f"risking {self.risk_per_trade:.2%} of equity to the stop",
-            "volatility": lambda: f"sized to {self.target_vol:.0%} annualised volatility each",
-        }[self.sizing]()
+            "percent": lambda: f"{f(size, '.0%')} of equity each",
+            "fixed_dollars": lambda: f"${f(self.fixed_amount, ',.0f')} each",
+            "fixed_shares": lambda: f"{f(self.fixed_amount, 'g')} shares each",
+            "risk": lambda: f"risking {f(self.risk_per_trade, '.2%')} of equity to the stop",
+            "volatility": lambda: f"sized to {f(self.target_vol, '.0%')} annualised volatility each",
+        }.get(self.sizing, lambda: str(self.sizing))()
         lines.append(
-            f"Sizing: ${self.capital:,.0f} start, up to {self.max_positions} position(s), {sz}"
-            + (f", max {self.leverage:g}x gross exposure" if self.leverage != 1 else "")
+            f"Sizing: ${f(self.capital, ',.0f')} start, up to {self.max_positions} position(s), {sz}"
+            + (f", max {f(lev, 'g')}x gross exposure" if lev != 1 else "")
             + (f", ranked by {'lowest' if self.rank_ascending else 'highest'} {self.rank_by}" if self.rank_by else "")
         )
         costs = []
         if self.commission:
-            costs.append(f"${self.commission:g}/order")
+            costs.append(f"${f(self.commission, 'g')}/order")
         if self.commission_per_share:
-            costs.append(f"${self.commission_per_share:g}/share")
+            costs.append(f"${f(self.commission_per_share, 'g')}/share")
         if self.commission_pct:
-            costs.append(f"{self.commission_pct:.3%} of value")
+            costs.append(f"{f(self.commission_pct, '.3%')} of value")
         if self.commission_model:
             costs.append({"ibkr_fixed": "IBKR fixed ($0.005/share, min $1, max 1%)",
-                          "ibkr_tiered": "IBKR tiered (~$0.0037/share incl. fees, min $0.35, max 1%)"}[self.commission_model])
+                          "ibkr_tiered": "IBKR tiered (~$0.0037/share incl. fees, min $0.35, max 1%)"}.get(self.commission_model, str(self.commission_model)))
         if self.slippage_bps:
-            costs.append(f"{self.slippage_bps:g} bps slippage/side")
+            costs.append(f"{f(self.slippage_bps, 'g')} bps slippage/side")
         if self.slippage_model == "volume":
-            costs.append(f"volume slippage ({self.spread_bps / 2:g} bps + {self.impact_bps:g} bps x sqrt(shares/ADV20))")
+            costs.append(f"volume slippage ({f((self.spread_bps or 0) / 2, 'g')} bps + {f(self.impact_bps, 'g')} bps x sqrt(shares/ADV20))")
         if self.max_volume_pct:
-            costs.append(f"orders capped at {self.max_volume_pct:.1%} of volume")
+            costs.append(f"orders capped at {f(self.max_volume_pct, '.1%')} of volume")
         if self.borrow_fee:
-            costs.append(f"{self.borrow_fee:.2%}/yr borrow fee")
+            costs.append(f"{f(self.borrow_fee, '.2%')}/yr borrow fee")
         if self.side != "long" and self.short_rebate_spread:
-            costs.append(f"short proceeds earn the cash rate less {self.short_rebate_spread:.2%}")
-        if (self.side != "long" or self.leverage > 1) and self.maintenance_margin:
-            costs.append(f"{self.maintenance_margin:.0%} maintenance margin")
+            costs.append(f"short proceeds earn the cash rate less {f(self.short_rebate_spread, '.2%')}")
+        if (self.side != "long" or (self.leverage or 1) > 1) and self.maintenance_margin:
+            costs.append(f"{f(self.maintenance_margin, '.0%')} maintenance margin")
         lines.append("Costs: " + (", ".join(costs) if costs else "none"))
         cr = self.cash_rate
         lines.append("Cash: " + ("earns the 3-month T-bill rate" if cr == "tbill" else
-                                 f"earns {float(cr):.2%}/yr" if cr else "earns nothing"))
+                                 f"earns {f(cr, '.2%')}/yr" if cr else "earns nothing"))
         if self.start or self.end:
             lines.append(f"Period: {self.start or 'start of data'} to {self.end or 'latest'}")
         return "\n".join(lines)

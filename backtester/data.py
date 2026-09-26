@@ -32,6 +32,26 @@ def available_tickers() -> list[str]:
     return sorted(p.stem for p in PRICES.glob("*.csv"))
 
 
+def suggest(ticker: str, n: int = 5) -> list[str]:
+    """The `n` available tickers closest in spelling to `ticker` (for "did you mean" messages)."""
+    from difflib import SequenceMatcher
+    t = canonical(ticker).lstrip("^")
+
+    def score(h: str) -> float:
+        b = h.lstrip("^")
+        return (SequenceMatcher(None, t, b).ratio() + 0.3 * (sorted(t) == sorted(b))
+                + 0.1 * (b[:1] == t[:1]) - 0.05 * abs(len(b) - len(t)))
+    ranked = sorted(available_tickers(), key=lambda h: -score(h))
+    return [h for h in ranked[:n] if score(h) > 0.3]
+
+
+def unknown_ticker_message(ticker: str) -> str:
+    t = canonical(ticker)
+    s = suggest(t)
+    return (f"No price data for {t}." + (f" Did you mean {', '.join(s)}?" if s else "")
+            + " (The Data page lists every ticker; on your own computer new tickers are downloaded automatically.)")
+
+
 @lru_cache(maxsize=1)
 def universe_meta() -> dict:
     return json.loads(UNIVERSE_FILE.read_text()) if UNIVERSE_FILE.exists() else {}
@@ -208,7 +228,7 @@ def load(ticker: str) -> pd.DataFrame:
     t = canonical(ticker)
     path = PRICES / f"{t}.csv"
     if not path.exists() and not fetch_on_demand(t):
-        raise DataError(f"No price data for {t}. Available: {', '.join(available_tickers())}")
+        raise DataError(unknown_ticker_message(t))
     raw = pd.read_csv(path, parse_dates=["date"], index_col="date").sort_index()
     raw = raw[~raw.index.duplicated(keep="last")]
     raw = raw[(raw["close"] > 0) & raw["close"].notna()]
