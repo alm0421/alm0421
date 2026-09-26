@@ -5,6 +5,7 @@ side by side against benchmark buy-and-hold curves.
 """
 from __future__ import annotations
 
+import ast
 import dataclasses
 import html
 import json
@@ -23,6 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = Path(__file__).with_name("report_template.html")
 MAX_PRICE_POINTS = 200_000  # ~1.5 MB of JSON at most
 MAX_PRICE_TICKERS = 40
+MAX_EMBED_TICKERS = 12      # tickers embedded in report.html; the others load from charts/<TICKER>.js on demand
 # Price-scale indicators, drawn over the candles. The lookbehind skips sym("SPY").sma(200)-style calls on
 # another ticker, which would otherwise be evaluated on the charted one.
 INDICATOR_RE = re.compile(r"(?<![\w.])(sma|ema|wma|rma|bb_upper|bb_lower|keltner_upper|keltner_lower|donchian_upper|"
@@ -135,7 +137,8 @@ def _run_name(res: Result, i: int) -> str:
 
 # ------------------------------------------------------------------ analysis
 
-def cost_sensitivity(res: Result, levels=(0, 5, 10, 25)) -> list[dict]:
+def cost_sensitivity(res: Result, levels=(0, 5, 10, 25), warm=None) -> list[dict]:
+    """The run repeated at several slippage levels (stats from `warm`, the end of the indicator warm-up)."""
     from . import runner
     rows = []
     base = res.strategy.slippage_bps
@@ -145,6 +148,7 @@ def cost_sensitivity(res: Result, levels=(0, 5, 10, 25)) -> list[dict]:
         else:
             s = dataclasses.replace(res.strategy, slippage_bps=float(bps), notes=list(res.strategy.notes))
             r = runner.run(s)
+        r = trim_result(r, warm)
         fl = r.extras.get("flows")
         st = metrics.equity_stats(r.equity, flows=fl)
         rows.append({"slippage_bps": bps, "final_equity": st["end_equity"], "cagr": st["cagr"],
@@ -163,14 +167,42 @@ def _aligned_buy_and_hold(t: str, idx: pd.DatetimeIndex, cap: float) -> pd.Serie
     return b
 
 
-def benchmark_series(res: Result) -> dict[str, pd.Series]:
+LATE_DAYS = 7  # a benchmark whose data starts this many days after the strategy's first bar covers only part
+
+
+def _first_date(t: str):
+    try:
+        return data.load(t).index[0]
+    except (FileNotFoundError, data.DataError, KeyError):
+        return None
+
+
+def default_benchmark(res: Result) -> str:
+    """The comparison ticker: the user's choice, else SPY; when the run starts before SPY existed (1993),
+    SPYSIM (the US market spliced into SPY) so alpha, beta and the head-to-head cover the whole period."""
+    b = getattr(res.strategy, "benchmark", None)
+    if b:
+        return data.canonical(b)
+    if len(res.equity.index) > 1:
+        spy = _first_date("SPY")
+        first = res.equity.index[1]
+        if spy is not None and spy > first + pd.Timedelta(days=LATE_DAYS):
+            sim = _first_date("SPYSIM")
+            if sim is not None and sim <= first + pd.Timedelta(days=LATE_DAYS):
+                return "SPYSIM"
+    return "SPY"
+
+
+def benchmark_series(res: Result, nav_: pd.Series | None = None) -> dict[str, pd.Series]:
     """Benchmark buy-and-hold curves (growth of the starting capital, no cash flows), bought at the
-    close of the strategy's first bar with the same capital."""
+    close of the strategy's first bar with the same capital. A benchmark that starts later (its data
+    begins after the strategy's first bar) is bought on its first day at the strategy's growth index
+    (`nav_`) of that day, so the curves are comparable from then on; its stats cover only its own period."""
     s = res.strategy
     idx = res.equity.index
     cap = float(res.equity.iloc[0])
     names: list[str] = []
-    primary = getattr(s, "benchmark", None) or "SPY"
+    primary = default_benchmark(res)
     names.append(primary)
     uni = getattr(s, "universe", [])
     if res.kind == "signal" and len(uni) == 1 and uni[0] not in names and not uni[0].startswith("^"):
@@ -182,16 +214,42 @@ def benchmark_series(res: Result) -> dict[str, pd.Series]:
     for t in names:
         b = _aligned_buy_and_hold(t, idx, cap)
         if b is not None and len(b) > 30:
+            if nav_ is not None and len(idx) > 1 and b.index[0] > idx[1]:
+                base = nav_.reindex(nav_.index.union(b.index[:1])).ffill().get(b.index[0])
+                if base is not None and np.isfinite(base) and base > 0:
+                    b = b / float(b.iloc[0]) * float(base)
             out[f"{t} buy & hold"] = b
     return out
 
 
-def benchmarks_with_flows(benches: dict[str, pd.Series], flows: pd.Series | None) -> dict[str, pd.Series]:
+def benchmark_coverage(benches: dict[str, pd.Series], first_bar) -> dict[str, str]:
+    """{benchmark: first date} for benchmarks that start after the strategy's first bar."""
+    if first_bar is None:
+        return {}
+    lim = pd.Timestamp(first_bar) + pd.Timedelta(days=LATE_DAYS)
+    return {k: str(b.index[0].date()) for k, b in benches.items() if len(b) and b.index[0] > lim}
+
+
+def benchmarks_with_flows(benches: dict[str, pd.Series], flows: pd.Series | None,
+                          equity: pd.Series | None = None) -> dict[str, pd.Series]:
     """The benchmarks' dollar values when they receive the portfolio's own contributions and
-    withdrawals (a like-for-like 'account value' comparison)."""
+    withdrawals (a like-for-like 'account value' comparison). A benchmark that starts after the portfolio
+    starts with the portfolio's account balance on its first day and receives the flows after that day,
+    on their original schedule and indexing (so it does not run out from starting with the initial capital)."""
     if flows is None or float(flows.abs().sum()) == 0:
         return {}
-    return {k: metrics.with_flows(b, flows) for k, b in benches.items()}
+    out = {}
+    for k, b in benches.items():
+        if equity is not None and len(equity) > 1 and b.index[0] > equity.index[1]:
+            b0 = b.index[0]
+            bal = equity.reindex(equity.index.union([b0])).ffill().get(b0)
+            if bal is None or not np.isfinite(bal) or bal <= 0:
+                continue
+            g = b / float(b.iloc[0]) * float(bal)
+            out[k] = metrics.with_flows(g, flows[flows.index > b0])
+        else:
+            out[k] = metrics.with_flows(b, flows)
+    return out
 
 
 def real_equity(equity: pd.Series) -> pd.Series | None:
@@ -206,69 +264,276 @@ def real_equity(equity: pd.Series) -> pd.Series | None:
     return equity / (ci / base)
 
 
+def _deflator(idx: pd.DatetimeIndex) -> list | None:
+    c = data.cpi()
+    if c.empty or not len(idx):
+        return None
+    ci = c.reindex(idx.union(c.index)).ffill().reindex(idx)
+    if ci.isna().all():
+        return None
+    return _ser(ci / ci.dropna().iloc[0], None, 6)
+
+
 def _primary_bench(res: Result, benches: dict[str, pd.Series]) -> tuple[str, pd.Series | None]:
-    primary = (getattr(res.strategy, "benchmark", None) or "SPY") + " buy & hold"
+    primary = default_benchmark(res) + " buy & hold"
     return primary, benches.get(primary)
 
 
-def price_payload(res: Result, budget: int = MAX_PRICE_POINTS) -> dict:
+# ------------------------------------------------------------------ indicator warm-up
+
+def rule_first_defined(rule, ns) -> pd.Timestamp | None:
+    """First date on which every indicator call in `rule` has a value (NaN during its look-back), or None."""
+    if not isinstance(rule, str) or not rule.strip() or ns is None:
+        return None
+    text = rule.strip()
+    try:
+        tree = ast.parse(text, mode="eval")
+    except SyntaxError:
+        return None
+    first = None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        seg = ast.get_source_segment(text, node)
+        try:
+            v = expr.evaluate_value(seg, ns)
+        except Exception:  # noqa: BLE001 - e.g. sym("SPY") alone is not a series
+            continue
+        if not isinstance(v, pd.Series) or v.dtype == bool or not len(v):
+            continue
+        fv = v.first_valid_index()
+        if fv is not None:
+            first = fv if first is None else max(first, fv)
+    return first
+
+
+def _ns(res: Result, t: str):
+    df = (res.prices or {}).get(t)
+    if df is None:
+        try:
+            df = data.load(t)
+        except (FileNotFoundError, data.DataError, KeyError):
+            return None
+    return expr.Namespace(df, ticker=t)
+
+
+def warmup(res: Result) -> tuple[pd.Timestamp | None, list[str]]:
+    """(first bar on which every rule can be evaluated, notes) when that is after the run's first bar.
+
+    Signal runs: the entry rules on the ticker with the longest history (only when no trade entered before
+    that date). Allocation runs: if-conditions on their ticker, top-N rankings / requirements on their assets
+    (the date enough assets have values to fill the N slots), and look-back weightings. Assets of a ranking
+    that only get a value later are listed in the notes (excluded until then for lack of history)."""
+    idx = res.equity.index
+    if len(idx) < 3:
+        return None, []
+    first = idx[1]
+    notes: list[str] = []
+    s = res.strategy
+    dates: list[pd.Timestamp] = []
+    if res.kind == "signal":
+        prices = res.prices or {}
+        cands = [t for t, df in prices.items() if len(df)]
+        if not cands:
+            return None, []
+        ns = _ns(res, min(cands, key=lambda t: prices[t].index[0]))
+        for rule in (s.entry, getattr(s, "short_entry", None)):
+            d = rule_first_defined(rule, ns)
+            if d is not None:
+                dates.append(d)
+        warm = max(dates) if dates else None
+        if warm is not None and res.trades is not None and not res.trades.empty:
+            if pd.Timestamp(min(res.trades["entry_date"])) < warm:
+                return None, []
+    else:
+        tree = getattr(s, "tree", None)
+        if not isinstance(tree, dict):
+            return None, []
+        from . import portfolio as _pf
+        late: dict[str, pd.Timestamp] = {}
+
+        def walk(n):
+            if not isinstance(n, dict):
+                return
+            if "if" in n:
+                d = rule_first_defined(n["if"], _ns(res, data.canonical(n.get("on", "SPY"))))
+                if d is not None:
+                    dates.append(d)
+                walk(n.get("then"))
+                walk(n.get("else"))
+            elif "filter" in n:
+                f = n["filter"]
+                u = n.get("universe", "children")
+                if not (isinstance(u, str) and u in ("NDX", "nasdaq100")):
+                    per = {}
+                    for t in _pf._universe(n):
+                        ns = _ns(res, t)
+                        if ns is None:
+                            continue
+                        ds = [x for x in (rule_first_defined(f.get("by"), ns), rule_first_defined(f.get("require"), ns))
+                              if x is not None]
+                        per[t] = max(ds) if ds else ns.df.index[0]
+                    if per:
+                        need = min(int(f.get("n", 1)), len(per))
+                        dates.append(sorted(per.values())[need - 1])
+                        late.update(per)
+                if n.get("fallback"):
+                    walk(n["fallback"])
+            elif "weights" in n:
+                kids = n.get("children") or []
+                if n["weights"] not in ("equal", "specified", "market_cap") and kids and all("asset" in k for k in kids):
+                    lb = int(n.get("lookback") or (20 if n["weights"] == "inverse_vol" else 60))
+                    for k in kids:
+                        d = rule_first_defined(f"volatility({lb})", _ns(res, data.canonical(k["asset"])))
+                        if d is not None:
+                            dates.append(d)
+                for k in kids:
+                    walk(k)
+        walk(tree)
+        warm = max(dates) if dates else None
+        start = warm if warm is not None and warm > first else first
+        for t, d in sorted(late.items(), key=lambda kv: kv[1]):
+            if d > start:
+                notes.append(f"Lookback: {t} had no value for the ranking until {d.date()} (not enough history), "
+                             "so it could not be selected before then.")
+    if warm is None or warm <= first or warm > idx[-1]:
+        return None, notes
+    wd = idx[idx >= warm][0]
+    bars = int(((idx >= first) & (idx < wd)).sum())
+    notes.insert(0, f"Warm-up: stats start on {wd.date()}, after the {bars}-day warm-up (the first day every rule's "
+                    f"indicators have values; the simulation starts {first.date()}).")
+    return wd, notes
+
+
+def trim_result(res: Result, start) -> Result:
+    """A copy of the result whose equity, exposure and holdings begin at `start` (the bar before it becomes the
+    starting point). Trades, orders and attribution are kept whole."""
+    if start is None:
+        return res
+    idx = res.equity.index
+    pos = int(idx.get_indexer([pd.Timestamp(start)])[0])
+    if pos <= 1:
+        return res
+    cut = idx[pos - 1]
+
+    def sl(x):
+        return x[x.index >= cut] if x is not None else None
+    extras = dict(res.extras)
+    if extras.get("flows") is not None:
+        extras["flows"] = extras["flows"][extras["flows"].index > cut]
+    hold = res.holdings[res.holdings.index >= pd.Timestamp(start)] if res.holdings is not None else None
+    return dataclasses.replace(res, equity=sl(res.equity), exposure=sl(res.exposure), positions=sl(res.positions),
+                               in_market=sl(res.in_market), holdings=hold, extras=extras)
+
+
+def _chart_setup(res: Result) -> tuple[list[str], list[dict], int]:
+    rules = " ".join(r for r in (res.strategy.entry, getattr(res.strategy, "short_entry", None),
+                                 res.strategy.exit_when) if isinstance(r, str) and r)
+    calls = [m.group(0) for m in INDICATOR_RE.finditer(rules) if SIMPLE_ARGS.fullmatch(m.group(2))]
+    calls = list(dict.fromkeys(calls))[:6]
+    panes = oscillator_panes(rules)
+    return calls, panes, 5 + len(calls) + sum(len(p["calls"]) for p in panes)
+
+
+def chart_tickers(res: Result) -> list[str]:
+    """Every traded ticker with price data, most-traded first (signal runs only)."""
+    if res.trades is None or res.trades.empty or res.kind != "signal":
+        return []
+    return [t for t in res.trades["ticker"].value_counts().index if (res.prices or {}).get(t) is not None]
+
+
+def _chart_segment(res: Result, t: str, many: bool) -> pd.DataFrame:
+    df = res.prices[t]
+    seg = df[(df.index >= res.equity.index[1]) & (df.index <= res.equity.index[-1])]
+    if many:
+        # many tickers: only the stretch around this ticker's trades, so more of them fit the budget
+        tt = res.trades[res.trades["ticker"] == t]
+        lo = seg.index.searchsorted(pd.Timestamp(min(tt["entry_date"])))
+        hi = seg.index.searchsorted(pd.Timestamp(max(tt["exit_date"])), side="right")
+        seg = seg.iloc[max(0, lo - 300): hi + 60]
+    return seg
+
+
+def ticker_chart(res: Result, t: str, setup=None, seg: pd.DataFrame | None = None) -> dict:
+    """OHLC + the rule's indicators for one ticker: overlays on the price, oscillators in panes."""
+    calls, panes, _ = setup or _chart_setup(res)
+    if seg is None:
+        seg = _chart_segment(res, t, res.trades["ticker"].nunique() > 1)
+    ns = expr.Namespace(res.prices[t], ticker=t)
+    overlays = {}
+    for c in calls:
+        v = _values(c, ns, seg.index)
+        if v is not None:
+            overlays[c] = v
+    tpanes = []
+    for p in panes:
+        series = {}
+        for c in p["calls"]:
+            v = _values(c, ns, seg.index)
+            if v is not None:
+                series[c] = v
+        if series:
+            tpanes.append({"name": p["name"], "series": series, "levels": p["levels"], "range": p["range"]})
+    return {
+        "dates": [d.strftime("%Y-%m-%d") for d in seg.index],
+        "o": seg["open"].round(4).tolist(), "h": seg["high"].round(4).tolist(),
+        "l": seg["low"].round(4).tolist(), "c": seg["close"].round(4).tolist(),
+        "overlays": overlays, "panes": tpanes,
+    }
+
+
+def price_payload(res: Result, budget: int = MAX_PRICE_POINTS, max_tickers: int = MAX_PRICE_TICKERS) -> dict:
     """OHLC + indicators for the traded tickers (most-traded first), within a size budget.
 
     Price-scale indicators (moving averages, bands, stops) go in "overlays"; oscillators used by the rules
     (RSI, MACD, stochastic, ADX, CCI, Williams %R, MFI...) go in "panes", one sub-pane per indicator family,
     with the rule's numeric thresholds as "levels".
     """
-    if res.trades is None or res.trades.empty or res.kind != "signal":
+    tks = chart_tickers(res)
+    if not tks:
         return {}
-    counts = res.trades["ticker"].value_counts()
-    start = res.equity.index[1]
-    end = res.equity.index[-1]
-    rules = " ".join(r for r in (res.strategy.entry, getattr(res.strategy, "short_entry", None),
-                                 res.strategy.exit_when) if isinstance(r, str) and r)
-    calls = [m.group(0) for m in INDICATOR_RE.finditer(rules) if SIMPLE_ARGS.fullmatch(m.group(2))]
-    calls = list(dict.fromkeys(calls))[:6]
-    panes = oscillator_panes(rules)
-    n_series = 5 + len(calls) + sum(len(p["calls"]) for p in panes)
+    setup = _chart_setup(res)
+    many = len(tks) > 1
     out, used = {}, 0
-    for t in counts.index:
-        df = res.prices.get(t)
-        if df is None:
-            continue
-        seg = df[(df.index >= start) & (df.index <= end)]
-        if len(counts) > 1:
-            # many tickers: ship only the stretch around this ticker's trades so more tickers fit the budget
-            tt = res.trades[res.trades["ticker"] == t]
-            lo = seg.index.searchsorted(pd.Timestamp(min(tt["entry_date"])))
-            hi = seg.index.searchsorted(pd.Timestamp(max(tt["exit_date"])), side="right")
-            seg = seg.iloc[max(0, lo - 300): hi + 60]
-        cost = len(seg) * n_series
-        if len(out) >= MAX_PRICE_TICKERS:
+    for t in tks:
+        if len(out) >= max_tickers:
             break
+        seg = _chart_segment(res, t, many)
+        cost = len(seg) * setup[2]
         if used + cost > budget and out:
             continue  # a less-traded ticker with a shorter stretch may still fit
-        ns = expr.Namespace(df, ticker=t)
-        overlays = {}
-        for c in calls:
-            v = _values(c, ns, seg.index)
-            if v is not None:
-                overlays[c] = v
-        tpanes = []
-        for p in panes:
-            series = {}
-            for c in p["calls"]:
-                v = _values(c, ns, seg.index)
-                if v is not None:
-                    series[c] = v
-            if series:
-                tpanes.append({"name": p["name"], "series": series, "levels": p["levels"], "range": p["range"]})
-        out[t] = {
-            "dates": [d.strftime("%Y-%m-%d") for d in seg.index],
-            "o": seg["open"].round(4).tolist(), "h": seg["high"].round(4).tolist(),
-            "l": seg["low"].round(4).tolist(), "c": seg["close"].round(4).tolist(),
-            "overlays": overlays, "panes": tpanes,
-        }
+        out[t] = ticker_chart(res, t, setup, seg)
         used += cost
     return out
+
+
+def chart_file_name(t: str, run: int | None = None) -> str:
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", t)
+    return f"charts/{'' if run is None else f'r{run + 1}-'}{safe}.js"
+
+
+def write_chart_files(res: Result, out_dir: Path, skip: set, run: int | None = None) -> dict[str, str]:
+    """One file per traded ticker not embedded in the report (charts/<TICKER>.js next to report.html), loaded
+    by the report when that ticker is picked. It is a script that registers the JSON payload, so it loads
+    both from a web server and from a report opened as a local file (file://, where fetch() is blocked)."""
+    files = {}
+    tks = [t for t in chart_tickers(res) if t not in skip]
+    if not tks:
+        return files
+    setup = _chart_setup(res)
+    many = len(chart_tickers(res)) > 1
+    (out_dir / "charts").mkdir(parents=True, exist_ok=True)
+    for t in tks:
+        name = chart_file_name(t, run)
+        P = ticker_chart(res, t, setup, _chart_segment(res, t, many))
+        ds = pd.to_datetime(P.pop("dates"))
+        if len(ds):  # dates as the first date + day steps (the report rebuilds the list): ~40% smaller files
+            P["d0"] = ds[0].strftime("%Y-%m-%d")
+            P["dd"] = [int(x) for x in np.diff(ds.values).astype("timedelta64[D]").astype(int)]
+        blob = json.dumps(_clean(P), separators=(",", ":"))
+        (out_dir / name).write_text(f"(window.__charts=window.__charts||{{}})[{json.dumps(name)}]={blob};\n")
+        files[t] = name
+    return files
 
 
 def holdings_payload(res: Result) -> dict:
@@ -294,41 +559,84 @@ def holdings_payload(res: Result) -> dict:
             "as_of": hw.index[-1].strftime("%Y-%m-%d")}
 
 
+def signal_attribution(res: Result) -> pd.DataFrame | None:
+    """P&L per ticker for a signal run, from its trades (closed and still open): sum(pnl) + interest equals
+    final equity - starting capital."""
+    tr = res.trades
+    if res.kind != "signal" or tr is None or tr.empty:
+        return None
+    g = tr.groupby("ticker")
+    closed, opened = metrics.split_open(tr)
+    df = pd.DataFrame({
+        "pnl": g["pnl"].sum(),
+        "trades": closed.groupby("ticker").size().reindex(g.size().index).fillna(0).astype(int),
+        "open_pnl": opened.groupby("ticker")["pnl"].sum().reindex(g.size().index).fillna(0.0),
+        "win_rate": closed.groupby("ticker")["pnl"].apply(lambda p: (p > 0).mean()).reindex(g.size().index),
+        "dividends": g["income"].sum() if "income" in tr else 0.0,
+        "commissions": g["commission"].sum() if "commission" in tr else 0.0,
+    }).reset_index()
+    tot = df["pnl"].sum()
+    df["share_of_pnl"] = df["pnl"] / tot if abs(tot) > 1e-9 else np.nan
+    return df.sort_values("pnl", key=lambda s: -s.abs()).reset_index(drop=True)
+
+
 def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, detail: bool = True) -> dict:
     s = res.strategy
+    full = res
+    warm, warm_notes = warmup(res)
+    for n in warm_notes:
+        if n not in s.notes:
+            s.notes.append(n)
+    res = trim_result(res, warm)
     flows = res.extras.get("flows")
     has_flows = flows is not None and float(flows.abs().sum()) > 0
-    nv = metrics.nav(res.equity, flows) if has_flows else res.equity
+    nv = metrics.floor_at_zero(metrics.nav(res.equity, flows) if has_flows else res.equity)
     first_bar = res.equity.index[1] if len(res.equity) > 1 else None
     stats = metrics.equity_stats(res.equity, rf, flows if has_flows else None, first_bar=first_bar)
     tstats = metrics.trade_stats(res.trades, stats["years"])
-    no_trades = res.kind == "signal" and not tstats.get("trades")
+    no_trades = res.kind == "signal" and not (tstats.get("trades") or tstats.get("open_trades"))
     warnings = metrics.result_warnings(res.kind, stats, tstats, res.interest, has_flows)
     if no_trades:
         stats = metrics.suppress_degenerate(stats)
     expo = metrics.exposure_stats(res.exposure, res.positions, res.in_market)
-    benches = benchmark_series(res)
+    benches = benchmark_series(res, nv)
     pname, pseries = _primary_bench(res, benches)
     rel = {} if no_trades else metrics.relative_stats(nv, pseries, rf)  # beta/alpha of idle cash mean nothing
     yearly = metrics.yearly_detail(nv, res.trades, res.exposure, first_bar=first_bar)
+    bal = metrics.yearly_balances(res.equity, nv, flows if has_flows else None)
+    for c in bal.columns:
+        yearly[c] = bal[c].reindex(yearly.index)
     yr_b = metrics.yearly_returns(benches)
     for n in yr_b:
         yearly[n] = yr_b[n].reindex(yearly.index)
+    attribution = res.extras.get("attribution")
+    if attribution is None:
+        attribution = signal_attribution(full)
     A = {
-        "result": res, "strategy": s, "nav": nv, "flows": flows if has_flows else None,
+        "result": res, "result_full": full, "warmup_start": warm, "strategy": s, "nav": nv,
+        "flows": flows if has_flows else None,
         "stats": stats, "cash": metrics.cashflow_stats(res.equity, flows if has_flows else None),
         "trade_stats": tstats, "exposure": expo, "relative": rel, "primary_benchmark": pname,
-        "benchmarks": benches, "yearly": yearly, "monthly": metrics.monthly_table(nv),
+        "benchmarks": benches, "benchmark_from": benchmark_coverage(benches, first_bar),
+        "yearly": yearly, "monthly": metrics.monthly_table(nv),
         "drawdowns": metrics.drawdown_table(nv, 5, first_bar=first_bar), "rf": rf, "interest": res.interest,
         "turnover": res.extras.get("turnover_annual"), "rebalances": res.extras.get("rebalances"),
         "warnings": warnings, "no_trades": no_trades,
         "first_bar": first_bar, "fees": res.extras.get("fees", 0.0),
         "equity_real": real_equity(res.equity),
-        "attribution": res.extras.get("attribution"),
+        "attribution": attribution,
     }
-    bwf = benchmarks_with_flows(benches, flows if has_flows else None)
+    bwf = benchmarks_with_flows(benches, flows if has_flows else None, res.equity)
     A["benchmarks_with_flows"] = bwf
-    A["benchmark_cash"] = {k: metrics.cashflow_stats(v, flows) for k, v in bwf.items()}
+    A["benchmark_cash"] = {}
+    for k, v in bwf.items():
+        b0 = benches[k].index[0]
+        late = len(res.equity) > 1 and b0 > res.equity.index[1]
+        cs = metrics.cashflow_stats(v, flows[flows.index > b0] if late else flows)
+        if late:
+            cs["from"] = b0.date()
+            cs["note"] = "starts with the portfolio's balance on its first day"
+        A["benchmark_cash"][k] = cs
     A["withdrawal_rates"] = {}
     if res.kind == "allocation" and (getattr(s, "withdrawal", 0) or getattr(s, "withdrawal_pct", 0)):
         from . import montecarlo
@@ -337,7 +645,7 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
             A["withdrawal_rates"].update({"from": stats["start"], "to": stats["end"]})
     if detail:
         A["monte_carlo"] = metrics.monte_carlo(res.equity, flows if has_flows else None) if mc and not no_trades else {}
-        A["sensitivity"] = cost_sensitivity(res) if sensitivity and not no_trades else []
+        A["sensitivity"] = cost_sensitivity(full, warm=warm) if sensitivity and not no_trades else []
         A["rolling"] = metrics.rolling_series(nv, pseries, rf)
         A["rolling_summary"] = metrics.rolling_summary(nv)
         A["crises"] = metrics.crisis_table({"Strategy": nv, **benches})
@@ -352,8 +660,22 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
     return A
 
 
+def _window_stats(series: dict, start, end, fb, rf, blank) -> dict:
+    out = {}
+    for k, s in series.items():
+        seg = s[(s.index >= start) & (s.index <= end)]
+        seg = seg[seg.index >= seg[seg > 0].index[0]] if (seg > 0).any() else seg.iloc[:0]
+        if len(seg) < 30:
+            continue
+        st = metrics.equity_stats(seg / seg.iloc[0] * 10_000, rf, first_bar=fb)
+        out[k] = metrics.suppress_degenerate(st) if k in blank else st
+    return out
+
+
 def common_window_stats(analyses: list[dict], rf="tbill") -> dict:
-    """Stats for every run and benchmark over their common period (like-for-like comparison)."""
+    """Stats for every run and benchmark over their common period (like-for-like comparison: "columns"), and
+    over the whole test period where each exists ("full": a benchmark that starts later is measured from its
+    own first day and listed in "full_from")."""
     series, blank = {}, set()
     for i, A in enumerate(analyses):
         name = _run_name(A["result"], i) if len(analyses) > 1 else "Strategy"
@@ -366,12 +688,17 @@ def common_window_stats(analyses: list[dict], rf="tbill") -> dict:
     end = min(s.index[-1] for s in series.values())
     fb = next((A.get("first_bar") for A in analyses if A.get("first_bar") is not None and A["result"].equity.index[0] == start), None)
     out = {"start": metrics.display_date(start, fb).date(), "end": end.date(), "columns": {}}
-    for k, s in series.items():
-        seg = s[(s.index >= start) & (s.index <= end)]
-        if len(seg) < 30:
-            continue
-        st = metrics.equity_stats(seg / seg.iloc[0] * 10_000, rf, first_bar=fb)
-        out["columns"][k] = metrics.suppress_degenerate(st) if k in blank else st
+    out["columns"] = _window_stats(series, start, end, fb, rf, blank)
+    # full period: from the earliest run's start to the latest end
+    fstart = min(A["nav"].index[0] for A in analyses)
+    fend = max(A["nav"].index[-1] for A in analyses)
+    ffb = next((A.get("first_bar") for A in analyses if A["nav"].index[0] == fstart), None)
+    out["full"] = _window_stats(series, fstart, fend, ffb, rf, blank)
+    out["full_start"] = metrics.display_date(fstart, ffb).date()
+    out["full_end"] = fend.date()
+    lim = (pd.Timestamp(ffb) if ffb is not None else fstart) + pd.Timedelta(days=LATE_DAYS)
+    out["full_from"] = {k: str(metrics.display_date(s.index[0], ffb).date()) for k, s in series.items()
+                        if len(s) and s.index[0] > lim}
     return out
 
 
@@ -389,9 +716,27 @@ def num(x, d=2):
     return f"{x:,.{d}f}"
 
 
+def interpretation(s) -> str:
+    """The spec's summary(), completed where it leaves something out: a portfolio's expense ratio is a cost
+    (Portfolio.summary() only lists trading costs)."""
+    text = s.summary()
+    er = getattr(s, "expense_ratio", 0) or 0
+    if er and "expense" not in text:
+        fee = f"{er:.2%}/yr expense ratio on invested assets"
+        lines = text.splitlines()
+        for j, ln in enumerate(lines):
+            if ln.startswith("Costs:"):
+                lines[j] = "Costs: " + fee if ln.strip() == "Costs: none" else ln + ", " + fee
+                break
+        else:
+            lines.append("Costs: " + fee)
+        text = "\n".join(lines)
+    return text
+
+
 def console_summary(A: dict) -> str:
     s, st, ts, ex = A["strategy"], A["stats"], A["trade_stats"], A["exposure"]
-    L = ["=" * 78, s.description or s.name or "(strategy)", "-" * 78, s.summary()]
+    L = ["=" * 78, s.description or s.name or "(strategy)", "-" * 78, interpretation(s)]
     for n in s.notes:
         L.append(f"Note: {n}")
     for w in A.get("warnings") or []:
@@ -411,13 +756,19 @@ def console_summary(A: dict) -> str:
              f"(excess over {'T-bills' if A['rf'] == 'tbill' else pct(float(A['rf'] or 0))})")
     L.append(f"Max drawdown      {pct(st['max_drawdown'])}  peak {st['max_dd_peak']}  trough {st['max_dd_trough']}  recovered {st['max_dd_recovery'] or 'not yet'}")
     L.append(f"Volatility        {pct(st['volatility'])}   Time in market {pct(ex['time_in_market'])}   Avg exposure {pct(ex['avg_exposure'])}")
-    if ts.get("trades") and A["result"].kind == "allocation":
-        L.append(f"Holding periods   {ts['trades']}   win rate {pct(ts['win_rate'], 1)}   (a ticker held from first purchase until sold out)")
+    if A["result"].kind == "allocation":
+        n_hp = int(ts.get("trades") or 0) + int(ts.get("open_trades") or 0)
+        if n_hp:
+            L.append(f"Holding periods   {n_hp}   ({ts.get('open_trades') or 0} still held; a ticker held from first "
+                     "purchase until sold out)")
     elif ts.get("trades"):
-        L.append(f"Trades            {ts['trades']}  ({num(ts['trades_per_year'], 1)}/yr)   Win rate {pct(ts['win_rate'], 1)}   Profit factor {num(ts['profit_factor'])}")
+        L.append(f"Trades            {ts['trades']} closed  ({num(ts['trades_per_year'], 1)}/yr)   Win rate {pct(ts['win_rate'], 1)}   Profit factor {num(ts['profit_factor'])}")
         L.append(f"Avg trade         {pct(ts['avg_return'])}   Avg win {pct(ts['avg_win'])}   Avg loss {pct(ts['avg_loss'])}   t-stat {num(ts['t_stat'])}")
     else:
-        L.append("Trades            0")
+        L.append("Trades            0 closed")
+    if A["result"].kind == "signal" and ts.get("open_trades"):
+        L.append(f"Open P&L          ${ts['open_pnl']:,.2f} on {ts['open_trades']} position(s) still open at the end "
+                 "(marked at the last close; not in the trade statistics)")
     if A.get("turnover") is not None:
         L.append(f"Turnover          {pct(A['turnover'] / 2, 0)} per year (one-sided)   Rebalances {A['rebalances']}")
     if A["relative"]:
@@ -428,29 +779,43 @@ def console_summary(A: dict) -> str:
     L.append(f"{'':24s} {'Final $':>14s} {'CAGR':>8s} {'Sharpe':>7s} {'MaxDD':>8s}  (each from its first date)")
     L.append(f"{'Strategy':24s} {st['end_equity']:>14,.0f} {pct(st['cagr']):>8s} {num(st['sharpe']):>7s} {pct(st['max_drawdown'], 1):>8s}")
     bwf = A.get("benchmarks_with_flows") or {}
+    late = A.get("benchmark_from") or {}
     for n, b in A["benchmarks"].items():
         bs = metrics.equity_stats(b, A["rf"], first_bar=A.get("first_bar"))
         final = float(bwf[n].iloc[-1]) if n in bwf else bs["end_equity"]
         L.append(f"{n:24s} {final:>14,.0f} {pct(bs['cagr']):>8s} {num(bs['sharpe']):>7s} {pct(bs['max_drawdown'], 1):>8s}  (from {bs['start']})")
     if bwf:
-        L.append("(benchmark final values include the same contributions and withdrawals as the strategy)")
+        L.append("(benchmark final values include the same contributions and withdrawals as the strategy"
+                 + ("; one that starts later starts with the strategy's balance on its first day" if late else "") + ")")
+    elif late:
+        L.append("(a benchmark that starts later is bought at the strategy's growth index on its first day)")
     wr = A.get("withdrawal_rates") or {}
     if wr:
         L.append(f"Withdrawal rates  safe {pct(wr.get('swr'), 2)}   perpetual {pct(wr.get('pwr'), 2)}   "
                  f"(inflation-adjusted, over this history {wr['from']} -> {wr['to']}); 95% bootstrap safe rate {pct(wr.get('swr_mc95'), 2)}")
     at = A.get("attribution")
     if at is not None and len(at):
-        L.append("P&L by holding  " + "   ".join(f"{r.ticker} ${r.pnl:,.0f}" for r in at.head(8).itertuples())
-                 + f"   interest ${A['interest']:,.0f}" + (f"   fees -${A['fees']:,.0f}" if A.get("fees") else ""))
+        L.append(("P&L by holding  " if A["result"].kind == "allocation" else "P&L by ticker   ") + "   ".join(f"{r.ticker} ${r.pnl:,.0f}" for r in at.head(8).itertuples())
+                 + f"   interest ${round(A['interest']) + 0:,.0f}" + (f"   fees -${A['fees']:,.0f}" if A.get("fees") else ""))
     L.append("-" * 78)
     L.append("Returns by year")
     y = A["yearly"]
     cols = [c for c in y.columns if str(c).endswith("buy & hold")]
-    L.append(f"{'Year':8s} {'Strategy':>9s} {'MaxDD':>8s} {'Trades':>6s} " + " ".join(f"{c.replace(' buy & hold', ''):>8s}" for c in cols))
+    alloc = A["result"].kind == "allocation"
+    if alloc:
+        L.append(f"{'Year':8s} {'Return':>8s} {'Real':>7s} {'Infl.':>6s} {'Start $':>13s} {'Added $':>11s} {'Withdrawn $':>11s} {'End $':>13s} "
+                 + " ".join(f"{c.replace(' buy & hold', ''):>8s}" for c in cols))
+    else:
+        L.append(f"{'Year':8s} {'Strategy':>9s} {'MaxDD':>8s} {'Trades':>6s} " + " ".join(f"{c.replace(' buy & hold', ''):>8s}" for c in cols))
     for yr, row in y.iterrows():
         lab = f"{yr}{'*' if row.get('partial') else ''}"
-        L.append(f"{lab:8s} {pct(row['return'], 1):>9s} {pct(row['max_drawdown'], 1):>8s} {int(row['trades']):>6d} "
-                 + " ".join(f"{pct(row[c], 1) if pd.notna(row[c]) else '':>8s}" for c in cols))
+        tail = " ".join(f"{pct(row[c], 1) if pd.notna(row[c]) else '':>8s}" for c in cols)
+        if alloc:
+            L.append(f"{lab:8s} {pct(row['return'], 1):>8s} {pct(row.get('real_return'), 1):>7s} {pct(row.get('inflation'), 1):>6s} "
+                     f"{row.get('start_balance', np.nan):>13,.0f} {row.get('contributions', 0):>11,.0f} {row.get('withdrawals', 0):>11,.0f} "
+                     f"{row.get('end_balance', np.nan):>13,.0f} " + tail)
+        else:
+            L.append(f"{lab:8s} {pct(row['return'], 1):>9s} {pct(row['max_drawdown'], 1):>8s} {int(row['trades']):>6d} " + tail)
     if y["partial"].any():
         L.append("* partial year")
     tr = A["result"].trades
@@ -488,7 +853,7 @@ def run_payload(A: dict, i: int, idx: pd.DatetimeIndex) -> dict:
         "name": _run_name(res, i),
         "kind": res.kind,
         "title": s.description or s.summary().splitlines()[0],
-        "interpretation": s.summary().splitlines(),
+        "interpretation": interpretation(s).splitlines(),
         "notes": list(s.notes),
         "spec": dataclasses.asdict(s),
         "equity": _ser(res.equity, idx, 2),
@@ -512,7 +877,7 @@ def run_payload(A: dict, i: int, idx: pd.DatetimeIndex) -> dict:
         "trades": _trades_records(res),
         "orders": res.orders.to_dict("records") if res.orders is not None and not res.orders.empty and len(res.orders) <= 20000 else [],
         "holdings": holdings_payload(res),
-        "prices": price_payload(res),
+        "prices": {},        # filled by build_payload (embedded charts) / chart files
         "universe_size": len(getattr(s, "universe", []) or []),
         # account value in dollars of the first day (CPI-deflated), for a real/nominal toggle
         "equity_real": _ser(A["equity_real"], idx, 2) if A.get("equity_real") is not None else None,
@@ -521,6 +886,8 @@ def run_payload(A: dict, i: int, idx: pd.DatetimeIndex) -> dict:
         "withdrawal_rates": A.get("withdrawal_rates") or {},
         "benchmark_cash": A.get("benchmark_cash") or {},
         "first_bar": A.get("first_bar"),
+        "warmup_start": A.get("warmup_start"),
+        "benchmark_from": A.get("benchmark_from") or {},
     }
     return p
 
@@ -530,16 +897,20 @@ def _attribution_payload(A: dict) -> dict:
     if at is None or not len(at):
         return {}
     res = A["result"]
-    fl = A.get("flows")
+    res = A.get("result_full") or res  # attribution covers the whole simulation (incl. any warm-up)
+    fl = res.extras.get("flows")
     net_flows = float(fl.sum()) if fl is not None else 0.0
     return {"rows": at.to_dict("records"), "interest": A["interest"], "fees": A.get("fees") or 0.0,
-            "total_pnl": float(at["pnl"].sum()), "net_flows": net_flows,
+            "kind": res.kind, "total_pnl": float(at["pnl"].sum()), "net_flows": net_flows,
             "start_equity": float(res.equity.iloc[0]), "end_equity": float(res.equity.iloc[-1]),
             "check": float(res.equity.iloc[-1] - res.equity.iloc[0] - net_flows
                            - (at["pnl"].sum() + A["interest"] - (A.get("fees") or 0.0)))}
 
 
-def build_payload(analyses: list[dict]) -> dict:
+def build_payload(analyses: list[dict], out_dir: Path | None = None) -> dict:
+    """The report's data. With `out_dir`, price charts of up to MAX_EMBED_TICKERS tickers per run are embedded
+    and every other traded ticker is written to out_dir/charts/ for loading on demand; without it, only the
+    embedded ones (within MAX_PRICE_TICKERS and the size budget) are charted."""
     idx = analyses[0]["result"].equity.index
     for A in analyses[1:]:
         idx = idx.union(A["result"].equity.index)
@@ -548,10 +919,25 @@ def build_payload(analyses: list[dict]) -> dict:
     title = first["strategy"].description or first["strategy"].summary().splitlines()[0]
     if len(analyses) > 1:
         title = "Comparison: " + " vs ".join(_run_name(A["result"], i) for i, A in enumerate(analyses))
+    runs = [run_payload(A, i, idx) for i, A in enumerate(analyses)]
+    if out_dir is not None:
+        cd = out_dir / "charts"
+        if cd.is_dir():
+            for f in cd.glob("*.js"):
+                f.unlink()
+    for i, (A, rp) in enumerate(zip(analyses, runs)):
+        full = A.get("result_full") or A["result"]
+        if out_dir is None:
+            rp["prices"] = price_payload(full)
+            rp["chart_tickers"], rp["chart_files"] = list(rp["prices"]), {}
+            continue
+        rp["prices"] = price_payload(full, max_tickers=MAX_EMBED_TICKERS)
+        rp["chart_tickers"] = chart_tickers(full)
+        rp["chart_files"] = write_chart_files(full, out_dir, set(rp["prices"]), i if len(analyses) > 1 else None)
     return {
         "title": title,
         "dates": [d.strftime("%Y-%m-%d") for d in idx],
-        "runs": [run_payload(A, i, idx) for i, A in enumerate(analyses)],
+        "runs": runs,
         # values: growth of the starting capital; with_flows: the same benchmark receiving the first
         # run's contributions/withdrawals (compare with the runs' "equity" account values)
         "benchmarks": [{"name": n, "values": _ser(b, idx, 2),
@@ -559,6 +945,9 @@ def build_payload(analyses: list[dict]) -> dict:
                            if n in (first.get("benchmarks_with_flows") or {}) else {})} for n, b in benches.items()],
         "benchmark_yearly": {n: {int(y): float(v) for y, v in metrics.yearly_returns({n: b})[n].items()} for n, b in benches.items()},
         "common": common_window_stats(analyses, analyses[0]["rf"]),
+        "benchmark_from": first.get("benchmark_from") or {},
+        # CPI relative to the first date (divide a dollar series by it for dollars of the start date)
+        "deflator": _deflator(idx),
         "rf": analyses[0]["rf"],
         "data": data.data_status(),
         "generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -598,7 +987,9 @@ def write_outputs(analyses: list[dict] | dict, out_dir: Path, excel: bool = True
         (out_dir / f"{pre}strategy.json").write_text(A["strategy"].to_json())
         summary = {k: A.get(k) for k in ("stats", "cash", "trade_stats", "exposure", "relative", "monte_carlo",
                                          "sensitivity", "rolling_summary", "crises", "factors")}
-        summary.update({"description": A["strategy"].description, "interpretation": A["strategy"].summary(),
+        summary.update({"description": A["strategy"].description, "interpretation": interpretation(A["strategy"]),
+                        "open_pnl": A["trade_stats"].get("open_pnl", 0.0), "open_trades": A["trade_stats"].get("open_trades", 0),
+                        "warmup_start": A.get("warmup_start"), "benchmark_from": A.get("benchmark_from") or {},
                         "notes": A["strategy"].notes, "kind": res.kind, "warnings": A.get("warnings", []),
                         "drawdowns": A["drawdowns"].to_dict("records"),
                         "withdrawal_rates": A.get("withdrawal_rates") or {},
@@ -607,7 +998,7 @@ def write_outputs(analyses: list[dict] | dict, out_dir: Path, excel: bool = True
         (out_dir / f"{pre}summary.json").write_text(json.dumps(_clean(summary), indent=2))
         if excel:
             _excel(A, out_dir / f"{pre}report.xlsx")
-    payload = build_payload(analyses)
+    payload = build_payload(analyses, out_dir)
     blob = json.dumps(_clean(payload), separators=(",", ":")).replace("</", "<\\/")
     page = TEMPLATE.read_text().replace("__TITLE__", html.escape(payload["title"][:80])).replace("__DATA__", blob)
     path = out_dir / "report.html"
@@ -624,7 +1015,7 @@ def _excel(A: dict, path: Path) -> None:
         return
     res = A["result"]
     with pd.ExcelWriter(path, engine="openpyxl") as xw:
-        rows = [("Strategy", A["strategy"].description or ""), ("Interpretation", A["strategy"].summary())]
+        rows = [("Strategy", A["strategy"].description or ""), ("Interpretation", interpretation(A["strategy"]))]
         rows += [(k, v) for k, v in _clean(A["stats"]).items()]
         rows += [(f"cash: {k}", v) for k, v in _clean(A["cash"]).items()]
         rows += [(f"trades: {k}", v) for k, v in _clean(A["trade_stats"]).items()]

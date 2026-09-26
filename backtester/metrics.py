@@ -47,6 +47,15 @@ def nav(equity: pd.Series, flows: pd.Series | None = None) -> pd.Series:
     return pd.concat([equity.iloc[:1], out])
 
 
+def floor_at_zero(nav_: pd.Series) -> pd.Series:
+    """A growth index that stays at zero from the first day the account is wiped out (equity at or below
+    zero), so returns are -100% on that day and nothing after it; the dollar equity keeps its real value."""
+    if not len(nav_) or not (nav_ <= 0).any():
+        return nav_
+    dead = (nav_ <= 0).cummax()
+    return nav_.where(~dead, 0.0)
+
+
 def rf_daily(index: pd.DatetimeIndex, rf) -> pd.Series:
     if rf == "tbill":
         s = data.tbill_rate()
@@ -165,14 +174,29 @@ def xirr(dates: list, amounts: list) -> float:
 
 # ------------------------------------------------------------------ statistics
 
+def annualise(growth, years):
+    """Annualised rate from a growth multiple; a multiple at or below zero (the account was wiped out) is -100%
+    rather than NaN, without numpy's warnings about fractional powers of negative numbers."""
+    if isinstance(growth, (pd.Series, pd.DataFrame)):
+        g = growth.where(growth > 0)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            out = g ** (1 / years) - 1
+        return out.where(~(growth <= 0), -1.0)
+    if growth is None or not np.isfinite(growth) or not years or years <= 0:
+        return np.nan
+    return -1.0 if growth <= 0 else float(growth) ** (1 / years) - 1
+
+
 def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, first_bar=None) -> dict:
     """Statistics for an equity curve; time-weighted if flows are given. `first_bar`: the first real
     bar when the series starts with the synthetic day-before point (only changes the dates shown)."""
     nv = nav(equity, flows) if flows is not None and flows.abs().sum() > 0 else equity
+    wiped_out = bool((nv <= 0).any())
+    nv = floor_at_zero(nv)
     r = nv.pct_change().iloc[1:].fillna(0.0)
     years = (nv.index[-1] - nv.index[0]).days / 365.25
     total = nv.iloc[-1] / nv.iloc[0] - 1
-    cagr = (nv.iloc[-1] / nv.iloc[0]) ** (1 / years) - 1 if years > 0 and nv.iloc[-1] > 0 else np.nan
+    cagr = annualise(nv.iloc[-1] / nv.iloc[0], years) if years > 0 else np.nan
     rfd = rf_daily(r.index, rf)
     ex = r - rfd
     sd = r.std()
@@ -216,7 +240,7 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, 
     if not c.empty and years > 0:
         ci = c.reindex(nv.index.union(c.index)).ffill().reindex(nv.index)
         if ci.notna().iloc[0] and ci.notna().iloc[-1]:
-            real = ((nv.iloc[-1] / nv.iloc[0]) / (ci.iloc[-1] / ci.iloc[0])) ** (1 / years) - 1
+            real = annualise((nv.iloc[-1] / nv.iloc[0]) / (ci.iloc[-1] / ci.iloc[0]), years)
     return {
         "start": display_date(nv.index[0], first_bar).date(),
         "end": nv.index[-1].date(),
@@ -225,6 +249,7 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, 
         "end_equity": float(equity.iloc[-1]),
         "total_return": total,
         "cagr": cagr,
+        "wiped_out": wiped_out,
         "real_cagr": real,
         "volatility": vol,
         "sharpe": sharpe,
@@ -277,9 +302,26 @@ def cashflow_stats(equity: pd.Series, flows: pd.Series | None) -> dict:
     }
 
 
+OPEN_REASONS = ("open at end", "still held")
+
+
+def split_open(trades: pd.DataFrame | None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(closed trades, trades still open at the end of the test, marked at the last close)."""
+    if trades is None or trades.empty or "exit_reason" not in trades:
+        empty = trades.iloc[:0] if trades is not None else pd.DataFrame()
+        return (trades if trades is not None else empty), empty
+    is_open = trades["exit_reason"].isin(OPEN_REASONS)
+    return trades[~is_open], trades[is_open]
+
+
 def trade_stats(trades: pd.DataFrame, years: float) -> dict:
+    """Trade statistics on CLOSED trades. A position still open at the end is not a result yet: its
+    mark-to-market P&L is reported separately as open_pnl (open_trades positions)."""
+    trades, opened = split_open(trades)
+    extra = {"open_trades": int(len(opened)), "open_pnl": float(opened["pnl"].sum()) if len(opened) else 0.0,
+             "open_value": float(opened["position_value"].sum()) if len(opened) and "position_value" in opened else 0.0}
     if trades is None or trades.empty:
-        return {"trades": 0}
+        return {"trades": 0, **extra}
     r = trades["return"]
     pnl = trades["pnl"]
     wins, losses = trades[pnl > 0], trades[pnl <= 0]
@@ -320,6 +362,7 @@ def trade_stats(trades: pd.DataFrame, years: float) -> dict:
         "short_trades": int((trades["side"] == "short").sum()),
         "long_win_rate": (trades.loc[trades.side == "long", "pnl"] > 0).mean() if (trades.side == "long").any() else np.nan,
         "short_win_rate": (trades.loc[trades.side == "short", "pnl"] > 0).mean() if (trades.side == "short").any() else np.nan,
+        **extra,
     }
 
 
@@ -358,7 +401,7 @@ def rolling_series(nav_: pd.Series, bench: pd.Series | None, rf="tbill") -> dict
     r = nav_.pct_change()
     out = {}
     out["return_12m"] = nav_ / nav_.shift(TRADING_DAYS) - 1
-    out["return_36m_ann"] = (nav_ / nav_.shift(3 * TRADING_DAYS)) ** (1 / 3) - 1
+    out["return_36m_ann"] = annualise(nav_ / nav_.shift(3 * TRADING_DAYS), 3)
     ex = r - rf_daily(r.index, rf)
     out["sharpe_6m"] = ex.rolling(126).mean() / r.rolling(126).std() * np.sqrt(TRADING_DAYS)
     out["vol_3m"] = r.rolling(63).std() * np.sqrt(TRADING_DAYS)
@@ -375,7 +418,7 @@ def rolling_summary(nav_: pd.Series) -> dict:
         n = yrs * TRADING_DAYS
         if len(nav_) <= n + 5:
             continue
-        rr = (nav_ / nav_.shift(n)) ** (1 / yrs) - 1
+        rr = annualise(nav_ / nav_.shift(n), yrs)
         rr = rr.dropna()
         out[f"{yrs}y"] = {"avg": rr.mean(), "best": rr.max(), "worst": rr.min(), "pct_positive": (rr > 0).mean()}
     return out
@@ -396,7 +439,7 @@ def crisis_table(series: dict[str, pd.Series]) -> list[dict]:
                 row[k] = None
                 continue
             end = s[s.index <= b]
-            row[k] = float(end.iloc[-1] / seg0.iloc[-1] - 1) if len(end) else None
+            row[k] = float(end.iloc[-1] / seg0.iloc[-1] - 1) if len(end) and seg0.iloc[-1] > 0 else None
             any_val = any_val or row[k] is not None
         if any_val:
             rows.append(row)
@@ -465,7 +508,7 @@ def yearly_detail(nav_: pd.Series, trades: pd.DataFrame, exposure: pd.Series, fi
         first, last = display_date(eq.index[0], first_bar), eq.index[-1]
         partial = (not len(prev)) and (first.month > 1 or first.day > 7) or (last.month < 12 or last.day < 24)
         rows[y] = {
-            "return": eq.iloc[-1] / base - 1,
+            "return": eq.iloc[-1] / base - 1 if base > 0 else np.nan,   # nothing left to earn a return on
             "max_drawdown": (path / path.cummax() - 1).min(),
             "end_equity": eq.iloc[-1],
             "exposure": exposure[exposure.index.year == y].mean(),
@@ -474,6 +517,7 @@ def yearly_detail(nav_: pd.Series, trades: pd.DataFrame, exposure: pd.Series, fi
             "to": last.date() if partial else None,
         }
     out = pd.DataFrame(rows).T
+    trades = split_open(trades)[0] if trades is not None else trades
     if trades is not None and not trades.empty:
         ty = pd.to_datetime(trades["exit_date"]).dt.year
         out["trades"] = trades.groupby(ty).size().reindex(out.index).fillna(0).astype(int)
@@ -481,6 +525,36 @@ def yearly_detail(nav_: pd.Series, trades: pd.DataFrame, exposure: pd.Series, fi
         out["pnl"] = trades.groupby(ty)["pnl"].sum().reindex(out.index).fillna(0)
     else:
         out["trades"], out["win_rate"], out["pnl"] = 0, np.nan, 0.0
+    out.index.name = "year"
+    return out
+
+
+def yearly_balances(equity: pd.Series, nav_: pd.Series, flows: pd.Series | None = None) -> pd.DataFrame:
+    """Per calendar year, for the account itself (Portfolio Visualizer's annual table): start and end balance,
+    contributions, withdrawals, inflation (CPI) and the time-weighted return after inflation."""
+    f = flows.reindex(equity.index).fillna(0.0) if flows is not None else pd.Series(0.0, index=equity.index)
+    c = data.cpi()
+    ci = c.reindex(nav_.index.union(c.index)).ffill().reindex(nav_.index) if not c.empty else None
+    rows = {}
+    for y, eq in equity.groupby(equity.index.year):
+        prev = equity[equity.index.year < y]
+        nprev, ny = nav_[nav_.index.year < y], nav_[nav_.index.year == y]
+        if not len(ny):
+            continue
+        base = nprev.iloc[-1] if len(nprev) else ny.iloc[0]
+        ret = ny.iloc[-1] / base - 1 if base > 0 else np.nan
+        infl = np.nan
+        if ci is not None:
+            cb = ci[nprev.index[-1]] if len(nprev) else ci[ny.index[0]]
+            ce = ci[ny.index[-1]]
+            if _finite(cb) and _finite(ce) and cb > 0:
+                infl = ce / cb - 1
+        fy = f[f.index.year == y]
+        rows[y] = {"start_balance": float(prev.iloc[-1]) if len(prev) else float(eq.iloc[0]),
+                   "contributions": float(fy[fy > 0].sum()), "withdrawals": float(-fy[fy < 0].sum()) + 0.0,
+                   "end_balance": float(eq.iloc[-1]), "inflation": infl,
+                   "real_return": (1 + ret) / (1 + infl) - 1 if _finite(ret) and _finite(infl) else np.nan}
+    out = pd.DataFrame(rows).T
     out.index.name = "year"
     return out
 
@@ -584,8 +658,13 @@ def result_warnings(kind: str, stats: dict, tstats: dict, interest: float | None
     """
     W: list[dict] = []
     n = int(tstats.get("trades") or 0)
+    n_open = int(tstats.get("open_trades") or 0)
     signal = kind == "signal"
-    if signal and n == 0:
+    if signal and n == 0 and n_open:
+        W.append({"code": "few_trades", "level": "warn", "message": "No closed trades yet",
+                  "detail": f"The only position{'s are' if n_open > 1 else ' is'} still open at the end, so there are no "
+                            "closed-trade statistics; its unrealised P&L is shown as Open P&L."})
+    elif signal and n == 0:
         W.append({"code": "no_trades", "level": "error", "message": "No trades",
                   "detail": "The entry condition never triggered, so there is nothing to evaluate. "
                             "Sharpe, Sortino, Calmar and the trade statistics are not shown."})
@@ -595,7 +674,7 @@ def result_warnings(kind: str, stats: dict, tstats: dict, interest: float | None
                             f"{FEW_TRADES} trades are mostly luck."})
     alarms = []
     sharpe, cagr, mdd = stats.get("sharpe"), stats.get("cagr"), stats.get("max_drawdown")
-    if not (signal and n == 0):
+    if not (signal and n == 0 and not n_open):
         if _finite(sharpe) and sharpe > 3:
             alarms.append(f"Sharpe ratio {sharpe:.2f} is above 3")
         if _finite(cagr) and cagr > 1:
@@ -613,6 +692,10 @@ def result_warnings(kind: str, stats: dict, tstats: dict, interest: float | None
         W.append({"code": "too_good", "level": "error",
                   "message": "Results look too good — check for lookahead or data errors",
                   "detail": "Triggered by: " + "; ".join(alarms) + ".", "rules": alarms})
+    if stats.get("wiped_out"):
+        W.append({"code": "wiped_out", "level": "error", "message": "The account was wiped out",
+                  "detail": f"Equity fell to zero or below (it ends at ${stats.get('end_equity', 0):,.0f}), so everything "
+                            "was lost: CAGR is shown as -100% and the growth index stays at zero from that day."})
     if signal and n > 0 and not has_flows and _finite(interest) and interest > 0:
         start, end, years = stats.get("start_equity"), stats.get("end_equity"), stats.get("years")
         profit = (end or 0) - (start or 0)

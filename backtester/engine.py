@@ -12,6 +12,20 @@ Order of events on each bar i:
   3. CLOSE     - time exits, rule exits and reversals at the close, then entries at the close.
   4. MARK      - portfolio marked to market at the close; liquidation if equity is exhausted.
 
+Holding periods: hold_bars N exits exactly N bars after the entry bar (the bar the entry filled on), at
+hold_exit_fill, for every entry fill. Buy at the close + hold 1 + sell at the close = the next day's close;
+buy at the (next) open + hold 3 + sell at the close = the close 3 bars after the entry bar; hold 0 = the close
+of an entry bar entered at the open. Trades report bars_held = exit bar - entry bar.
+
+Entry orders follow TradingView's pyramiding rule: an order generated while the ticker already holds its
+maximum number of entries (pyramiding, default 1) is ignored rather than kept. Next-open / next-close market
+orders and limit/stop orders are generated at the signal bar's close, after that close's exits: a position
+closed at that close is flat (the order is valid); one only scheduled to exit at the next open is not.
+Same-bar entries at the open are generated at the open, after the open's exits.
+
+Volume caps (max_volume_pct) use the fill bar's volume for fills at the close, and the previous bar's volume
+for fills at the open or intraday (the day's volume is not known yet).
+
 Prices are split-adjusted as quoted; dividends are paid in cash on the ex-date (and charged to
 shorts), so share counts, per-share commissions and whole-share sizing are realistic.
 Signals use data up to the close of the signal bar ("at the close" = market-on-close order).
@@ -299,8 +313,12 @@ def run(strat: Strategy) -> Result:
         if value <= 0 or not np.isfinite(fill) or fill <= 0:
             return 0.0
         shares = value / fill
-        if strat.max_volume_pct and V[i, k] > 0:
-            shares = min(shares, strat.max_volume_pct * V[i, k])
+        # volume cap: an order at the open can only know the previous bar's volume
+        vol_known = V[i - 1, k] if at_open else V[i, k]
+        if at_open and i == 0:
+            vol_known = np.nan
+        if strat.max_volume_pct and vol_known > 0:
+            shares = min(shares, strat.max_volume_pct * vol_known)
         if not strat.fractional_shares:
             shares = np.floor(shares)
         if sgn == 1 and shares * fill + commission(shares, shares * fill) > S["cash"] + (strat.leverage - 1) * max(eq, 0) + 1e-9:
@@ -332,13 +350,12 @@ def run(strat: Strategy) -> Result:
             positions[k].lots.append(lot)
             note_gross(prices)
             return True
+        # hold N: exit exactly N bars after the entry bar at the configured exit fill, whatever the entry fill
         hb = strat.hold_bars
         if hb is None:
             due, due_open = None, False
-        elif strat.hold_exit_fill == "close":
-            due, due_open = (i + hb - 1 if at_open else i + hb), False
         else:
-            due, due_open = i + hb, True
+            due, due_open = i + hb, strat.hold_exit_fill == "open"
         atr_ref = ATR[i - 1, k] if at_open and i > 0 else ATR[i, k]
         p = Position(k, sgn, [lot], i, px, atr_ref, due, due_open)
         if P["per_trade_exit"]:
@@ -428,6 +445,19 @@ def run(strat: Strategy) -> Result:
 
     def ranked_pairs(pairs: list[tuple[int, int]], i: int) -> list[tuple[int, int]]:
         return sorted(pairs, key=lambda kp: rank[i, kp[0]], reverse=not strat.rank_ascending)
+
+    def placeable(k: int, sgn: int) -> bool:
+        """TradingView pyramiding: an entry order generated while the ticker's position already has its maximum
+        number of entries is ignored, not kept for later. So a next-open order from a bar on which the position
+        was still held never fills after a stop closes the position at that open. A position closed at this
+        bar's close no longer counts (a signal on the exit bar is valid); one only scheduled to exit at the next
+        open still does. An opposite signal counts only if it reverses the position."""
+        p = positions.get(k)
+        if p is None:
+            return True
+        if p.sign != sgn:
+            return strat.side == "both" and strat.reverse
+        return len(p.lots) < strat.pyramiding
 
     stops_used = any([strat.stop_loss, strat.stop_atr, strat.trailing_stop, strat.trailing_atr,
                       strat.take_profit, strat.take_profit_atr, strat.scale_out])
@@ -594,6 +624,8 @@ def run(strat: Strategy) -> Result:
         # ---- 3b. entries at the close / orders for tomorrow
         if not S["halted"]:
             todays = ranked_pairs(signals(i), i)
+            if strat.entry_fill != "close" or strat.entry_order != "market":
+                todays = [(k, sgn) for k, sgn in todays if placeable(k, sgn)]
             if strat.entry_order != "market":
                 for k, sgn in todays:
                     lvl = LEVEL[i, k]

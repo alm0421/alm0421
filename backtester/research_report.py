@@ -56,7 +56,7 @@ def multiple_testing_note(mt: dict) -> str:
     dsr = mt.get("dsr")
     s = (f"Multiple testing: {n} combinations traded. Best Sharpe {num(mt['best_sharpe'])} {mt.get('best_params')}; "
          f"with Sharpes spread by {num(mt['sd_sharpe'])}, the best of {n} strategies with no edge would be expected "
-         f"to reach about {num(mt['expected_max_sharpe'])} by luck alone (rough rule sd x sqrt(2 ln N): {num(mt['expected_max_sharpe_simple'])}).")
+         f"to reach about {num(mt['expected_max_sharpe'])} by luck alone (the threshold the Deflated Sharpe below tests against).")
     if dsr is not None and np.isfinite(dsr):
         s += (f" Deflated Sharpe Ratio {pct(dsr, 1)}: the probability that the best combination's true Sharpe is above zero "
               f"after allowing for the {n} tries" + (" (below 95%: not significant)." if dsr < 0.95 else "."))

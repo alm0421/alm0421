@@ -95,9 +95,17 @@ never quietly drops them or swaps in a different ticker.
 - Risk and return against T-bills. Versus the benchmark: beta, alpha, R², up/down capture, tracking
   error, information ratio and Treynor.
 - Trades: win rate, payoff, profit factor, expectancy, MAE/MFE, streaks, t-stat, and a long/short
-  split.
+  split, all on closed trades; positions still open at the end are shown separately as "Open P&L".
+  An account that loses everything shows a CAGR of -100%.
 - A price chart with every entry and exit marked and the rule's indicators overlaid. Click a trade
-  to jump to it.
+  to jump to it. Every traded ticker can be charted: the most-traded ones are embedded in report.html and
+  the rest load from `charts/<TICKER>.js` next to it (keep that folder with the report).
+- Benchmarks: SPY and QQQ, the stock itself, and SPYSIM (the US market spliced into SPY) as the main
+  benchmark when the run starts before SPY existed. The head-to-head shows the whole period, with
+  benchmarks that start later marked "from", or the common period. The equity chart has an
+  after-inflation view.
+- When indicators need a warm-up (a 200-day average on the first bars of the data), the statistics start
+  on the first day every rule has a value, and the notes say so.
 - Allocation over time and current holdings for portfolios. A cash-flow summary with money-weighted
   IRR.
 - Returns by year (partial years flagged) and a monthly heatmap.
@@ -157,6 +165,17 @@ python -m backtester tickers                                                 # w
     where ADV20 is the average volume of the 20 bars before the order (defaults: 2 bps spread, 100
     bps impact coefficient, so 1% of ADV costs 1 + 10 = 11 bps). Tickers without volume pay only the
     half spread.
+- **Holding periods.** "hold N days" exits exactly N bars after the entry bar, at the stated exit fill,
+  whatever the entry fill: buy at the close + hold 1 + sell at the close is the next day's close; buy at the
+  next open + hold 3 is the close 3 bars after the entry day. With an entry at the open, "sell at the close"
+  and no holding period means that same day's close (hold 0).
+- **Pyramiding (TradingView rules).** With `pyramiding` 1 (the default), an entry signal that fires while the
+  ticker's position is already held is ignored, not queued: a next-open order from a day the position was
+  still open never fills after a stop closes it at that open. A position closed at a day's close is flat, so
+  that day's signal is valid.
+- **Sizing is what the summary says.** "200% per position" raises leverage to 2x (with a note) instead of
+  being capped at 100%; a long stop of 100% or more, and a starting capital of zero or less, are refused.
+  Volume caps on fills at the open use the previous day's volume.
 - **Bar ordering.** Each bar runs overnight financing and dividends → exits at the open → entries at
   the open (market, then limit/stop) → intraday stops and targets → exits at the close → entries at
   the close.
