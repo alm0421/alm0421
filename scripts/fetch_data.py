@@ -328,8 +328,7 @@ def fetch_factors() -> None:
                      ("ff5_daily", "F-F_Research_Data_5_Factors_2x3_daily_CSV.zip"),
                      ("mom_daily", "F-F_Momentum_Factor_daily_CSV.zip"),
                      ("port6_daily", "6_Portfolios_2x3_daily_CSV.zip"),
-                     ("dev_ff3_daily", "Developed_ex_US_3_Factors_Daily_CSV.zip"),
-                     ("ind49_daily", "49_Industry_Portfolios_Daily_CSV.zip")):
+                     ("dev_ff3_daily", "Developed_ex_US_3_Factors_Daily_CSV.zip")):
         try:
             z = zipfile.ZipFile(io.BytesIO(requests.get(base + fn, headers=UA, timeout=120).content))
             raw = z.read(z.namelist()[0]).decode("latin-1").splitlines()
@@ -451,13 +450,7 @@ def build_sims() -> list[str]:
         made.append("EFASIM")
     except Exception as e:  # noqa: BLE001
         print(f"sim EFASIM failed: {e}", file=sys.stderr)
-    try:
-        ind = pd.read_csv(FACTORS / "ind49_daily.csv", parse_dates=["date"], index_col="date")
-        re_col = next(c for c in ind.columns if c.strip().lower() in ("rlest", "real estate"))
-        _series_file("VNQSIM", _splice(ind[re_col].dropna(), "VNQ"), "US real estate industry (Fama-French 49 industries), then VNQ")
-        made.append("VNQSIM")
-    except Exception as e:  # noqa: BLE001
-        print(f"sim VNQSIM failed: {e}", file=sys.stderr)
+    # (the Fama-French real-estate industry is operating companies, not REITs: a poor VNQ proxy, so no VNQSIM)
     try:
         y5 = pd.read_csv(MACRO / "DGS5.csv", parse_dates=["date"], index_col="date")["value"].astype(float)
         _series_file("IEISIM", _splice(_bond_returns(y5, 5), "IEI"), "5-year Treasury off the 5-year yield, then IEI")
