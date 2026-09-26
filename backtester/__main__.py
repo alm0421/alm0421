@@ -243,12 +243,12 @@ def cmd_compare(argv: list[str]) -> int:
         res = runner.run(s)
         analyses.append(report.analyze(res, rf=_rf(a.rf), sensitivity=False))
         st = analyses[-1]["stats"]
-        print(f"{s.name:14s} CAGR {report.pct(st['cagr']):>8s}  Sharpe {report.num(st['sharpe']):>5s}  MaxDD {report.pct(st['max_drawdown'], 1):>7s}  "
+        print(f"{report._fit(s.name, 14)} CAGR {report.pct(st['cagr']):>8s}  Sharpe {report.num(st['sharpe']):>5s}  MaxDD {report.pct(st['max_drawdown'], 1):>7s}  "
               f"final ${st['end_equity']:,.0f}   {s.description[:70]}")
     C = report.common_window_stats(analyses, _rf(a.rf))
     print(f"\nCommon period {C['start']} -> {C['end']}:")
     for k, st in C["columns"].items():
-        print(f"  {k:24s} CAGR {report.pct(st['cagr']):>8s}  Sharpe {report.num(st['sharpe']):>5s}  MaxDD {report.pct(st['max_drawdown'], 1):>7s}")
+        print(f"  {report._fit(k, 24)} CAGR {report.pct(st['cagr']):>8s}  Sharpe {report.num(st['sharpe']):>5s}  MaxDD {report.pct(st['max_drawdown'], 1):>7s}")
     out = Path(a.out) if a.out else report.ROOT / "reports" / ("compare-" + report.slug("-".join(n for n in names)))
     path = report.write_outputs(analyses, out, pdf=a.pdf)
     print(f"Report: {path}")
@@ -518,7 +518,7 @@ def cmd_paper(argv: list[str]) -> int:
     else:
         rows = signals.paper_report()
         for r in rows:
-            print(f"{r['name']:16s} since {r['registered']}  days {r.get('days', 0):>4}  return {report.pct(r.get('return'))}  "
+            print(f"{report._fit(r['name'], 16)} since {r['registered']}  days {r.get('days', 0):>4}  return {report.pct(r.get('return'))}  "
                   f"maxDD {report.pct(r.get('max_drawdown'))}   today: {r['today'].get('action', '')}")
         if not rows:
             print("No paper strategies yet: python -m backtester paper add \"...\" --name NAME")

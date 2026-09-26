@@ -33,19 +33,33 @@ CRISES = [
 # ------------------------------------------------------------------ return series
 
 def twr_returns(equity: pd.Series, flows: pd.Series | None = None) -> pd.Series:
-    """Daily time-weighted returns: flows arrive at the start of the day."""
+    """Daily time-weighted returns: flows arrive at the start of the day. On the day a withdrawal empties the
+    account (everything sold at the close and paid out, equity 0) the withdrawal is counted at the end of the
+    day instead, so that day's return is the holdings' own move rather than -100%. Days with nothing invested
+    (a $0 start before the first contribution, or after the money ran out) have no return (0)."""
     prev = equity.shift(1)
     f = flows.reindex(equity.index).fillna(0.0) if flows is not None else 0.0
     base = prev + f
     r = (equity / base - 1).where(base > 0)
+    if flows is not None:
+        emptied = (equity <= 0) & (f < 0) & (prev > 0)
+        if emptied.any():
+            r = r.where(~emptied, (equity - f) / prev - 1)
     return r.iloc[1:].fillna(0.0)
 
 
 def nav(equity: pd.Series, flows: pd.Series | None = None) -> pd.Series:
-    """Growth of the starting capital with cash flows removed (time-weighted index)."""
+    """Growth of the starting capital with cash flows removed (time-weighted index). An account that starts
+    with $0 (funded by contributions) is indexed to its first funded balance: the returns are time-weighted
+    from the first funded day."""
     r = twr_returns(equity, flows)
-    out = (1 + r).cumprod() * equity.iloc[0]
-    return pd.concat([equity.iloc[:1], out])
+    scale = float(equity.iloc[0])
+    if scale <= 0 and flows is not None:
+        base = (equity.shift(1).fillna(0.0) + flows.reindex(equity.index).fillna(0.0)).iloc[1:]
+        funded = base[base > 0]
+        scale = float(funded.iloc[0]) if len(funded) else 0.0
+    out = (1 + r).cumprod() * scale
+    return pd.concat([pd.Series([scale], index=equity.index[:1], name=equity.name), out])
 
 
 def floor_at_zero(nav_: pd.Series) -> pd.Series:
@@ -78,22 +92,39 @@ def monthly_returns(nav_: pd.Series) -> pd.Series:
     return out
 
 
-def with_flows(growth: pd.Series, flows: pd.Series | None) -> pd.Series:
-    """Dollar value of a buy-and-hold curve that receives the same cash flows as a portfolio:
-    contributions are invested and withdrawals sold at that day's close; once it hits zero it stays
-    there. `growth` starts at the starting capital."""
+def apply_flows(growth: pd.Series, flows: pd.Series | None, start: float | None = None) -> tuple[pd.Series, pd.Series]:
+    """(dollar value, flows actually made) of a buy-and-hold curve that receives the given cash flows:
+    contributions are invested and withdrawals sold at that day's close. A withdrawal is capped at the balance:
+    when it is more than the account holds, what is left is paid out and the account stays at zero from then on
+    (later withdrawals are not made). `start`: the starting balance (default: the curve's first value; 0 for an
+    account funded only by contributions)."""
+    f = flows.reindex(growth.index).fillna(0.0).to_numpy() if flows is not None else np.zeros(len(growth))
+    r = growth.pct_change().fillna(0.0).to_numpy()
+    out = np.empty(len(growth))
+    paid = np.zeros(len(growth))
+    v = float(growth.iloc[0]) if start is None else float(start)
+    dead = False
+    for t in range(len(growth)):
+        if t:
+            v = v * (1 + r[t])
+        if dead:
+            out[t] = 0.0
+            continue
+        amt = f[t]
+        if amt < 0 and -amt >= v:
+            amt, dead = -v, v > 0
+        v = max(v + amt, 0.0)
+        paid[t] = amt
+        out[t] = v
+    return (pd.Series(out, index=growth.index, name=growth.name),
+            pd.Series(paid, index=growth.index, name="flows"))
+
+
+def with_flows(growth: pd.Series, flows: pd.Series | None, start: float | None = None) -> pd.Series:
+    """Dollar value of a buy-and-hold curve that receives the same cash flows as a portfolio (see apply_flows)."""
     if flows is None or not len(growth):
         return growth
-    r = growth.pct_change().fillna(0.0).to_numpy()
-    f = flows.reindex(growth.index).fillna(0.0).to_numpy()
-    out = np.empty(len(growth))
-    v = float(growth.iloc[0]) + f[0]
-    out[0] = v
-    for t in range(1, len(growth)):
-        v = v * (1 + r[t]) + f[t] if v > 0 else 0.0
-        v = max(v, 0.0)
-        out[t] = v
-    return pd.Series(out, index=growth.index, name=growth.name)
+    return apply_flows(growth, flows, start)[0]
 
 
 def display_date(ts, first_bar=None):
@@ -404,8 +435,17 @@ def cashflow_stats(equity: pd.Series, flows: pd.Series | None) -> dict:
         "ending_balance": float(equity.iloc[-1]),
         "net_gain": float(equity.iloc[-1]) - float(equity.iloc[0]) - contributed + withdrawn,
         "money_weighted_return": xirr(dates, amounts),
-        "ran_out": bool((equity.iloc[1:] <= 0).any()),
+        "ran_out": depleted_on(equity, flows) is not None,
+        "depleted_on": depleted_on(equity, flows),
     }
+
+
+def depleted_on(equity: pd.Series, flows: pd.Series | None = None):
+    """The date a funded account first fell to zero (money ran out), or None."""
+    e = equity.iloc[1:]
+    funded = (equity.shift(1).fillna(0.0) + (flows.reindex(equity.index).fillna(0.0) if flows is not None else 0.0)).iloc[1:] > 0
+    hit = e[(e <= 0) & funded.cummax()]
+    return hit.index[0].date() if len(hit) else None
 
 
 OPEN_REASONS = ("open at end", "still held")
@@ -651,27 +691,43 @@ def yearly_detail(nav_: pd.Series, trades: pd.DataFrame, exposure: pd.Series, fi
     return out
 
 
+def calendar_inflation(start: pd.Timestamp, end: pd.Timestamp) -> float:
+    """CPI inflation between two dates for REPORTING, on calendar months (no publication lag): from the CPI of the
+    month before `start` (a year starting in January uses the previous December) to the CPI of `end`'s month, or
+    the latest month published if that is not out yet. A full calendar year is December to December."""
+    m = data.cpi_monthly()
+    if m.empty:
+        return np.nan
+    b = pd.Timestamp(start).to_period("M") - 1
+    e = pd.Timestamp(end).to_period("M")
+    per = m.index.to_period("M")
+    mb = m[per <= b]
+    me = m[per <= e]
+    if not len(mb) or not len(me) or mb.index[-1].to_period("M") != b or me.index[-1].to_period("M") <= b:
+        return np.nan
+    return float(me.iloc[-1] / mb.iloc[-1] - 1)
+
+
 def yearly_balances(equity: pd.Series, nav_: pd.Series, flows: pd.Series | None = None) -> pd.DataFrame:
     """Per calendar year, for the account itself (Portfolio Visualizer's annual table): start and end balance,
-    contributions, withdrawals, inflation (CPI) and the time-weighted return after inflation."""
+    contributions, withdrawals, inflation (CPI, December to December: see calendar_inflation) and the time-weighted
+    return after inflation. Years after the money ran out have no return (the account held nothing), and the year
+    it ran out has its return up to that day."""
     f = flows.reindex(equity.index).fillna(0.0) if flows is not None else pd.Series(0.0, index=equity.index)
-    c = data.cpi()
-    ci = c.reindex(nav_.index.union(c.index)).ffill().reindex(nav_.index) if not c.empty else None
+    dep = depleted_on(equity, flows) if flows is not None else None
     rows = {}
+    first_bar = equity.index[1] if len(equity) > 1 else equity.index[0]
     for y, eq in equity.groupby(equity.index.year):
         prev = equity[equity.index.year < y]
         nprev, ny = nav_[nav_.index.year < y], nav_[nav_.index.year == y]
-        if not len(ny):
-            continue
-        base = nprev.iloc[-1] if len(nprev) else ny.iloc[0]
-        ret = ny.iloc[-1] / base - 1 if base > 0 else np.nan
-        infl = np.nan
-        if ci is not None:
-            cb = ci[nprev.index[-1]] if len(nprev) else ci[ny.index[0]]
-            ce = ci[ny.index[-1]]
-            if _finite(cb) and _finite(ce) and cb > 0:
-                infl = ce / cb - 1
         fy = f[f.index.year == y]
+        dead = dep is not None and y > dep.year
+        ret = np.nan
+        if len(ny) and not dead:
+            base = nprev.iloc[-1] if len(nprev) else ny.iloc[0]
+            ret = ny.iloc[-1] / base - 1 if base > 0 else np.nan
+        days = eq.index[eq.index >= first_bar]
+        infl = calendar_inflation(days[0], days[-1]) if len(days) else np.nan
         rows[y] = {"start_balance": float(prev.iloc[-1]) if len(prev) else float(eq.iloc[0]),
                    "contributions": float(fy[fy > 0].sum()), "withdrawals": float(-fy[fy < 0].sum()) + 0.0,
                    "end_balance": float(eq.iloc[-1]), "inflation": infl,
@@ -690,22 +746,30 @@ def monthly_table(nav_: pd.Series) -> pd.DataFrame:
 
 
 def monte_carlo(equity: pd.Series, flows: pd.Series | None = None, sims: int = 1000, block: int = 20,
-                seed: int = 7) -> dict:
-    """Block bootstrap of daily time-weighted returns. With cash flows, the same flow schedule is
-    replayed on each resampled path, giving a probability that the money lasts."""
-    r = twr_returns(equity, flows).to_numpy()
-    n = len(r)
-    if n < block * 3:
+                seed: int = 7, schedule: pd.Series | None = None, until=None) -> dict:
+    """Block bootstrap of daily time-weighted returns. With cash flows, the flow schedule is replayed on each
+    resampled path, giving a probability that the money lasts. `schedule`: the flows as scheduled (before any
+    cap at the balance; default `flows`); `until`: the last day the account was funded (returns after it are
+    not resampled, but the paths still run over the whole period)."""
+    if until is not None:
+        cut = equity.index <= pd.Timestamp(until)
+        r = twr_returns(equity[cut], flows[flows.index <= pd.Timestamp(until)] if flows is not None else None).to_numpy()
+    else:
+        r = twr_returns(equity, flows).to_numpy()
+    n = len(equity) - 1
+    m = len(r)
+    if m < block * 3:
         return {}
     rng = np.random.default_rng(seed)
     nb = int(np.ceil(n / block))
     years = n / TRADING_DAYS
     cagr, mdd, final = np.empty(sims), np.empty(sims), np.empty(sims)
-    fl = flows.reindex(equity.index).fillna(0.0).to_numpy()[1:] if flows is not None else np.zeros(n)
+    sched = schedule if schedule is not None else flows
+    fl = sched.reindex(equity.index).fillna(0.0).to_numpy()[1:] if sched is not None else np.zeros(n)
     has_flows = np.abs(fl).sum() > 0
     ruined = 0
     for s in range(sims):
-        starts = rng.integers(0, n - block, nb)
+        starts = rng.integers(0, m - block, nb)
         path = np.concatenate([r[a:a + block] for a in starts])[:n]
         g = np.cumprod(1 + path)
         cagr[s] = g[-1] ** (1 / years) - 1 if g[-1] > 0 else -1.0

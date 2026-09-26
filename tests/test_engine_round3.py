@@ -332,7 +332,12 @@ def test_long_history_portfolio_benchmarks():
     assert A["primary_benchmark"] == "SPYSIM buy & hold" and A["relative"]["period_start"].year == 1972
     assert A["benchmark_from"]["SPY buy & hold"] == "1993-01-29"
     spy = A["benchmark_cash"]["SPY buy & hold"]
-    assert not spy["ran_out"] and str(spy["from"]) == "1993-01-29"
+    assert str(spy["from"]) == "1993-01-29"
+    # the strategy runs out in 2018; the benchmarks keep receiving the scheduled withdrawals (each capped at its own
+    # balance) instead of stopping when the strategy's money ran out
+    assert A["cash"]["depleted_on"] is not None and A["cash"]["depleted_on"].year == 2018
+    assert (spy["depleted_on"] is not None) == spy["ran_out"]
+    assert A["benchmark_cash"]["SPYSIM buy & hold"]["total_withdrawals"] > A["cash"]["total_withdrawals"]
     assert spy["starting_balance"] == pytest.approx(res.equity[pd.Timestamp("1993-01-29")])
     C = report.common_window_stats([A], "tbill")
     assert str(C["full_start"]).startswith("1972") and C["full_from"]["SPY buy & hold"] == "1993-01-29"
@@ -343,7 +348,8 @@ def test_long_history_portfolio_benchmarks():
     # allocation tables: balances, not trade statistics
     y = A["yearly"]
     assert {"start_balance", "withdrawals", "end_balance", "inflation", "real_return"} <= set(y.columns)
-    assert A["trade_stats"]["trades"] == 0 and A["trade_stats"]["open_trades"] == 2
+    # everything is sold when the money runs out: both holding periods are closed
+    assert A["trade_stats"]["trades"] == 2 and not A["trade_stats"].get("open_trades")
     text = report.console_summary(A)
     assert "Win rate" not in text and "win rate" not in text
     # crises before a benchmark's inception are blank only for that benchmark

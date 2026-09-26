@@ -415,11 +415,22 @@ def tbill_rate() -> pd.Series:
 
 
 @lru_cache(maxsize=1)
-@lru_cache(maxsize=1)
 def cpi() -> pd.Series:
     """US CPI, indexed by the date each month's figure was published (about the 15th of the following
     month), so inflation-indexed cash flows and real returns only use CPI that was known at the time.
     Seasonally adjusted (CPIAUCSL) from 1947, not-seasonally-adjusted CPIAUCNS back to 1913 before that."""
+    s = cpi_monthly()
+    if s.empty:
+        return s
+    s = s.copy()
+    s.index = s.index + pd.offsets.MonthBegin(1) + pd.Timedelta(days=14)
+    return s
+
+
+@lru_cache(maxsize=1)
+def cpi_monthly() -> pd.Series:
+    """US CPI by the month it measures (dated the 1st of that month, not lagged): for reporting inflation over
+    calendar periods (December to December), not for decisions. Same splice as cpi()."""
     parts = []
     for sid in ("CPIAUCSL", "CPIAUCNS"):
         f = DATA / "macro" / f"{sid}.csv"
@@ -435,7 +446,6 @@ def cpi() -> pd.Series:
             # splice: scale the older series to meet the newer one at the join
             join = parts[1].reindex([s.index[0]]).iloc[0] if s.index[0] in parts[1].index else older.iloc[-1]
             s = pd.concat([older * (s.iloc[0] / join), s])
-    s.index = s.index + pd.offsets.MonthBegin(1) + pd.Timedelta(days=14)
     return s
 
 

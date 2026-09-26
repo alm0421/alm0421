@@ -60,6 +60,9 @@ if SPY is above its 200-day moving average hold QQQ, else if TLT is above its 50
 hold QQQ when it is above its 10-month moving average, otherwise cash, rebalance monthly
 hold the top 5 Nasdaq 100 stocks by 6 month momentum, inverse volatility weighted, rebalance monthly
 hold the top 2 of QQQ, SPY, TLT and GLD by 3 month return, only if their 3 month return is positive, otherwise hold BIL
+hold the top 1 of SPYSIM and EFASIM by 12 month return, only if their 12 month return is above BILSIM's 12 month return, otherwise hold IEFSIM
+hold 20% each of SPY, EFA, IEF, VNQ, DBC, each only when above its 10 month moving average, otherwise BIL, rebalance monthly
+hold 60% SPY and 40% TLT, vs 60/40 SPY/AGG
 rotate monthly between QQQ, SPY and TLT by 3 month return
 dual momentum between SPY and EFA with AGG as the safe asset
 hold the top 3 sector ETFs by 6 month momentum
@@ -83,8 +86,10 @@ Portfolios with if-conditions, top-N filters or dynamic weights (inverse volatil
 are re-evaluated **every day** by default (as in Composer); fixed-weight trees rebalance monthly unless
 you say otherwise. Named model portfolios work as phrases: "golden butterfly since 1972, rebalance
 yearly", "three fund portfolio", "all weather", "permanent", "coffeehouse", "ivy", "Bernstein
-no-brainer", "60/40 portfolio", "Hedgefundie adventure", "Swensen", "larry portfolio" (the notes list
-the holdings, and long-history SIM series stand in before the funds existed). Filters and weightings
+no-brainer", "60/40 portfolio", "Hedgefundie adventure", "Swensen", "larry portfolio", "Buffett 90/10",
+"global market portfolio", "sandwich", "desert", "Merriman ultimate buy and hold", "weird portfolio",
+"core four", "talmud", "pinwheel" (the notes list the holdings and any proxy fund, e.g. VSS for
+developed ex-US small caps, and long-history SIM series stand in before the funds existed). Filters and weightings
 can also rank or weight whole groups ("the top 1 of (60% TECL and 40% BIL), SVIX and TQQQ by 10 day
 return"): in a JSON spec or the Build editor, any node can sit inside a filter, and it is
 measured on its own simulated value over time. **Composer symphonies** can be imported directly:
@@ -113,7 +118,8 @@ Build page.
 | More signals | ROC(10) above 5 / rate of change, %K crosses above %D, MACD histogram turns negative, yesterday's high, not on Fridays, except in October, buy stop 1% above the close / at yesterday's high |
 | Portfolio conditions | any indicator phrase compared with a number or another ticker's indicator: "TQQQ 6 day cumulative return is less than -12%", "the 10 day max drawdown of TQQQ is above 20%", "SPY 10 day standard deviation of return is above 2%", "QQQ's 3 month return beats TLT's" (total returns) |
 | Schedules and flows | semi-annually, relative bands ("drifts 25% relative to its target"), schedule + band, contributions/withdrawals for N years / starting in YEAR / from year N, growing X% a year |
-| Other | starting with $X, since/from/until YEAR, vs TICKER (incl. SPYSIM), versus T-bills, cash earns nothing, using today's members only |
+| Other | starting with $X, since/from/until YEAR, vs TICKER (incl. SPYSIM), a blended benchmark ("vs 60/40 SPY/AGG", "compared with 60% SPY and 40% AGG", "benchmark 60/40 SPY/AGG"), versus T-bills, cash earns nothing, using today's members only |
+| Relative hurdles | "only if their 12 month return is above BIL's 12 month return" (each candidate vs BIL; also beats / exceeds / greater than / higher than, "above BIL" = the same indicator), "hold SPY if its 12 month return beats BIL's, otherwise IEF". A condition that compares a value with itself is refused |
 
 Anything else can be written in the **rule language** inside backticks
 (`` `zscore(close, 20) < -2` ``). See `python -m backtester --help-expr` for about 60 functions and
@@ -265,6 +271,22 @@ python -m backtester tickers                                                 # w
   - Cash flows are made on the first trading day of each period, the first day of the backtest included (as
     Portfolio Visualizer and the Monte Carlo simulation do): "add $1,000 a month for 20 years" is 240
     contributions, the first on day one; "withdraw 4% a year" takes the first withdrawal on day one.
+  - "adjusted for inflation" (or "indexed to inflation", "in real terms") belongs to the flow it is written
+    with: "add $1,000 a month for 20 years, then withdraw $50,000 a year adjusted for inflation" indexes only
+    the withdrawals. Written apart from the flows ("..., adjusted for inflation") it indexes every $ flow, with
+    a note. A real amount is in dollars of the backtest's first day unless it says otherwise: "in 2000 dollars"
+    (that year's average CPI) or "in today's dollars" (dollars of the flow's first payment, so the first
+    withdrawal is exactly the amount). The notes say which, and the first payment in dollars.
+  - Flow indexing uses CPI *as published*: each month's figure from about two weeks after the month, so a
+    withdrawal only grows with inflation that was known that day. The yearly table's inflation column is for
+    reporting and uses calendar months: December to December (a partial year to the latest month published).
+  - A withdrawal is capped at the balance: when one is more than the account holds, everything is sold at that
+    close and what is left is paid out (cash_flow in equity.csv is the amount actually paid). The notes and the
+    cash-flow table say "portfolio depleted on <date>"; return statistics cover the funded period only, and the
+    yearly and monthly returns after that are blank. Benchmarks that receive the same flows are capped at their
+    own balance the same way, and the Monte Carlo replays the flows as scheduled.
+  - "starting with $0" works when contributions fund the account from the first day: returns are
+    time-weighted from the first funded day (and it is refused when nothing would ever be invested).
   - Short positions (negative weights): the proceeds earn the cash rate less `short_rebate_spread` (default
     0.25%/yr) and pay `borrow_fee` (annual, default 0) on their market value, charged daily.
   - Rules that rank or weigh assets need their look-back: the statistics start once *every* ranked asset has it

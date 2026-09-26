@@ -72,6 +72,12 @@ class Portfolio:
     withdrawal_end: int | str | None = None
     contribution_growth: float = 0.0             # annual step-up of $ contributions, counted from their start
     withdrawal_growth: float = 0.0               # annual step-up of $ withdrawals (on top of any CPI indexing)
+    # per-flow CPI indexing (None: follow inflation_adjust), and the dollars a real amount is expressed in: None =
+    # dollars of the backtest's first day, "flow" = of the flow's first payment, "YYYY" = that year's average CPI
+    contribution_inflation: bool | None = None
+    withdrawal_inflation: bool | None = None
+    contribution_dollars: str | None = None
+    withdrawal_dollars: str | None = None
     leverage: float = 1.0                        # scale every target weight; the excess is borrowed
     margin_rate: float = 0.0                     # extra annual rate paid on borrowed cash (above T-bills)
     maintenance_margin: float = 0.25             # with leverage or shorts: equity / gross exposure below this at
@@ -143,8 +149,18 @@ class Portfolio:
         for f in ("contribution_growth", "withdrawal_growth"):
             if not -1 < float(getattr(self, f)) < 10:
                 raise ValueError(f"{f} is an annual fraction (0.03 = 3% a year)")
+        if self.capital < 0:
+            raise ValueError("the starting capital cannot be negative")
         if self.capital <= 0 and self.contribution <= 0:
-            raise ValueError("need starting capital or contributions")
+            raise ValueError("Starting with $0 needs contributions to invest, e.g. 'add $500 a month'; with no "
+                             "starting capital and no contributions nothing is ever invested.")
+        if self.capital <= 0 and self.contribution_start not in (None, 1, "1"):
+            raise ValueError("Starting with $0 needs the contributions to begin on the first day (the account would be "
+                             "empty until then): drop the contribution start, or start the backtest when they begin.")
+        for f in ("contribution_dollars", "withdrawal_dollars"):
+            v = getattr(self, f)
+            if v not in (None, "start", "flow") and not re.fullmatch(r"(18|19|20)\d\d", str(v)):
+                raise ValueError(f"{f} is None (dollars of the first day), 'flow' (of the flow's first payment) or a year")
         if self.warmup not in ("all", "first"):
             raise ValueError("warmup must be 'all' (stats start when every ranked asset has its lookback) or 'first'")
         for f in ("short_rebate_spread", "borrow_fee"):
@@ -152,6 +168,11 @@ class Portfolio:
                 raise ValueError(f"{f} is an annual fraction between 0 and 1 (0.01 = 1% a year)")
         if self.start and self.end and pd.Timestamp(self.start) >= pd.Timestamp(self.end):
             raise ValueError(f"The period is reversed or empty: it starts on {self.start} but ends on {self.end}.")
+
+    def flow_inflation(self, kind: str) -> bool:
+        """Is this flow ('contribution' / 'withdrawal') indexed to CPI?"""
+        v = getattr(self, f"{kind}_inflation", None)
+        return bool(self.inflation_adjust if v is None else v)
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2, default=lambda o: f"<python function {getattr(o, '__name__', 'custom')}>")
@@ -186,20 +207,27 @@ class Portfolio:
                 rb += f", plus whenever a holding {b} (scheduled trades are skipped while every holding is within the band)"
         lines.append(f"Rebalancing: {rb}; trades at the {'close' if self.fill == 'close' else 'next open'}")
         cf = []
+
+        def real(kind: str) -> str:
+            if not self.flow_inflation(kind):
+                return ""
+            d = getattr(self, f"{kind}_dollars", None)
+            base = ("dollars of its first payment" if d == "flow" else f"{d} dollars" if d not in (None, "start") else
+                    f"{str(self.start)[:4]} dollars" if self.start else "dollars of the first day")
+            return f" in {base}, rising with inflation (CPI)"
         if self.contribution:
-            cf.append(f"add ${self.contribution:,.0f} {self.contribution_freq}"
+            cf.append(f"add ${self.contribution:,.0f} {self.contribution_freq}" + real("contribution")
                       + _window_text(self.contribution_start, self.contribution_end)
                       + (f", growing {self.contribution_growth:.1%} a year" if self.contribution_growth else ""))
         if self.withdrawal:
-            cf.append(f"withdraw ${self.withdrawal:,.0f} {self.withdrawal_freq}"
+            cf.append(f"withdraw ${self.withdrawal:,.0f} {self.withdrawal_freq}" + real("withdrawal")
                       + _window_text(self.withdrawal_start, self.withdrawal_end)
                       + (f", growing {self.withdrawal_growth:.1%} a year" if self.withdrawal_growth else ""))
         if self.withdrawal_pct:
             cf.append(f"withdraw {self.withdrawal_pct:.1%} of the balance {self.withdrawal_freq}"
                       + ("" if self.withdrawal else _window_text(self.withdrawal_start, self.withdrawal_end)))
-        if cf and self.inflation_adjust:
-            grow = (self.contribution and self.contribution_growth) or (self.withdrawal and self.withdrawal_growth)
-            cf.append("$ amounts also grow with inflation (CPI)" + (", the growth rates compounding on top" if grow else ""))
+        if self.withdrawal:
+            cf.append("a withdrawal is capped at the balance: the account stops at $0 if it runs out")
         lines.append(f"Money: ${self.capital:,.0f} start" + ("; " + ", ".join(cf) if cf else "")
                      + ("; dividends reinvested" if self.reinvest_dividends else "; dividends kept as cash"))
         costs = []
@@ -1292,6 +1320,44 @@ def _flow_schedule(cal: pd.DatetimeIndex, freq: str, start, end, growth: float, 
     return days, mult
 
 
+def _flow_cpi_index(p: "Portfolio", cal: pd.DatetimeIndex, kind: str, days: np.ndarray, mult: np.ndarray,
+                    amount: float) -> np.ndarray:
+    """The CPI multiplier of a $ flow on each day (ones when it is not indexed). CPI is the figure published by
+    that day (data.cpi(): each month's figure about two weeks after the month), so the amounts only use what was
+    known. The base is the CPI of the dollars the amount is expressed in: the first day's (default), the flow's
+    first payment ("flow"), or a calendar year's average ("2000"). Adds a note saying which, and the first payment."""
+    T = len(cal)
+    if not p.flow_inflation(kind) or not amount:
+        return np.ones(T)
+    cpi = data.cpi()
+    if cpi.empty:
+        p.notes.append(f"CPI data unavailable: the {kind}s were not inflation-adjusted.")
+        return np.ones(T)
+    c = cpi.reindex(cal.union(cpi.index)).ffill().reindex(cal)
+    first = np.flatnonzero(days)
+    dollars = getattr(p, f"{kind}_dollars", None)
+    if dollars == "flow" and len(first):
+        base, label = c.iloc[first[0]], f"dollars of its first payment ({cal[first[0]].date()})"
+    elif dollars not in (None, "start", "flow"):
+        y = int(dollars)
+        m = data.cpi_monthly()
+        yr = m[m.index.year == y]
+        if len(yr) < 12:
+            raise ValueError(f"No full year of CPI data for {y}: express the {kind} in the dollars of another year.")
+        base, label = float(yr.mean()), f"{y} dollars (that year's average CPI)"
+    else:
+        base, label = c.dropna().iloc[0] if c.notna().any() else np.nan, f"{cal[0].year} dollars (CPI as of {cal[0].date()})"
+    idx = (c / base).fillna(1.0).to_numpy() if np.isfinite(base) and base > 0 else np.ones(T)
+    if len(first):
+        j = first[0]
+        freq = {"monthly": "a month", "quarterly": "a quarter", "semiannual": "every six months", "yearly": "a year"}[
+            getattr(p, f"{kind}_freq")]
+        p.notes.append(f"{kind.capitalize()}s: ${amount:,.0f} {freq} in {label}, indexed to CPI as published (each month's "
+                       f"figure from about two weeks after the month); first paid {cal[j].date()} as "
+                       f"${amount * idx[j] * mult[j]:,.0f}.")
+    return idx
+
+
 def warmup_dates(p, frames=None) -> tuple[pd.Timestamp | None, dict, dict]:
     """(warm, late, waited): the first day every rule of the tree can be evaluated, and per ranked member the day
     its lookbacks complete.
@@ -1482,19 +1548,19 @@ def run(p: Portfolio) -> Result:
     sched = _schedule(cal, p.rebalance)
     slip = p.slippage_bps / 1e4
 
-    cpi = data.cpi()
-    if p.inflation_adjust and not cpi.empty:
-        c = cpi.reindex(cal.union(cpi.index)).ffill().reindex(cal)
-        infl = (c / c.dropna().iloc[0]).fillna(1.0).to_numpy()
-    else:
-        if p.inflation_adjust:
-            p.notes.append("CPI data unavailable: cash flows were not inflation-adjusted.")
-        infl = np.ones(T)
     no_flows = (np.zeros(T, bool), np.ones(T))
     contrib_days, contrib_mult = (_flow_schedule(cal, p.contribution_freq, p.contribution_start, p.contribution_end,
                                                  p.contribution_growth, "contribution") if p.contribution else no_flows)
     wd_days, wd_mult = (_flow_schedule(cal, p.withdrawal_freq, p.withdrawal_start, p.withdrawal_end,
                                        p.withdrawal_growth, "withdrawal") if (p.withdrawal or p.withdrawal_pct) else no_flows)
+    if p.capital <= 0 and not contrib_days[0]:
+        raise ValueError("Starting with $0 needs a contribution on the first day; the first one here is later.")
+    cinfl = _flow_cpi_index(p, cal, "contribution", contrib_days, contrib_mult, p.contribution)
+    winfl = _flow_cpi_index(p, cal, "withdrawal", wd_days, wd_mult, p.withdrawal)
+    # the flows as scheduled (before any cap at the balance): benchmarks and the Monte Carlo replay these
+    req_flows = (np.where(contrib_days, p.contribution * cinfl * contrib_mult, 0.0)
+                 - np.where(wd_days, p.withdrawal * winfl * wd_mult, 0.0))
+    depleted = None
     mm = p.maintenance_margin
     margin_days: list = []
     lev_peak = (0.0, 0.0, None)       # (gross/equity, target gross, date): worst drift above target between rebalances
@@ -1629,12 +1695,16 @@ def run(p: Portfolio) -> Result:
                 ledger.append((cal[i], tick[j], "dividend", 0.0, float(div_cash[j]), 0.0))
         # cash flows at the start of the day
         f = 0.0
+        w_req = 0.0
         if contrib_days[i]:
-            f += p.contribution * infl[i] * contrib_mult[i]
+            f += p.contribution * cinfl[i] * contrib_mult[i]
         if wd_days[i]:
-            f -= p.withdrawal * infl[i] * wd_mult[i]
+            w_req = p.withdrawal * winfl[i] * wd_mult[i]
             if p.withdrawal_pct:
-                f -= p.withdrawal_pct * max(value(np.where(np.isfinite(o), o, last_px)), 0)
+                pct_amt = p.withdrawal_pct * max(value(np.where(np.isfinite(o), o, last_px)), 0)
+                w_req += pct_amt
+                req_flows[i] -= pct_amt
+            f -= w_req
         if f:
             cash += f
             flows[i] = f
@@ -1645,8 +1715,31 @@ def run(p: Portfolio) -> Result:
         # withdrawals that overdraw cash: sell proportionally at the close
         np.copyto(last_px, c, where=np.isfinite(c))
         eq_close = value(c)
+        if w_req > 0 and eq_close < 0:
+            # the withdrawal is more than the account holds: sell everything at the close and pay out what is left
+            # (the withdrawal is capped at the balance); the account is empty from here on
+            pv = px_now(c)
+            for j in np.flatnonzero(shares != 0):
+                if not np.isfinite(pv[j]):
+                    continue
+                q = -shares[j]
+                fill = pv[j] * (1 + np.sign(q) * slip)
+                com = p.commission + p.commission_pct * abs(q) * fill
+                cash -= q * fill + com
+                tcash[j] -= q * fill + com
+                tcom[j] += com
+                ledger.append((cal[i], tick[j], "buy" if q > 0 else "sell", q, abs(q) * fill, com))
+                orders.append({"date": cal[i].date(), "ticker": tick[j], "side": "buy" if q > 0 else "sell",
+                               "shares": abs(q), "price": fill, "value": abs(q) * fill, "commission": com,
+                               "reason": "withdrawal (money ran out)"})
+                shares[j] = 0.0
+            paid = max(w_req + cash, 0.0)     # cash is negative: the part of the withdrawal the account could not pay
+            flows[i] += w_req - paid
+            cash = 0.0 if paid > 0 else cash + w_req
+            depleted = {"date": cal[i], "requested": w_req, "paid": paid}
+            eq_close = value(c)
         tgt_cash = 1.0 - sum(w for t, w in target.items() if t != "cash")
-        if f < 0 and cash < min(0.0, tgt_cash) * eq_close - 1e-6 * max(eq_close, 1.0) and eq_close > 0 and target:
+        if depleted is None and f < 0 and cash < min(0.0, tgt_cash) * eq_close - 1e-6 * max(eq_close, 1.0) and eq_close > 0 and target:
             trade_to(target, c, i, "raise cash")
         # invest new contributions at the close in the current target mix (no selling)
         if f > 0 and target and not sched[i]:
@@ -1735,7 +1828,12 @@ def run(p: Portfolio) -> Result:
             weights[i] = shares * pv / equity[i]
             cashw[i] = cash / equity[i]
         if equity[i] <= 0 and (p.withdrawal or p.withdrawal_pct or p.leverage > 1 or cash < 0 or (shares != 0).any()):
-            if p.withdrawal or p.withdrawal_pct:
+            if depleted is not None and depleted["paid"] > 0:
+                p.notes.append(f"Portfolio depleted on {cal[i].date()}: the withdrawal due that day was "
+                               f"${depleted['requested']:,.0f} but only ${depleted['paid']:,.0f} was left, so everything was "
+                               "sold at the close and that was withdrawn (withdrawals are capped at the balance). The "
+                               "balance is $0 from then on; returns are only measured while the account was funded.")
+            elif p.withdrawal or p.withdrawal_pct:
                 p.notes.append(f"Money ran out on {cal[i].date()}.")
             else:
                 p.notes.append(f"The leveraged portfolio was wiped out on {cal[i].date()}: equity fell to "
@@ -1777,6 +1875,9 @@ def run(p: Portfolio) -> Result:
     res = Result(strategy=p, equity=eq, trades=trades, exposure=ex, positions=npos, prices=dfs,
                  holdings=hw, interest=interest, in_market=pd.Series(gross.reindex(idx_all).fillna(0).to_numpy() > 1e-6, index=idx_all),
                  kind="allocation", orders=od)
+    if depleted is not None:
+        res.extras["depleted"] = depleted["date"]
+    res.extras["flows_requested"] = pd.Series(np.concatenate([[0.0], req_flows]), index=idx_all, name="flows")
     res.extras.update({"fees": fees, "flows": fl, "turnover_annual": turnover / max((cal[-1] - cal[0]).days / 365.25, 1e-9),
                        "rebalances": n_rebal,
                        "vol_scale": pd.Series([k for _, k in vol_scale], index=pd.DatetimeIndex([d for d, _ in vol_scale]), dtype=float),
