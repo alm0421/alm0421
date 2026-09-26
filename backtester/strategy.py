@@ -56,6 +56,13 @@ class Strategy:
             raise ValueError("hold_bars must be >= 0")
         if self.max_positions < 1:
             raise ValueError("max_positions must be >= 1")
+        if self.entry_fill == "open":
+            from .expr import open_safe
+            if not open_safe(self.entry):
+                raise ValueError(
+                    "entry_fill 'open' needs a rule known at the open, but this rule uses today's "
+                    "close/high/low (e.g. ret(1) or rsi(2) default to today's close). Wrap those parts "
+                    "in ref(..., 1) to use yesterday's value, or use entry_fill 'next_open'.")
         if self.position_size is None:
             self.position_size = 1.0 / self.max_positions
 

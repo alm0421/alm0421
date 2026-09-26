@@ -310,3 +310,42 @@ def evaluate_value(text: str, ns: Namespace) -> pd.Series:
     if not isinstance(out, pd.Series):
         out = pd.Series(out, index=ns.df.index, dtype=float)
     return out.astype(float)
+
+
+# ---------------------------------------------------------------- lookahead guard
+
+OPEN_SAFE_NAMES = {"gap", "dow", "month", "day", "year", "trading_day_of_month",
+                   "trading_days_left_in_month", "open", "True", "False"}
+# functions whose series argument defaults to today's close/high/low when omitted
+_DEFAULTS_TO_CLOSE = {"sma", "ma", "ema", "highest", "lowest", "stdev", "zscore", "ret", "roc", "rsi",
+                      "pct_rank", "down_streak", "up_streak"}
+# functions that always read today's close/high/low
+_ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower"}
+
+
+def open_safe(rule: str) -> bool:
+    """True if `rule` can be evaluated at the bar's open, i.e. uses no data from later in the bar."""
+    def ok(node) -> bool:
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            f = node.func.id
+            if f == "ref":
+                n = node.args[1] if len(node.args) > 1 else None
+                if n is None:
+                    return True
+                return isinstance(n, ast.Constant) and isinstance(n.value, (int, float)) and n.value >= 1
+            if f in _ALWAYS_CLOSE:
+                return False
+            if f in _DEFAULTS_TO_CLOSE:
+                series_args = [a for a in node.args if not isinstance(a, ast.Constant)]
+                if not series_args:
+                    return False
+            if f == "sym":
+                return True
+            return all(ok(a) for a in node.args)
+        if isinstance(node, ast.Attribute):
+            return node.attr == "open" and ok(node.value)
+        if isinstance(node, ast.Name):
+            return node.id in OPEN_SAFE_NAMES
+        return all(ok(ch) for ch in ast.iter_child_nodes(node))
+
+    return ok(ast.parse(rule.strip(), mode="eval"))

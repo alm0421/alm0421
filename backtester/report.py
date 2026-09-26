@@ -36,6 +36,8 @@ def _clean(o):
         return int(o)
     if isinstance(o, (np.bool_,)):
         return bool(o)
+    if o is pd.NaT or (isinstance(o, float) is False and not isinstance(o, (str, bytes, dict, list, tuple)) and pd.api.types.is_scalar(o) and pd.isna(o)):
+        return None
     if isinstance(o, (pd.Timestamp, datetime, date)):
         return o.strftime("%Y-%m-%d")
     return o

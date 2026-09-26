@@ -201,10 +201,10 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     def ma_vs_ma(m):
         a = _ma(m.group(2), c, _period(m.group(1), None), m.group(0))
         b = _ma(m.group(6), c, _period(m.group(5), None), m.group(0))
-        rel = m.group(3) + (m.group(4) or "")
+        rel = (m.group(3) or "") + m.group(4)
         if "cross" in rel:
             return f"{'crossover' if 'above' in rel or 'over' in rel else 'crossunder'}({a}, {b})"
-        return f"{a} {_cmp(m.group(4) or m.group(3))} {b}"
+        return f"{a} {_cmp(m.group(4))} {b}"
     take(rf"(?:the )?{NUM} day {MA} (?:is )?(crosses |cross |crossed )?(above|over|below|under) (?:the |its )?{NUM} day {MA}", ma_vs_ma)
     take(r"golden cross", lambda m: f"crossover(sma({c}, 50), sma({c}, 200))")
     take(r"death cross", lambda m: f"crossunder(sma({c}, 50), sma({c}, 200))")
@@ -368,25 +368,8 @@ OPEN_SAFE = {"gap", "dow", "month", "day", "year", "trading_day_of_month", "trad
 
 
 def _open_safe(rule: str) -> bool:
-    """True if `rule` only uses information available at the bar's open."""
-    import ast
-
-    import pandas as pd
-
-    from .expr import Namespace
-
-    funcs = set(Namespace(pd.DataFrame({k: [1.0] for k in ("open", "high", "low", "close", "volume")}))._functions())
-
-    def ok(node) -> bool:
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ref":
-            return True  # prior-bar values are known at the open
-        if isinstance(node, ast.Attribute) and node.attr != "open":
-            return False  # e.g. sym("SPY").close
-        if isinstance(node, ast.Name) and node.id not in funcs and node.id not in OPEN_SAFE:
-            return False
-        return all(ok(ch) for ch in ast.iter_child_nodes(node))
-
-    return ok(ast.parse(rule, mode="eval"))
+    from .expr import open_safe
+    return open_safe(rule)
 
 
 def parse(text: str, **overrides) -> Strategy:
