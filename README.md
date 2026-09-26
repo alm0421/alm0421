@@ -284,33 +284,64 @@ The **Daily signals** Action then scans the paper-trading strategies (`paper/*.j
 `signals/latest.md`. It also posts to a webhook if you add a repository secret `ALERT_WEBHOOK_URL`
 (for example a Slack or Discord incoming webhook).
 
-### Long-history series (SPYSIM, TLTSIM, IEFSIM, IEISIM, SHYSIM, BILSIM, VBSIM, VBRSIM, VTVSIM, VUGSIM, EFASIM, GLDSIM)
+### Long-history series (SIMs)
 
 The data job also builds simulated total-return indexes that extend funds back before they
-existed, then continue with the real fund's total return:
+existed, then continue with the real fund's total return. `data/sims_log.txt` lists any series that
+failed to build and, for each one, how the model compares with the real fund where both exist
+(monthly correlation, tracking error, CAGR and volatility).
 
-| Series | Before the fund | Then |
+| Series | Before the fund (start) | Then |
 |---|---|---|
-| SPYSIM | US stock market (Fama-French market return, from 1926) | SPY |
-| TLTSIM | 20-year Treasuries priced from FRED constant-maturity yields | TLT |
-| IEFSIM | ~9-year Treasuries from the 10-year yield | IEF |
-| SHYSIM | 2-year Treasuries from the 2-year yield | SHY |
-| BILSIM | 1-month T-bills (Fama-French RF) | BIL |
-| IEISIM | 5-year Treasuries from the 5-year yield (from 1962) | IEI |
-| VBSIM | US small caps (Fama-French small portfolios, from 1926) | VB |
-| VBRSIM | US small-cap value (Fama-French small / high book-to-market) | VBR |
-| VTVSIM | US large-cap value (Fama-French big / high book-to-market) | VTV |
-| VUGSIM | US large-cap growth (Fama-French big / low book-to-market) | VUG |
-| EFASIM | Developed markets ex-US (Fama-French, from 1990) | EFA |
-| GLDSIM | Gold (World Bank monthly average price, stepped daily, from 1960) | GLD |
+| SPYSIM | US stock market: Fama-French market return (1926, daily) | SPY |
+| VBSIM | US small caps: Fama-French small portfolios (1926, daily) | VB |
+| VBRSIM | US small-cap value: Fama-French small / high book-to-market (1926, daily) | VBR |
+| VBKSIM | US small-cap growth: Fama-French small / low book-to-market (1926, daily) | VBK |
+| MIDSIM | US mid caps: Fama-French portfolio of the 30th-70th NYSE size percentiles (1926, daily) | MDY (S&P 400) |
+| VTVSIM | US large-cap value: Fama-French big / high book-to-market (1926, daily) | VTV |
+| VUGSIM | US large-cap growth: Fama-French big / low book-to-market (1926, daily) | VUG |
+| EFASIM | Developed ex-US: Fama-French EAFE index (1975, monthly steps), Fama-French developed ex-US market (1990, daily) | EFA |
+| EFVSIM | Developed ex-US value: Fama-French EAFE high book-to-market index (1975, monthly steps), big / high B/M (1990, daily) | EFV |
+| SCZSIM | Developed ex-US small caps: Fama-French small portfolios (1990, daily) | SCZ |
+| AVDVSIM | Developed ex-US small-cap value: Fama-French small / high B/M (1990, daily) | AVDV |
+| VGKSIM | Europe: Fama-French Europe index (1975, monthly steps), Fama-French Europe market (1990, daily) | VGK |
+| EEMSIM | Emerging markets: Fama-French emerging market return (1989, monthly steps) | EEM |
+| VNQSIM | US REITs: FTSE Nareit All Equity REITs total return (1972, monthly steps) | VNQ |
+| BILSIM | 1-month T-bills: Fama-French RF (1926, daily) | BIL |
+| SHYSIM | 2-year Treasuries priced from the FRED 2-year yield (1-year before 1976) (1962, daily) | SHY |
+| IEISIM | 5-year Treasuries from the 5-year yield (1962, daily) | IEI |
+| IEFSIM | ~9-year Treasuries from the 10-year yield (1962, daily) | IEF |
+| TLTSIM | 20-year Treasuries from FRED constant-maturity yields (1962, daily) | TLT |
+| LQDSIM | Investment-grade corporates: 10-year par bond at the average of Moody's Aaa and Baa yields (1953; monthly yields before 1986, daily after) | LQD |
+| BNDSIM | US aggregate bonds: 70% 5-year Treasury + 30% corporate model (1962), then the Vanguard Total Bond Market Index fund VBMFX (Dec 1986) | BND |
+| TIPSIM | US TIPS: the Vanguard Inflation-Protected Securities fund VIPSX (mid-2000); no model before it (TIPS date from 1997) | TIP |
+| HYGSIM | US high yield: the Vanguard High-Yield Corporate fund VWEHX (1985); no model before it | HYG |
+| BNDXSIM | International government bonds hedged to USD: a 9-year par-bond model on OECD 10-year yields of up to 12 developed markets, hedged at the short-rate differential (1970, monthly steps), then the PIMCO International Bond (USD-hedged) fund PFORX (1993) | BNDX |
+| GLDSIM | Gold: World Bank monthly average price (1960-1968, monthly steps), LBMA PM fixing (April 1968, daily) | GLD |
+| DBCSIM | Commodity futures: AQR "Commodities for the Long Run" equal-weight index excess return + T-bills (1960, monthly steps) | DBC |
 
 They are total-return indexes: `close` = `adj_close`, no dividends, `volume` 0 and
 open = high = low = close. Use them in the optimiser, Monte Carlo and factor pages (and in JSON
-specs) for many more market regimes than the ETFs alone. Keep in mind:
-- the early parts are models, not tradable funds (no fees, no bid/ask);
+specs) for many more market regimes than the ETFs alone. Named portfolios ("the Ivy portfolio since
+1975", "all weather since 1972") swap them in for any fund that did not exist yet, and say so in the
+notes. Keep in mind:
+- the early parts are models or indexes, not tradable funds (no fees, no bid/ask; Fama-French
+  portfolios are gross of costs);
+- **monthly steps**: a monthly source moves only on the last NYSE session of each month (a month
+  that ends on a weekend or holiday is booked on its last trading day, like every real ticker's
+  month-end), and is flat in between. Daily-rule strategies see nothing inside those months;
+  monthly rebalancing lines up exactly;
+- GLDSIM's 1960-68 part is monthly *average* prices (gold was pegged near $35 then); from April 1968
+  it uses the daily London PM fixing, so its month-ends are real month-end prices;
+- BNDXSIM's model uses OECD monthly-average yields (smoother than month-end prices: correlation with
+  BNDX on the overlap is only about 0.7) and has Japan only from 1989 and Italy from 1991, so it is
+  a rough guide before PFORX starts in 1993;
+- DBCSIM is an equal-weight commodity index; DBC is energy-heavy, so they share direction (monthly
+  correlation about 0.9) but not volatility;
+- no free source gives high-yield bonds before 1985 or TIPS before 2000 without a model we could not
+  defend, so HYGSIM and TIPSIM start with the oldest real funds instead;
 - rules that need intraday prices or volume (gaps, ranges, ATR, volume caps, MFI/VWAP) are
   meaningless on them;
-- Fama-French portfolios are gross of costs and GLDSIM moves in monthly steps before 2004;
 - sentences can name them like any ticker ("hold 60% SPYSIM and 40% TLTSIM", "vs SPYSIM"). A
   portfolio that starts before SPY existed is compared with SPYSIM by default.
 

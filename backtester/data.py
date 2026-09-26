@@ -72,22 +72,37 @@ def etfs() -> list[str]:
 # Long-history simulated series built by scripts/fetch_data.py (build_sims): a total-return index
 # (close = adj_close, no dividends, volume 0, open = high = low = close) that uses a model before
 # the fund existed and the real fund's total return after.
-SIMS = {"SPYSIM": "US stock market (Fama-French market return) spliced into SPY",
-        "TLTSIM": "20-year Treasuries priced from FRED yields, spliced into TLT",
-        "IEFSIM": "~9-year Treasuries from the 10-year yield, spliced into IEF",
-        "SHYSIM": "2-year Treasuries from the 2-year yield, spliced into SHY",
-        "BILSIM": "1-month T-bills (Fama-French RF), spliced into BIL",
-        "IEISIM": "5-year Treasuries from the 5-year yield, spliced into IEI",
+SIMS = {"SPYSIM": "US stock market (Fama-French market return) from 1926, spliced into SPY",
+        "TLTSIM": "20-year Treasuries priced from FRED yields from 1962, spliced into TLT",
+        "IEFSIM": "~9-year Treasuries from the 10-year yield from 1962, spliced into IEF",
+        "SHYSIM": "2-year Treasuries from the 2-year yield from 1962, spliced into SHY",
+        "BILSIM": "1-month T-bills (Fama-French RF) from 1926, spliced into BIL",
+        "IEISIM": "5-year Treasuries from the 5-year yield from 1962, spliced into IEI",
+        "BNDSIM": "US aggregate bonds: 70% 5-year Treasury / 30% IG corporate model from 1962, the Vanguard Total Bond "
+                  "Market Index fund (VBMFX) from Dec 1986, then BND",
+        "LQDSIM": "Investment-grade corporates priced off Moody's Aaa/Baa yields from 1953, spliced into LQD",
+        "HYGSIM": "US high-yield bonds: the Vanguard High-Yield Corporate fund (VWEHX) from 1985, then HYG (no model before)",
+        "TIPSIM": "US TIPS: the Vanguard Inflation-Protected Securities fund (VIPSX) from mid-2000, then TIP (no model before)",
+        "BNDXSIM": "International government bonds hedged to USD: a par-bond model on OECD 10-year yields of up to 12 "
+                   "developed markets (monthly steps) from 1970, PIMCO International Bond USD-hedged (PFORX) from 1993, then BNDX",
         "VBSIM": "US small caps (Fama-French small portfolios) from 1926, spliced into VB",
         "VBRSIM": "US small-cap value (Fama-French small/high B/M) from 1926, spliced into VBR",
+        "VBKSIM": "US small-cap growth (Fama-French small/low B/M) from 1926, spliced into VBK",
+        "MIDSIM": "US mid caps (Fama-French 30th-70th NYSE size percentiles) from 1926, spliced into MDY (S&P 400)",
         "VTVSIM": "US large-cap value (Fama-French big/high B/M) from 1926, spliced into VTV",
         "VUGSIM": "US large-cap growth (Fama-French big/low B/M) from 1926, spliced into VUG",
-        "EFASIM": "Developed ex-US stocks: Fama-French EAFE-region index (monthly) from 1975, daily from 1990, spliced into EFA",
-        "VNQSIM": "US REITs: FTSE Nareit All Equity REITs total return (monthly) from 1972, spliced into VNQ",
-        "GLDSIM": "Gold (World Bank monthly average price, stepped daily) from 1960, spliced into GLD",
-        "LQDSIM": "Investment-grade corporates priced off Moody's Aaa/Baa yields from 1953, spliced into LQD",
+        "EFASIM": "Developed ex-US stocks: Fama-French EAFE index (monthly steps) from 1975, daily from 1990, spliced into EFA",
+        "EFVSIM": "Developed ex-US value: Fama-French EAFE high-B/M index (monthly steps) from 1975, daily big/high B/M "
+                  "from 1990, spliced into EFV",
+        "SCZSIM": "Developed ex-US small caps (Fama-French, daily) from 1990, spliced into SCZ",
+        "AVDVSIM": "Developed ex-US small-cap value (Fama-French small/high B/M, daily) from 1990, spliced into AVDV",
+        "VGKSIM": "European stocks: Fama-French Europe index (monthly steps) from 1975, daily from 1990, spliced into VGK",
         "EEMSIM": "Emerging markets (Fama-French, monthly steps) from 1989, spliced into EEM",
-}
+        "VNQSIM": "US REITs: FTSE Nareit All Equity REITs total return (monthly steps) from 1972, spliced into VNQ",
+        "GLDSIM": "Gold: LBMA PM fixing (daily) from April 1968 (World Bank monthly average price 1960-68), spliced into GLD",
+        "DBCSIM": "Commodity futures: AQR equal-weight commodity index excess return + T-bills (monthly steps) from 1960, "
+                  "spliced into DBC",
+        }
 
 
 def is_sim(ticker: str) -> bool:

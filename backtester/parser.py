@@ -107,21 +107,38 @@ MODEL_RX = r"(?:the |a |an )?(?:" + "|".join(p for p, *_ in MODEL_PORTFOLIOS) + 
 
 # long-history series that can stand in for an ETF before it existed: (series, None) when it IS that
 # ETF extended back, (series, proxy description) when it approximates it. The first available wins,
-# so e.g. a future BNDSIM listed before IEFSIM takes over automatically. Missing series are skipped.
+# so e.g. BNDSIM is used for BND when the data has it and IEFSIM otherwise. Missing series are skipped.
 SIM_FOR = {
     "SPY": [("SPYSIM", None)], "VTI": [("SPYSIM", "the US market (Fama-French), then SPY")],
-    "VOO": [("SPYSIM", "the US market, then SPY")],
-    "TLT": [("TLTSIM", None)], "IEF": [("IEFSIM", None)], "SHY": [("SHYSIM", None)], "BIL": [("BILSIM", None)],
+    "VOO": [("SPYSIM", "the US market, then SPY")], "IVV": [("SPYSIM", "the US market, then SPY")],
+    "TLT": [("TLTSIM", None)], "VGLT": [("TLTSIM", "long Treasuries, then TLT")],
+    "IEF": [("IEFSIM", None)], "SHY": [("SHYSIM", None)], "BIL": [("BILSIM", None)],
     "IEI": [("IEISIM", None)], "VB": [("VBSIM", None)], "VBR": [("VBRSIM", None)], "VTV": [("VTVSIM", None)],
+    "IWN": [("VBRSIM", "US small-cap value (Fama-French), then VBR")],
+    "VBK": [("VBKSIM", None)], "IWO": [("VBKSIM", "US small-cap growth (Fama-French), then VBK")],
+    "MDY": [("MIDSIM", None)], "IJH": [("MIDSIM", "US mid caps (Fama-French), then MDY (S&P 400)")],
+    "VO": [("MIDSIM", "US mid caps (Fama-French), then MDY")],
     "VUG": [("VUGSIM", None)], "EFA": [("EFASIM", None)], "GLD": [("GLDSIM", None)],
-    "DBC": [("DBCSIM", None)], "VNQ": [("VNQSIM", None)], "EEM": [("EEMSIM", None)],
-    "VWO": [("EEMSIM", "emerging markets, then EEM")], "LQD": [("LQDSIM", None)], "TIP": [("TIPSIM", None)],
+    "IAU": [("GLDSIM", "gold, then GLD")], "GLDM": [("GLDSIM", "gold, then GLD")],
+    "DBC": [("DBCSIM", None)], "GSG": [("DBCSIM", "commodity futures (AQR equal-weight index), then DBC")],
+    "PDBC": [("DBCSIM", "commodity futures (AQR equal-weight index), then DBC")],
+    "VNQ": [("VNQSIM", None)], "EEM": [("EEMSIM", None)],
+    "VWO": [("EEMSIM", "emerging markets, then EEM")], "IEMG": [("EEMSIM", "emerging markets, then EEM")],
+    "LQD": [("LQDSIM", None)], "TIP": [("TIPSIM", None)], "SCHP": [("TIPSIM", "TIPS (VIPSX), then TIP")],
+    "HYG": [("HYGSIM", None)], "JNK": [("HYGSIM", "high-yield bonds (VWEHX), then HYG")],
     "BND": [("BNDSIM", None), ("AGGSIM", "the aggregate bond market, then AGG"),
             ("IEFSIM", "intermediate Treasuries, then IEF")],
-    "AGG": [("AGGSIM", None), ("IEFSIM", "intermediate Treasuries, then IEF")],
+    "AGG": [("AGGSIM", None), ("BNDSIM", "the US aggregate bond market (VBMFX from 1986), then BND"),
+            ("IEFSIM", "intermediate Treasuries, then IEF")],
+    "BNDX": [("BNDXSIM", None)],
     "VXUS": [("EFASIM", "developed markets ex-US (no emerging markets), then EFA")],
     "VEU": [("EFASIM", "developed markets ex-US (no emerging markets), then EFA")],
     "VEA": [("EFASIM", "developed markets ex-US, then EFA")],
+    "EFV": [("EFVSIM", None)], "SCZ": [("SCZSIM", None)], "AVDV": [("AVDVSIM", None)],
+    "DLS": [("AVDVSIM", "developed ex-US small-cap value (Fama-French), then AVDV")],
+    "DISV": [("AVDVSIM", "developed ex-US small-cap value (Fama-French), then AVDV")],
+    "VSS": [("SCZSIM", "developed ex-US small caps (Fama-French; no emerging markets), then SCZ")],
+    "VGK": [("VGKSIM", None)],
 }
 
 
