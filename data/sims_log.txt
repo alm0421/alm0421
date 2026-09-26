@@ -1,24 +1,4 @@
-Europe monthly failed: europe not in ['Ind_Eur_WOut_UK.Dat', 'Ind_Scandanavia.Dat', 'Ind_UK.Dat', 'Ind_all.Dat', 'Ind_Asia_Pacific.Dat', 'Ind_Eur_With_UK.Dat']
-Traceback (most recent call last):
-  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 746, in europe
-    m = _monthly_steps(french_international_index("europe"))
-                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 886, in french_international_index
-    raise RuntimeError(f"{name} not in {names[:20]}")
-RuntimeError: europe not in ['Ind_Eur_WOut_UK.Dat', 'Ind_Scandanavia.Dat', 'Ind_UK.Dat', 'Ind_all.Dat', 'Ind_Asia_Pacific.Dat', 'Ind_Eur_With_UK.Dat']
-
-EAFE value monthly failed: Ind_all.Dat: no column named ['HIBEME', 'HIBM', 'HIGHBM', 'VALUE']; header lines ['Value-Weight Dollar Returns      All 4 Data Items Not Reqd', '-- BE/ME --   --- E/P ---   --- CE/P --   ------  Yld  -----', 'Mkt   High    Low   High    Low   High    Low   High    Low   Zero', 'Value-Weight Local  Returns      All 4 Data Items Not Reqd', '-- BE/ME --   --- E/P ---   --- CE/P --   ------  Yld  -----', 'Mkt   High    Low   High    Low   High    Low   High    Low   Zero', 'Value-Weight Dollar Returns      All 4 Data Items Required', '-- BE/ME --   --- E/P ---   --- CE/P --   ------  Yld  -----', 'Mkt   High    Low   High    Low   High    Low   High    Low   Zero', 'Value-Weight Local  Returns      All 4 Data Items Required', '-- BE/ME --   --- E/P ---   --- CE/P --   ------  Yld  -----', 'Mkt   High    Low   High    Low   High    Low   High    Low   Zero']
-Traceback (most recent call last):
-  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 764, in intl_size_value
-    m = _monthly_steps(french_international_index("all", column=("HIBM", "HIGHBM", "HIBEME", "VALUE")))
-                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 888, in french_international_index
-    s = parse_french_dat(z.read(pick).decode("latin-1"), column, label=pick)
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 906, in parse_french_dat
-    raise RuntimeError(f"{label}: no column named {sorted(want)}; header lines {heads}")
-RuntimeError: Ind_all.Dat: no column named ['HIBEME', 'HIBM', 'HIGHBM', 'VALUE']; header lines ['Value-Weight Dollar Returns      All 4 Data Items Not Reqd', '-- BE/ME --   --- E/P ---   --- CE/P --   ------  Yld  -----', 'Mkt   High    Low   High    Low   High    Low   High    Low   Zero', 'Value-Weight Local  Returns      All 4 Data Items Not Reqd', '-- BE/ME --   --- E/P ---   --- CE/P --   ------  Yld  -----', 'Mkt   High    Low   High    Low   High    Low   High    Low   Zero', 'Value-Weight Dollar Returns      All 4 Data Items Required', '-- BE/ME --   --- E/P ---   --- CE/P --   ------  Yld  -----', 'Mkt   High    Low   High    Low   High    Low   High    Low   Zero', 'Value-Weight Local  Returns      All 4 Data Items Required', '-- BE/ME --   --- E/P ---   --- CE/P --   ------  Yld  -----', 'Mkt   High    Low   High    Low   High    Low   High    Low   Zero']
-
+all simulated series built
 
 Model vs fund on their overlap:
 validate SPYSIM vs SPY 1993-03..2026-07: monthly correlation 0.987, tracking error 2.45%/yr, CAGR model 10.95% vs fund 10.79%, volatility 15.3% vs 14.8%
@@ -34,9 +14,11 @@ validate VBSIM vs VB 2004-03..2026-07: monthly correlation 0.980, tracking error
 validate MIDSIM vs IJH 2000-06..2026-07: monthly correlation 0.982, tracking error 3.83%/yr, CAGR model 9.93% vs fund 9.69%, volatility 19.2% vs 17.7%
 French international index 'all' column MKT: Ind_all.Dat, 612 months 1975-01..2025-12
 validate EFASIM vs EFA 2001-09..2026-07: monthly correlation 0.984, tracking error 2.95%/yr, CAGR model 7.74% vs fund 6.64%, volatility 16.2% vs 16.7%
+French international index 'eur_with_uk' column MKT: Ind_Eur_With_UK.Dat, 612 months 1975-01..2025-12
 validate VGKSIM vs VGK 2005-04..2026-07: monthly correlation 0.991, tracking error 2.51%/yr, CAGR model 7.12% vs fund 6.69%, volatility 18.1% vs 18.5%
 validate SCZSIM vs SCZ 2008-01..2026-07: monthly correlation 0.967, tracking error 4.94%/yr, CAGR model 4.91% vs fund 5.55%, volatility 17.5% vs 19.0%
 validate AVDVSIM vs AVDV 2019-10..2026-07: monthly correlation 0.974, tracking error 5.64%/yr, CAGR model 13.51% vs fund 15.01%, volatility 16.4% vs 20.2%
+French international index 'all' column HIGH: Ind_all.Dat, 612 months 1975-01..2025-12
 validate EFVSIM vs EFV 2005-09..2026-07: monthly correlation 0.977, tracking error 4.28%/yr, CAGR model 7.69% vs fund 6.03%, volatility 19.5% vs 18.0%
 validate LQDSIM vs LQD 2002-08..2026-08: monthly correlation 0.886, tracking error 3.73%/yr, CAGR model 5.42% vs fund 4.50%, volatility 6.2% vs 7.9%
 validate BNDSIM vs VBMFX 1987-01..2026-08: monthly correlation 0.962, tracking error 1.22%/yr, CAGR model 5.24% vs fund 4.99%, volatility 4.5% vs 4.2%
