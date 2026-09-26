@@ -61,7 +61,36 @@ def monthly_returns(nav_: pd.Series) -> pd.Series:
     first = nav_.iloc[0]
     prev = me.shift(1)
     prev.iloc[0] = first
-    return (me / prev - 1).dropna()
+    out = (me / prev - 1).dropna()
+    # a month holding only the starting point (e.g. the day before the first bar) has no return
+    if len(out) > 1 and (nav_.index.to_period("M") == nav_.index[0].to_period("M")).sum() == 1:
+        out = out.iloc[1:]
+    return out
+
+
+def with_flows(growth: pd.Series, flows: pd.Series | None) -> pd.Series:
+    """Dollar value of a buy-and-hold curve that receives the same cash flows as a portfolio:
+    contributions are invested and withdrawals sold at that day's close; once it hits zero it stays
+    there. `growth` starts at the starting capital."""
+    if flows is None or not len(growth):
+        return growth
+    r = growth.pct_change().fillna(0.0).to_numpy()
+    f = flows.reindex(growth.index).fillna(0.0).to_numpy()
+    out = np.empty(len(growth))
+    v = float(growth.iloc[0]) + f[0]
+    out[0] = v
+    for t in range(1, len(growth)):
+        v = v * (1 + r[t]) + f[t] if v > 0 else 0.0
+        v = max(v, 0.0)
+        out[t] = v
+    return pd.Series(out, index=growth.index, name=growth.name)
+
+
+def display_date(ts, first_bar=None):
+    """Dates shown to people: the synthetic point one day before the first bar shows as the first bar."""
+    if first_bar is not None and ts is not None and not pd.isna(ts) and pd.Timestamp(ts) < pd.Timestamp(first_bar):
+        return pd.Timestamp(first_bar)
+    return ts
 
 
 def buy_and_hold(ticker: str, index: pd.DatetimeIndex, capital: float) -> pd.Series | None:
@@ -79,7 +108,7 @@ def drawdown(equity: pd.Series) -> pd.Series:
     return equity / equity.cummax() - 1
 
 
-def drawdown_table(equity: pd.Series, top: int = 5) -> pd.DataFrame:
+def drawdown_table(equity: pd.Series, top: int = 5, first_bar=None) -> pd.DataFrame:
     """The `top` deepest drawdowns with peak / trough / recovery dates."""
     dd = drawdown(equity)
     rows = []
@@ -105,7 +134,7 @@ def drawdown_table(equity: pd.Series, top: int = 5) -> pd.DataFrame:
     out["days_to_recover"] = [(r - t).days if r is not None and not pd.isna(r) else None for t, r in zip(out.trough, out.recovery)]
     out["total_days"] = [((r if r is not None and not pd.isna(r) else idx[-1]) - p).days for p, r in zip(out.peak, out.recovery)]
     out["recovery"] = [r.date() if r is not None and not pd.isna(r) else None for r in out["recovery"]]
-    out["peak"] = [p.date() for p in out["peak"]]
+    out["peak"] = [display_date(p, first_bar).date() for p in out["peak"]]
     out["trough"] = [t.date() for t in out["trough"]]
     return out.sort_values("depth").head(top).reset_index(drop=True)
 
@@ -136,8 +165,9 @@ def xirr(dates: list, amounts: list) -> float:
 
 # ------------------------------------------------------------------ statistics
 
-def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None) -> dict:
-    """Statistics for an equity curve; time-weighted if flows are given."""
+def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, first_bar=None) -> dict:
+    """Statistics for an equity curve; time-weighted if flows are given. `first_bar`: the first real
+    bar when the series starts with the synthetic day-before point (only changes the dates shown)."""
     nv = nav(equity, flows) if flows is not None and flows.abs().sum() > 0 else equity
     r = nv.pct_change().iloc[1:].fillna(0.0)
     years = (nv.index[-1] - nv.index[0]).days / 365.25
@@ -188,7 +218,7 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None) 
         if ci.notna().iloc[0] and ci.notna().iloc[-1]:
             real = ((nv.iloc[-1] / nv.iloc[0]) / (ci.iloc[-1] / ci.iloc[0])) ** (1 / years) - 1
     return {
-        "start": nv.index[0].date(),
+        "start": display_date(nv.index[0], first_bar).date(),
         "end": nv.index[-1].date(),
         "years": years,
         "start_equity": float(equity.iloc[0]),
@@ -202,7 +232,7 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None) 
         "sharpe_monthly": sharpe_m,
         "sortino_monthly": sortino_m,
         "max_drawdown": mdd,
-        "max_dd_peak": peak.date(),
+        "max_dd_peak": display_date(peak, first_bar).date(),
         "max_dd_trough": trough.date(),
         "max_dd_recovery": recovery.date() if recovery is not None else None,
         "longest_underwater_days": longest,
@@ -426,13 +456,13 @@ def yearly_returns(series: dict[str, pd.Series]) -> pd.DataFrame:
     return pd.DataFrame(cols)
 
 
-def yearly_detail(nav_: pd.Series, trades: pd.DataFrame, exposure: pd.Series) -> pd.DataFrame:
+def yearly_detail(nav_: pd.Series, trades: pd.DataFrame, exposure: pd.Series, first_bar=None) -> pd.DataFrame:
     rows = {}
     for y, eq in nav_.groupby(nav_.index.year):
         prev = nav_[nav_.index.year < y]
         base = prev.iloc[-1] if len(prev) else eq.iloc[0]
         path = pd.concat([pd.Series([base]), eq]).reset_index(drop=True)
-        first, last = eq.index[0], eq.index[-1]
+        first, last = display_date(eq.index[0], first_bar), eq.index[-1]
         partial = (not len(prev)) and (first.month > 1 or first.day > 7) or (last.month < 12 or last.day < 24)
         rows[y] = {
             "return": eq.iloc[-1] / base - 1,

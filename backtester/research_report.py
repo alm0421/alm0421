@@ -112,14 +112,31 @@ def write_walk(R: dict, text: str, out: Path) -> Path:
 # ------------------------------------------------------------------ optimiser
 
 def optimize_console(R: dict) -> str:
-    L = [f"Mean-variance optimisation on monthly total returns {R['fit_start']} -> {R['fit_end']} (T-bill {pct(R['rf'])}):"]
+    L = [f"Portfolio optimisation on monthly total returns {R['fit_start']} -> {R['fit_end']} (T-bill {pct(R['rf'])}):"]
+    c = R.get("constraints") or {}
+    lim = [("" if a is None else pct(a, 0) + " <= ") + t + ("" if b is None else " <= " + pct(b, 0))
+           for t, (a, b) in (c.get("bounds") or {}).items()] + [g["text"] for g in c.get("groups") or []]
+    if lim:
+        L.append("Constraints: " + "; ".join(lim))
+    L.append(f"  {'':26s} {'return':>7s} {'vol':>7s} {'Sharpe':>6s} {'Sortino':>7s} {'CVaR95m':>7s} {'DivR':>5s}")
     for name, p in R["portfolios"].items():
-        w = ", ".join(f"{t} {x:.0%}" for t, x in sorted(p["weights"].items(), key=lambda kv: -kv[1]))
-        L.append(f"  {name:18s} return {pct(p['exp_return'])}  vol {pct(p['exp_vol'])}  Sharpe {num(p['exp_sharpe'])}   [{w}]")
+        L.append(f"  {name:26s} {pct(p['exp_return'], 1):>7s} {pct(p['exp_vol'], 1):>7s} {num(p['exp_sharpe']):>6s} "
+                 f"{num(p.get('exp_sortino')):>7s} {pct(p.get('cvar_95_monthly'), 1):>7s} {num(p.get('diversification_ratio')):>5s}")
+        L.append(f"  {'':26s} {p.get('sentence', '')}")
+    for n in R.get("notes") or []:
+        L.append("Note: " + n)
     if R.get("test"):
         L.append(f"Out of sample from {R.get('test_start')}:")
         for name, s in R["test"].items():
-            L.append(f"  {name:18s} CAGR {pct(s['cagr'])}  vol {pct(s['volatility'])}  Sharpe {num(s['sharpe'])}  maxDD {pct(s['max_drawdown'], 1)}")
+            L.append(f"  {name:26s} CAGR {pct(s['cagr'])}  vol {pct(s['volatility'])}  Sharpe {num(s['sharpe'])}  maxDD {pct(s['max_drawdown'], 1)}")
+    ro = R.get("rolling")
+    if ro:
+        L.append(f"Walk-forward: re-optimised every {ro['every_months']} months on the trailing {ro['lookback_months']} months, "
+                 f"{ro['start']} -> {ro['end']} (out of sample) vs the same weights fitted on the whole period (hindsight):")
+        for name, s in ro["stats"].items():
+            a, b = s.get("rolling", {}), s.get("static", {})
+            L.append(f"  {name:26s} rolling CAGR {pct(a.get('cagr'))} Sharpe {num(a.get('sharpe'))} maxDD {pct(a.get('max_drawdown'), 1)}"
+                     + (f"   static CAGR {pct(b.get('cagr'))} Sharpe {num(b.get('sharpe'))} maxDD {pct(b.get('max_drawdown'), 1)}" if b else ""))
     L.append("Optimised weights fit the past; check them out of sample (--test-start) before trusting them.")
     return "\n".join(L)
 

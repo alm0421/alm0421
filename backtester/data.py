@@ -62,11 +62,31 @@ def nasdaq100() -> list[str]:
     m = universe_meta()
     if m.get("nasdaq100"):
         return list(m["nasdaq100"])
-    return [t for t in available_tickers() if t not in BENCHMARKS and not t.startswith("^")]
+    return [t for t in available_tickers() if t not in BENCHMARKS and not t.startswith("^") and not is_sim(t)]
 
 
 def etfs() -> list[str]:
     return list(universe_meta().get("etfs", []))
+
+
+# Long-history simulated series built by scripts/fetch_data.py (build_sims): a total-return index
+# (close = adj_close, no dividends, volume 0, open = high = low = close) that uses a model before
+# the fund existed and the real fund's total return after.
+SIMS = {"SPYSIM": "US stock market (Fama-French market return) spliced into SPY",
+        "TLTSIM": "20-year Treasuries priced from FRED yields, spliced into TLT",
+        "IEFSIM": "~9-year Treasuries from the 10-year yield, spliced into IEF",
+        "SHYSIM": "2-year Treasuries from the 2-year yield, spliced into SHY",
+        "BILSIM": "1-month T-bills (Fama-French RF), spliced into BIL"}
+
+
+def is_sim(ticker: str) -> bool:
+    return canonical(ticker).endswith("SIM")
+
+
+def sims() -> list[str]:
+    """The simulated long-history series that exist in data/prices."""
+    have = set(available_tickers())
+    return [t for t in SIMS if t in have] + sorted(t for t in have if t.endswith("SIM") and t not in SIMS)
 
 
 # symbols that show up in old revisions of the Wikipedia article but were never index members

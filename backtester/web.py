@@ -363,9 +363,14 @@ def api_research(body, kind):
         tickers = [t for t in (body.get("tickers") or "").replace(",", " ").split() if t]
         if len(tickers) < 2:
             raise ClientError("Give at least two tickers.")
+        num = lambda k: float(body[k]) if body.get(k) not in (None, "") else None  # noqa: E731
         R = research.optimize(tickers, body.get("start") or None, body.get("end") or None,
                               float(body.get("max_weight") or 1), float(body.get("min_weight") or 0),
-                              body.get("test_start") or None)
+                              body.get("test_start") or None, constraints=body.get("constraints") or None,
+                              target_return=num("target_return"), target_vol=num("target_vol"),
+                              rolling_months=int(num("rolling_months")) if num("rolling_months") else None,
+                              lookback_months=int(num("lookback_months") or 60),
+                              rebalance=body.get("rebalance") or "quarterly")
         research_report.write_optimize(R, out)
         label = "Optimise: " + " ".join(tickers)
     row = {"id": rid, "created": datetime.now().isoformat(timespec="seconds"), "kind": kind, "label": label[:120],
@@ -375,6 +380,99 @@ def api_research(body, kind):
         idx.insert(0, row)
         _save_index(idx)
     return {"id": rid, "url": f"/r/{rid}/report.html"}
+
+
+def _target_spec(body):
+    """A strategy/portfolio for the Monte Carlo and factor pages: a saved run id, a sentence or a spec."""
+    rid = body.get("run_id")
+    if rid:
+        row = next((r for r in _index() if r["id"] == rid), None)
+        if not row or not row.get("spec"):
+            raise ClientError(f"Unknown saved run {rid}")
+        return runner.from_dict(row["spec"])
+    if body.get("spec"):
+        return runner.from_dict(body["spec"])
+    if (body.get("text") or "").strip():
+        return parser.parse(body["text"])
+    return None
+
+
+def _weights(body) -> dict | None:
+    w = body.get("weights")
+    if not w:
+        return None
+    if isinstance(w, dict):
+        return {data.canonical(k): float(v) for k, v in w.items()}
+    from .montecarlo import parse_weights
+    return parse_weights(str(w))
+
+
+def api_montecarlo(body):
+    from . import montecarlo as mc
+    s = mc.Settings()
+    try:
+        s.start_balance = float(body.get("balance") or 1_000_000)
+        s.years = int(body.get("years") or 30)
+        s.sims = int(body.get("sims") or 5000)
+        s.block_months = int(body.get("block_months") or 12)
+        s.success_target = float(body.get("success_target") or 0.95)
+        infl = body.get("inflation", "historical")
+        s.inflation = "historical" if infl in (None, "", "historical") else float(infl)
+    except (TypeError, ValueError) as e:
+        raise ClientError(f"Bad number: {e}")
+    s.model = body.get("model") or "historical"
+    s.rebalance = body.get("rebalance") or "yearly"
+    s.start, s.end = body.get("start") or None, body.get("end") or None
+    for t, v in (body.get("forecast") or {}).items():
+        if v and v.get("ret") not in (None, "") and v.get("vol") not in (None, ""):
+            s.forecast[data.canonical(t)] = (float(v["ret"]), float(v["vol"]))
+    w = _weights(body)
+    spec = None if w else _target_spec(body)
+    if w:
+        s.weights = w
+    elif spec is not None:
+        rb = s.rebalance
+        s.weights, s.series_name = mc.settings_from_spec(spec, s)
+        if body.get("rebalance"):
+            s.rebalance = rb
+    else:
+        raise ClientError("Give tickers with weights, a sentence or a saved run.")
+    flows = []
+    for f in body.get("flows") or []:
+        kind = f.get("type")
+        amt = float(f.get("amount") or 0)
+        if kind == "none" or (not amt and kind != "pct_withdrawal"):
+            continue
+        freq = f.get("freq") or "yearly"
+        s_y, e_y = int(f.get("start_year") or 1), (int(f["end_year"]) if f.get("end_year") else None)
+        if kind == "contribution":
+            flows.append(mc.CashFlow(amount=abs(amt), freq=freq, inflation_adjusted=bool(f.get("inflation_adjusted", True)), start_year=s_y, end_year=e_y))
+        elif kind == "withdrawal":
+            flows.append(mc.CashFlow(amount=-abs(amt), freq=freq, inflation_adjusted=bool(f.get("inflation_adjusted", True)), start_year=s_y, end_year=e_y))
+        elif kind == "pct_withdrawal":
+            flows.append(mc.CashFlow(pct=-abs(float(f.get("pct") or 0)), freq=freq, start_year=s_y, end_year=e_y))
+    if not flows and not body.get("flows") and spec is not None and hasattr(spec, "contribution"):
+        flows = mc.flows_from_portfolio(spec)
+    s.flows = flows
+    R = mc.run(s)
+    return report._clean(R)
+
+
+def api_factors(body):
+    from . import factors as F
+    w = _weights(body)
+    if w:
+        target = w
+    elif (body.get("ticker") or "").strip():
+        target = body["ticker"].strip()
+    else:
+        target = _target_spec(body)
+        if target is None:
+            raise ClientError("Give a ticker, tickers with weights, a sentence or a saved run.")
+    r, name = F.returns_for(target)
+    R = F.analyze(r, body.get("model") or "ff3", body.get("freq") or "monthly", body.get("start") or None,
+                  body.get("end") or None, int(body.get("rolling_months") or 36), name=name)
+    return report._clean(R)
 
 
 def api_signals(body):
@@ -396,6 +494,7 @@ def api_paper(body, method):
 def api_status(_body=None):
     m = data.universe_meta()
     return report._clean({"data": data.data_status(), "examples": EXAMPLES, "nasdaq100": data.nasdaq100(),
+                          "sims": [{"ticker": t, "about": data.SIMS.get(t, "simulated long history")} for t in data.sims()],
                           "etfs": data.etfs(), "indexes": m.get("indexes", []),
                           "former": m.get("former_members", []), "help": expr.HELP,
                           "tickers": data.available_tickers()})
@@ -539,6 +638,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/paper": lambda b: api_paper(b, "POST"),
                 "/api/fetch": api_fetch, "/api/share": api_share, "/api/orders": api_orders,
                 "/api/gallery/stats": api_gallery_stats,
+                "/api/montecarlo": api_montecarlo, "/api/factors": api_factors,
             }
             if path in handlers:
                 return self._json(200, handlers[path](body))

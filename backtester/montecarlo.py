@@ -1,0 +1,517 @@
+"""Monte Carlo simulation of a portfolio's future (Portfolio Visualizer style).
+
+Everything runs on monthly steps. For each simulated path the tool draws monthly asset returns
+(and monthly inflation), grows the holdings, rebalances on the chosen schedule and applies the
+cash-flow schedule. Return models:
+
+  historical  block bootstrap of historical monthly returns: whole months are drawn together for
+              every asset (and CPI), in blocks of consecutive months, so cross-asset correlation,
+              the link with inflation and short-term autocorrelation are all preserved
+  normal      multivariate normal with the historical mean vector and covariance matrix
+  t           multivariate Student-t with the same mean and covariance and fitted degrees of
+              freedom (maximum likelihood), i.e. fat tails
+  forecast    user-supplied expected return and volatility per asset (annual), historical
+              correlations, multivariate normal
+
+Cash flows are applied at the start of each period, pro rata to the current holdings (so they do
+not change the mix); that makes the portfolio's monthly return independent of the flows, and the
+balance follows B[m+1] = (B[m] + F[m]) * (1 + r[m]). A path fails when the balance reaches zero.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import numpy as np
+import pandas as pd
+
+from . import data
+
+MODELS = ("historical", "normal", "t", "forecast")
+PERCENTILES = (10, 25, 50, 75, 90)
+STEPS = {"monthly": 1, "quarterly": 3, "yearly": 12, "annual": 12, "none": 0}
+
+
+@dataclass
+class CashFlow:
+    """One recurring cash flow. amount > 0 adds money, < 0 withdraws; pct withdraws (if < 0) or adds
+    a fraction of the balance per year, split evenly over the periods."""
+    amount: float = 0.0
+    pct: float = 0.0
+    freq: str = "yearly"
+    inflation_adjusted: bool = True
+    start_year: int = 1            # first year it applies (1 = from the start)
+    end_year: int | None = None    # last year it applies (inclusive); None = to the end
+
+    def describe(self) -> str:
+        if not self.amount and not self.pct:
+            return "no cash flows"
+        what = []
+        if self.amount:
+            what.append(f"{'add' if self.amount > 0 else 'withdraw'} ${abs(self.amount):,.0f} {self.freq}"
+                        + (" (grows with inflation)" if self.inflation_adjusted else " (fixed dollars)"))
+        if self.pct:
+            what.append(f"{'add' if self.pct > 0 else 'withdraw'} {abs(self.pct):.2%} of the balance per year, paid {self.freq}")
+        yrs = ""
+        if self.start_year > 1 or self.end_year:
+            yrs = f", years {self.start_year}-{self.end_year or 'end'}"
+        return "; ".join(what) + yrs
+
+
+@dataclass
+class Settings:
+    weights: dict[str, float] = field(default_factory=dict)
+    start_balance: float = 1_000_000.0
+    years: int = 30
+    flows: list[CashFlow] = field(default_factory=list)
+    model: str = "historical"
+    block_months: int = 12                        # historical bootstrap block length
+    inflation: str | float = "historical"         # "historical" or a fixed annual rate
+    rebalance: str = "yearly"
+    sims: int = 5000
+    seed: int | None = 7
+    start: str | None = None                      # history window used to fit/bootstrap
+    end: str | None = None
+    forecast: dict[str, tuple[float, float]] = field(default_factory=dict)   # ticker -> (mean, vol), annual
+    success_target: float = 0.95                  # for the safe withdrawal rate
+    series: pd.Series | None = None               # monthly returns of a whole strategy (instead of weights)
+    series_name: str = "Portfolio"
+
+
+# ------------------------------------------------------------------ history
+
+def monthly_asset_returns(tickers: list[str], start=None, end=None) -> pd.DataFrame:
+    """Monthly total returns (from adj_close month-ends) over the common history of the tickers."""
+    px = pd.concat({data.canonical(t): data.load(t)["adj_close"] for t in tickers}, axis=1).dropna()
+    if start:
+        px = px[px.index >= pd.Timestamp(start)]
+    if end:
+        px = px[px.index <= pd.Timestamp(end)]
+    me = px.resample("ME").last()
+    # drop a first month-end that is only a partial month
+    r = me.pct_change().iloc[1:]
+    return r.dropna()
+
+
+def monthly_inflation(index: pd.DatetimeIndex | None = None) -> pd.Series:
+    """Monthly CPI change; aligned to `index` (month ends) if given."""
+    c = data.cpi()
+    if c.empty:
+        return pd.Series(dtype=float)
+    c = c.copy()
+    c.index = c.index.to_period("M").to_timestamp("M")
+    infl = c.pct_change().dropna()
+    if index is not None:
+        idx = pd.DatetimeIndex(index).to_period("M").to_timestamp("M")
+        infl = infl.reindex(idx)
+        infl.index = index
+    return infl
+
+
+def fit_t_df(X: np.ndarray) -> float:
+    """Degrees of freedom of a multivariate Student-t fitted by maximum likelihood (mean and
+    covariance held at their sample values; the scale matrix is cov * (df - 2) / df)."""
+    from scipy.optimize import minimize_scalar
+    from scipy.special import gammaln
+    X = np.atleast_2d(X)
+    n, k = X.shape
+    mu = X.mean(axis=0)
+    cov = np.cov(X, rowvar=False).reshape(k, k) + np.eye(k) * 1e-12
+    inv = np.linalg.inv(cov)
+    d = X - mu
+    maha = np.einsum("ij,jk,ik->i", d, inv, d)
+    _, logdet = np.linalg.slogdet(cov)
+
+    def nll(nu):
+        s = (nu - 2) / nu                    # scale = cov * s
+        q = maha / s
+        ll = (gammaln((nu + k) / 2) - gammaln(nu / 2) - k / 2 * np.log(nu * np.pi)
+              - 0.5 * (logdet + k * np.log(s)) - (nu + k) / 2 * np.log1p(q / nu))
+        return -ll.sum()
+    r = minimize_scalar(nll, bounds=(2.05, 200.0), method="bounded")
+    return float(r.x)
+
+
+# ------------------------------------------------------------------ simulation core
+
+def _draw_blocks(rng, n_hist: int, months: int, sims: int, block: int) -> np.ndarray:
+    """(sims, months) indices into the history: blocks of consecutive months (circular)."""
+    block = max(1, min(block, n_hist))
+    nb = int(np.ceil(months / block))
+    starts = rng.integers(0, n_hist, size=(sims, nb))
+    idx = (starts[:, :, None] + np.arange(block)[None, None, :]) % n_hist
+    return idx.reshape(sims, nb * block)[:, :months]
+
+
+def _portfolio_returns(A: np.ndarray, w: np.ndarray, rebalance_every: int) -> np.ndarray:
+    """Monthly portfolio returns (sims, months) for asset returns A (sims, months, n) with target
+    weights w, rebalanced every `rebalance_every` months (0 = never)."""
+    sims, months, n = A.shape
+    hold = np.broadcast_to(w, (sims, n)).copy()
+    out = np.empty((sims, months))
+    for m in range(months):
+        before = hold.sum(axis=1)
+        hold = hold * (1 + A[:, m, :])
+        after = hold.sum(axis=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out[:, m] = np.where(before > 0, after / before - 1, 0.0)
+        if rebalance_every and (m + 1) % rebalance_every == 0:
+            hold = np.maximum(after, 0)[:, None] * w[None, :]
+    return np.maximum(out, -1.0)
+
+
+def simulate_balances(P: np.ndarray, cum_infl: np.ndarray, start: float, flows: list[CashFlow]) -> np.ndarray:
+    """Balances (sims, months + 1) given portfolio returns P (sims, months) and the cumulative
+    inflation index at the start of each month cum_infl (sims, months + 1)."""
+    sims, months = P.shape
+    B = np.empty((sims, months + 1))
+    B[:, 0] = start
+    b = np.full(sims, float(start))
+    for m in range(months):
+        f = np.zeros(sims)
+        year = m // 12 + 1
+        for cf in flows:
+            step = STEPS.get(cf.freq, 12) or 12
+            if m % step or year < cf.start_year or (cf.end_year and year > cf.end_year):
+                continue
+            if cf.amount:
+                f += cf.amount * (cum_infl[:, m] if cf.inflation_adjusted else 1.0)
+            if cf.pct:
+                f += cf.pct * step / 12 * np.maximum(b, 0)
+        b = np.maximum(b + f, 0.0) * (1 + P[:, m])
+        b = np.where(b > 1e-9, b, 0.0)
+        B[:, m + 1] = b
+    return B
+
+
+def _alive_to_end(P: np.ndarray, cum_infl: np.ndarray, start: float, rate: float) -> tuple[np.ndarray, np.ndarray]:
+    """Constant inflation-adjusted annual withdrawal of rate * start at the start of each year.
+    Returns (survived the whole horizon, final real balance)."""
+    sims, months = P.shape
+    b = np.full(sims, float(start))
+    alive = np.ones(sims, bool)
+    for m in range(months):
+        if m % 12 == 0:
+            b = b - rate * start * cum_infl[:, m]
+            alive &= b > 0
+            b = np.maximum(b, 0.0)
+        b = b * (1 + P[:, m])
+    return alive, b / cum_infl[:, months]
+
+
+def safe_withdrawal_rate(P, cum_infl, start, success=0.95) -> float:
+    """Highest constant inflation-adjusted withdrawal (share of the starting balance, per year,
+    taken at the start of each year) that leaves money at the end in at least `success` of paths."""
+    lo, hi = 0.0, 1.0
+    if _alive_to_end(P, cum_infl, start, lo)[0].mean() < success:
+        return 0.0
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if _alive_to_end(P, cum_infl, start, mid)[0].mean() >= success:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def perpetual_withdrawal_rate(P, cum_infl, start) -> float:
+    """Highest constant inflation-adjusted withdrawal that keeps the median final real balance at or
+    above the starting balance."""
+    lo, hi = -1.0, 1.0
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        _, real = _alive_to_end(P, cum_infl, start, mid)
+        if np.median(real) >= start:
+            lo = mid
+        else:
+            hi = mid
+    return max(lo, 0.0)
+
+
+def _max_drawdown(P: np.ndarray) -> np.ndarray:
+    g = np.cumprod(1 + P, axis=1)
+    g = np.concatenate([np.ones((len(P), 1)), g], axis=1)
+    return (g / np.maximum.accumulate(g, axis=1) - 1).min(axis=1)
+
+
+# ------------------------------------------------------------------ driver
+
+def _history(s: Settings) -> tuple[pd.DataFrame, np.ndarray, list[str]]:
+    if s.series is not None:
+        hist = s.series.dropna().to_frame(s.series_name)
+        return hist, np.ones(1), [s.series_name]
+    if not s.weights:
+        raise ValueError("Give tickers with weights (e.g. SPY 60, TLT 40) or a strategy.")
+    tick = [data.canonical(t) for t in s.weights]
+    w = np.array([float(v) for v in s.weights.values()])
+    if (w < 0).any():
+        raise ValueError("Weights must be positive.")
+    if w.sum() <= 0:
+        raise ValueError("Weights must add up to more than zero.")
+    w = w / w.sum()
+    hist = monthly_asset_returns(tick, s.start, s.end)
+    return hist, w, tick
+
+
+def run(s: Settings) -> dict:
+    if s.model not in MODELS:
+        raise ValueError(f"model must be one of {MODELS}")
+    if not (1 <= s.years <= 100):
+        raise ValueError("Horizon must be between 1 and 100 years.")
+    if not (100 <= s.sims <= 50_000):
+        raise ValueError("Number of simulations must be between 100 and 50,000.")
+    hist, w, tick = _history(s)
+    if len(hist) < 36:
+        raise ValueError(f"Need at least 36 months of common history; {', '.join(tick)} have {len(hist)}.")
+    rng = np.random.default_rng(s.seed)
+    months = int(s.years * 12)
+    sims = int(s.sims)
+    H = hist.to_numpy()
+    n = H.shape[1]
+    if sims * months * n > 60_000_000:
+        raise ValueError(f"{sims:,} simulations x {months} months x {n} assets is too large; use fewer simulations.")
+    notes = []
+    hist_infl = monthly_inflation(hist.index)
+    fixed_infl = None if s.inflation == "historical" else float(s.inflation)
+    if fixed_infl is None and hist_infl.isna().all():
+        fixed_infl = 0.025
+        notes.append("CPI data unavailable: inflation assumed at 2.5% a year.")
+    t_df = None
+    if s.model == "historical":
+        idx = _draw_blocks(rng, len(H), months, sims, s.block_months)
+        A = H[idx]                                  # (sims, months, n): same months for every asset
+        if fixed_infl is None:
+            hi = hist_infl.to_numpy()
+            if np.isnan(hi).any():
+                # months before CPI exists: fill with the average monthly inflation
+                hi = np.where(np.isnan(hi), np.nanmean(hi), hi)
+                notes.append("Months of history without CPI data (usually the latest month or two) use the average historical inflation.")
+            I = hi[idx]
+    else:
+        mu = H.mean(axis=0)
+        cov = np.cov(H, rowvar=False).reshape(n, n)
+        if s.model == "forecast":
+            sd = np.sqrt(np.diag(cov))
+            corr = cov / np.outer(sd, sd)
+            fm, fs = mu.copy(), sd.copy()
+            for j, t in enumerate(tick):
+                if t in s.forecast:
+                    ann_mu, ann_vol = s.forecast[t]
+                    fm[j] = (1 + ann_mu) ** (1 / 12) - 1 if ann_mu > -1 else -1
+                    fs[j] = ann_vol / np.sqrt(12)
+                else:
+                    notes.append(f"No forecast for {t}: its historical mean and volatility were used.")
+            mu, cov = fm, corr * np.outer(fs, fs)
+        L = np.linalg.cholesky(cov + np.eye(n) * 1e-14)
+        Z = rng.standard_normal((sims, months, n)) @ L.T
+        if s.model == "t":
+            t_df = fit_t_df(H)
+            chi = rng.chisquare(t_df, size=(sims, months, 1))
+            Z = Z * np.sqrt((t_df - 2) / chi)   # covariance stays equal to cov
+        A = np.maximum(mu + Z, -1.0)
+        if fixed_infl is None:
+            full = monthly_inflation().to_numpy()
+            I = full[_draw_blocks(rng, len(full), months, sims, max(s.block_months, 1))]
+    if fixed_infl is not None:
+        I = np.full((sims, months), (1 + fixed_infl) ** (1 / 12) - 1)
+    cum_infl = np.concatenate([np.ones((sims, 1)), np.cumprod(1 + I, axis=1)], axis=1)
+
+    rb = STEPS.get(s.rebalance, 12)
+    P = _portfolio_returns(A, w, rb) if n > 1 else A[:, :, 0]
+    B = simulate_balances(P, cum_infl, s.start_balance, s.flows)
+    R = B / cum_infl
+
+    yrs = np.arange(0, s.years + 1)
+    cols = yrs * 12
+    pct = lambda X, p: np.percentile(X, p, axis=0)  # noqa: E731
+    bands = {str(p): pct(B[:, cols], p).tolist() for p in PERCENTILES}
+    bands_real = {str(p): pct(R[:, cols], p).tolist() for p in PERCENTILES}
+    alive = (B[:, cols] > 0).mean(axis=0)
+    twr = np.prod(1 + P, axis=1)
+    ann = np.where(twr > 0, twr ** (12 / months) - 1, -1.0)
+    real_twr = twr / cum_infl[:, -1]
+    ann_real = np.where(real_twr > 0, real_twr ** (12 / months) - 1, -1.0)
+    mdd = _max_drawdown(P)
+    final = B[:, -1]
+    q = lambda a: {str(p): float(np.percentile(a, p)) for p in PERCENTILES}  # noqa: E731
+    has_wd = any(cf.amount < 0 or cf.pct < 0 for cf in s.flows)
+    out = {
+        "settings": {"mode": "strategy" if s.series is not None else "assets", "name": s.series_name if s.series is not None else None,
+                     "weights": {t: float(x) for t, x in zip(tick, w)}, "start_balance": s.start_balance,
+                     "years": s.years, "model": s.model, "block_months": s.block_months,
+                     "inflation": "historical CPI" if fixed_infl is None else fixed_infl,
+                     "rebalance": s.rebalance, "sims": sims,
+                     "flows": [cf.describe() for cf in s.flows] or ["no cash flows"],
+                     "history_start": hist.index[0].date(), "history_end": hist.index[-1].date(),
+                     "history_months": len(hist), "t_df": t_df, "success_target": s.success_target},
+        "years": yrs.tolist(),
+        "bands": bands, "bands_real": bands_real,
+        "success_by_year": alive.tolist(),
+        "prob_success": float((final > 0).mean()),
+        "final": q(final), "final_real": q(R[:, -1]),
+        "annual_return": q(ann), "annual_return_real": q(ann_real),
+        "max_drawdown": q(mdd),
+        "mean_final": float(final.mean()),
+        "safe_withdrawal_rate": safe_withdrawal_rate(P, cum_infl, s.start_balance, s.success_target),
+        "perpetual_withdrawal_rate": perpetual_withdrawal_rate(P, cum_infl, s.start_balance),
+        "has_withdrawals": has_wd,
+        "notes": notes,
+        "hist_stats": {"mean_annual": (hist.mean() * 12).to_dict(), "vol_annual": (hist.std() * np.sqrt(12)).to_dict(),
+                       "correlation": hist.corr().round(3).to_numpy().tolist(), "tickers": tick},
+    }
+    if has_wd:
+        depleted = B[:, 1:] <= 0
+        first = np.where(depleted.any(axis=1), depleted.argmax(axis=1) + 1, -1)
+        fails = first[first > 0] / 12
+        out["depletion_years"] = q(fails) if len(fails) else {}
+    return out
+
+
+# ------------------------------------------------------------------ helpers for callers
+
+def weights_from_tree(tree: dict) -> dict[str, float] | None:
+    """Static weights of a portfolio tree made only of fixed-weight groups of assets, else None."""
+    out: dict[str, float] = {}
+
+    def walk(n, scale):
+        if "asset" in n:
+            t = data.canonical(n["asset"])
+            out[t] = out.get(t, 0.0) + scale
+            return True
+        if "weights" in n and n["weights"] in ("specified", "equal"):
+            kids = n["children"]
+            ws = n["w"] if n["weights"] == "specified" else [1 / len(kids)] * len(kids)
+            return all(walk(k, scale * x) for k, x in zip(kids, ws))
+        return False
+    if not walk(tree, 1.0) or any(v < 0 for v in out.values()):
+        return None
+    return out
+
+
+def flows_from_portfolio(p) -> list[CashFlow]:
+    """The cash-flow schedule of a Portfolio spec, as Monte Carlo cash flows."""
+    out = []
+    if p.contribution:
+        out.append(CashFlow(amount=p.contribution, freq=p.contribution_freq, inflation_adjusted=p.inflation_adjust))
+    if p.withdrawal:
+        out.append(CashFlow(amount=-p.withdrawal, freq=p.withdrawal_freq, inflation_adjusted=p.inflation_adjust))
+    if p.withdrawal_pct:
+        per_year = 12 / (STEPS.get(p.withdrawal_freq, 12) or 12)
+        out.append(CashFlow(pct=-p.withdrawal_pct * per_year, freq=p.withdrawal_freq))
+    return out
+
+
+def settings_from_spec(spec, s: Settings) -> tuple[dict[str, float], str]:
+    """Point the settings at a strategy/portfolio spec. A fixed-weight portfolio is simulated from its
+    assets (so rebalancing matters); anything else (rules, rotations, signals) resamples the
+    strategy's own monthly returns. Returns (weights, name) and sets s.series when needed."""
+    name = getattr(spec, "name", "") or getattr(spec, "description", "") or "Strategy"
+    w = weights_from_tree(spec.tree) if hasattr(spec, "tree") else None
+    if w:
+        if getattr(spec, "leverage", 1.0) == 1.0:
+            rb = getattr(spec, "rebalance", "yearly")
+            s.rebalance = {"daily": "monthly", "weekly": "monthly"}.get(rb, rb)
+            if s.start is None and spec.start:
+                s.start = spec.start
+            if s.end is None and spec.end:
+                s.end = spec.end
+            return w, name
+    ser = strategy_monthly_returns(spec)
+    if s.start:
+        ser = ser[ser.index >= pd.Timestamp(s.start)]
+    if s.end:
+        ser = ser[ser.index <= pd.Timestamp(s.end)]
+    s.series, s.series_name = ser, name[:60]
+    return {}, name
+
+
+def console(R: dict) -> str:
+    st = R["settings"]
+    money = lambda v: f"${v:,.0f}"  # noqa: E731
+    pc = lambda v: f"{v * 100:.2f}%"  # noqa: E731
+    L = [f"Monte Carlo: {st['sims']:,} paths x {st['years']} years, model {st['model']}"
+         + (f" (Student-t, fitted df {st['t_df']:.1f})" if st.get("t_df") else "")
+         + (f" (blocks of {st['block_months']} months)" if st["model"] == "historical" else ""),
+         (f"Strategy: {st['name']} (its own monthly returns are resampled); start {money(st['start_balance'])}"
+          if st.get("mode") == "strategy" else
+          "Portfolio: " + ", ".join(f"{w:.1%} {t}" for t, w in st["weights"].items())
+          + f"; rebalanced {st['rebalance']}; start {money(st['start_balance'])}"),
+         f"History {st['history_start']} -> {st['history_end']} ({st['history_months']} months); inflation {st['inflation']}",
+         "Cash flows: " + "; ".join(st["flows"])]
+    for n in R["notes"]:
+        L.append("Note: " + n)
+    L.append(f"{'percentile':>28s} " + " ".join(f"{p + 'th':>13s}" for p in R["final"]))
+    L.append(f"{'Final balance (nominal)':>28s} " + " ".join(f"{money(v):>13s}" for v in R["final"].values()))
+    L.append(f"{'Final balance (real)':>28s} " + " ".join(f"{money(v):>13s}" for v in R["final_real"].values()))
+    L.append(f"{'Annual return (nominal)':>28s} " + " ".join(f"{pc(v):>13s}" for v in R["annual_return"].values()))
+    L.append(f"{'Annual return (real)':>28s} " + " ".join(f"{pc(v):>13s}" for v in R["annual_return_real"].values()))
+    L.append(f"{'Max drawdown':>28s} " + " ".join(f"{pc(v):>13s}" for v in R["max_drawdown"].values()))
+    L.append(f"Chance of success (money left after {st['years']} years): {R['prob_success']:.1%}")
+    L.append(f"Safe withdrawal rate ({st['success_target']:.0%} success, inflation-adjusted, from the start balance): "
+             f"{pc(R['safe_withdrawal_rate'])}   perpetual withdrawal rate: {pc(R['perpetual_withdrawal_rate'])}")
+    return "\n".join(L)
+
+
+def strategy_monthly_returns(spec) -> pd.Series:
+    """Monthly time-weighted returns of any strategy or portfolio spec (flows removed)."""
+    from . import metrics, runner
+    res = runner.run(spec)
+    nv = metrics.nav(res.equity, res.extras.get("flows"))
+    return metrics.monthly_returns(nv)
+
+
+def historical_withdrawal_rates(monthly: pd.Series, start: float = 1.0) -> dict:
+    """SWR / PWR on the actual historical sequence of monthly returns (one path): the highest
+    inflation-adjusted annual withdrawal (share of the start) that never runs out, and the highest
+    that leaves the real balance at or above the start. Also a 95% bootstrap SWR over the same
+    horizon."""
+    r = monthly.dropna()
+    if len(r) < 24:
+        return {}
+    infl = monthly_inflation(r.index)
+    if infl.isna().all():
+        infl = pd.Series((1.025) ** (1 / 12) - 1, index=r.index)
+    infl = infl.fillna(infl.mean())
+    P = r.to_numpy()[None, :]
+    ci = np.concatenate([[1.0], np.cumprod(1 + infl.to_numpy())])[None, :]
+    out = {"horizon_years": len(r) / 12, "from": r.index[0].date(), "to": r.index[-1].date(),
+           "swr": safe_withdrawal_rate(P, ci, start, 1.0), "pwr": perpetual_withdrawal_rate(P, ci, start)}
+    rng = np.random.default_rng(11)
+    idx = _draw_blocks(rng, len(r), len(r), 2000, 12)
+    Pb = r.to_numpy()[idx]
+    Ib = infl.to_numpy()[idx]
+    cib = np.concatenate([np.ones((len(Pb), 1)), np.cumprod(1 + Ib, axis=1)], axis=1)
+    out["swr_mc95"] = safe_withdrawal_rate(Pb, cib, start, 0.95)
+    return out
+
+
+def parse_weights(text: str) -> dict[str, float]:
+    """'SPY 60 TLT 40', 'SPY:60,TLT:40', '60% SPY, 40% TLT' or 'SPY TLT' (equal) -> {ticker: weight}."""
+    toks = [t for t in text.replace(",", " ").replace(":", " ").replace("=", " ").split() if t]
+    out: dict[str, float] = {}
+    pending_w, last_t = None, None
+    for t in toks:
+        v = t.rstrip("%")
+        try:
+            w = float(v)
+        except ValueError:
+            tk = data.canonical(t)
+            if pending_w is not None:
+                out[tk] = out.get(tk, 0.0) + pending_w
+                pending_w, last_t = None, None
+            else:
+                out.setdefault(tk, 0.0)
+                last_t = tk
+            continue
+        if last_t is not None and out[last_t] == 0.0:
+            out[last_t] = w
+            last_t = None
+        else:
+            pending_w = w
+    if not out:
+        raise ValueError("Give tickers and weights, e.g. 'SPY 60 TLT 40'.")
+    if all(v == 0 for v in out.values()):
+        out = {k: 1.0 for k in out}
+    if any(v == 0 for v in out.values()):
+        raise ValueError(f"Missing weight for {', '.join(k for k, v in out.items() if v == 0)}.")
+    return out
+

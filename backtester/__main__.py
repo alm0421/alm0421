@@ -4,7 +4,9 @@
     python -m backtester compare "60/40 SPY/TLT rebalanced quarterly" "buy and hold QQQ"
     python -m backtester sweep "buy QQQ when RSI({2..5}) is below {5..20 step 5}, hold {1,3,5} days"
     python -m backtester walkforward "buy QQQ when RSI(2) is below {5..20 step 5}, hold {1..5} days"
-    python -m backtester optimize SPY QQQ TLT GLD --max-weight 0.6
+    python -m backtester optimize SPY QQQ TLT GLD --max-weight 0.6 --constraint "SPY+QQQ <= 70%" --rolling 12
+    python -m backtester montecarlo --weights "SPY 60 TLT 40" --years 30 --withdrawal 40000 --balance 1000000
+    python -m backtester factors QQQ --model ff5 --freq monthly
     python -m backtester signals "buy Nasdaq 100 stocks when RSI(2) is below 5, hold 3 days"
     python -m backtester paper add "..." --name rsi2 ; python -m backtester paper report
     python -m backtester web            # the backtesting site on http://localhost:8000
@@ -18,8 +20,9 @@ import time
 from pathlib import Path
 
 from . import data, expr, parser, report, runner
+from .montecarlo import parse_weights
 
-SUBCOMMANDS = {"run", "compare", "sweep", "walkforward", "optimize", "signals", "paper", "web", "tickers", "library"}
+SUBCOMMANDS = {"run", "compare", "sweep", "walkforward", "optimize", "signals", "paper", "web", "tickers", "library", "montecarlo", "factors"}
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -206,13 +209,123 @@ def cmd_optimize(argv: list[str]) -> int:
     p.add_argument("--max-weight", type=float, default=1.0)
     p.add_argument("--min-weight", type=float, default=0.0)
     p.add_argument("--test-start", help="estimate before this date, evaluate after it (out of sample)")
+    p.add_argument("--constraint", action="append", default=[],
+                   help="repeatable: 'SPY <= 50%%', 'TLT >= 10%%', 'SPY+QQQ <= 70%%', '20%% <= TLT+IEF <= 60%%'")
+    p.add_argument("--target-return", type=float, help="annual, e.g. 0.07: minimum volatility with at least this return")
+    p.add_argument("--target-vol", type=float, help="annual, e.g. 0.10: maximum return with at most this volatility")
+    p.add_argument("--rolling", type=int, metavar="MONTHS", help="walk-forward: re-optimise every N months")
+    p.add_argument("--lookback", type=int, default=60, metavar="MONTHS", help="trailing window for --rolling (default 60)")
+    p.add_argument("--rebalance", default="quarterly", choices=["monthly", "quarterly", "yearly"],
+                   help="rebalancing used in the suggested sentences")
     p.add_argument("--out")
     a = p.parse_args(argv)
-    R = research.optimize(a.tickers, a.start, a.end, a.max_weight, a.min_weight, a.test_start)
+    R = research.optimize(a.tickers, a.start, a.end, a.max_weight, a.min_weight, a.test_start,
+                          constraints=a.constraint, target_return=a.target_return, target_vol=a.target_vol,
+                          rolling_months=a.rolling, lookback_months=a.lookback, rebalance=a.rebalance)
     print(research_report.optimize_console(R))
     out = Path(a.out) if a.out else report.ROOT / "reports" / ("optimize-" + report.slug("-".join(a.tickers)))
     path = research_report.write_optimize(R, out)
     print(f"Report: {path}")
+    return 0
+
+
+def _load_target(a):
+    """(weights or None, spec or None) from --weights / --spec / --run / a sentence."""
+    if getattr(a, "weights", None):
+        return parse_weights(a.weights), None
+    if getattr(a, "spec", None):
+        return None, runner.load(a.spec)
+    if getattr(a, "run", None):
+        p = report.ROOT / "reports" / "runs" / a.run / "strategy.json"
+        if not p.exists():
+            raise ValueError(f"No saved run {a.run} (looked for {p}).")
+        return None, runner.load(p)
+    if getattr(a, "text", None):
+        return None, parser.parse(a.text)
+    raise ValueError("Give --weights 'SPY 60 TLT 40', a sentence, --spec FILE or --run ID.")
+
+
+def cmd_montecarlo(argv: list[str]) -> int:
+    from . import montecarlo as mc
+    p = argparse.ArgumentParser(prog="python -m backtester montecarlo",
+                                description="Monte Carlo simulation of a portfolio's future balance (percentile bands, "
+                                            "chance of success, safe and perpetual withdrawal rates).")
+    p.add_argument("text", nargs="?", help="a portfolio or strategy sentence (its monthly returns are resampled)")
+    p.add_argument("--weights", help="tickers and weights, e.g. 'SPY 60 TLT 40' (use SPYSIM/TLTSIM for long history)")
+    p.add_argument("--spec", help="JSON spec file")
+    p.add_argument("--run", help="id of a saved run from the site (reports/runs/<id>)")
+    p.add_argument("--balance", type=float, default=1_000_000)
+    p.add_argument("--years", type=int, default=30)
+    p.add_argument("--model", default="historical", choices=list(mc.MODELS))
+    p.add_argument("--block", type=int, default=12, help="bootstrap block length in months (historical model)")
+    p.add_argument("--forecast", action="append", default=[], metavar="TICKER:RET:VOL",
+                   help="forecast model: e.g. SPY:0.06:0.16 (annual expected return and volatility)")
+    p.add_argument("--contribution", type=float, default=0.0, help="$ added per period")
+    p.add_argument("--withdrawal", type=float, default=0.0, help="$ withdrawn per period")
+    p.add_argument("--withdrawal-pct", type=float, default=0.0, help="share of the balance withdrawn per year, e.g. 0.04")
+    p.add_argument("--freq", default="yearly", choices=["monthly", "quarterly", "yearly"])
+    p.add_argument("--nominal", action="store_true", help="do not grow $ flows with inflation")
+    p.add_argument("--inflation", default="historical", help="'historical' (bootstrap CPI) or a fixed annual rate like 0.025")
+    p.add_argument("--rebalance", default="yearly", choices=["monthly", "quarterly", "yearly", "none"])
+    p.add_argument("--sims", type=int, default=5000)
+    p.add_argument("--success", type=float, default=0.95, help="success target for the safe withdrawal rate")
+    p.add_argument("--start", help="history window start")
+    p.add_argument("--end", help="history window end")
+    p.add_argument("--seed", type=int, default=7)
+    p.add_argument("--json", action="store_true")
+    a = p.parse_args(argv)
+    weights, spec = _load_target(a)
+    flows = []
+    if a.contribution:
+        flows.append(mc.CashFlow(amount=a.contribution, freq=a.freq, inflation_adjusted=not a.nominal))
+    if a.withdrawal:
+        flows.append(mc.CashFlow(amount=-a.withdrawal, freq=a.freq, inflation_adjusted=not a.nominal))
+    if a.withdrawal_pct:
+        flows.append(mc.CashFlow(pct=-a.withdrawal_pct, freq=a.freq))
+    s = mc.Settings(start_balance=a.balance, years=a.years, model=a.model, block_months=a.block, rebalance=a.rebalance,
+                    sims=a.sims, seed=a.seed, success_target=a.success, start=a.start, end=a.end,
+                    inflation=a.inflation if a.inflation == "historical" else float(a.inflation))
+    for f in a.forecast:
+        t, r, v = f.split(":")
+        s.forecast[data.canonical(t)] = (float(r), float(v))
+    if weights:
+        s.weights = weights
+    else:
+        s.weights, s.series_name = mc.settings_from_spec(spec, s)
+    if not flows and spec is not None and hasattr(spec, "contribution"):
+        flows = mc.flows_from_portfolio(spec)
+    s.flows = flows
+    R = mc.run(s)
+    if a.json:
+        print(json.dumps(report._clean(R), indent=2))
+    else:
+        print(mc.console(R))
+    return 0
+
+
+def cmd_factors(argv: list[str]) -> int:
+    from . import factors as F
+    p = argparse.ArgumentParser(prog="python -m backtester factors",
+                                description="Regress a ticker, portfolio or strategy on CAPM / Fama-French / Carhart factors.")
+    p.add_argument("text", nargs="?", help="a ticker (QQQ) or a strategy/portfolio sentence")
+    p.add_argument("--weights", help="portfolio, e.g. 'SPY 60 TLT 40' (rebalanced monthly)")
+    p.add_argument("--spec")
+    p.add_argument("--run", help="id of a saved run from the site")
+    p.add_argument("--model", default="ff3", choices=list(F.MODELS))
+    p.add_argument("--freq", default="monthly", choices=["monthly", "daily"])
+    p.add_argument("--rolling", type=int, default=36, help="rolling window in months (default 36)")
+    p.add_argument("--start")
+    p.add_argument("--end")
+    p.add_argument("--json", action="store_true")
+    a = p.parse_args(argv)
+    if a.text and not a.weights and " " not in a.text.strip():
+        target = a.text.strip()
+    else:
+        w, spec = _load_target(a)
+        target = w if w is not None else spec
+    r, name = F.returns_for(target)
+    R = F.analyze(r, a.model, a.freq, a.start, a.end, a.rolling, name=name)
+    print(json.dumps(report._clean(R), indent=2) if a.json else F.console(R))
     return 0
 
 
@@ -278,6 +391,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_compare(rest)
         if cmd in ("sweep", "walkforward"):
             return cmd_sweep(rest, walk=cmd == "walkforward")
+        if cmd == "montecarlo":
+            return cmd_montecarlo(rest)
+        if cmd == "factors":
+            return cmd_factors(rest)
         if cmd == "optimize":
             return cmd_optimize(rest)
         if cmd == "signals":

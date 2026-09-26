@@ -121,24 +121,50 @@ code { background:var(--surface-2); padding:2px 6px; border-radius:6px; font-siz
   }
   if (D.kind === 'optimize') {
     root.append(el('div', { class: 'note' }, `Monthly total returns ${D.fit_start} → ${D.fit_end}; T-bill ${pct(D.rf)}. Long-only, weights sum to 100%.`));
+    const C0 = D.constraints || {};
+    const lim = Object.entries(C0.bounds || {}).map(([t, [a, b]]) => (a != null ? pct(a, 0) + ' ≤ ' : '') + t + (b != null ? ' ≤ ' + pct(b, 0) : ''))
+      .concat((C0.groups || []).map(g => g.text));
+    if (C0.max_weight < 1 || C0.min_weight > 0) lim.unshift(`every asset ${pct(C0.min_weight, 0)}–${pct(C0.max_weight, 0)}`);
+    if (lim.length) root.append(el('div', { class: 'note' }, 'Constraints: ' + lim.join('; ')));
+    (D.notes || []).forEach(n => root.append(el('div', { class: 'note' }, 'Note: ' + n)));
+    const P = Object.entries(D.portfolios);
     const c = card('Efficient frontier');
+    c.append(el('p', { class: 'note' }, 'The line is the lowest volatility for each expected return under the constraints. Grey dots are the assets; numbered dots are the portfolios in the table below.'));
     const box = el('div', { class: 'chart' }); c.append(box);
-    const W = box.clientWidth || 900, H = 340, m = { l: 56, r: 16, t: 10, b: 30 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
-    const pts = D.frontier.map(p => [p.vol, p.return]).concat(D.assets.map(a => [a.vol, a.return]));
+    const W = box.clientWidth || 900, H = 360, m = { l: 56, r: 16, t: 10, b: 30 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const pts = D.frontier.map(p => [p.vol, p.return]).concat(D.assets.map(a => [a.vol, a.return])).concat(P.map(([n, p]) => [p.exp_vol, p.exp_return]));
     const vx = pts.map(p => p[0]), vy = pts.map(p => p[1]); const x0 = 0, x1 = Math.max(...vx) * 1.1, y0 = Math.min(0, ...vy), y1 = Math.max(...vy) * 1.1;
     const X = v => m.l + (v - x0) / (x1 - x0) * iw, Y = v => m.t + (1 - (v - y0) / (y1 - y0)) * ih;
     const svg = S('svg', { viewBox: `0 0 ${W} ${H}`, height: H });
     for (let k = 0; k <= 4; k++) { const v = y0 + (y1 - y0) * k / 4; svg.append(S('line', { x1: m.l, x2: m.l + iw, y1: Y(v), y2: Y(v), stroke: css('--grid') })); const tx = S('text', { x: m.l - 6, y: Y(v) + 4, 'text-anchor': 'end' }); tx.textContent = pct(v, 0); svg.append(tx); const vv = x0 + (x1 - x0) * k / 4, tx2 = S('text', { x: X(vv), y: H - 8, 'text-anchor': 'middle' }); tx2.textContent = pct(vv, 0); svg.append(tx2); }
-    const lab = S('text', { x: m.l + iw, y: H - 8, 'text-anchor': 'end' }); lab.textContent = 'volatility →'; svg.append(lab);
-    svg.append(S('path', { d: 'M' + D.frontier.map(p => X(p.vol).toFixed(1) + ',' + Y(p.return).toFixed(1)).join('L'), fill: 'none', stroke: col(0), 'stroke-width': 2 }));
-    D.assets.forEach(a => { svg.append(S('circle', { cx: X(a.vol), cy: Y(a.return), r: 5, fill: css('--text-3') })); const tx = S('text', { x: X(a.vol) + 8, y: Y(a.return) + 4 }); tx.textContent = a.ticker; svg.append(tx); });
-    Object.entries(D.portfolios).forEach(([n, p], i) => { svg.append(S('circle', { cx: X(p.exp_vol), cy: Y(p.exp_return), r: 7, fill: col(i + 1), stroke: css('--surface'), 'stroke-width': 2 })); const tx = S('text', { x: X(p.exp_vol) + 10, y: Y(p.exp_return) - 6 }); tx.textContent = n; tx.style.fill = css('--text-2'); svg.append(tx); });
+    const lab = S('text', { x: m.l + iw, y: m.t + ih - 6, 'text-anchor': 'end' }); lab.textContent = 'volatility →'; svg.append(lab);
+    const lab2 = S('text', { x: m.l + 4, y: m.t + 10 }); lab2.textContent = '↑ expected return'; svg.append(lab2);
+    if (D.frontier.length) svg.append(S('path', { d: 'M' + D.frontier.map(p => X(p.vol).toFixed(1) + ',' + Y(p.return).toFixed(1)).join('L'), fill: 'none', stroke: col(0), 'stroke-width': 2 }));
+    D.assets.forEach(a => { const g = S('g'); g.append(S('circle', { cx: X(a.vol), cy: Y(a.return), r: 5, fill: css('--text-3') })); const tt = S('title'); tt.textContent = `${a.ticker}: return ${pct(a.return, 1)}, volatility ${pct(a.vol, 1)}`; g.append(tt); svg.append(g); const tx = S('text', { x: X(a.vol) + 8, y: Y(a.return) + 4 }); tx.textContent = a.ticker; svg.append(tx); });
+    P.forEach(([n, p], i) => { const g = S('g'); g.append(S('circle', { cx: X(p.exp_vol), cy: Y(p.exp_return), r: 9, fill: col(1), stroke: css('--surface'), 'stroke-width': 2 })); const tx = S('text', { x: X(p.exp_vol), y: Y(p.exp_return) + 4, 'text-anchor': 'middle' }); tx.textContent = i + 1; tx.style.fill = '#fff'; tx.style.fontSize = '10px'; g.append(tx); const tt = S('title'); tt.textContent = `${i + 1}. ${n}: return ${pct(p.exp_return, 1)}, volatility ${pct(p.exp_vol, 1)}, Sharpe ${num(p.exp_sharpe)}`; g.append(tt); svg.append(g); });
     box.append(svg);
     const c2 = card('Optimised portfolios');
     const tks = D.tickers;
-    table(c2, ['Portfolio', 'Exp. return', 'Exp. vol', 'Exp. Sharpe'].concat(tks), Object.entries(D.portfolios).map(([n, p]) => [n, pct(p.exp_return), pct(p.exp_vol), num(p.exp_sharpe)].concat(tks.map(t => pct(p.weights[t] || 0, 0)))));
-    const ex = Object.entries(D.portfolios).map(([n, p]) => Object.entries(p.weights).sort((a, b) => b[1] - a[1]).map(([t, w]) => `${Math.round(w * 100)}% ${t}`).join(', '));
-    c2.append(el('p', { class: 'note' }, 'To backtest one of these, run e.g.: '), el('code', {}, `hold ${ex[0]}, rebalance quarterly`));
+    table(c2, ['Portfolio', 'Exp. return', 'Exp. vol', 'Sharpe', 'Sortino', 'CVaR 95% (month)', 'Div. ratio'].concat(tks),
+      P.map(([n, p], i) => [`${i + 1}. ${n}`, pct(p.exp_return), pct(p.exp_vol), num(p.exp_sharpe), num(p.exp_sortino), pct(p.cvar_95_monthly), num(p.diversification_ratio)].concat(tks.map(t => pct(p.weights[t] || 0, 1)))));
+    c2.append(el('h2', { style: 'margin-top:14px' }, 'Risk contributions (share of portfolio variance)'));
+    table(c2, ['Portfolio'].concat(tks), P.map(([n, p]) => [n].concat(tks.map(t => pct((p.risk_contributions || {})[t] || 0, 0)))));
+    c2.append(el('h2', { style: 'margin-top:14px' }, 'Backtest one of these'));
+    c2.append(el('p', { class: 'note' }, 'Weights rounded to whole percents that add up to exactly 100%. Paste a sentence into the Backtest page.'));
+    P.forEach(([n, p]) => { const d = el('div', { style: 'margin:4px 0' }); d.append(el('span', { class: 'note' }, n + ': '), el('code', {}, p.sentence || '')); c2.append(d); });
+    if (D.rolling) {
+      const ro = D.rolling, cr = card(`Walk-forward: re-optimised every ${ro.every_months} months on the trailing ${ro.lookback_months} months`);
+      cr.append(el('p', { class: 'note' }, `${ro.start} → ${ro.end}, growth of $10,000, monthly. ${ro.note}`));
+      const names = Object.keys(ro.stats);
+      const pick = el('select'); names.forEach(n => pick.append(el('option', { value: n }, n))); cr.append(pick);
+      const holder = el('div'); cr.append(holder);
+      const drawR = () => { holder.replaceChildren(); const n = pick.value; const ser = [{ name: n + ' (rolling, out of sample)', color: col(0), dates: ro.dates, values: ro.curves[n] }];
+        if (ro.curves[n + ' (static)']) ser.push({ name: n + ' (static, hindsight)', color: col(1), dates: ro.dates, values: ro.curves[n + ' (static)'] });
+        lines(holder, ser, v => '$' + Math.round(v).toLocaleString()); };
+      pick.onchange = drawR; drawR();
+      table(cr, ['Objective', 'Rolling CAGR', 'Rolling Sharpe', 'Rolling max DD', 'Static CAGR', 'Static Sharpe', 'Static max DD'],
+        names.map(n => { const a = ro.stats[n].rolling || {}, b = ro.stats[n].static || {}; return [n, { t: pct(a.cagr), v: a.cagr }, { t: num(a.sharpe), v: a.sharpe }, { t: pct(a.max_drawdown, 1), v: a.max_drawdown }, { t: pct(b.cagr), v: b.cagr }, { t: num(b.sharpe), v: b.sharpe }, { t: pct(b.max_drawdown, 1), v: b.max_drawdown }]; }), true);
+    }
     if (D.test && Object.keys(D.test).length) { const c3 = card(`Out-of-sample check from ${D.test_start}`); table(c3, ['Portfolio', 'CAGR', 'Volatility', 'Sharpe', 'Max DD'], Object.entries(D.test).map(([n, s]) => [n, pct(s.cagr), pct(s.volatility), num(s.sharpe), pct(s.max_drawdown, 1)])); }
     const c4 = card('Correlation of monthly returns');
     const t = el('table', { class: 'heat' }); const hr = el('tr'); hr.append(el('th', {}, '')); tks.forEach(x => hr.append(el('th', {}, x))); t.append(hr);
