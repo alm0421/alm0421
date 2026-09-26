@@ -345,19 +345,17 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       <label>Stress test<select id="mc_stress"><option value="">none</option><option value="worst_sequence">worst historical sequence first</option><option value="shock">first-year shock</option></select></label>
       <label>Worst sequence (years)<input id="mc_stress_years" type="number" value="10" min="1"></label>
       <label>First-year return (%)<input id="mc_shock" type="number" value="-30" step="1"></label>
+      <label>Horizon<select id="mc_horizon"><option value="fixed">fixed number of years</option><option value="mortality">a lifetime (SSA life table)</option></select></label>
       <label>Current age<input id="mc_age" type="number" placeholder="optional"></label>
       <label>Until age (sets the years)<input id="mc_until_age" type="number" placeholder="e.g. 95"></label>
+      <label>Who<select id="mc_sex"><option value="male">a man</option><option value="female">a woman</option><option value="joint">a couple (until the second death)</option></select></label>
+      <label>Spouse's age (couple)<input id="mc_age2" type="number" placeholder="same age"></label>
     </div>
+    <p class="note hide" id="mcHorizonNote">Lifetime horizon: the paths run until the chance of being alive is below 0.1%, and the chance of success is weighted by the chance of still being alive each year (US Social Security 2023 period life table, 2026 Trustees Report; a couple is treated as two independent lives, man and woman).</p>
     <h3>Cash flows</h3>
-    <div class="grid">
-      <label>Type<select id="mc_cf_type"><option value="none">none</option><option value="withdrawal" selected>withdraw a fixed amount</option><option value="contribution">contribute a fixed amount</option><option value="pct_withdrawal">withdraw a % of the balance</option></select></label>
-      <label>Amount ($ per period)<input id="mc_cf_amount" type="number" value="40000"></label>
-      <label>% of balance per year<input id="mc_cf_pct" type="number" step="0.1" value="4"></label>
-      <label>Every<select id="mc_cf_freq"><option value="yearly">year</option><option value="quarterly">quarter</option><option value="monthly">month</option></select></label>
-      <label>Grow with inflation<select id="mc_cf_infl"><option value="true">yes</option><option value="false">no (fixed dollars)</option></select></label>
-      <label>From year<input id="mc_cf_from" type="number" value="1" min="1"></label>
-      <label>To year (blank = end)<input id="mc_cf_to" type="number" min="1"></label>
-    </div>
+    <p class="note">Add one row per phase, e.g. contribute $20,000 a year in years 1–15, then withdraw $60,000 a year from year 16. Withdrawals never take more than the balance: a path that runs out pays what is left and stops at zero.</p>
+    <div id="mcFlows"></div>
+    <div class="row" style="margin-top:6px"><button class="btn" id="mcAddFlow" type="button">+ Add cash flow</button></div>
     <div id="mcForecast" class="hide"><h3>Forecast (annual expected return and volatility per asset; correlations stay historical)</h3><div class="grid" id="mcForecastGrid"></div></div>
     <div class="row" style="margin-top:12px"><button class="btn primary" id="mcRun">Run simulation</button><span class="note" id="mcStatus"></span></div>
   </div>
@@ -366,7 +364,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     <div class="card"><div class="row"><h2 style="margin:0">Balance over time (percentiles)</h2><span style="flex:1"></span>
       <div class="tabs2" id="mcReal" style="margin:0"><button data-v="nominal" class="on">Nominal</button><button data-v="real">Inflation-adjusted</button></div></div>
       <div class="lg" id="mcFanLegend"></div><div class="chart2" id="mcFan"></div></div>
-    <div class="card"><h2>Chance the money is still there</h2><div class="chart2" id="mcSuccess"></div></div>
+    <div class="card"><h2>Chance the money is still there</h2><div class="lg" id="mcSuccessLegend"></div><div class="chart2" id="mcSuccess"></div></div>
     <div class="card"><h2>Percentiles</h2><div class="xscroll"><table id="mcTable"></table></div>
       <p class="note">Annual return is time-weighted (cash flows removed); max drawdown is of the time-weighted return. Final balances are after the cash flows.</p></div>
   </div>
@@ -375,19 +373,28 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 <!-- FACTORS -->
 <section id="p-factors" class="hide">
   <div class="card"><h2>Factor analysis</h2>
-    <p class="note">Explain returns with the market, size, value, profitability, investment and momentum factors (Kenneth French's data, US or developed markets) and the bond factors TERM (long Treasuries − T-bills) and DEF (corporates − Treasuries): loadings with t-stats, R² and the annualised alpha left over.</p>
+    <p class="note">Explain returns with the market, size, value, profitability, investment and momentum factors (Kenneth French's data: US, developed, developed ex US, Europe, Japan, Asia Pacific ex Japan, North America and emerging markets; monthly regressions use his official monthly files), AQR's quality (QMJ) and betting-against-beta (BAB) factors, and the bond factors TERM (long Treasuries − T-bills) and DEF (corporates − Treasuries): loadings with t-stats, R² and the annualised alpha left over. Style analysis finds the mix of asset classes that best tracks the returns.</p>
     <div class="tabs2" id="fxSrc"><button data-v="ticker" class="on">Ticker</button><button data-v="weights">Tickers &amp; weights</button><button data-v="text">Sentence</button><button data-v="run">Saved run</button></div>
     <div id="fxSrcTicker"><input id="fx_ticker" list="tickerList" value="QQQ" style="width:140px"></div>
     <div id="fxSrcWeights" class="hide"><input id="fx_weights" class="w" value="SPY 60, TLT 40"></div>
     <div id="fxSrcText" class="hide"><textarea id="fx_text" style="min-height:48px">hold the top 2 of QQQ, SPY, TLT and GLD by 3 month return</textarea></div>
     <div id="fxSrcRun" class="hide"><select id="fx_run" style="max-width:100%"></select></div>
     <div class="grid" style="margin-top:10px">
-      <label>Model<select id="fx_model"><option value="capm">CAPM</option><option value="ff3" selected>Fama-French 3</option><option value="carhart">Carhart 4 (FF3 + momentum)</option><option value="ff5">Fama-French 5</option><option value="ff6">Fama-French 5 + momentum</option><option value="dev_ff3">Developed markets Fama-French 3 (intl)</option><option value="bonds">Market + bond factors (TERM, DEF)</option><option value="ff3+bonds">Fama-French 3 + bond factors</option></select></label>
+      <label>Model<select id="fx_model"><option value="auto">Auto (the ticker's region)</option><option value="capm">CAPM</option><option value="ff3" selected>Fama-French 3</option><option value="carhart">Carhart 4 (FF3 + momentum)</option><option value="ff5">Fama-French 5</option><option value="ff6">Fama-French 5 + momentum</option><option value="dev_ff3">Developed markets ex US Fama-French 3 (intl)</option><option value="bonds">Market + bond factors (TERM, DEF)</option><option value="ff3+bonds">Fama-French 3 + bond factors</option></select></label>
+      <label>Add factors<input id="fx_addons" placeholder="e.g. qmj+bab, mom, bonds"></label>
       <label>Returns<select id="fx_freq"><option value="monthly">monthly</option><option value="daily">daily</option></select></label>
       <label>Rolling window (months)<input id="fx_roll" type="number" value="36"></label>
       <label>From<input id="fx_start" type="date"></label><label>To<input id="fx_end" type="date"></label>
     </div>
-    <div class="row" style="margin-top:12px"><button class="btn primary" id="fxRun">Run regression</button><span class="note" id="fxStatus"></span></div>
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="fxRun">Run regression</button><button class="btn" id="stRun">Style analysis</button><span class="note" id="fxStatus"></span></div>
+    <details style="margin-top:8px"><summary>Style analysis asset classes</summary>
+      <label class="f">Tickers (blank = US large/small value/growth, developed ex US, emerging, Treasuries, corporates, T-bills)<input id="st_assets" class="w" placeholder="e.g. SPY EFA EEM IEF BIL"></label></details>
+  </div>
+  <div id="stOut" class="hide">
+    <div class="card"><h2 id="stTitle">Returns-based style analysis</h2><div class="tiles" id="stTiles"></div><p class="note" id="stMeta"></p><div id="stNotes"></div>
+      <div class="xscroll"><table id="stTable"></table></div>
+      <p class="note">Sharpe's (1992) style analysis: the non-negative asset-class weights, adding up to 100%, whose monthly returns track the fund's most closely (least variance of the difference). R² is the share of the return variance the style mix explains; the selection return is the average return the mix does not explain.</p></div>
+    <div class="card"><h2 id="stRollTitle">Rolling style weights</h2><div class="lg" id="stRollLegend"></div><div class="chart2" id="stRoll"></div></div>
   </div>
   <div id="fxOut" class="hide">
     <div class="card"><div class="tiles" id="fxTiles"></div><p class="note" id="fxMeta"></p><div id="fxNotes"></div></div>
@@ -1354,8 +1361,33 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   // ---------------------------------------------------------------- Monte Carlo
   let mcSrc = 'weights', MC = null, mcMode = 'nominal';
   tabs('mcSrc', v => { mcSrc = v; $('mcSrcWeights').classList.toggle('hide', v !== 'weights'); $('mcSrcText').classList.toggle('hide', v !== 'text'); $('mcSrcRun').classList.toggle('hide', v !== 'run'); if (v === 'run') fillRuns($('mc_run')); });
-  const mcFlowUi = () => { const t = $('mc_cf_type').value; $('mc_cf_amount').disabled = t === 'none' || t === 'pct_withdrawal'; $('mc_cf_pct').disabled = t !== 'pct_withdrawal'; $('mc_cf_infl').disabled = t === 'none' || t === 'pct_withdrawal'; };
-  $('mc_cf_type').addEventListener('change', mcFlowUi); mcFlowUi();
+  // cash-flow phases: one row each (contribute, then withdraw...)
+  function mcAddFlow(f = {}) {
+    const row = el('div', { class: 'grid mcflow' }); row.style.marginTop = '6px';
+    const sel = (cls, opts, v) => { const x = el('select', { class: cls }); opts.forEach(([val, lab]) => x.append(el('option', { value: val }, lab))); if (v != null) x.value = v; return x; };
+    const inp = (cls, v, a = {}) => { const x = el('input', { class: cls, type: 'number', ...a }); if (v != null) x.value = v; return x; };
+    const lab = (t, x) => { const l = el('label'); l.append(document.createTextNode(t), x); return l; };
+    const type = sel('cf_type', [['withdrawal', 'withdraw a fixed amount'], ['contribution', 'contribute a fixed amount'], ['pct_withdrawal', 'withdraw a % of the balance']], f.type || 'withdrawal');
+    const amount = inp('cf_amount', f.amount != null ? f.amount : 40000), pctv = inp('cf_pct', f.pct != null ? f.pct : 4, { step: '0.1' });
+    const freq = sel('cf_freq', [['yearly', 'year'], ['quarterly', 'quarter'], ['monthly', 'month']], f.freq || 'yearly');
+    const infl = sel('cf_infl', [['true', 'yes'], ['false', 'no (fixed dollars)']], f.inflation_adjusted === false ? 'false' : 'true');
+    const from = inp('cf_from', f.start_year || 1, { min: 1 }), to = inp('cf_to', f.end_year || '', { min: 1, placeholder: 'end' });
+    const del = el('button', { class: 'btn', type: 'button', title: 'Remove this cash flow' }, 'Remove'); del.style.alignSelf = 'end';
+    del.addEventListener('click', () => row.remove());
+    const ui = () => { const t = type.value; amount.disabled = t === 'pct_withdrawal'; pctv.disabled = t !== 'pct_withdrawal'; infl.disabled = t === 'pct_withdrawal'; };
+    type.addEventListener('change', ui); ui();
+    row.append(lab('Type', type), lab('Amount ($ per period)', amount), lab('% of balance per year', pctv), lab('Every', freq), lab('Grow with inflation', infl), lab('From year', from), lab('To year (blank = end)', to), del);
+    $('mcFlows').append(row);
+  }
+  function mcFlowsBody() {
+    return [...document.querySelectorAll('#mcFlows .mcflow')].map(r => { const q = c => r.querySelector('.' + c);
+      return { type: q('cf_type').value, amount: +q('cf_amount').value, pct: +q('cf_pct').value / 100, freq: q('cf_freq').value, inflation_adjusted: q('cf_infl').value === 'true',
+        start_year: +q('cf_from').value || 1, end_year: q('cf_to').value ? +q('cf_to').value : null }; });
+  }
+  $('mcAddFlow').addEventListener('click', () => mcAddFlow({ type: 'withdrawal', amount: 40000 }));
+  mcAddFlow({ type: 'withdrawal', amount: 40000 });
+  const mcHorizonUi = () => { const life = $('mc_horizon').value === 'mortality'; $('mc_until_age').disabled = life; $('mc_years').disabled = life; $('mc_sex').disabled = !life; $('mc_age2').disabled = !life || $('mc_sex').value !== 'joint'; $('mcHorizonNote').classList.toggle('hide', !life); };
+  $('mc_horizon').addEventListener('change', mcHorizonUi); $('mc_sex').addEventListener('change', mcHorizonUi); mcHorizonUi();
   $('mc_infl').addEventListener('change', () => { $('mc_infl_rate').disabled = $('mc_infl').value !== 'fixed'; }); $('mc_infl_rate').disabled = true;
   function mcTickers() { return $('mc_weights').value.replace(/[,:=%]/g, ' ').split(/\s+/).filter(t => t && isNaN(+t)).map(t => t.toUpperCase()); }
   function drawForecast() {
@@ -1369,13 +1401,14 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   $('mc_model').addEventListener('change', drawForecast); $('mc_weights').addEventListener('change', drawForecast);
   $('mcRun').addEventListener('click', async () => {
     spin($('mcStatus'), 'simulating…'); $('mcRun').disabled = true;
-    const t = $('mc_cf_type').value;
     const body = { balance: +$('mc_balance').value, years: +$('mc_years').value, model: $('mc_model').value, block_months: +$('mc_block').value,
       rebalance: $('mc_rebalance').value, inflation: $('mc_infl').value === 'fixed' ? (+$('mc_infl_rate').value / 100) : 'historical',
       sims: +$('mc_sims').value, success_target: +$('mc_success').value / 100, start: $('mc_start').value, end: $('mc_end').value,
       stress: $('mc_stress').value || null, stress_years: +$('mc_stress_years').value || 10, stress_shock: $('mc_shock').value === '' ? null : +$('mc_shock').value / 100,
       age: $('mc_age').value === '' ? null : +$('mc_age').value, until_age: $('mc_until_age').value === '' ? null : +$('mc_until_age').value,
-      flows: [{ type: t, amount: +$('mc_cf_amount').value, pct: +$('mc_cf_pct').value / 100, freq: $('mc_cf_freq').value, inflation_adjusted: $('mc_cf_infl').value === 'true', start_year: +$('mc_cf_from').value || 1, end_year: $('mc_cf_to').value ? +$('mc_cf_to').value : null }] };
+      horizon: $('mc_horizon').value, sex: $('mc_sex').value, age2: $('mc_age2').value === '' ? null : +$('mc_age2').value,
+      flows: mcFlowsBody() };
+    if (!body.flows.length) body.flows = [{ type: 'none' }];   // no cash flows (not the saved portfolio's)
     if (mcSrc === 'weights') body.weights = $('mc_weights').value; else if (mcSrc === 'text') { body.text = $('mc_text').value; delete body.rebalance; } else { body.run_id = $('mc_run').value; delete body.rebalance; }
     if (body.model === 'forecast') { body.forecast = {}; mcTickers().forEach(tk => { const r = $(`mcf_${tk}_ret`), v = $(`mcf_${tk}_vol`); if (r && v && r.value !== '' && v.value !== '') body.forecast[tk] = { ret: +r.value / 100, vol: +v.value / 100 }; }); }
     try { MC = await api('/api/montecarlo', body); $('mcStatus').textContent = ''; drawMC(); }
@@ -1395,7 +1428,10 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     const R = MC, st = R.settings; $('mcOut').classList.remove('hide');
     const tiles = $('mcTiles'), showWR = R.show_withdrawal_rates !== false;   // SWR / PWR answer a retirement question, not a savings one
     tiles.replaceChildren(...[
-      tile('Chance of success', pct(R.prob_success, 1), `money left after ${st.years} years` + (st.until_age ? ` (age ${st.until_age})` : '')),
+      R.mortality ? tile('Chance of success', pct(R.prob_success, 1), `money lasts a lifetime (weighted by survival)`) :
+        tile('Chance of success', pct(R.prob_success, 1), `money left after ${st.years} years` + (st.until_age ? ` (age ${st.until_age})` : '')),
+      R.mortality ? tile('Life expectancy', num(R.mortality.life_expectancy, 1) + ' yrs', `${st.sex === 'joint' ? 'longer of two lives' : st.sex}, SSA ${R.mortality.table_year} table`) : null,
+      R.withdrawals ? tile('Median total withdrawn', compact(R.withdrawals.total['50']), `${compact(R.withdrawals.total_real['50'])} in today's dollars`) : null,
       tile('Median final balance', compact(R.final['50']), `${compact(R.final_real['50'])} in today's dollars`),
       tile('10th percentile final', compact(R.final['10']), `${compact(R.final_real['10'])} real`),
       showWR ? tile('Safe withdrawal rate', pct(R.safe_withdrawal_rate), `${pct(st.success_target, 0)} success, grows with inflation`) : null,
@@ -1408,13 +1444,17 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     R.notes.forEach(x => n.append(el('div', { class: 'warn' }, x)));
     if (R.settings.history_months < 240) n.append(el('div', { class: 'warn' }, `Only ${Math.round(R.settings.history_months / 12)} years of history feed the simulation. Long-history series (SPYSIM, TLTSIM, IEFSIM, SHYSIM, BILSIM) give a wider range of markets when they are available.`));
     drawFan();
-    lineChart($('mcSuccess'), { x: R.years, height: 220, series: [{ name: 'Success', color: css('--s1'), values: R.success_by_year }], yMin: 0, yMax: 1,
-      fmtY: v => (v * 100).toFixed(0) + '%', fmtX: (v, full) => full ? 'Year ' + v : v, tipRows: i => [['Money left', pct(R.success_by_year[i], 1)]] });
+    const sser = [{ name: 'Money left', color: css('--s1'), values: R.success_by_year }];
+    if (R.mortality) sser.push({ name: st.sex === 'joint' ? 'At least one of you alive' : 'Alive', color: css('--s2'), values: R.mortality.survival_by_year, dash: '5 4' });
+    legend($('mcSuccessLegend'), sser.length > 1 ? sser.map(x => ({ ...x, line: true })) : []);
+    const ageAt = i => R.mortality ? ` (age ${Math.floor(R.mortality.ages[i])})` : '';
+    lineChart($('mcSuccess'), { x: R.years, height: 220, series: sser, yMin: 0, yMax: 1,
+      fmtY: v => (v * 100).toFixed(0) + '%', fmtX: (v, full) => full ? 'Year ' + v + ageAt(R.years.indexOf(v)) : v, tipRows: i => sser.map(x => [x.name, pct(x.values[i], 1)]) });
     const row = (lab, o, f) => [lab].concat(P.map(p => f(o[p])));
     table($('mcTable'), ['', '10th', '25th', '50th (median)', '75th', '90th'], [
       row('Final balance', R.final, usd), row("Final balance (today's dollars)", R.final_real, usd),
       row('Annual return', R.annual_return, v => pct(v)), row('Annual return after inflation', R.annual_return_real, v => pct(v)),
-      row('Max drawdown', R.max_drawdown, v => pct(v, 1))].concat(R.depletion_years && Object.keys(R.depletion_years).length ? [row('Years until money ran out (failed paths)', R.depletion_years, v => num(v, 1))] : []));
+      row('Max drawdown', R.max_drawdown, v => pct(v, 1))].concat(R.withdrawals ? [row('Total withdrawn', R.withdrawals.total, usd), row("Total withdrawn (today's dollars)", R.withdrawals.total_real, usd)] : []).concat(R.depletion_years && Object.keys(R.depletion_years).length ? [row('Years until money ran out (failed paths)', R.depletion_years, v => num(v, 1))] : []));
   }
 
   // ---------------------------------------------------------------- Factors
@@ -1422,12 +1462,54 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   tabs('fxSrc', v => { fxSrc = v; ['Ticker', 'Weights', 'Text', 'Run'].forEach(k => $('fxSrc' + k).classList.toggle('hide', k.toLowerCase() !== v)); if (v === 'run') fillRuns($('fx_run')); });
   $('fxRun').addEventListener('click', async () => {
     spin($('fxStatus'), 'regressing…'); $('fxRun').disabled = true;
-    const body = { model: $('fx_model').value, freq: $('fx_freq').value, rolling_months: +$('fx_roll').value || 36, start: $('fx_start').value, end: $('fx_end').value };
-    if (fxSrc === 'ticker') body.ticker = $('fx_ticker').value; else if (fxSrc === 'weights') body.weights = $('fx_weights').value; else if (fxSrc === 'text') body.text = $('fx_text').value; else body.run_id = $('fx_run').value;
+    const body = fxBody();
     try { const R = await api('/api/factors', body); $('fxStatus').textContent = ''; drawFx(R); }
     catch (e) { $('fxStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
     $('fxRun').disabled = false;
   });
+  function fxBody() {
+    const body = { model: $('fx_model').value, addons: $('fx_addons').value, freq: $('fx_freq').value, rolling_months: +$('fx_roll').value || 36, start: $('fx_start').value, end: $('fx_end').value };
+    if (fxSrc === 'ticker') body.ticker = $('fx_ticker').value; else if (fxSrc === 'weights') body.weights = $('fx_weights').value; else if (fxSrc === 'text') body.text = $('fx_text').value; else body.run_id = $('fx_run').value;
+    return body;
+  }
+  $('stRun').addEventListener('click', async () => {
+    spin($('fxStatus'), 'style analysis…'); $('stRun').disabled = true;
+    const body = { ...fxBody(), assets: $('st_assets').value, window: +$('fx_roll').value || 36 };
+    try { const R = await api('/api/style', body); $('fxStatus').textContent = ''; drawStyle(R); }
+    catch (e) { $('fxStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
+    $('stRun').disabled = false;
+  });
+  const SCOL = ['--s1', '--s2', '--s3', '--s4', '--s5', '--s6', '--s7', '--text-3', '--axis'];
+  // stacked area of weights (each date sums to 1)
+  function stackChart(box, dates, ser) {
+    box.replaceChildren();
+    const W = Math.max(320, box.clientWidth || 900), H = 300, m = { l: 44, r: 10, t: 8, b: 24 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const T = dates.map(d => Date.parse(d)), x0 = T[0], x1 = T[T.length - 1];
+    const X = v => m.l + (v - x0) / ((x1 - x0) || 1) * iw, Y = v => m.t + (1 - v) * ih;
+    const svg = S('svg', { viewBox: `0 0 ${W} ${H}`, height: H, role: 'img' });
+    [0, 0.25, 0.5, 0.75, 1].forEach(v => { svg.append(S('line', { x1: m.l, x2: m.l + iw, y1: Y(v), y2: Y(v), stroke: css('--grid') })); const t = S('text', { x: m.l - 6, y: Y(v) + 4, 'text-anchor': 'end' }); t.textContent = (v * 100) + '%'; svg.append(t); });
+    niceTicks(new Date(x0).getUTCFullYear(), new Date(x1).getUTCFullYear(), Math.max(2, Math.floor(iw / 80))).forEach(y => { const v = Date.UTC(y, 0, 1); if (v < x0 || v > x1) return; const t = S('text', { x: X(v), y: H - 6, 'text-anchor': 'middle' }); t.textContent = y; svg.append(t); });
+    const base = T.map(() => 0);
+    ser.forEach(s => { const top = base.map((b, i) => b + (s.values[i] || 0)); let d = ''; T.forEach((t, i) => { d += (i ? 'L' : 'M') + X(t).toFixed(1) + ',' + Y(top[i]).toFixed(1); }); for (let i = T.length - 1; i >= 0; i--) d += 'L' + X(T[i]).toFixed(1) + ',' + Y(base[i]).toFixed(1);
+      const pth = S('path', { d: d + 'Z', fill: s.color, 'fill-opacity': 0.85, stroke: css('--surface'), 'stroke-width': 0.5 }); const tt = S('title'); tt.textContent = s.name; pth.append(tt); svg.append(pth); top.forEach((v, i) => base[i] = v); });
+    box.append(svg);
+  }
+  function drawStyle(R) {
+    $('stOut').classList.remove('hide');
+    $('stTitle').textContent = `Returns-based style analysis of ${R.name}`;
+    const top = Object.entries(R.weights).sort((a, b) => b[1] - a[1]);
+    $('stTiles').replaceChildren(tile('R²', num(R.r_squared, 3), 'variance explained by the style mix'), tile('Largest style', top[0][0], pct(top[0][1], 1)),
+      tile('Selection return', pct(R.selection_return_annual), 'per year, not explained'), tile('Tracking error', pct(R.tracking_error_annual, 1), 'per year'),
+      tile('Observations', String(R.observations), `monthly · ${R.start} → ${R.end}`));
+    $('stMeta').textContent = `Fund ${pct(R.fund_return_annual)}/yr vs style mix ${pct(R.style_return_annual)}/yr over the same months.`;
+    $('stNotes').replaceChildren(...(R.notes || []).map(x => el('div', { class: 'note' }, 'Note: ' + x)));
+    table($('stTable'), ['Asset class', 'Series', 'Weight'], top.map(([k, v]) => [k, R.assets[k], pct(v, 1)]), 2);
+    const ro = R.rolling; $('stRollTitle').textContent = `Rolling ${ro.window_months}-month style weights`;
+    if (!ro.dates.length) { $('stRoll').replaceChildren(el('p', { class: 'note' }, 'Not enough history for a rolling window.')); $('stRollLegend').replaceChildren(); return; }
+    const labs = Object.keys(R.weights), ser = labs.map((k, i) => ({ name: k, color: css(SCOL[i % SCOL.length]), values: ro.weights[k] }));
+    legend($('stRollLegend'), ser);
+    stackChart($('stRoll'), ro.dates, ser);
+  }
   const FCOL = ['--s1', '--s2', '--s3', '--s4', '--s5', '--s7'];
   function drawFx(R) {
     $('fxOut').classList.remove('hide');
@@ -1513,7 +1595,10 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       $('mcSims').textContent = sims.length ? 'Long-history series available: ' + sims.map(s => `${s.ticker} (${s.about})`).join('; ') : 'Tip: SPYSIM, TLTSIM, IEFSIM, SHYSIM and BILSIM (simulated histories back to the 1920s-60s) appear here once the data job has built them.';
       const dl = $('tickerList'); sims.forEach(s => dl.append(el('option', { value: s.ticker })));
       const fm = st.factor_models || [];
-      if (fm.length) { const sel = $('fx_model'), cur = sel.value; sel.replaceChildren(...fm.map(m => el('option', { value: m.key, title: m.about }, m.label + (m.aliases.length ? ` (${m.aliases.join(', ')})` : '')))); sel.value = fm.some(m => m.key === cur) ? cur : 'ff3'; }
+      if (fm.length) { const sel = $('fx_model'), cur = sel.value, groups = {};
+        fm.forEach(m => { const g = m.region_label || 'US'; (groups[g] = groups[g] || []).push(m); });
+        const og = Object.entries(groups).map(([g, ms]) => { const o = el('optgroup', { label: g }); ms.forEach(m => o.append(el('option', { value: m.key, title: m.about }, m.label + (m.aliases.length ? ` (${m.aliases.slice(0, 2).join(', ')})` : '')))); return o; });
+        sel.replaceChildren(el('option', { value: 'auto' }, "Auto (the ticker's region)"), ...og); sel.value = cur === 'auto' || fm.some(m => m.key === cur) ? cur : 'ff3'; }
     } catch (e) { /* status is optional here */ }
   }
   initPages();

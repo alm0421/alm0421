@@ -26,6 +26,9 @@ import requests
 import yfinance as yf
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from backtester import sources  # noqa: E402  (factor-file parsers shared with the tests)
+
 PRICES = ROOT / "data" / "prices"
 UA = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -439,19 +442,40 @@ FRENCH_FILES = (("ff3_daily", "F-F_Research_Data_Factors_daily_CSV.zip"),
 
 
 def fetch_factors() -> None:
+    """Kenneth French's factor files (US daily and official monthly; the international regions' 3-factor,
+    5-factor and momentum files, monthly and daily; emerging markets monthly) and AQR's QMJ and BAB monthly
+    factors. Each file is parsed by backtester/sources.py; a failure is logged (data/factors/fetch_log.txt)
+    and the other files carry on."""
     import zipfile
     FACTORS.mkdir(parents=True, exist_ok=True)
-    base = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
-    for name, fn in FRENCH_FILES:
+    ok, bad = [], []
+    for name, fn in list(sources.FRENCH_FILES) + [f for f in FRENCH_FILES if f[0] not in dict(sources.FRENCH_FILES)]:
         try:
-            z = zipfile.ZipFile(io.BytesIO(requests.get(base + fn, headers=UA, timeout=120).content))
-            raw = z.read(z.namelist()[0]).decode("latin-1").splitlines()
-            df = parse_french_csv(raw)
+            z = zipfile.ZipFile(io.BytesIO(requests.get(sources.FRENCH_BASE + fn, headers=UA, timeout=120).content))
+            member = next(n for n in z.namelist() if n.lower().endswith(".csv"))
+            df = sources.parse_french_csv(z.read(member).decode("latin-1"))
             df.to_csv(FACTORS / f"{name}.csv", index=False)
-            print(f"factors {name}: {len(df)} rows, columns {list(df.columns[1:])}")
+            ok.append(name)
+            print(f"factors {name}: {len(df)} rows {df['date'].iloc[0]} .. {df['date'].iloc[-1]}, columns {list(df.columns[1:])}")
         except Exception as e:  # noqa: BLE001
+            bad.append(f"{name} ({fn}): {e}")
             print(f"factors {name} failed: {e}", file=sys.stderr)
             SIM_LOG.append(f"factors {name} ({fn}) failed: {e}")
+        time.sleep(0.3)
+    for name, fn, sheet in sources.AQR_FILES:
+        try:
+            content = requests.get(sources.AQR_BASE + fn, headers=UA, timeout=180).content
+            xl = pd.ExcelFile(io.BytesIO(content))
+            use = sheet if sheet in xl.sheet_names else xl.sheet_names[0]
+            df = sources.parse_aqr_sheet(xl.parse(use, header=None))
+            df.to_csv(FACTORS / f"{name}.csv", index=False)
+            ok.append(name)
+            print(f"factors {name}: {len(df)} rows {df['date'].iloc[0]} .. {df['date'].iloc[-1]}, columns {list(df.columns[1:])}")
+        except Exception as e:  # noqa: BLE001
+            bad.append(f"{name} ({fn}): {e}")
+            print(f"factors {name} failed: {e}", file=sys.stderr)
+    (FACTORS / "fetch_log.txt").write_text(
+        f"{len(ok)} factor files downloaded\n" + ("failed:\n" + "\n".join(bad) + "\n" if bad else "no failures\n"))
 
 
 def fetch_shares(tickers: list[str]) -> None:
