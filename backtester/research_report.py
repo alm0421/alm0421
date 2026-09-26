@@ -28,10 +28,12 @@ def _series(eq: pd.Series) -> dict:
 # ------------------------------------------------------------------ sweep
 
 def sweep_console(R: dict) -> str:
+    widths = [max(len(lab), 6) for lab in R["labels"]]
     L = [f"Parameter sweep: {len(R['rows'])} combinations, ranked by {R['objective']}",
-         f"{'':3s} " + " ".join(f"{l[:14]:>14s}" for l in R["labels"]) + f" {'CAGR':>8s} {'Sharpe':>7s} {'MaxDD':>8s} {'Trades':>7s}"]
+         f"{'':3s} " + " ".join(f"{lab:>{w}s}" for lab, w in zip(R["labels"], widths))
+         + f" {'CAGR':>8s} {'Sharpe':>7s} {'MaxDD':>8s} {'Trades':>7s}"]
     for i, r in enumerate(R["ranked"][:15]):
-        L.append(f"{i + 1:>3d} " + " ".join(f"{str(p):>14s}" for p in r["params"])
+        L.append(f"{i + 1:>3d} " + " ".join(f"{str(p):>{w}s}" for p, w in zip(r["params"], widths))
                  + f" {pct(r['cagr']):>8s} {num(r['sharpe']):>7s} {pct(r['max_drawdown'], 1):>8s} {r['trades']:>7d}")
     if R["errors"]:
         L.append(f"{len(R['errors'])} combination(s) failed, e.g. {R['errors'][0]['error']}")
@@ -40,7 +42,25 @@ def sweep_console(R: dict) -> str:
         vals = [r[R["objective"]] for r in ok if r[R["objective"]] is not None]
         L.append(f"Spread of {R['objective']}: best {num(vals[0])}, median {num(float(np.median(vals)))}, worst {num(vals[-1])}. "
                  "A best result far above the median is a sign of overfitting.")
+    note = multiple_testing_note(R.get("multiple_testing") or {})
+    if note:
+        L.append(note)
     return "\n".join(L)
+
+
+def multiple_testing_note(mt: dict) -> str:
+    """One paragraph on selection bias: best Sharpe vs the best expected from luck, and the Deflated Sharpe."""
+    n = mt.get("n_trials") or 0
+    if n < 2 or mt.get("expected_max_sharpe") is None or not np.isfinite(mt.get("expected_max_sharpe", np.nan)):
+        return ""
+    dsr = mt.get("dsr")
+    s = (f"Multiple testing: {n} combinations traded. Best Sharpe {num(mt['best_sharpe'])} {mt.get('best_params')}; "
+         f"with Sharpes spread by {num(mt['sd_sharpe'])}, the best of {n} strategies with no edge would be expected "
+         f"to reach about {num(mt['expected_max_sharpe'])} by luck alone (rough rule sd x sqrt(2 ln N): {num(mt['expected_max_sharpe_simple'])}).")
+    if dsr is not None and np.isfinite(dsr):
+        s += (f" Deflated Sharpe Ratio {pct(dsr, 1)}: the probability that the best combination's true Sharpe is above zero "
+              f"after allowing for the {n} tries" + (" (below 95%: not significant)." if dsr < 0.95 else "."))
+    return s
 
 
 def write_sweep(R: dict, text: str, out: Path) -> Path:
@@ -51,7 +71,9 @@ def write_sweep(R: dict, text: str, out: Path) -> Path:
     pd.DataFrame(table).to_csv(_mk(out) / "sweep.csv", index=False)
     curves = {k: _series(v) for k, v in R["curves"].items()}
     return _page("sweep", "Parameter sweep: " + text, {"text": text, "labels": R["labels"], "objective": R["objective"],
-                                                          "rows": rows, "curves": curves}, out)
+                                                          "rows": rows, "curves": curves,
+                                                          "multiple_testing": R.get("multiple_testing") or {},
+                                                          "multiple_testing_note": multiple_testing_note(R.get("multiple_testing") or {})}, out)
 
 
 def _mk(p: Path) -> Path:

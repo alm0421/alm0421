@@ -518,3 +518,139 @@ def exposure_stats(exposure: pd.Series, positions: pd.Series, in_market: pd.Seri
         "max_positions_held": int(positions.max()),
         "avg_positions_when_invested": float(positions[positions > 0].mean()) if (positions > 0).any() else 0.0,
     }
+
+
+# ------------------------------------------------------------------ sanity checks
+
+# Ratios that are meaningless when a signal strategy never traded (the curve is just cash interest).
+DEGENERATE_RATIOS = ("sharpe", "sortino", "sharpe_monthly", "sortino_monthly", "calmar", "ulcer_performance",
+                     "gain_pain", "tail_ratio")
+FEW_TRADES = 10
+
+
+def _finite(x) -> bool:
+    try:
+        return x is not None and bool(np.isfinite(float(x)))
+    except (TypeError, ValueError):
+        return False
+
+
+def suppress_degenerate(stats: dict) -> dict:
+    """Copy of equity stats with the risk-adjusted ratios blanked (for runs that never traded)."""
+    out = dict(stats)
+    for k in DEGENERATE_RATIOS:
+        if k in out:
+            out[k] = np.nan
+    return out
+
+
+def result_warnings(kind: str, stats: dict, tstats: dict, interest: float | None = None,
+                    has_flows: bool = False) -> list[dict]:
+    """Warnings about degenerate or implausible results.
+
+    Each warning is {"code", "level" ("error" | "warn" | "info"), "message", "detail", ...}. Trade-count checks
+    apply to signal strategies only: an allocation portfolio's "trades" are holding periods, so a buy-and-hold
+    portfolio legitimately has very few.
+    """
+    W: list[dict] = []
+    n = int(tstats.get("trades") or 0)
+    signal = kind == "signal"
+    if signal and n == 0:
+        W.append({"code": "no_trades", "level": "error", "message": "No trades",
+                  "detail": "The entry condition never triggered, so there is nothing to evaluate. "
+                            "Sharpe, Sortino, Calmar and the trade statistics are not shown."})
+    elif signal and n < FEW_TRADES:
+        W.append({"code": "few_trades", "level": "warn", "message": "Too few trades for the statistics to mean much",
+                  "detail": f"Only {n} trade{'s' if n != 1 else ''}. Win rate, profit factor and Sharpe from fewer than "
+                            f"{FEW_TRADES} trades are mostly luck."})
+    alarms = []
+    sharpe, cagr, mdd = stats.get("sharpe"), stats.get("cagr"), stats.get("max_drawdown")
+    if not (signal and n == 0):
+        if _finite(sharpe) and sharpe > 3:
+            alarms.append(f"Sharpe ratio {sharpe:.2f} is above 3")
+        if _finite(cagr) and cagr > 1:
+            alarms.append(f"CAGR {cagr * 100:.0f}% is above 100% a year")
+    if signal and n > 0:
+        wr, pf = tstats.get("win_rate"), tstats.get("profit_factor")
+        if n > 100 and _finite(wr) and wr > 0.9:
+            alarms.append(f"win rate {wr * 100:.1f}% over {n} trades is above 90%")
+        if _finite(mdd) and abs(mdd) < 1e-12:
+            alarms.append("the equity curve never had a drawdown despite trading")
+        if n > 50 and pf is not None and (not _finite(pf) or pf > 5):
+            alarms.append(f"profit factor {'infinite (no losing trades)' if not _finite(pf) else f'{pf:.1f}'} "
+                          f"over {n} trades is above 5")
+    if alarms:
+        W.append({"code": "too_good", "level": "error",
+                  "message": "Results look too good — check for lookahead or data errors",
+                  "detail": "Triggered by: " + "; ".join(alarms) + ".", "rules": alarms})
+    if signal and n > 0 and not has_flows and _finite(interest) and interest > 0:
+        start, end, years = stats.get("start_equity"), stats.get("end_equity"), stats.get("years")
+        profit = (end or 0) - (start or 0)
+        if profit > 0 and interest > 0.25 * profit and start and years and years > 0:
+            ex_end = end - interest
+            cagr_ex = (ex_end / start) ** (1 / years) - 1 if ex_end > 0 else np.nan
+            ex_txt = f"{cagr_ex * 100:.2f}%" if _finite(cagr_ex) else "n/a (the trading alone lost everything)"
+            W.append({"code": "interest_share", "level": "info",
+                      "message": f"Cash interest is {interest / profit * 100:.0f}% of the total profit",
+                      "detail": f"Idle cash earned ${interest:,.0f} of T-bill interest out of ${profit:,.0f} profit. "
+                                f"Without it the CAGR would be about {ex_txt} instead of {pct_txt(cagr)} "
+                                "(approximation: cumulative interest subtracted from the final balance).",
+                      "cagr_ex_interest": cagr_ex, "interest_share": interest / profit})
+    return W
+
+
+def pct_txt(x) -> str:
+    return f"{x * 100:.2f}%" if _finite(x) else "n/a"
+
+
+# ------------------------------------------------------------------ multiple testing
+
+EULER_GAMMA = 0.5772156649015329
+
+
+def expected_max_sharpe(n_trials: int, sd: float) -> float:
+    """Expected maximum of n_trials Sharpe ratios under the null (true Sharpe 0) whose estimates have spread sd.
+
+    Bailey & López de Prado (2014): E[max] ~ sd * ((1 - g) * Z^-1(1 - 1/N) + g * Z^-1(1 - 1/(N e))), g = Euler's
+    constant. For large N this is close to sd * sqrt(2 ln N).
+    """
+    from statistics import NormalDist
+    if n_trials < 2 or not _finite(sd) or sd <= 0:
+        return 0.0
+    z = NormalDist().inv_cdf
+    return sd * ((1 - EULER_GAMMA) * z(1 - 1 / n_trials) + EULER_GAMMA * z(1 - 1 / (n_trials * np.e)))
+
+
+def deflated_sharpe(best_sr: float, trial_srs: list, n_obs: int, skew: float = 0.0, excess_kurt: float = 0.0,
+                    periods: int = TRADING_DAYS) -> dict:
+    """Deflated Sharpe Ratio (Bailey & López de Prado, 2014).
+
+    Sharpe ratios are given annualised and converted to per-period values. SR0 is the expected best Sharpe of
+    N = len(trial_srs) strategies with no skill; DSR is the probabilistic Sharpe ratio of best_sr against SR0:
+
+        DSR = Phi((SR - SR0) * sqrt(T - 1) / sqrt(1 - skew * SR + (kurt - 1) / 4 * SR^2))
+
+    with T the number of return observations and kurt the raw (non-excess) kurtosis of the chosen strategy's
+    returns. It is the probability that the true Sharpe is above zero once the selection among N trials is
+    accounted for. The trials are treated as independent, so correlated combinations make it conservative.
+    """
+    from statistics import NormalDist
+    srs = np.array([s for s in trial_srs if _finite(s)], dtype=float) / np.sqrt(periods)
+    N = len(srs)
+    out = {"n_trials": N, "best_sharpe": best_sr, "n_obs": n_obs,
+           "sd_sharpe": float(srs.std(ddof=1) * np.sqrt(periods)) if N > 1 else np.nan,
+           "expected_max_sharpe": np.nan, "expected_max_sharpe_simple": np.nan, "dsr": np.nan}
+    if N < 2 or not _finite(best_sr) or not n_obs or n_obs < 3:
+        return out
+    sd = float(srs.std(ddof=1))
+    sr0 = expected_max_sharpe(N, sd)
+    out["expected_max_sharpe"] = sr0 * np.sqrt(periods)
+    out["expected_max_sharpe_simple"] = sd * np.sqrt(2 * np.log(N)) * np.sqrt(periods)
+    sr = best_sr / np.sqrt(periods)
+    g3 = float(skew) if _finite(skew) else 0.0
+    g4 = (float(excess_kurt) if _finite(excess_kurt) else 0.0) + 3.0
+    var = 1 - g3 * sr + (g4 - 1) / 4 * sr ** 2
+    if var <= 0:
+        return out
+    out["dsr"] = NormalDist().cdf((sr - sr0) * np.sqrt(n_obs - 1) / np.sqrt(var))
+    return out
