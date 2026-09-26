@@ -258,6 +258,9 @@ def _quality_by_month(t: str) -> dict:
     return dict(zip(per.index.tolist(), per.to_numpy().tolist()))
 
 
+_QUALITY_MONTHS: dict = {}   # ticker -> (its quality series, share of good bars per calendar month)
+
+
 def _quality_month(t: str, month_start: pd.Timestamp) -> bool:
     if month_start.day == 1 and month_start == month_start.normalize():   # a calendar month: the cached table
         v = _quality_by_month(t).get(month_start.year * 12 + month_start.month - 1)
@@ -265,8 +268,21 @@ def _quality_month(t: str, month_start: pd.Timestamp) -> bool:
     q = quality(t)
     if q.empty:
         return False
-    sl = q[(q.index >= month_start) & (q.index < month_start + pd.offsets.MonthBegin(1))]
-    return bool(len(sl)) and sl.mean() >= 0.5
+    if month_start != month_start.to_period("M").to_timestamp():   # not a month start: the window as written
+        sl = q[(q.index >= month_start) & (q.index < month_start + pd.offsets.MonthBegin(1))]
+        return bool(len(sl)) and sl.mean() >= 0.5
+    v = _quality_months(t).get(month_start.to_period("M"))
+    return v is not None and bool(v >= 0.5)
+
+
+def _quality_months(t: str) -> dict:
+    """{calendar month (Period): share of the ticker's bars that month that pass `quality`}."""
+    q = quality(t)
+    hit = _QUALITY_MONTHS.get(t)
+    if hit is None or hit[0] is not q:   # computed once per quality series (a cache_clear makes a new one)
+        per = q.groupby(q.index.to_period("M")).mean().to_dict() if len(q) else {}
+        hit = _QUALITY_MONTHS[t] = (q, per)
+    return hit[1]
 
 
 def corporate_action_days(ticker: str, threshold: float = 0.15) -> pd.DatetimeIndex:
@@ -290,7 +306,22 @@ def corporate_action_days(ticker: str, threshold: float = 0.15) -> pd.DatetimeIn
 SPINOFF_SHARE = 0.15
 
 
+_SPINOFF_MEMO: dict = {}   # (ticker, threshold) -> (the price frame it was computed from, the days)
+
+
 def spinoff_days(ticker: str, threshold: float = SPINOFF_SHARE) -> pd.DatetimeIndex:
+    """spinoff_days_uncached, computed once per loaded price frame (a reload or cache_clear recomputes it)."""
+    try:
+        df = load(ticker)
+    except Exception:  # noqa: BLE001 - unknown or synthetic ticker
+        return spinoff_days_uncached(ticker, threshold)
+    hit = _SPINOFF_MEMO.get((ticker, threshold))
+    if hit is None or hit[0] is not df:
+        hit = _SPINOFF_MEMO[(ticker, threshold)] = (df, spinoff_days_uncached(ticker, threshold))
+    return hit[1]
+
+
+def spinoff_days_uncached(ticker: str, threshold: float = SPINOFF_SHARE) -> pd.DatetimeIndex:
     """Ex-dates whose 'dividend' is really a spin-off distribution: a cash-equivalent payout of more than
     `threshold` of the previous close (the data source books the spun-off shares' value as a dividend, e.g.
     MDLZ's $14.17 on 2012-10-02 for Kraft Foods Group), or a payout on a day corporate_action_days flags.

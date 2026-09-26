@@ -84,6 +84,10 @@ if QQQ RSI(10) is above 79 then short TQQQ else hold TQQQ        if SPY is above
 unless SPY is below its 200 day moving average hold QQQ, otherwise TLT
 hold the 2 of SPY, QQQ and IWM with the highest 10 day return    hold the best performing of SPY, QQQ and IWM over 10 days
 hold the top 2 of SPY, QQQ and IWM by 60 day return, only if their 60 day return beats BIL's, otherwise TLT
+SPY, TLT and GLD in equal thirds        TQQQ and TMF equally        TQQQ, TMF and SVIX weighted 50/30/20
+hold the top 2 by 10 day RSI of SPY, QQQ, TLT                  hold the highest 10 day RSI of SPY, QQQ, TLT
+if SPY 60 day max drawdown is worse than 10% then hold BIL else hold SPY, rebalance every 2 days
+if not (SPY is above its 200 day moving average or QQQ 10 day RSI is above 80) then hold QQQ else hold BIL
 ```
 
 Portfolios with if-conditions, top-N filters or dynamic weights (inverse volatility, risk parity, ...)
@@ -98,7 +102,13 @@ can also rank or weight whole groups ("the top 1 of (60% TECL and 40% BIL), SVIX
 return"): in a JSON spec or the Build editor, any node can sit inside a filter, and it is
 measured on its own simulated value over time. **Composer symphonies** can be imported directly:
 `python -m backtester import-composer symphony.json --run`, or "Import Composer symphony" on the
-Build page.
+Build page. And exported: `python -m backtester composer-export spec.json` (or a sentence), "Export to
+Composer" on the Build page, `api.composer_export(...)`. The export writes what Composer has (assets, equal /
+specified / inverse-volatility weights, if/else on its indicators, with "and" / "or" / "not" as nested ifs,
+top/bottom-N filters over listed tickers, calendar or corridor rebalancing) and refuses, saying why, what it
+lacks: shorts, leverage, cash as a holding (an "otherwise cash" branch is fine), other indicators or
+weightings, Nasdaq-100 universes, requirements on a filter, volatility targeting. Importing an exported
+symphony gives back the same tree.
 
 **Vocabulary** (numbers can be words):
 
@@ -115,7 +125,10 @@ Build page.
 | Exits | hold N days, sell when …, "sell after 10 days or when RSI is above 70", "sell when it's over 70", "sell when it is falling", "sell when they turn down" (*it* / *they* = what the entry is about: its indicator, e.g. the 50-day MA of "buy when the 50 day moving average is rising", or the price; refused if the entry is about several things; shown as a **Warning**), a bare "RSI" takes the entry's period, "sell when it crosses back below", "sell at the open when …" (same open if the rule is known at the open, e.g. a gap; otherwise checked at the close and sold at the next open), "cover at the next open when …", % stop, ATR stop, trailing / chandelier stop, "move the stop to breakeven after +2%", take profit, sell half at +X%, "cover when it closes above it". "buy TSLA while …" / "hold TSLA when …" with no exit: in the market while the condition holds |
 | Sizing | max N positions (with a short list of k < 10 tickers and no limit: k slots at 1/k each; otherwise 10 at 10%), X% per position, risk X% per trade (to the stop; with only a trailing stop, to its starting distance), target X% volatility, $X or N shares per trade (filled in full or skipped, see below), 2x leverage |
 | Costs | bps or % slippage, volume-based slippage / market impact, $ per trade, $ per share, % commission, IBKR commissions (fixed or tiered), borrow fee, margin rate, short rebate X% below T-bills, 30% maintenance margin / no margin calls, cap at X% of volume |
-| Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, "when/whenever … hold X, otherwise Y", "unless … hold X, otherwise Y", top/bottom N by momentum/RSI/volatility, ranking periods ("average of 1, 3, 6 and 12 month return" = the mean of the four total returns; "12 month return skipping the last month" / "12-1 momentum" = `ref(tret(tr, 231), 21)`; "12 month return divided by volatility" / "risk-adjusted momentum" = `tret(tr, 252) / volatility(252)`), "the 2 of … with the highest …", "the best/worst performing of … over 10 days", "only if their 60 day return beats BIL's", rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
+| Bounds | "more than" / "greater than" / "over" / "above" / "exceeds" are strict (>), "at least" / "or more" include the number (>=); "less than" / "below" / "under" are strict (<), "at most" / "or less" / "no more than" include it (<=). A bare number includes it ("fell 5%" = at least 5%) |
+| Equal weights | "in equal thirds / parts", "equally (weighted)", "equal thirds of …"; weights that are all equal and add up to 99%-99.99% ("33% / 33% / 33%", 33.3% each) are equal thirds (n-ths), with a note, not 1% cash; "A, B and C weighted 50/30/20" |
+| Negation and more | "it is not the case that …", "not (… or …)", "max drawdown is worse (deeper) than 10%" = a fall of more than 10% (better / shallower = less), "the 20 day SMA of SPY crosses below its 50 day SMA" (true on the day it crosses), "the top 2 by 10 day RSI of A, B, C", "the highest / lowest 10 day RSI of A, B, C" (top / bottom 1), rebalance every N days / weeks / months |
+| Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, "when/whenever … hold X, otherwise Y", "unless … hold X, otherwise Y", top/bottom N by momentum/RSI/volatility, "the 2 of … with the highest …", "the best/worst performing of … over 10 days", "only if their 60 day return beats BIL's", rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
 | Directions in holdings | "buy/hold/go long X" = long; "short X", "go short X", "sell short X", "X short" = a short position (-100% of the slice plus the proceeds in cash); "sell X", "exit X", "cover X", "sell everything", "exit" in an if/otherwise branch = cash. "sell X" inside a list ("hold TQQQ and sell TMF") is refused as ambiguous. Two identical branches get a note; a comparison of a value with itself is refused |
 | Ranking by drawdown | "by max drawdown" and "by drawdown" both rank by the size of the drawdown (a positive number, as Composer): "top 1" selects the most drawn down, "bottom 1" or "smallest drawdown" the least; the notes say which |
 | Higher timeframes | the weekly RSI is above 50, weekly RSI(14), the monthly 10 SMA, weekly 20 EMA (computed on completed weeks/months only) |
@@ -253,6 +266,7 @@ python -m backtester trade "hold 60% SPY and 40% TLT, rebalance monthly" --broke
 python -m backtester --tickers MSFT --entry "down_days >= 5" --hold 1        # explicit rules
 python -m backtester --spec reports/<run>/strategy.json                      # re-run exactly
 python -m backtester tickers                                                 # what data exists
+python -m backtester composer-export "if SPY is above its 200 day moving average then QQQ else BIL" --out s.json
 ```
 
 ## How the simulation works
@@ -264,8 +278,13 @@ python -m backtester tickers                                                 # w
   when newer data arrives. Trading always uses the quoted price plus cash dividends. A price level
   compared with a fixed number ("SPY price is above 400"; an SMA, standard deviation or Bollinger band
   of price against a number, also from Composer imports and the Build page) is read on quoted prices:
-  the rule becomes `quoted(close) > 400` and a note says so. Relative comparisons (price vs its own
-  average, returns, ratios, RSI) stay on the adjusted basis.
+  the rule becomes `quoted(close) > 400` and a note says so. So are price levels of **different tickers**
+  compared with each other ("GLD price is above HYG price", "the 50 day SMA of GLD is above the 50 day SMA of
+  HYG") and rankings **by** a price level ("the top 1 of GLD and HYG by current price"): each ticker's
+  total-return level starts at its own first close and grows with its own dividends, so levels of two
+  tickers are only comparable as quoted (`quoted(close) > quoted(sym("HYG").close)`). Relative
+  comparisons within one ticker (price vs its own average), returns, ratios and RSI stay on the adjusted
+  basis.
 - **Warm-up.** A portfolio holds cash until every rule, ranking and weighting has its full lookback,
   and the statistics start that day with the starting capital. Nasdaq-100 universes start at the first
   point-in-time membership snapshot (March 2004); nothing counts as a member before it.

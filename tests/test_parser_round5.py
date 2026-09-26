@@ -257,7 +257,7 @@ def test_bad_ranges_are_refused(text):
 @pytest.mark.parametrize("phrase,rule", [
     ("is 5% above its 200 day moving average", "close >= sma(close, 200) * 1.05"),
     ("is at least 5% above its 200-day SMA", "close >= sma(close, 200) * 1.05"),
-    ("is more than 5% below its 200-day SMA", "close <= sma(close, 200) * 0.95"),
+    ("is more than 5% below its 200-day SMA", "close < sma(close, 200) * 0.95"),     # "more than": strict
     ("is trading 10% below its 50 day ma", "close <= sma(close, 50) * 0.9"),
     ("closes 3% above its 20 day EMA", "close >= ema(close, 20) * 1.03"),
 ])

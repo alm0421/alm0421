@@ -14,6 +14,7 @@
     python -m backtester signals "buy Nasdaq 100 stocks when RSI(2) is below 5, hold 3 days"
     python -m backtester paper add "..." --name rsi2 ; python -m backtester paper report
     python -m backtester import-composer symphony.json [--out spec.json] [--run]
+    python -m backtester composer-export spec.json|"sentence" [--out symphony.json]
     python -m backtester web            # the backtesting site on http://localhost:8000
 """
 from __future__ import annotations
@@ -28,7 +29,7 @@ from . import data, expr, parser, report, runner
 from .montecarlo import parse_weights
 
 SUBCOMMANDS = {"run", "compare", "sweep", "walkforward", "optimize", "signals", "paper", "web", "tickers", "library", "montecarlo",
-               "factors", "style", "import-composer", "correlation", "correlations", "trade"}
+               "factors", "style", "import-composer", "composer-export", "correlation", "correlations", "trade"}
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -667,6 +668,28 @@ def cmd_import_composer(argv: list[str]) -> int:
     return 0
 
 
+def cmd_composer_export(argv: list[str]) -> int:
+    from . import composer_export
+    p = argparse.ArgumentParser(prog="python -m backtester composer-export",
+                                description="Write a portfolio (a JSON spec file or a sentence) as a Composer (composer.trade) "
+                                            "symphony JSON, for the features Composer supports.")
+    p.add_argument("source", help="a portfolio spec .json file, or the portfolio in plain English")
+    p.add_argument("--out", help="write the symphony here (default: print it)")
+    a = p.parse_args(argv)
+    src = Path(a.source)
+    spec = runner.load(src) if a.source.endswith(".json") and src.exists() else parser.parse(a.source)
+    sym, notes = composer_export.export(spec)
+    js = json.dumps(sym, indent=2)
+    for n in notes:
+        print("Note:", n, file=sys.stderr)
+    if a.out:
+        Path(a.out).write_text(js + "\n")
+        print(f"Symphony: {a.out}  (Composer: create a symphony, then paste or import this JSON)", file=sys.stderr)
+    else:
+        print(js)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "--tickers-list":
@@ -706,6 +729,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if cmd == "import-composer":
             return cmd_import_composer(rest)
+        if cmd == "composer-export":
+            return cmd_composer_export(rest)
         if cmd == "web":
             from . import web
             return web.main(rest)

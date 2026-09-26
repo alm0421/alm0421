@@ -48,6 +48,12 @@ td.n { text-align:right; }
 .pos { color:var(--good); } .neg { color:var(--bad); }
 .xscroll { overflow-x:auto; }
 .hide { display:none !important; }
+/* ticker autocomplete (Build page and every other ticker box) */
+.acbox { position:absolute; z-index:60; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,.14); max-height:264px; overflow:auto; min-width:150px; padding:3px 0; }
+.acitem { padding:4px 10px; cursor:pointer; font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:nowrap; }
+.acitem.on, .acitem:hover { background:var(--accent); color:var(--accent-text); }
+.acitem .m { color:var(--text-3); font:11px system-ui,sans-serif; margin-left:8px; }
+.acitem.on .m, .acitem:hover .m { color:var(--accent-text); }
 .tabs2 { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-bottom:12px; }
 .tabs2 button { font:inherit; border:0; background:none; padding:6px 12px; cursor:pointer; color:var(--text-2); }
 .tabs2 button.on { background:var(--surface-2); color:var(--text); font-weight:600; }
@@ -209,7 +215,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     </div>
     <div id="bSignal" class="hide">
       <div class="grid">
-        <label style="grid-column:1/-1">Tickers (comma separated) or NDX<input id="s_universe" class="w" value="MSFT"></label>
+        <label style="grid-column:1/-1">Tickers (comma separated) or NDX<input id="s_universe" class="w" value="MSFT" data-tk="multi" autocomplete="off"></label>
         <label>Side<select id="s_side"><option>long</option><option>short</option><option>both</option></select></label>
         <label>Entry fill<select id="s_entry_fill"><option>close</option><option>open</option><option>next_open</option><option>next_close</option></select></label>
         <label>Order<select id="s_entry_order"><option>market</option><option>limit</option><option>stop</option></select></label>
@@ -248,6 +254,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     <div class="interp hide" id="buildInterp" style="margin-top:10px"></div>
     <div class="row" style="margin-top:12px"><button class="btn primary" id="buildRun">Run</button>
       <button class="btn" id="buildExport">Export JSON file</button>
+      <button class="btn" id="buildComposer" title="download the portfolio as a Composer (composer.trade) symphony JSON">Export to Composer</button>
       <label class="btn" style="display:inline-block">Import JSON file…<input type="file" id="buildImport" accept=".json,application/json" class="hide"></label>
       <button class="btn hide" id="buildShare">Copy share link</button>
       <span id="buildStatus" class="note"></span></div>
@@ -438,7 +445,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   <div class="card"><h2>Asset correlations</h2>
     <p class="note">The correlation of total returns (dividends reinvested) over the period the assets have in common, a rolling correlation for one pair, and each asset's statistics, like Portfolio Visualizer's asset correlations and asset analysis. Long-history series (SPYSIM, TLTSIM, EFASIM…) reach back further.</p>
     <div class="grid">
-      <label style="grid-column:1/-1">Tickers<input id="k_tickers" class="w" list="tickerList" value="SPY TLT GLD EFASIM"></label>
+      <label style="grid-column:1/-1">Tickers<input id="k_tickers" class="w" list="tickerList" data-tk="multi" value="SPY TLT GLD EFASIM"></label>
       <label>Returns<select id="k_freq"><option value="monthly">monthly</option><option value="daily">daily</option></select></label>
       <label>Rolling window (periods)<input id="k_window" type="number" min="3" placeholder="36 mo / 63 d"></label>
       <label>Rolling pair: first<select id="k_a"></select></label><label>second<select id="k_b"></select></label>
@@ -895,6 +902,75 @@ window.addEventListener('blur', unpress);
 
   // ---- validation
   const errBoxes = new Map();
+  // ---------- ticker autocomplete: every ticker box (list="tickerList" or data-tk) suggests from all tickers with data
+  const AC = { box: null, input: null, items: [], sel: -1 };
+  function acAll() {
+    const s = new Set((STATUS && STATUS.tickers) || []);
+    document.querySelectorAll('#tickerList option').forEach(o => s.add(o.value));
+    return [...s];
+  }
+  function acToken(i) {   // [start of the ticker being typed, its text]; several tickers are separated by commas or spaces
+    const v = i.value;
+    if (i.dataset.tk !== 'multi') return [0, v];
+    const m = /[^\s,]*$/.exec(v);
+    return [m.index, m[0]];
+  }
+  function acHide() { if (AC.box) AC.box.classList.add('hide'); AC.items = []; AC.sel = -1; }
+  function acShow(i) {
+    const q = acToken(i)[1].trim().toUpperCase().replace(/^\$/, '');
+    if (!q) return acHide();
+    const all = acAll(), pre = [], mid = [];
+    for (const t of all) { const u = t.toUpperCase(); if (u.startsWith(q)) pre.push(t); else if (q.length > 1 && u.includes(q)) mid.push(t); }
+    pre.sort((a, b) => a.length - b.length || a.localeCompare(b)); mid.sort((a, b) => a.length - b.length || a.localeCompare(b));
+    const list = pre.concat(mid).slice(0, 12);
+    // nothing to suggest, or the text already is a ticker with data: no dropdown (it would cover the controls below,
+    // and a click meant for them would pick a suggestion); typing on shows longer matches again
+    if (!list.length || all.some(t => t.toUpperCase() === q)) return acHide();
+    if (!AC.box) { AC.box = el('div', { class: 'acbox hide', id: 'tickerAc', role: 'listbox' }); document.body.append(AC.box); }
+    AC.input = i; AC.items = list; AC.sel = -1;
+    const nd = (STATUS && new Set(STATUS.nasdaq100 || [])) || new Set(), ef = (STATUS && new Set(STATUS.etfs || [])) || new Set();
+    AC.box.replaceChildren(...list.map((t, k) => {
+      const d = el('div', { class: 'acitem', role: 'option', 'data-t': t }, t);
+      const tag = nd.has(t) ? 'Nasdaq-100' : ef.has(t) ? 'ETF' : /SIM$/.test(t) ? 'simulated' : '';
+      if (tag) d.append(el('span', { class: 'm' }, tag));
+      d.addEventListener('mousedown', e => { e.preventDefault(); acPick(k); });
+      return d;
+    }));
+    const r = i.getBoundingClientRect();
+    AC.box.style.left = (r.left + window.scrollX) + 'px';
+    AC.box.style.top = (r.bottom + window.scrollY + 2) + 'px';
+    AC.box.style.minWidth = Math.max(150, r.width) + 'px';
+    AC.box.classList.remove('hide');
+  }
+  function acMark() { [...AC.box.children].forEach((c, k) => c.classList.toggle('on', k === AC.sel)); if (AC.sel >= 0) AC.box.children[AC.sel].scrollIntoView({ block: 'nearest' }); }
+  function acPick(k) {
+    const i = AC.input, t = AC.items[k];
+    if (!i || !t) return;
+    const [start] = acToken(i);
+    i.value = i.dataset.tk === 'multi' ? i.value.slice(0, start) + t : t;
+    acHide();
+    AC.quiet = true;   // the events below are ours: no new suggestions for the value just picked
+    try { i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); }
+    finally { AC.quiet = false; }
+  }
+  document.addEventListener('focusin', e => {
+    const i = e.target;
+    if (!(i instanceof HTMLInputElement) || i.dataset.acOn || !(i.getAttribute('list') === 'tickerList' || i.dataset.tk)) return;
+    i.dataset.acOn = '1';
+    if (i.getAttribute('list') === 'tickerList') i.removeAttribute('list');   // one dropdown, not the browser's as well
+    i.setAttribute('autocomplete', 'off');
+    i.addEventListener('input', () => { if (!AC.quiet) acShow(i); });
+    i.addEventListener('keydown', ev => {
+      if (!AC.box || AC.box.classList.contains('hide') || AC.input !== i) return;
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); const n = AC.items.length; AC.sel = ev.key === 'ArrowDown' ? (AC.sel + 1) % n : (AC.sel - 1 + n) % n; acMark(); }
+      else if ((ev.key === 'Enter' || ev.key === 'Tab') && AC.sel >= 0) { ev.preventDefault(); acPick(AC.sel); }
+      else if (ev.key === 'Enter' && AC.items.length === 1) { ev.preventDefault(); acPick(0); }
+      else if (ev.key === 'Escape') acHide();
+    });
+    i.addEventListener('blur', () => setTimeout(() => { if (AC.input === i) acHide(); }, 120));
+  });
+  window.addEventListener('scroll', () => { if (AC.input && AC.box && !AC.box.classList.contains('hide')) acShow(AC.input); }, { passive: true });
+
   function known(t) { return !STATUS || !STATUS.tickers || STATUS.tickers.includes(t) || STATUS.tickers.includes(t.replace(/^\$/, '')) || ['VIX', 'SPX', 'NDX100', 'NASDAQ100', 'RUT', 'DJI', 'TNX', 'IRX'].includes(t); }
   function lev(a, b) { const d = Array.from({ length: b.length + 1 }, (_, j) => j); for (let i = 1; i <= a.length; i++) { let p = d[0]; d[0] = i; for (let j = 1; j <= b.length; j++) { const t = d[j]; d[j] = Math.min(d[j] + 1, d[j - 1] + 1, p + (a[i - 1] === b[j - 1] ? 0 : 1)); p = t; } } return d[b.length]; }
   function tickerMsg(t) {
@@ -1151,6 +1227,16 @@ window.addEventListener('blur', unpress);
   $('toJson').addEventListener('click', () => $('specJson').value = JSON.stringify(specFromEditor(), null, 2));
   $('fromJson').addEventListener('click', () => { try { loadSpec(JSON.parse($('specJson').value)); $('buildStatus').textContent = ''; } catch (e) { $('buildStatus').textContent = 'Invalid JSON: ' + e.message; } });
   $('buildExport').addEventListener('click', () => exportSpec(specFromEditor(), buildMode === 'portfolio' ? 'portfolio' : 'signal-strategy'));
+  $('buildComposer').addEventListener('click', async () => {
+    if (buildMode !== 'portfolio') { $('buildStatus').replaceChildren(el('span', { class: 'err' }, 'Composer symphonies are portfolios: switch to "Portfolio (blocks)". A trading rule has no Composer equivalent.')); return; }
+    $('buildStatus').replaceChildren(el('span', { class: 'spin' }));
+    try {
+      const j = await api('/api/export/composer?soft=1', { spec: exportable(specFromEditor()) });
+      const name = (j.symphony.name || 'symphony').replace(/[^\w-]+/g, '-').slice(0, 60);
+      download(name + '.composer.json', JSON.stringify(j.symphony, null, 2), 'application/json');
+      $('buildStatus').replaceChildren(document.createTextNode('Composer symphony downloaded' + (j.notes.length ? ' · ' + j.notes.join(' ') : '') + '.'));
+    } catch (e) { $('buildStatus').replaceChildren(el('span', { class: 'err' }, 'Not exportable to Composer: ' + e.message)); }
+  });
   $('buildImport').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; try { loadSpec(JSON.parse(await f.text())); $('buildStatus').textContent = `Loaded ${f.name}.`; } catch (err) { $('buildStatus').textContent = 'Could not load ' + f.name + ': ' + err.message; } e.target.value = ''; });
   $('buildShare').addEventListener('click', () => { if (buildShare) copyLink(shareUrl(buildShare), $('buildStatus')); });
   function buildProblems() {

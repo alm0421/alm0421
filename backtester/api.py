@@ -82,6 +82,17 @@ def compare(*items, names: list[str] | None = None) -> pd.DataFrame:
     return pd.DataFrame(C["columns"]).T
 
 
+def composer_export(spec_or_text) -> dict:
+    """A portfolio (spec, dict or sentence) as a Composer symphony dict; raises ComposerExportError for what Composer
+    lacks (shorts, leverage, other indicators). The notes on what was left out are under "_notes"."""
+    from . import composer_export as _ce
+    spec = parser.parse(spec_or_text) if isinstance(spec_or_text, str) else spec_or_text
+    if isinstance(spec, Backtest):
+        spec = spec.spec
+    sym, notes = _ce.export(spec)
+    return {**sym, "_notes": notes} if notes else sym
+
+
 def report(bt: Backtest | list[Backtest], out: str | Path) -> Path:
     items = bt if isinstance(bt, list) else [bt]
     analyses = [_report.analyze(b.result) for b in items]

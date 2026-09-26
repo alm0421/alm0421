@@ -48,17 +48,19 @@ def _moves():
 def test_move_sign_signal(verb, mod, win, n, down):
     s = sig(f"buy SPY when it {verb} {mod}5%{win}, hold 5 days")
     r = "change" if n == 1 else f"ret(close, {n})"
-    assert s.entry == (f"({r} <= -0.05)" if down else f"({r} >= 0.05)"), (verb, mod, win, s.entry)
+    eq = "" if "more than" in mod else "="     # "more than 5%" is strict; "5%", "by 5%", "at least 5%" include it
+    assert s.entry == (f"({r} <{eq} -0.05)" if down else f"({r} >{eq} 0.05)"), (verb, mod, win, s.entry)
 
 
 @pytest.mark.parametrize("verb,mod,win,n,down", [x for x in _moves() if x[1] in ("", "more than ")])
 def test_move_sign_portfolio_uses_total_return(verb, mod, win, n, down):
     p = port(f"if TQQQ {verb} {mod}10%{win} hold TQQQ else hold BIL")
-    assert p.tree["if"] == (f"(tret(tr, {n}) <= -0.1)" if down else f"(tret(tr, {n}) >= 0.1)"), (verb, mod, win, p.tree["if"])
+    eq = "" if "more than" in mod else "="
+    assert p.tree["if"] == (f"(tret(tr, {n}) <{eq} -0.1)" if down else f"(tret(tr, {n}) >{eq} 0.1)"), (verb, mod, win, p.tree["if"])
 
 
 def test_the_reported_sign_flips():
-    assert port("if TQQQ has fallen more than 10% over the last 10 days hold TQQQ else hold BIL").tree["if"] == "(tret(tr, 10) <= -0.1)"
+    assert port("if TQQQ has fallen more than 10% over the last 10 days hold TQQQ else hold BIL").tree["if"] == "(tret(tr, 10) < -0.1)"
     assert sig("buy SPY when it has fallen 5% over the last 10 days, hold 5 days").entry == "(ret(close, 10) <= -0.05)"
 
 
@@ -141,7 +143,7 @@ def test_unparenthesised_nested_then_is_refused():
     ("the 10 day max drawdown of TQQQ is above 20%", "max_drawdown(tr, 10) > 0.2"),
     ("SPY 10 day standard deviation of return is above 2%", "stdev_return(tr, 10) > 0.02"),
     ("TQQQ 10 day moving average of return is below 0", "ma_return(tr, 10) < 0"),
-    ("the 10 day return of TQQQ is below -10%", "tret(tr, 10) < -0.1"),
+    ("the 10 day return of TQQQ is below -10%", "(tret(tr, 10) < -0.1)"),
     ("QQQ 20 day return is greater than 5%", "(tret(tr, 20) > 0.05)"),
     ("TQQQ current price is above its 20 day moving average", "close > sma(close, 20)"),
     ("SPY 10 day RSI is above 70", "(rsi(close, 10) > 70)"),
@@ -354,8 +356,8 @@ def test_bands():
     assert (p.rebalance, p.drift_band, p.drift_band_relative) == ("quarterly", 0.05, None)
     p = port("hold 60% SPY and 40% TLT, rebalance when a weight drifts 25% relative to its target")
     assert (p.rebalance, p.drift_band, p.drift_band_relative) == ("none", None, 0.25)
-    with pytest.raises(parser.ParseError):
-        parser.parse("hold 60% SPY and 40% TLT, rebalance every 5 months")
+    # every N months: every N-th month end
+    assert port("hold 60% SPY and 40% TLT, rebalance every 5 months").rebalance == "every_5_months"
 
 
 def test_cash_flow_schedules():

@@ -558,7 +558,7 @@ def test_leverage_and_optimiser_weights_run():
     ("buy SPY on the second to last trading day of the month, hold 3 days", lambda s: s.entry == "(trading_days_left_in_month == 2)"),
     # 13. assorted
     ("buy SPY when it is up 3 days in a row, hold 3 days", lambda s: s.entry == "(up_days >= 3)"),
-    ("buy SPY when it gaps down more than 2%, hold 3 days", lambda s: s.entry == "(gap <= -0.02)"),
+    ("buy SPY when it gaps down more than 2%, hold 3 days", lambda s: s.entry == "(gap < -0.02)"),
     ("buy SPY when it closes in the top 10% of its daily range, hold 3 days", lambda s: s.entry == "(ibs > 0.9)"),
     ("buy SPY when it makes a new 52-week high, hold 3 days", lambda s: s.entry == "(close >= highest(close, 252))"),
     ("buy SPY when it is within 2% of its 52 week high, hold 3 days", lambda s: s.entry == "(drawdown(close, 252) >= -0.02)"),
