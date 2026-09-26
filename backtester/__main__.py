@@ -9,6 +9,7 @@
     python -m backtester factors QQQ --model ff5 --freq monthly
     python -m backtester signals "buy Nasdaq 100 stocks when RSI(2) is below 5, hold 3 days"
     python -m backtester paper add "..." --name rsi2 ; python -m backtester paper report
+    python -m backtester import-composer symphony.json [--out spec.json] [--run]
     python -m backtester web            # the backtesting site on http://localhost:8000
 """
 from __future__ import annotations
@@ -22,7 +23,7 @@ from pathlib import Path
 from . import data, expr, parser, report, runner
 from .montecarlo import parse_weights
 
-SUBCOMMANDS = {"run", "compare", "sweep", "walkforward", "optimize", "signals", "paper", "web", "tickers", "library", "montecarlo", "factors"}
+SUBCOMMANDS = {"run", "compare", "sweep", "walkforward", "optimize", "signals", "paper", "web", "tickers", "library", "montecarlo", "factors", "import-composer"}
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -378,6 +379,46 @@ def cmd_tickers(argv: list[str]) -> int:
     return 0
 
 
+def cmd_import_composer(argv: list[str]) -> int:
+    from . import composer_import
+    from .portfolio import Portfolio
+    p = argparse.ArgumentParser(prog="python -m backtester import-composer",
+                                description="Convert a Composer (composer.trade) symphony JSON file into this tool's "
+                                            "portfolio spec, and optionally run it.")
+    p.add_argument("file", help="the symphony's JSON (exported or copied from Composer); - reads stdin")
+    p.add_argument("--out", help="write the portfolio spec here (default: print it)")
+    p.add_argument("--run", action="store_true", help="also run the backtest and write the report")
+    _common(p)
+    p.add_argument("--no-sensitivity", action="store_true", help="skip the transaction-cost re-runs")
+    a = p.parse_args(argv)
+    src = sys.stdin.read() if a.file == "-" else Path(a.file).read_text()
+    d = composer_import.convert(src)
+    spec = Portfolio.from_dict(dict(d))
+    for k, v in dict(capital=a.capital, start=a.start, end=a.end, slippage_bps=a.slippage_bps, commission=a.commission).items():
+        if v is not None:
+            setattr(spec, k, v)
+            d[k] = v
+    spec.validate()
+    print(spec.summary())
+    for n in d.get("notes", []):
+        print("Note:", n)
+    js = json.dumps(d, indent=2)
+    if a.out:
+        Path(a.out).write_text(js + "\n")
+        print(f"Spec: {a.out}  (run it with: python -m backtester --spec {a.out})")
+    elif not a.run:
+        print(js)
+    if a.run:
+        t0 = time.time()
+        res = runner.run(spec)
+        A = report.analyze(res, rf=_rf(a.rf), sensitivity=not a.no_sensitivity)
+        print(report.console_summary(A))
+        out = report.ROOT / "reports" / report.slug(spec.name or "composer-symphony")
+        path = report.write_outputs(A, out)
+        print(f"Report: {path}  ({time.time() - t0:.1f}s)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "--tickers-list":
@@ -406,8 +447,11 @@ def main(argv: list[str] | None = None) -> int:
         if cmd == "library":
             from .library import LIBRARY
             for x in LIBRARY:
-                print(f"[{x['category']}] {x['name']}: {x['about']}\n    python -m backtester \"{x['text']}\"")
+                how = f"python -m backtester \"{x['text']}\"" if x.get("text") else "(JSON tree: Gallery page, or library.entry_spec)"
+                print(f"[{x['category']}] {x['name']} ({', '.join(x.get('tags', []))}): {x['about']}\n    {how}")
             return 0
+        if cmd == "import-composer":
+            return cmd_import_composer(rest)
         if cmd == "web":
             from . import web
             return web.main(rest)

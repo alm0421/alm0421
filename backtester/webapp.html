@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Backtester</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Cpath d=%22M1 13 L5 8 L8 10 L15 3%22 stroke=%22%232a78d6%22 stroke-width=%222%22 fill=%22none%22/%3E%3C/svg%3E">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
 :root { color-scheme: light; --bg:#f5f5f3; --surface:#fcfcfb; --surface-2:#f0efec; --border:#e2e1dc; --text:#0b0b0b; --text-2:#52514e; --text-3:#7a7974;
   --accent:#2a78d6; --accent-text:#ffffff; --good:#1a7f37; --bad:#c62828; --warn:#eda100; --grid:#e8e7e3; }
@@ -69,6 +70,12 @@ td.n { text-align:right; }
 details summary { cursor:pointer; color:var(--text-2); font-size:13px; }
 code { background:var(--surface-2); padding:1px 5px; border-radius:5px; font-size:12.5px; }
 pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); padding:10px; border-radius:8px; }
+.badge { display:inline-block; font-size:11px; line-height:1.5; padding:0 7px; border-radius:99px; border:1px solid var(--border); color:var(--text-3); background:var(--surface-2); white-space:nowrap; }
+.badge.daily { color:var(--accent); border-color:var(--accent); }
+.chip.on { background:var(--accent); border-color:var(--accent); color:var(--accent-text); }
+.tagchip { font-size:11px; color:var(--text-3); margin-right:6px; }
+.join { font-size:12px; color:var(--text-3); }
+#composerBox textarea { min-height:90px; font:12px ui-monospace,monospace; }
 </style>
 </head>
 <body>
@@ -129,7 +136,9 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     <p class="note">Every library strategy and every saved run with its headline numbers. Fork one into the editor to change it, export it as a JSON file, or import a strategy someone sent you.</p>
     <div class="row"><label class="btn small" style="display:inline-block">Import strategy JSON…<input type="file" id="galImport" accept=".json,application/json" class="hide"></label>
       <span class="note" id="galStatus"></span></div>
-    <h3>Library</h3><div class="xscroll"><table id="galLib"></table></div>
+    <h3>Library</h3>
+    <div class="row"><input id="galSearch" type="search" placeholder="search strategies, tickers…" style="min-width:240px"><span class="chips" id="galTags" style="margin-top:0"></span><span class="note" id="galCount"></span></div>
+    <div class="xscroll"><table id="galLib"></table></div>
     <h3>Saved runs</h3><div class="xscroll"><table id="galRuns"></table></div>
   </div>
 </section>
@@ -140,6 +149,14 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     <div class="tabs2" id="buildMode"><button data-v="portfolio" class="on">Portfolio (blocks)</button><button data-v="signal">Signal strategy (rules)</button></div>
     <p class="note" id="buildHelp"></p>
     <div id="bPortfolio">
+      <details id="composerBox" style="margin-bottom:8px"><summary>Import Composer symphony</summary>
+        <p class="note">Paste a symphony's JSON from composer.trade (or choose the exported file). Its blocks load into the editor below: weights, if/else, filters, inverse volatility and the rebalance setting.</p>
+        <textarea id="composerJson" placeholder='{"step": "root", "name": "…", "rebalance": "daily", "children": [ … ]}'></textarea>
+        <div class="row" style="margin-top:6px"><button class="btn small primary" id="composerLoad" type="button">Load into the editor</button>
+          <label class="btn small" style="display:inline-block">Choose file…<input type="file" id="composerFile" accept=".json,.txt,application/json" class="hide"></label>
+          <span class="note" id="composerStatus"></span></div>
+        <div id="composerNotes"></div>
+      </details>
       <div class="note" id="treeMsg"></div>
       <div id="tree"></div>
       <div class="err" id="treeErrors"></div>
@@ -432,12 +449,14 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   const shareUrl = tok => `${location.origin}${location.pathname}#backtest?s=${tok}`;
   function copyLink(u, statusEl) { try { navigator.clipboard && navigator.clipboard.writeText(u).catch(() => {}); } catch (e) { /* no clipboard */ } statusEl.replaceChildren(document.createTextNode('Link copied: '), el('a', { href: u }, u.length > 90 ? u.slice(0, 90) + '…' : u)); }
   async function runBacktest(extra) {
-    const t = $('text').value.trim(); if (!t && !(extra && extra.share)) return;
+    const t = $('text').value.trim(); if (!t && !(extra && (extra.share || extra.spec))) return;
     $('runBtn').disabled = true; $('runStatus').replaceChildren(el('span', { class: 'spin' }), document.createTextNode(' running…'));
     try {
-      const body = extra && extra.share ? { share: extra.share } : { text: t, options: opt(), rf: $('o_rf').value === '0' ? 0 : 'tbill' };
+      const rf = $('o_rf').value === '0' ? 0 : 'tbill';
+      const body = extra && extra.share ? { share: extra.share } : extra && extra.spec ? { spec: extra.spec, rf } : { text: t, options: opt(), rf };
       const j = await api('/api/run', body);
-      $('runStatus').textContent = '';
+      $('runStatus').textContent = j.reused ? 'Same strategy, settings and data as a saved run: showing that run.' : '';
+      if (extra && extra.spec) { $('text').value = j.spec.description || extra.spec.name || ''; $('interp').classList.remove('err'); $('interp').textContent = j.interpretation; lastSpec = j.spec; }
       showResult(j.id, metaLine(j.summary));
       lastShare = j.share; shareText = $('text').value;
       history.replaceState(null, '', `#backtest?s=${j.share}`);
@@ -509,7 +528,10 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   }
   ordersPanel($('btOrders'), () => { const t = $('text').value.trim(); if (!t) throw new Error('Describe a strategy first.'); return curShare() ? { share: curShare() } : { text: t, options: opt() }; });
 
-  $('toBuild').addEventListener('click', async () => { await interpret(); if (lastSpec) { loadSpec(lastSpec); location.hash = '#build'; } });
+  $('toBuild').addEventListener('click', async () => {
+    if (!(curShare() && lastSpec)) await interpret();   // a run from a JSON spec (gallery, share link) has no sentence to re-parse
+    if (lastSpec) { try { loadSpec(lastSpec); location.hash = '#build'; } catch (e) { $('runStatus').textContent = e.message; } }
+  });
   $('toSignals').addEventListener('click', () => { $('sigText').value = $('text').value; location.hash = '#signals'; scan(); });
 
   // ---------- block editor (portfolio tree)
@@ -558,8 +580,27 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     return null;
   }
   const NUM = /^-?\d+(\.\d+)?(e-?\d+)?$/i;
+  // brackets: "(a > 1)" -> "a > 1"; compound rules split at top-level and/or (one kind per rule)
+  const balanced = s => { let d = 0; for (const ch of s) { if (ch === '(') d++; else if (ch === ')' && --d < 0) return false; } return d === 0; };
+  function stripParens(s) { s = (s || '').trim(); while (s.startsWith('(') && s.endsWith(')') && balanced(s.slice(1, -1))) s = s.slice(1, -1).trim(); return s; }
+  function splitTop(s) {
+    const parts = [], ops = new Set(); let d = 0, last = 0;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (ch === '(') d++; else if (ch === ')') d--;
+      else if (d === 0 && /\s/.test(ch)) { const m = s.slice(i).match(/^\s+(and|or)\s+/); if (m) { parts.push(s.slice(last, i)); ops.add(m[1]); i += m[0].length - 1; last = i + 1; } }
+    }
+    parts.push(s.slice(last));
+    return { parts: parts.map(p => p.trim()), ops: [...ops] };
+  }
+  function parseCompound(s, own) {
+    const sp = splitTop(stripParens(s));
+    if (sp.ops.length > 1 || sp.parts.some(p => !p)) return null;
+    const clauses = sp.parts.map(p => parseCond(p, own));
+    return clauses.every(Boolean) ? { join: sp.ops[0] || 'and', clauses } : null;
+  }
   function parseCond(s, own) {
-    const m = (s || '').match(/^([^<>=]+?)\s*(>=|<=|>|<)\s*([^<>=]+)$/);
+    const m = stripParens(s).match(/^([^<>=]+?)\s*(>=|<=|>|<)\s*([^<>=]+)$/);
     if (!m) return null;
     const lhs = parseInd(m[1], own); if (!lhs) return null;
     const r = m[3].trim();
@@ -580,35 +621,47 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     return box;
   }
   const CUSTOM = new WeakMap();   // nodes whose rule is edited as text
-  // condition editor: picker when the rule fits "indicator op number|indicator", else a text box
+  // condition editor: pickers when the rule is "indicator op number|indicator" clauses (brackets allowed)
+  // joined by and/or; anything else stays an editable text box
   function condEditor(get, set, own, setOwn, holder, withTicker) {
     const text = get() || '';
-    const c = CUSTOM.get(holder) ? null : parseCond(text, own);
+    let cc = CUSTOM.get(holder) ? null : parseCompound(text, own);
+    if (cc && !withTicker && cc.clauses.some(c => c.lhs.t || c.rhs.t)) cc = null;   // per-candidate rules: another ticker's data stays as text
     const box = el('span', { class: 'row', style: 'gap:6px;display:inline-flex;flex-wrap:wrap' });
-    const sw = el('button', { class: 'btn small', type: 'button', title: 'switch between the indicator picker and a free-form rule' }, c ? 'rule text' : 'picker');
-    if (!c) {
-      box.append(inp(text, v => { set(v); revalidate(); }, { style: 'min-width:240px;flex:1', placeholder: 'close > sma(close, 200)' }));
+    const sw = el('button', { class: 'btn small', type: 'button', title: 'switch between the indicator picker and a free-form rule' }, cc ? 'rule text' : 'picker');
+    if (!cc) {
+      box.append(inp(text, v => { set(v); revalidate(); }, { style: 'min-width:240px;flex:1', placeholder: 'close > sma(close, 200)', title: 'rule language, e.g. rsi(close, 10) > 79 and close > sma(close, 200)' }));
       if (withTicker) box.append(el('span', { class: 'lab' }, 'evaluated on'), inp(own || 'SPY', v => { setOwn(v.toUpperCase().trim()); revalidate(); }, { list: 'tickerList', style: 'width:84px' }));
-      sw.onclick = () => { if (parseCond(get(), own)) { CUSTOM.delete(holder); } else { CUSTOM.delete(holder); if (!confirm('This rule does not fit the picker. Replace it with a default condition?')) { CUSTOM.set(holder, true); return; } set(withTicker ? 'close > sma(close, 200)' : 'tret(tr, 126) > 0'); } draw(); };
+      sw.onclick = () => { CUSTOM.delete(holder); if (!parseCompound(get(), own)) { if (!confirm('This rule does not fit the picker. Replace it with a default condition?')) { CUSTOM.set(holder, true); return; } set(withTicker ? 'close > sma(close, 200)' : 'tret(tr, 126) > 0'); } draw(); };
       box.append(sw); return box;
     }
-    const lhs = { ...c.lhs, t: withTicker ? own : undefined };
-    let rhsMode = c.rhs.num !== undefined ? 'num' : 'ind';
-    let rhs = rhsMode === 'ind' ? { ...c.rhs } : { k: 'sma', n: 200, t: own };
-    let num = c.rhs.num ?? 0;
+    const multi = cc.clauses.length > 1;
+    let join = cc.join;
+    const states = cc.clauses.map(c => ({
+      lhs: { ...c.lhs, t: withTicker ? (multi ? (c.lhs.t || own) : own) : undefined }, op: c.op,
+      rhsMode: c.rhs.num !== undefined ? 'num' : 'ind', rhs: c.rhs.num !== undefined ? { k: 'sma', n: 200, t: own } : { ...c.rhs }, num: c.rhs.num ?? 0 }));
+    const exprOf = st => condExpr({ lhs: st.lhs, op: st.op, rhs: st.rhsMode === 'num' ? { num: st.num } : st.rhs }, own);
     const commit = redraw => {
-      if (withTicker && lhs.t && lhs.t !== own) { if (rhs.t === own || !rhs.t) rhs.t = lhs.t; setOwn(lhs.t); own = lhs.t; }
-      set(condExpr({ lhs, op, rhs: rhsMode === 'num' ? { num } : rhs }, own));
+      const st = states[0];
+      if (!multi && withTicker && st.lhs.t && st.lhs.t !== own) { if (st.rhs.t === own || !st.rhs.t) st.rhs.t = st.lhs.t; setOwn(st.lhs.t); own = st.lhs.t; }
+      set(states.map(exprOf).join(` ${join} `));
       if (redraw) draw(); else revalidate();
     };
-    let op = c.op;
-    box.append(indPicker(lhs, commit, withTicker));
-    box.append(sel([['>', 'is greater than'], ['<', 'is less than'], ['>=', 'is at least'], ['<=', 'is at most']], op, v => { op = v; commit(); }));
-    box.append(sel([['num', 'a number'], ['ind', 'an indicator']], rhsMode, v => { rhsMode = v; if (v === 'ind') { rhs = { k: lhs.k === 'close' ? 'sma' : lhs.k, n: INDK[lhs.k].def || 200, t: own }; } commit(true); }));
-    if (rhsMode === 'num') { box.append(inp(fmtN(num), v => { num = +v; commit(); }, { type: 'number', step: 'any', style: 'width:84px' })); if (INDK[lhs.k].pct) box.append(el('span', { class: 'lab' }, '%')); }
-    else box.append(indPicker(rhs, commit, withTicker));
+    states.forEach((st, i) => {
+      if (i) box.append(sel([['and', 'and'], ['or', 'or']], join, v => { join = v; commit(true); }));
+      const cl = el('span', { class: 'row', style: 'gap:4px;display:inline-flex;flex-wrap:wrap' + (multi ? ';border:1px dashed var(--border);border-radius:6px;padding:2px 4px' : '') });
+      cl.append(indPicker(st.lhs, commit, withTicker));
+      cl.append(sel([['>', 'is greater than'], ['<', 'is less than'], ['>=', 'is at least'], ['<=', 'is at most']], st.op, v => { st.op = v; commit(); }));
+      cl.append(sel([['num', 'a number'], ['ind', 'an indicator']], st.rhsMode, v => { st.rhsMode = v; if (v === 'ind') st.rhs = { k: st.lhs.k === 'close' ? 'sma' : st.lhs.k, n: INDK[st.lhs.k].def || 200, t: st.lhs.t || own }; commit(true); }));
+      if (st.rhsMode === 'num') { cl.append(inp(fmtN(st.num), v => { st.num = +v; commit(); }, { type: 'number', step: 'any', style: 'width:84px' })); if (INDK[st.lhs.k].pct) cl.append(el('span', { class: 'lab' }, '%')); }
+      else cl.append(indPicker(st.rhs, commit, withTicker));
+      if (multi) { const x = el('button', { class: 'btn small', type: 'button', title: 'remove this condition' }, '✕'); x.onclick = () => { states.splice(i, 1); commit(true); }; cl.append(x); }
+      box.append(cl);
+    });
+    const more = el('button', { class: 'btn small', type: 'button', title: 'add another condition (all must hold with "and", any with "or")' }, '+ ' + join);
+    more.onclick = () => { set(`${get()} ${join} ${withTicker ? 'close > sma(close, 50)' : 'tret(tr, 21) > 0'}`); draw(); };
     sw.onclick = () => { CUSTOM.set(holder, true); draw(); };
-    box.append(sw);
+    box.append(more, sw);
     return box;
   }
   // ranking editor for filter "by": an indicator of each candidate, or free text
@@ -662,7 +715,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         else: rest.length > 1 ? { weights: 'equal', children: rest } : rest[0] || { cash: true } };
     }
     if (t === 'filter') {
-      const a = from === 'asset' ? [n] : kids.length && kids.every(k => typeOf(k) === 'asset') ? kids : assets;
+      const a = from === 'asset' ? [n] : kids.length ? kids : assets;
       const f = { filter: { select: 'top', n: Math.max(1, Math.min(2, a.length - 1 || 1)), by: 'tret(tr, 126)', weights: 'equal' }, universe: 'children',
         children: a.length ? a : blank('filter').children, fallback: { cash: true } };
       if (from === 'weights' && n.weights !== 'specified' && n.weights !== 'equal') { f.filter.weights = n.weights; if (n.lookback) f.filter.lookback = n.lookback; }
@@ -674,7 +727,6 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   function moveTo(src, dst, after) {
     const node = getAt(src);
     if (contains(node, dst.owner) || (dst.kind === 'slot' && contains(getAt(dst), src.owner))) return flash('A block cannot be moved inside itself.');
-    if (dst.kind === 'list' && typeOf(dst.owner) === 'filter' && typeOf(node) !== 'asset') return flash('A filter chooses among single assets: drop an Asset block here.');
     if (dst.kind === 'list') {
       let w = null;
       if (src.kind === 'list') { if (src.owner.w) w = src.owner.w.splice(src.i, 1)[0]; src.owner.children.splice(src.i, 1); }
@@ -685,7 +737,6 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       if (dst.owner.w) dst.owner.w.splice(i, 0, w ?? 0);
     } else {
       const other = getAt(dst);
-      if (src.kind === 'list' && typeOf(src.owner) === 'filter' && typeOf(other) !== 'asset') return flash('A filter chooses among single assets: that swap would put a group in its list.');
       setAt(dst, node); setAt(src, other);
     }
     draw();
@@ -719,8 +770,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         const tot = (n.w || []).reduce((a, b) => a + (+b || 0), 0) * 100;
         if (Math.abs(tot - 100) > 0.01) e.push(`Weights add up to ${+tot.toFixed(2)}% — they must total 100% (negative weights are allowed for shorts).`);
       }
-      if (!['equal', 'specified'].includes(n.weights) && k.some(c => typeOf(c) !== 'asset')) w.push(`${n.weights.replace(/_/g, ' ')} weighting needs single assets; groups inside it will be equal-weighted.`);
-      if (LOOKBACK[n.weights] && !(n.lookback >= 2)) e.push('The lookback must be at least 2 days.');
+      if (LOOKBACK[n.weights] && n.lookback != null && !(n.lookback >= 2)) e.push('The lookback must be at least 2 days.');
     }
     if (t === 'if') { if (!(n.if || '').trim()) e.push('Enter a condition.'); const on = (n.on || 'SPY').toUpperCase(); if (!known(on)) e.push(tickerMsg(on)); checkRuleTickers(n.if, e); }
     if (t === 'filter') {
@@ -731,10 +781,10 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       if (n.universe !== 'NDX') {
         const k = n.children || [];
         if (!k.length) e.push('Empty list: add assets to choose from.');
-        if (k.some(c => typeOf(c) !== 'asset')) e.push('A filter chooses among single assets only.');
+        if (k.some(c => typeOf(c) !== 'asset')) w.push('Groups in this list are ranked by their own simulated value (as if each were a fund).');
         if (k.length && f.n >= k.length) w.push(`Top ${f.n} of ${k.length} always holds all of them.`);
       }
-      if (LOOKBACK[f.weights] && !(f.lookback >= 2)) e.push('The lookback must be at least 2 days.');
+      if (LOOKBACK[f.weights] && f.lookback != null && !(f.lookback >= 2)) e.push('The lookback must be at least 2 days.');
     }
     errs.set(n, { e, w });
     kidsOf(n).forEach(c => validateNode(c, errs));
@@ -773,6 +823,10 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     if (t === 'asset') hd.append(inp(n.asset, v => { n.asset = v.toUpperCase().trim(); revalidate(); }, { list: 'tickerList', placeholder: 'ticker', style: 'width:110px' }));
     if (t === 'weights') hd.append(weightPicker(n, 'weights', 'lookback', true, v => { if (v === 'specified') n.w = n.children.map(() => +(1 / n.children.length).toFixed(6)); else delete n.w; }));
     if (t === 'if') {
+      const rb = $('p_rebalance').value, daily = rb === 'daily';
+      hd.append(el('span', { class: 'badge' + (daily ? ' daily' : ''), title: daily ? 'The condition is checked at every close and the switch trades that day (Composer-style).'
+        : `The condition is only checked on ${rb === 'none' ? 'the first day (buy and hold)' : 'each ' + rb.replace(/ly$/, '').replace('dai', 'day') + '\'s last close'}; set Rebalance to daily to switch as soon as it changes.` },
+        daily ? 'evaluated daily' : rb === 'none' ? 'evaluated once' : 'evaluated ' + rb));
       hd.append(el('span', { class: 'lab' }, 'if'), condEditor(() => n.if, v => { n.if = v; }, (n.on || 'SPY').toUpperCase(), v => { n.on = v; }, n, true));
     }
     if (t === 'filter') {
@@ -843,8 +897,9 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   const formDefault = e => e.tagName === 'SELECT' ? ([...e.options].find(o => o.defaultSelected) || e.options[0] || { value: '' }).value : e.defaultValue;
   function toForm(prefix, fields, spec) { fields.forEach(f => { const e = $(prefix + f); if (!e) return; let v = spec[f]; if (v == null || (!(f in spec))) { e.value = f in spec ? '' : formDefault(e); return; } if (PCT.has(f) && v !== '') v = +(v * 100).toFixed(6); if (typeof v === 'boolean') v = String(v); e.value = v; }); }
   function fromForm(prefix, fields) { const o = {}; fields.forEach(f => { const e = $(prefix + f); if (!e) return; let v = e.value; if (v === '') return; if (v === 'true' || v === 'false') v = v === 'true'; else if (e.type === 'number') v = +v; if (PCT.has(f)) v = v / 100; o[f] = v; }); return o; }
+  let buildName = '';   // the loaded portfolio's name (gallery, import), kept for its runs
   function specFromEditor() {
-    if (buildMode === 'portfolio') return Object.assign({ kind: 'allocation', tree: JSON.parse(JSON.stringify(tree)) }, fromForm('p_', P_FIELDS));
+    if (buildMode === 'portfolio') return Object.assign({ kind: 'allocation', tree: JSON.parse(JSON.stringify(tree)) }, buildName ? { name: buildName } : {}, fromForm('p_', P_FIELDS));
     const s = fromForm('s_', S_FIELDS);
     const u = $('s_universe').value.trim();
     if (u.toUpperCase() === 'NDX') { s.universe = (STATUS && STATUS.nasdaq100) || []; s.universe_name = 'NDX'; }
@@ -852,12 +907,35 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     ['short_entry', 'exit_when', 'entry_level'].forEach(k => { if (!s[k]) s[k] = null; });
     return s;
   }
+  // specs from sentences, files and other tools may leave out lookbacks: fill in the simulator's defaults
+  // (20 days for inverse volatility, 60 for the optimiser weightings) so the editor shows what will run
+  function withDefaults(n) {
+    if (!n || typeof n !== 'object') return n;
+    if (n.weights && LOOKBACK[n.weights] && n.lookback == null) n.lookback = LOOKBACK[n.weights];
+    if (n.filter && LOOKBACK[n.filter.weights] && n.filter.lookback == null) n.filter.lookback = LOOKBACK[n.filter.weights];
+    (n.children || []).forEach(withDefaults); ['then', 'else', 'fallback'].forEach(k => withDefaults(n[k]));
+    return n;
+  }
+  $('p_rebalance').addEventListener('change', () => { if (buildMode === 'portfolio') draw(); });
+  async function importComposer(src, label) {
+    $('composerNotes').replaceChildren();
+    $('composerStatus').replaceChildren(el('span', { class: 'spin' }));
+    try {
+      const j = await api('/api/import/composer?soft=1', { json: src });
+      loadSpec(j.spec);
+      $('composerStatus').textContent = `Loaded "${j.spec.name}"${label ? ' from ' + label : ''} — check the blocks below, then Run.`;
+      j.notes.forEach(n => $('composerNotes').append(el('div', { class: 'note' }, 'Note: ' + n)));
+      j.problems.forEach(p => $('composerNotes').append(el('div', { class: 'warn' }, p)));
+    } catch (e) { $('composerStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
+  }
+  $('composerLoad').addEventListener('click', () => { const v = $('composerJson').value.trim(); if (!v) { $('composerStatus').textContent = 'Paste the symphony JSON first.'; return; } importComposer(v); });
+  $('composerFile').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; const txt = await f.text(); $('composerJson').value = txt.length < 200000 ? txt : ''; await importComposer(txt, f.name); e.target.value = ''; });
   function loadSpec(spec) {
     if (spec && spec.spec && typeof spec.spec === 'object') spec = spec.spec;   // a gallery/export wrapper
     if (!spec || typeof spec !== 'object' || (!spec.tree && !spec.entry)) throw new Error('Not a strategy: expected a portfolio (with "tree") or a signal strategy (with "entry").');
-    if (spec.tree) { setBuildMode('portfolio'); tree = JSON.parse(JSON.stringify(spec.tree)); draw(); toForm('p_', P_FIELDS, spec); }
+    if (spec.tree) { setBuildMode('portfolio'); tree = withDefaults(JSON.parse(JSON.stringify(spec.tree))); toForm('p_', P_FIELDS, spec); draw(); }
     else { setBuildMode('signal'); toForm('s_', S_FIELDS, spec); $('s_universe').value = spec.universe_name === 'NDX' ? 'NDX' : (spec.universe || []).join(', '); }
-    $('specJson').value = JSON.stringify(spec, null, 2);
+    $('specJson').value = JSON.stringify(spec, null, 2); buildName = spec.tree && spec.name ? spec.name : '';
     $('buildShare').classList.add('hide'); buildShare = null;
   }
   // a spec as a portable file: no run notes, and an index universe by name instead of ~270 tickers
@@ -886,7 +964,8 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     $('buildStatus').replaceChildren(el('span', { class: 'spin' }), document.createTextNode(' running…'));
     try {
       const j = await api('/api/run', { spec: specFromEditor() });
-      $('buildStatus').textContent = (j.summary.kind === 'allocation' ? 'Portfolio' : j.interpretation.split('\n')[0]) + ' · ' + metaLine(j.summary);
+      $('buildStatus').textContent = (j.summary.kind === 'allocation' ? 'Portfolio' : j.interpretation.split('\n')[0]) + ' · ' + metaLine(j.summary)
+        + (j.reused ? ' · same spec and data as a saved run (reopened it)' : '');
       buildShare = j.share; $('buildShare').classList.remove('hide');
       $('buildResult').classList.remove('hide'); $('buildFrame').src = j.url;
     } catch (e) { $('buildStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
@@ -994,11 +1073,11 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       box.append(el('h3', {}, c));
       const t = el('table'); lib.filter(x => x.category === c).forEach(x => {
         const tr = el('tr'), act = el('td');
-        const run = el('button', { class: 'btn small primary' }, 'Run'); run.onclick = () => { $('text').value = x.text; location.hash = '#backtest'; interpret(); runBacktest(); };
-        const edit = el('button', { class: 'btn small' }, 'Open'); edit.onclick = () => { $('text').value = x.text; location.hash = '#backtest'; interpret(); };
-        const fk = el('button', { class: 'btn small', title: 'copy into the Build editor' }, 'Fork into editor'); fk.onclick = () => forkText(x.text, x.name).catch(e => alert(e.message));
+        const run = el('button', { class: 'btn small primary' }, 'Run'); run.onclick = () => runEntry(x);
+        const edit = el('button', { class: 'btn small' + (x.text ? '' : ' hide') }, 'Open'); edit.onclick = () => { $('text').value = x.text; location.hash = '#backtest'; interpret(); };
+        const fk = el('button', { class: 'btn small', title: 'copy into the Build editor' }, 'Fork into editor'); fk.onclick = () => forkEntry(x).catch(e => alert(e.message));
         act.append(run, document.createTextNode(' '), edit, document.createTextNode(' '), fk);
-        const d = el('td', { style: 'white-space:normal' }); d.append(el('div', {}, x.name), el('div', { class: 'note' }, x.about), el('code', {}, x.text));
+        const d = el('td', { style: 'white-space:normal' }); d.append(el('div', {}, x.name), el('div', { class: 'note' }, x.about), el('code', {}, x.text || 'JSON tree (open it in the Build editor)'));
         tr.append(d, act); t.append(tr); });
       box.append(t);
     });
@@ -1010,23 +1089,53 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     return [el('td', { class: 'n ' + (s.cagr >= 0 ? 'pos' : 'neg') }, pct(s.cagr)), el('td', { class: 'n' }, num(s.sharpe)), el('td', { class: 'n' }, pct(s.max_drawdown, 1)), el('td', { class: 'note' }, s.start ? `${String(s.start).slice(0, 4)}–${String(s.end).slice(0, 4)}` : '')];
   }
   async function forkText(text, name) { const j = await api('/api/parse', { text }); if (name) j.spec.name = name; loadSpec(j.spec); location.hash = '#build'; }
+  // a library entry is a sentence ("text") or a JSON tree ("spec")
+  async function entrySpec(x) { if (x.spec) return Object.assign(clone(x.spec), { name: x.name }); const p = await api('/api/parse', { text: x.text }); p.spec.name = x.name; return p.spec; }
+  async function forkEntry(x) { loadSpec(await entrySpec(x)); location.hash = '#build'; }
+  function runEntry(x) {
+    lastShare = null; location.hash = '#backtest';
+    if (x.spec) { runBacktest({ spec: Object.assign(clone(x.spec), { name: x.name }) }); return; }
+    $('text').value = x.text; interpret(); runBacktest();
+  }
+  let galTag = '';
+  function filterGallery() {
+    const q = $('galSearch').value.trim().toLowerCase();
+    let shown = 0;
+    [...$('galLib').querySelectorAll('tr[data-hay]')].forEach(tr => {
+      const ok = (!galTag || tr.dataset.tags.split('|').includes(galTag)) && (!q || q.split(/\s+/).every(w => tr.dataset.hay.includes(w)));
+      tr.classList.toggle('hide', !ok); shown += ok;
+    });
+    $('galCount').textContent = `${shown} of ${$('galLib').querySelectorAll('tr[data-hay]').length}`;
+    [...$('galTags').children].forEach(c => c.classList.toggle('on', c.dataset.tag === galTag));
+  }
+  $('galSearch').addEventListener('input', filterGallery);
   async function loadGallery() {
     const j = await api('/api/gallery');
+    const tags = $('galTags'); tags.replaceChildren();
+    [['', 'all'], ...(j.tags || []).map(t => [t, t])].forEach(([t, lab]) => {
+      const c = el('span', { class: 'chip', 'data-tag': t, role: 'button', tabindex: '0' }, lab);
+      c.onclick = () => { galTag = t; filterGallery(); }; c.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); c.click(); } };
+      tags.append(c);
+    });
     const lt = $('galLib'); lt.replaceChildren();
     const hr = el('tr'); ['Strategy', 'Category', 'CAGR', 'Sharpe', 'Max DD', 'Period', ''].forEach(h => hr.append(el('th', {}, h))); lt.append(hr);
     const pending = [];
     j.library.forEach(x => {
-      const tr = el('tr'), d = el('td', { style: 'white-space:normal;min-width:260px' }), act = el('td');
-      d.append(el('div', {}, x.name), el('div', { class: 'note' }, x.about));
+      const tr = el('tr', { 'data-tags': (x.tags || []).join('|'),
+        'data-hay': [x.name, x.about, x.category, x.text || '', ...(x.tags || []), x.spec ? JSON.stringify(x.spec.tree) : ''].join(' ').toLowerCase() });
+      const d = el('td', { style: 'white-space:normal;min-width:260px' }), act = el('td');
+      const tg = el('div'); (x.tags || []).forEach(t => tg.append(el('span', { class: 'tagchip' }, '#' + t)));
+      d.append(el('div', {}, x.name), el('div', { class: 'note' }, x.about), tg);
       const cells = statCells(x.stats);
-      const run = el('button', { class: 'btn small primary' }, 'Run'); run.onclick = () => { $('text').value = x.text; lastShare = null; location.hash = '#backtest'; interpret(); runBacktest(); };
-      const fork = el('button', { class: 'btn small', title: 'copy into the Build editor to change it' }, 'Fork into editor'); fork.onclick = () => forkText(x.text, x.name).catch(e => $('galStatus').textContent = e.message);
-      const exp = el('button', { class: 'btn small' }, 'Export JSON'); exp.onclick = async () => { try { const p = await api('/api/parse', { text: x.text }); p.spec.name = x.name; exportSpec(p.spec, x.name); } catch (e) { $('galStatus').textContent = e.message; } };
+      const run = el('button', { class: 'btn small primary' }, 'Run'); run.onclick = () => runEntry(x);
+      const fork = el('button', { class: 'btn small', title: 'copy into the Build editor to change it' }, 'Fork into editor'); fork.onclick = () => forkEntry(x).catch(e => $('galStatus').textContent = e.message);
+      const exp = el('button', { class: 'btn small' }, 'Export JSON'); exp.onclick = async () => { try { exportSpec(await entrySpec(x), x.name); } catch (e) { $('galStatus').textContent = e.message; } };
       const sh = el('button', { class: 'btn small' + (x.stats ? '' : ' hide') }, 'Share'); sh.onclick = () => { if (x.stats) copyLink(shareUrl(x.stats.share), $('galStatus')); };
       act.append(run, document.createTextNode(' '), fork, document.createTextNode(' '), exp, document.createTextNode(' '), sh);
       tr.append(d, el('td', { class: 'note' }, x.category), ...cells, act); lt.append(tr);
       if (!x.stats) pending.push([x, tr, sh]);
     });
+    filterGallery();
     const rt = $('galRuns'); rt.replaceChildren();
     const hr2 = el('tr'); ['When', 'Strategy', 'Type', 'CAGR', 'Sharpe', 'Max DD', 'Period', ''].forEach(h => hr2.append(el('th', {}, h))); rt.append(hr2);
     if (!j.runs.length) { const tr = el('tr'); tr.append(el('td', { colspan: 8, class: 'note' }, 'No saved runs yet.')); rt.append(tr); }
@@ -1047,7 +1156,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     for (const [x, tr, sh] of pending) {
       if (location.hash.replace('#', '').split('?')[0] !== 'gallery') break;
       tr.children[2].replaceChildren(el('span', { class: 'spin' }));
-      try { const s = (await api('/api/gallery/stats', { text: x.text })).stats; x.stats = s; statCells(s).forEach((c, i) => tr.replaceChild(c, tr.children[2 + i])); sh.classList.remove('hide'); }
+      try { const s = (await api('/api/gallery/stats', { id: x.id })).stats; x.stats = s; statCells(s).forEach((c, i) => tr.replaceChild(c, tr.children[2 + i])); sh.classList.remove('hide'); }
       catch (e) { tr.children[2].textContent = '—'; tr.children[2].title = e.message; }
     }
     galBusy = false;

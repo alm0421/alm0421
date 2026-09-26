@@ -1,0 +1,149 @@
+{
+  "id": "Xq3kP0bQ9uVwL2mN7tRs",
+  "step": "root",
+  "name": "TQQQ For The Long Term (sample)",
+  "description": "RSI overbought/oversold switches on a 200-day trend filter, with a bond/volatility hedge.",
+  "rebalance": "daily",
+  "asset-class": "EQUITIES",
+  "children": [
+    {
+      "id": "c1f0",
+      "step": "wt-cash-equal",
+      "children": [
+        {
+          "id": "c1f1",
+          "step": "if",
+          "children": [
+            {
+              "id": "c1f2",
+              "step": "if-child",
+              "is-else-condition?": false,
+              "lhs-fn": "current-price",
+              "lhs-val": "SPY",
+              "comparator": "gt",
+              "rhs-fn": "moving-average-price",
+              "rhs-fixed-value?": false,
+              "rhs-window-days": "200",
+              "rhs-val": "SPY",
+              "children": [
+                {
+                  "id": "c1f3",
+                  "step": "if",
+                  "children": [
+                    {
+                      "id": "c1f4",
+                      "step": "if-child",
+                      "is-else-condition?": false,
+                      "lhs-fn": "relative-strength-index",
+                      "lhs-window-days": "10",
+                      "lhs-val": "TQQQ",
+                      "comparator": "gt",
+                      "rhs-val": "79",
+                      "rhs-fixed-value?": true,
+                      "children": [
+                        {"id": "c1f5", "step": "asset", "ticker": "UVXY", "name": "ProShares Ultra VIX Short-Term Futures ETF", "exchange": "BATS"}
+                      ]
+                    },
+                    {
+                      "id": "c1f6",
+                      "step": "if-child",
+                      "is-else-condition?": true,
+                      "children": [
+                        {"id": "c1f7", "step": "asset", "ticker": "TQQQ", "name": "ProShares UltraPro QQQ", "exchange": "XNAS"}
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "c1f8",
+              "step": "if-child",
+              "is-else-condition?": true,
+              "children": [
+                {
+                  "id": "c1f9",
+                  "step": "if",
+                  "children": [
+                    {
+                      "id": "c1fa",
+                      "step": "if-child",
+                      "is-else-condition?": false,
+                      "lhs-fn": "relative-strength-index",
+                      "lhs-window-days": "10",
+                      "lhs-val": "TQQQ",
+                      "comparator": "lt",
+                      "rhs-val": "31",
+                      "rhs-fixed-value?": true,
+                      "children": [
+                        {"id": "c1fb", "step": "asset", "ticker": "EQUITIES::TECL//USD", "name": "Direxion Daily Technology Bull 3x Shares"}
+                      ]
+                    },
+                    {
+                      "id": "c1fc",
+                      "step": "if-child",
+                      "is-else-condition?": false,
+                      "lhs-fn": "cumulative-return",
+                      "lhs-window-days": "5",
+                      "lhs-val": "QQQ",
+                      "comparator": "lte",
+                      "rhs-val": "-6",
+                      "rhs-fixed-value?": true,
+                      "children": [
+                        {"id": "c1fd", "step": "asset", "ticker": "QQQ"}
+                      ]
+                    },
+                    {
+                      "id": "c1fe",
+                      "step": "if-child",
+                      "is-else-condition?": true,
+                      "children": [
+                        {
+                          "id": "c1ff",
+                          "step": "group",
+                          "name": "Risk-off hedge",
+                          "children": [
+                            {
+                              "id": "c200",
+                              "step": "wt-cash-specified",
+                              "children": [
+                                {
+                                  "id": "c201",
+                                  "step": "filter",
+                                  "weight": {"num": 60, "den": 100},
+                                  "sort-by-fn": "cumulative-return",
+                                  "sort-by-window-days": "20",
+                                  "select-fn": "top",
+                                  "select-n": "1",
+                                  "children": [
+                                    {"id": "c202", "step": "asset", "ticker": "TLT"},
+                                    {"id": "c203", "step": "asset", "ticker": "GLD"},
+                                    {"id": "c204", "step": "asset", "ticker": "SHY"}
+                                  ]
+                                },
+                                {
+                                  "id": "c205",
+                                  "step": "wt-inverse-vol",
+                                  "weight": {"num": 40, "den": 100},
+                                  "window-days": "30",
+                                  "children": [
+                                    {"id": "c206", "step": "asset", "ticker": "BTAL"},
+                                    {"id": "c207", "step": "asset", "ticker": "SHV"}
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
