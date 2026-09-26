@@ -6,6 +6,7 @@ on:
     paths:
       - scripts/fetch_data.py
       - .github/workflows/fetch-data.yml
+      - data/extra_tickers.txt
   schedule:
     - cron: "17 22 * * 1-5"   # weekdays after the US close
 

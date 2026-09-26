@@ -92,11 +92,11 @@ def test_if_fixed_value_and_percent_functions():
 @pytest.mark.parametrize("fn, expect, rhs, rhs_expect", [
     ("relative-strength-index", "rsi(close, 14)", "30", "30"),
     ("cumulative-return", "tret(tr, 14)", "5", "0.05"),
-    ("moving-average-price", "sma(close, 14)", "400", "400"),
-    ("exponential-moving-average-price", "ema(close, 14)", "400", "400"),
+    ("moving-average-price", "quoted(sma(close, 14))", "400", "400"),       # price levels vs a fixed number: quoted
+    ("exponential-moving-average-price", "quoted(ema(close, 14))", "400", "400"),
     ("moving-average-return", "ma_return(tr, 14)", "0.5", "0.005"),
     ("standard-deviation-return", "stdev_return(tr, 14)", "3", "0.03"),
-    ("standard-deviation-price", "stdev(close, 14)", "12.5", "12.5"),
+    ("standard-deviation-price", "quoted(stdev(close, 14))", "12.5", "12.5"),
     ("max-drawdown", "max_drawdown(tr, 14)", "10", "0.1"),
 ])
 def test_function_map(fn, expect, rhs, rhs_expect):

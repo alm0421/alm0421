@@ -1,0 +1,4 @@
+# Tickers to download besides the built-in lists in scripts/fetch_data.py.
+# One or more symbols per line (Yahoo Finance spelling, e.g. BRK-B, ^VIX); '#' starts a comment.
+# Then run the "Fetch price data" workflow (GitHub -> Actions -> Fetch price data -> Run workflow;
+# pushing a change to this file also starts it) and `git pull` the new data.

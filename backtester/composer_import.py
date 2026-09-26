@@ -249,7 +249,17 @@ class _Importer:
                 raise ComposerImportError(f"{where}: 'rhs-fixed-value?' is false but there is no 'rhs-fn'")
             rt = ticker(c.get("rhs-val"), f"{where} rhs-val")
             rhs, _ = indicator(rfn, rt, _window(c, "rhs", where), on, where)
-        return f"{lhs} {COMPARATORS[cmp]} {rhs}", on
+        rule = f"{lhs} {COMPARATORS[cmp]} {rhs}"
+        if fixed:
+            # a price level (current price, its moving average or standard deviation) against a fixed number means
+            # the quoted price, not the total-return series the other indicators use
+            from .portfolio import quote_levels
+            q = quote_levels(rule)
+            if q != rule:
+                self.note(f"{where}: {fn} of {on} is compared with the fixed value {rhs}, so it is read on quoted prices "
+                          f"(`{q}`); the other indicators use total-return prices.")
+                rule = q
+        return rule, on
 
     def if_node(self, kids: list, where: str) -> dict:
         conds, other = [], None

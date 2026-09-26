@@ -157,6 +157,7 @@ class Namespace(dict):
         if price_basis not in ("quoted", "adjusted"):
             raise ValueError("price_basis must be 'quoted' or 'adjusted'")
         self.price_basis = price_basis
+        self.quoted_df = df        # the bars as quoted, for quoted(<expr>) on an adjusted basis
         if price_basis == "adjusted":
             df = adjusted_frame(df)
         self.df = df
@@ -615,6 +616,18 @@ class Namespace(dict):
             self.notes.extend(n for n in sub.notes if n not in self.notes)
             return val.reindex(df.index).ffill()
 
+        def _q(src: str):
+            """quoted(expr): `expr` evaluated on prices as quoted, whatever this namespace's price basis (a fixed
+            price level such as `quoted(close) > 400` means the quoted price)."""
+            if self.price_basis == "quoted":
+                return evaluate_value(src, self)
+            sub = getattr(self, "_quoted_ns", None)
+            if sub is None:
+                sub = self._quoted_ns = Namespace(self.quoted_df, ticker=self.ticker, price_basis="quoted")
+            val = evaluate_value(src, sub)
+            self.notes.extend(n for n in sub.notes if n not in self.notes)
+            return val
+
         def sym(ticker: str) -> Bars:
             other = _SYM_OVERRIDE.get(data.canonical(ticker))
             other = other if other is not None else data.load(ticker)
@@ -652,7 +665,7 @@ class Namespace(dict):
             "monthly_close": lambda x=None: _periodic_close("M", x),
             "is_week_end": lambda: is_period_end("W-FRI"), "is_month_end": lambda: is_period_end("M"),
             "is_quarter_end": lambda: is_period_end("Q"), "is_year_end": lambda: is_period_end("Y"),
-            "_tf": _tf, "sym": sym, "abs": np.abs, "maximum": np.maximum, "minimum": np.minimum,
+            "_tf": _tf, "_q": _q, "sym": sym, "abs": np.abs, "maximum": np.maximum, "minimum": np.minimum,
             "log": np.log, "sqrt": np.sqrt,
         }
 
@@ -693,6 +706,8 @@ Functions (x defaults to close; n = lookback in bars):
                  would run over repeated daily values; use weekly_rsi(14) etc. instead
                is_week_end() is_month_end() is_quarter_end() is_year_end()
   other ticker sym("SPY").close, sym("^VIX").close  -> another ticker aligned to this one
+  price basis  quoted(x)  x computed on prices as quoted (not dividend-adjusted), e.g.
+                 quoted(close) > 400 in a portfolio whose indicators use total-return prices
 Operators: + - * / < <= > >= == != and or not, e.g. 0.1 < ibs < 0.3
 """
 
@@ -759,8 +774,12 @@ def _check_timeframes(tree) -> None:
 
 
 class _Timeframes(ast.NodeTransformer):
-    """weekly(<expr>) -> _tf("W-FRI", "<expr>"), monthly(<expr>) -> _tf("M", "<expr>")."""
+    """weekly(<expr>) -> _tf("W-FRI", "<expr>"), monthly(<expr>) -> _tf("M", "<expr>"), quoted(<expr>) -> _q("<expr>")."""
     def visit_Call(self, node):
+        if isinstance(node.func, ast.Name) and node.func.id == "quoted":
+            if len(node.args) != 1 or node.keywords:
+                raise ValueError("quoted() takes one expression, e.g. quoted(sma(close, 200)) > 400")
+            return ast.Call(func=ast.Name(id="_q", ctx=ast.Load()), args=[ast.Constant(ast.unparse(node.args[0]))], keywords=[])
         if isinstance(node.func, ast.Name) and node.func.id in ("weekly", "monthly"):
             if len(node.args) != 1 or node.keywords:
                 raise ValueError(f"{node.func.id}() takes one expression, e.g. {node.func.id}(macd_hist())")
