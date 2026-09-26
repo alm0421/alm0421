@@ -71,6 +71,11 @@ def etfs() -> list[str]:
     return list(universe_meta().get("etfs", []))
 
 
+def funds() -> list[str]:
+    """Mutual funds downloaded from the broad list (backtester/fund_lists.py)."""
+    return list(universe_meta().get("funds", []))
+
+
 # Long-history simulated series built by scripts/fetch_data.py (build_sims): a total-return index
 # (close = adj_close, no dividends, volume 0, open = high = low = close) that uses a model before
 # the fund existed and the real fund's total return after.
@@ -87,12 +92,17 @@ SIMS = {"SPYSIM": "US stock market (Fama-French market return) from 1926, splice
         "TIPSIM": "US TIPS: the Vanguard Inflation-Protected Securities fund (VIPSX) from mid-2000, then TIP (no model before)",
         "BNDXSIM": "International government bonds hedged to USD: a par-bond model on OECD 10-year yields of up to 12 "
                    "developed markets (monthly steps) from 1970, PIMCO International Bond USD-hedged (PFORX) from 1993, then BNDX",
-        "VBSIM": "US small caps (Fama-French small portfolios) from 1926, spliced into VB",
-        "VBRSIM": "US small-cap value (Fama-French small/high B/M) from 1926, spliced into VBR",
-        "VBKSIM": "US small-cap growth (Fama-French small/low B/M) from 1926, spliced into VBK",
+        "VBSIM": "US small caps (Fama-French small portfolios) from 1926, the Vanguard Small-Cap Index fund (NAESX) from "
+                 "late 1989, then VB",
+        "VBRSIM": "US small-cap value (the Fama-French model that tracks the fund best, see data/sims_log.txt) from 1926, "
+                  "the Vanguard Small-Cap Value Index fund (VISVX) from 1998, then VBR",
+        "VBKSIM": "US small-cap growth (the Fama-French model that tracks the fund best) from 1926, the Vanguard Small-Cap "
+                  "Growth Index fund (VISGX) from 1998, then VBK",
         "MIDSIM": "US mid caps (Fama-French 30th-70th NYSE size percentiles) from 1926, spliced into MDY (S&P 400)",
-        "VTVSIM": "US large-cap value (Fama-French big/high B/M) from 1926, spliced into VTV",
-        "VUGSIM": "US large-cap growth (Fama-French big/low B/M) from 1926, spliced into VUG",
+        "VTVSIM": "US large-cap value (the Fama-French model that tracks the fund best, e.g. 1/3 big/high + 2/3 big/neutral "
+                  "B/M) from 1926, the Vanguard Value Index fund (VIVAX) from 1992, then VTV",
+        "VUGSIM": "US large-cap growth (Fama-French big/low B/M) from 1926, the Vanguard Growth Index fund (VIGRX) from "
+                  "1992, then VUG",
         "EFASIM": "Developed ex-US stocks: Fama-French EAFE index (monthly steps) from 1975, daily from 1990, spliced into EFA",
         "EFVSIM": "Developed ex-US value: Fama-French EAFE high-B/M index (monthly steps) from 1975, daily big/high B/M "
                   "from 1990, spliced into EFV",
@@ -100,10 +110,35 @@ SIMS = {"SPYSIM": "US stock market (Fama-French market return) from 1926, splice
         "AVDVSIM": "Developed ex-US small-cap value (Fama-French small/high B/M, daily) from 1990, spliced into AVDV",
         "VGKSIM": "European stocks: Fama-French Europe index (monthly steps) from 1975, daily from 1990, spliced into VGK",
         "EEMSIM": "Emerging markets (Fama-French, monthly steps) from 1989, spliced into EEM",
-        "VNQSIM": "US REITs: FTSE Nareit All Equity REITs total return (monthly steps) from 1972, spliced into VNQ",
+        "VNQSIM": "US REITs: FTSE Nareit All Equity REITs total return (monthly steps) from 1972, the Vanguard REIT Index "
+                  "fund (VGSIX) from 1996, then VNQ",
         "GLDSIM": "Gold: LBMA PM fixing (daily) from April 1968 (World Bank monthly average price 1960-68), spliced into GLD",
         "DBCSIM": "Commodity futures: AQR equal-weight commodity index excess return + T-bills (monthly steps) from 1960, "
-                  "spliced into DBC",
+                  "spliced into DBC (through the PIMCO CommodityRealReturn fund PCRIX from 2002 when it tracks DBC better; "
+                  "see data/sims_log.txt)",
+        # "fund-exact": the named fund as soon as it or its mutual-fund twin exists
+        "VTISIM": "US total stock market: Fama-French market return from 1926, the Vanguard Total Stock Market Index fund "
+                  "(VTSMX) from April 1992, then VTI from 2001",
+        "VXUSSIM": "Total international stocks: 80% developed ex-US (Fama-French EAFE) + 20% emerging markets (from 1989) "
+                   "from 1975, the Vanguard Total International Stock Index fund (VGTSX) from 1996, then VXUS from 2011",
+        "VWOSIM": "Emerging markets (Fama-French, monthly steps) from 1989, the Vanguard Emerging Markets Stock Index fund "
+                  "(VEIEX) from 1994, then VWO",
+        "VOESIM": "US mid-cap value (Fama-French 25 size x B/M portfolios, mid size / high B/M) from 1926, spliced into VOE",
+        "VOTSIM": "US mid-cap growth (Fama-French 25 size x B/M portfolios, mid size / low B/M) from 1926, spliced into VOT",
+        "VCLTSIM": "Long-term IG corporates: 20-year par bond at Moody's Aaa/Baa average yield from 1953, the Vanguard "
+                   "Long-Term Investment-Grade fund (VWESX) from its Yahoo history (1980), then VCLT from 2009",
+        "MUBSIM": "US municipal bonds: the Vanguard Intermediate-Term Tax-Exempt fund (VWITX) from its Yahoo history, then "
+                  "MUB from 2007 (no model before)",
+        "EMBSIM": "Emerging-market USD bonds: the Fidelity New Markets Income fund (FNMIX) from 1993, then EMB from 2007 "
+                  "(no model before)",
+        "EWJSIM": "Japanese stocks: Fama-French Japan index (monthly steps) from 1975, daily from 1990, spliced into EWJ",
+        "EWUSIM": "UK stocks: Fama-French UK index (monthly steps) from 1975, spliced into EWU",
+        "EWGSIM": "German stocks: Fama-French Germany index (monthly steps) from 1975, spliced into EWG",
+        "EWCSIM": "Canadian stocks: Fama-French Canada index (monthly steps) from 1975, spliced into EWC",
+        "EWASIM": "Australian stocks: Fama-French Australia index (monthly steps) from 1975, spliced into EWA",
+        "EWQSIM": "French stocks: Fama-French France index (monthly steps) from 1975, spliced into EWQ",
+        "EWLSIM": "Swiss stocks: Fama-French Switzerland index (monthly steps) from 1975, spliced into EWL",
+        "EWHSIM": "Hong Kong stocks: Fama-French Hong Kong index (monthly steps) from 1975, spliced into EWH",
         }
 
 
@@ -417,7 +452,8 @@ def membership() -> pd.DataFrame | None:
         return None
     # strip funds, never stocks (older universe files listed some large stocks among the ETFs)
     stocks = set(universe_meta().get("stocks", [])) | LARGE_STOCKS
-    bad = NOT_MEMBERS | (set(etfs()) - stocks)
+    from .fund_lists import ALL_FUNDS
+    bad = NOT_MEMBERS | ((set(etfs()) | set(funds()) | ALL_FUNDS) - stocks)
     rows = {pd.Period(m, "M").to_timestamp(): set(t.split()) - bad for m, t in zip(raw["month"], raw["tickers"])}
     for d, syms in rows.items():
         for old, new in DUPLICATES.items():
@@ -860,6 +896,40 @@ def fetch_on_demand(ticker: str) -> bool:
     PRICES.mkdir(parents=True, exist_ok=True)
     df.round(6).to_csv(PRICES / f"{ticker}.csv", float_format="%.6g")
     return True
+
+
+EXTRA_TICKERS_FILE = DATA / "extra_tickers.txt"
+TICKER_SYMBOL_RE = r"\^?[A-Z0-9][A-Z0-9.\-]{0,14}"
+
+
+def requested_tickers() -> list[str]:
+    """The symbols listed in data/extra_tickers.txt ('#' starts a comment)."""
+    if not EXTRA_TICKERS_FILE.exists():
+        return []
+    out = []
+    for line in EXTRA_TICKERS_FILE.read_text().splitlines():
+        out += [t.strip().upper().lstrip("$") for t in line.split("#", 1)[0].replace(",", " ").split()]
+    return list(dict.fromkeys(out))
+
+
+def request_ticker(ticker: str) -> str:
+    """Queue a symbol for the data job: append it to data/extra_tickers.txt (which the 'Fetch price data'
+    workflow reads). Returns 'added', 'already requested' or 'in the built-in list' (the broad fund list in
+    backtester/fund_lists.py, downloaded in rotating batches: it arrives with one of the next data runs)."""
+    import re
+    t = canonical(ticker)
+    if not re.fullmatch(TICKER_SYMBOL_RE, t):
+        raise DataError(f"{ticker!r} is not a ticker symbol.")
+    from .fund_lists import ALL_FUNDS
+    if t in ALL_FUNDS:
+        return "in the built-in list"
+    if t in requested_tickers():
+        return "already requested"
+    EXTRA_TICKERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    text = EXTRA_TICKERS_FILE.read_text() if EXTRA_TICKERS_FILE.exists() else ""
+    with EXTRA_TICKERS_FILE.open("a") as f:
+        f.write(("" if not text or text.endswith("\n") else "\n") + t + "\n")
+    return "added"
 
 
 def load_many(tickers: list[str]) -> dict[str, pd.DataFrame]:

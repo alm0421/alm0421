@@ -621,6 +621,7 @@ def cmd_tickers(argv: list[str]) -> int:
     print(json.dumps(st, indent=1))
     print("\nNasdaq-100 (current):", " ".join(data.nasdaq100()))
     print("\nETFs:", " ".join(data.etfs()))
+    print("\nMutual funds:", " ".join(data.funds()))
     print("\nIndexes:", " ".join(m.get("indexes", [])))
     print("\nFormer Nasdaq-100 members with data:", " ".join(m.get("former_members", [])))
     return 0

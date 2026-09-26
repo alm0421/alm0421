@@ -141,7 +141,10 @@ MODEL_RX = r"(?:the |a |an )?(?:" + "|".join(p for p, *_ in MODEL_PORTFOLIOS) + 
 # ETF extended back, (series, proxy description) when it approximates it. The first available wins,
 # so e.g. BNDSIM is used for BND when the data has it and IEFSIM otherwise. Missing series are skipped.
 SIM_FOR = {
-    "SPY": [("SPYSIM", None)], "VTI": [("SPYSIM", "the US market (Fama-French), then SPY")],
+    "SPY": [("SPYSIM", None)],
+    # "fund-exact" series first: the named fund as soon as it or its mutual-fund twin exists
+    "VTI": [("VTISIM", "the US market (Fama-French) until April 1992, then the Vanguard Total Stock Market Index fund "
+                       "VTSMX, and VTI itself from 2001"), ("SPYSIM", "the US market (Fama-French), then SPY")],
     "VOO": [("SPYSIM", "the US market, then SPY")], "IVV": [("SPYSIM", "the US market, then SPY")],
     "TLT": [("TLTSIM", None)], "VGLT": [("TLTSIM", "long Treasuries, then TLT")],
     "IEF": [("IEFSIM", None)], "SHY": [("SHYSIM", None)], "BIL": [("BILSIM", None)],
@@ -155,7 +158,9 @@ SIM_FOR = {
     "DBC": [("DBCSIM", None)], "GSG": [("DBCSIM", "commodity futures (AQR equal-weight index), then DBC")],
     "PDBC": [("DBCSIM", "commodity futures (AQR equal-weight index), then DBC")],
     "VNQ": [("VNQSIM", None)], "EEM": [("EEMSIM", None)],
-    "VWO": [("EEMSIM", "emerging markets, then EEM")], "IEMG": [("EEMSIM", "emerging markets, then EEM")],
+    "VWO": [("VWOSIM", "emerging markets (Fama-French) until 1994, then the Vanguard Emerging Markets Stock Index fund "
+                       "VEIEX, and VWO itself from 2005"), ("EEMSIM", "emerging markets, then EEM")],
+    "IEMG": [("VWOSIM", "emerging markets, then VEIEX and VWO"), ("EEMSIM", "emerging markets, then EEM")],
     "LQD": [("LQDSIM", None)], "TIP": [("TIPSIM", None)], "SCHP": [("TIPSIM", "TIPS (VIPSX), then TIP")],
     "HYG": [("HYGSIM", None)], "JNK": [("HYGSIM", "high-yield bonds (VWEHX), then HYG")],
     "BND": [("BNDSIM", None), ("AGGSIM", "the aggregate bond market, then AGG"),
@@ -163,8 +168,32 @@ SIM_FOR = {
     "AGG": [("AGGSIM", None), ("BNDSIM", "the US aggregate bond market (VBMFX from 1986), then BND"),
             ("IEFSIM", "intermediate Treasuries, then IEF")],
     "BNDX": [("BNDXSIM", None)],
-    "VXUS": [("EFASIM", "developed markets ex-US (no emerging markets), then EFA")],
-    "VEU": [("EFASIM", "developed markets ex-US (no emerging markets), then EFA")],
+    "VXUS": [("VXUSSIM", "80% developed ex-US + 20% emerging markets (Fama-French) until 1996, then the Vanguard Total "
+                         "International Stock Index fund VGTSX, and VXUS itself from 2011"),
+             ("EFASIM", "developed markets ex-US (no emerging markets), then EFA")],
+    "VEU": [("VXUSSIM", "all-world ex-US: developed + emerging (Fama-French) until 1996, then the Vanguard Total "
+                        "International Stock Index fund VGTSX, then VXUS"),
+            ("EFASIM", "developed markets ex-US (no emerging markets), then EFA")],
+    "IXUS": [("VXUSSIM", "all-world ex-US, then VGTSX and VXUS")], "ACWX": [("VXUSSIM", "all-world ex-US, then VGTSX and VXUS")],
+    "VTSAX": [("VTISIM", "the US market (Fama-French), then VTSMX and VTI")],
+    "VTIAX": [("VXUSSIM", "all-world ex-US, then VGTSX and VXUS")],
+    "ITOT": [("VTISIM", "the US market, then VTSMX and VTI")], "SCHB": [("VTISIM", "the US market, then VTSMX and VTI")],
+    "VOE": [("VOESIM", None)], "VOT": [("VOTSIM", None)],
+    "IWS": [("VOESIM", "US mid-cap value (Fama-French), then VOE")], "IWP": [("VOTSIM", "US mid-cap growth (Fama-French), then VOT")],
+    "IWD": [("VTVSIM", "US large-cap value (Fama-French, VIVAX), then VTV")],
+    "IWF": [("VUGSIM", "US large-cap growth (Fama-French, VIGRX), then VUG")],
+    "IWM": [("VBSIM", "US small caps (Fama-French, NAESX), then VB")],
+    "IJR": [("VBSIM", "US small caps (Fama-French, NAESX), then VB")],
+    "IJS": [("VBRSIM", "US small-cap value (Fama-French, VISVX), then VBR")],
+    "AVUV": [("VBRSIM", "US small-cap value (Fama-French, VISVX), then VBR")],
+    "VCLT": [("VCLTSIM", None)], "IGLB": [("VCLTSIM", "long-term IG corporates (Moody's yields, VWESX), then VCLT")],
+    "SPLB": [("VCLTSIM", "long-term IG corporates (Moody's yields, VWESX), then VCLT")],
+    "MUB": [("MUBSIM", None)], "VTEB": [("MUBSIM", "municipal bonds (VWITX), then MUB")],
+    "TFI": [("MUBSIM", "municipal bonds (VWITX), then MUB")],
+    "EMB": [("EMBSIM", None)], "VWOB": [("EMBSIM", "emerging-market USD bonds (FNMIX), then EMB")],
+    "PCY": [("EMBSIM", "emerging-market USD bonds (FNMIX), then EMB")],
+    "EWJ": [("EWJSIM", None)], "EWU": [("EWUSIM", None)], "EWG": [("EWGSIM", None)], "EWC": [("EWCSIM", None)],
+    "EWA": [("EWASIM", None)], "EWQ": [("EWQSIM", None)], "EWL": [("EWLSIM", None)], "EWH": [("EWHSIM", None)],
     "VEA": [("EFASIM", "developed markets ex-US, then EFA")],
     "EFV": [("EFVSIM", None)], "SCZ": [("SCZSIM", None)], "AVDV": [("AVDVSIM", None)],
     "DLS": [("AVDVSIM", "developed ex-US small-cap value (Fama-French), then AVDV")],
@@ -215,6 +244,94 @@ def _model_portfolio(text: str, notes: list[str]) -> dict | None:
     if not start and any(any(sim in known for sim, _ in SIM_FOR.get(e, [])) for _, e in holdings):
         notes.append(f"{name} uses the ETFs; add e.g. 'since 1972' to extend it back with the simulated long-history series.")
     return {"weights": "specified", "w": [round(w, 10) for w in ws], "children": kids}
+
+
+# Portfolio Visualizer's asset-class names, read after a weight ("40% US stock market, 20% international
+# stocks, 40% total bond"): (phrase regex, series to use - the first with data wins, fund last -, label).
+# The long-history series are the named fund once it (or its mutual-fund twin) exists, so an asset class
+# covers the longest possible period. Longer phrases first ("US small cap value" before "US small cap").
+_US = r"(?:(?:the )?u\.?s\.? |american |domestic )"
+_CAP = r"[- ]?caps?(?: stocks?| equit(?:y|ies))?"
+_TSY = r"(?:u\.?s\.? )?(?:government |gov't |govt )?treasur(?:y|ies)(?: bonds?| notes?)?"
+ASSET_CLASSES = [
+    (rf"(?:total )?{_US}?(?:total )?stock market|{_US}?(?:stocks|equities)|total market", ["VTISIM", "SPYSIM", "VTI"],
+     "US total stock market"),
+    (rf"{_US}?large{_CAP} value", ["VTVSIM", "VTV"], "US large-cap value"),
+    (rf"{_US}?large{_CAP} growth", ["VUGSIM", "VUG"], "US large-cap growth"),
+    (rf"{_US}?large{_CAP}(?: blend)?", ["SPYSIM", "SPY"], "US large caps (S&P 500)"),
+    (rf"{_US}?mid{_CAP} value", ["VOESIM", "VOE"], "US mid-cap value"),
+    (rf"{_US}?mid{_CAP} growth", ["VOTSIM", "VOT"], "US mid-cap growth"),
+    (rf"{_US}?mid{_CAP}(?: blend)?", ["MIDSIM", "MDY"], "US mid caps"),
+    (rf"{_US}?small{_CAP} value", ["VBRSIM", "VBR"], "US small-cap value"),
+    (rf"{_US}?small{_CAP} growth", ["VBKSIM", "VBK"], "US small-cap growth"),
+    (rf"{_US}?small{_CAP}(?: blend)?", ["VBSIM", "VB"], "US small caps"),
+    (r"international (?:government )?bonds?|global bonds?(?: ex[- ]u\.?s\.?)?", ["BNDXSIM", "BNDX"],
+     "international bonds (USD-hedged)"),
+    (r"international small[- ]?caps? value(?: stocks)?|international small value", ["AVDVSIM", "AVDV"],
+     "international (developed ex-US) small-cap value"),
+    (r"international small[- ]?caps?(?: stocks)?", ["SCZSIM", "SCZ"], "international (developed ex-US) small caps"),
+    (r"international (?:large[- ]?cap )?value(?: stocks)?", ["EFVSIM", "EFV"], "international (developed ex-US) value"),
+    (r"international developed(?: markets?)?(?: stocks| equities)?|developed markets?(?: ex[- ]u\.?s\.?)?(?: stocks| equities)?|"
+     r"(?:msci )?eafe", ["EFASIM", "EFA"], "international developed stocks"),
+    (r"(?:total )?international(?: stock market| stocks| equities)?|(?:global |world )?ex[- ]u\.?s\.? stocks",
+     ["VXUSSIM", "EFASIM", "VXUS"], "international stocks (developed + emerging)"),
+    (r"emerging markets? (?:bonds|debt)", ["EMBSIM", "EMB"], "emerging-market bonds"),
+    (r"emerging markets?(?: stocks| equities)?", ["VWOSIM", "EEMSIM", "VWO"], "emerging-market stocks"),
+    (r"european stocks|europe(?:an)? equities|europe", ["VGKSIM", "VGK"], "European stocks"),
+    (r"japan(?:ese stocks)?", ["EWJSIM", "EWJ"], "Japanese stocks"),
+    (r"(?:us |u\.s\. )?reits?|real estate(?: investment trusts)?", ["VNQSIM", "VNQ"], "US REITs"),
+    (r"gold", ["GLDSIM", "GLD"], "gold"),
+    (r"commodit(?:y|ies)(?: futures)?", ["DBCSIM", "DBC"], "commodity futures"),
+    (rf"(?:{_US})?(?:total bond(?: market)?|aggregate bonds?|(?:investment[- ]grade )?bonds? market|bonds)",
+     ["BNDSIM", "BND"], "US total bond market"),
+    (rf"short[- ]term {_TSY}", ["SHYSIM", "SHY"], "short-term Treasuries"),
+    (rf"intermediate(?:[- ]term)? {_TSY}", ["IEFSIM", "IEF"], "intermediate-term Treasuries"),
+    (rf"long[- ]term {_TSY}", ["TLTSIM", "TLT"], "long-term Treasuries"),
+    (r"tips|treasury inflation[- ]protected securities|inflation[- ]protected (?:bonds|securities)", ["TIPSIM", "TIP"], "TIPS"),
+    (r"long[- ]term (?:investment[- ]grade )?corporate bonds?|long[- ]term corporates", ["VCLTSIM", "VCLT"],
+     "long-term corporate bonds"),
+    (r"(?:investment[- ]grade )?corporate bonds?|corporates", ["LQDSIM", "LQD"], "investment-grade corporate bonds"),
+    (r"high[- ]yield(?: corporate)?(?: bonds?)?|junk bonds", ["HYGSIM", "HYG"], "high-yield bonds"),
+    (r"municipal bonds?|munis?|muni bonds?", ["MUBSIM", "MUB"], "municipal bonds"),
+    (r"t-?bills|treasury bills", ["BILSIM", "BIL"], "T-bills"),
+]
+ASSET_CLASS_RX = "|".join(f"(?:{p})" for p, *_ in ASSET_CLASSES)
+
+
+def _asset_class_ticker(phrase: str) -> tuple[str, str] | None:
+    """'US small cap value' -> ('VBRSIM', note) (the first series of the class with data), or None."""
+    known = _known()
+    for pat, opts, label in ASSET_CLASSES:
+        if re.fullmatch(pat, phrase.strip(), re.I):
+            for t in opts:
+                if t in known:
+                    about = data.SIMS.get(t)
+                    return t, (f"'{phrase.strip()}' ({label}) is read as {t}" + (f": {about}" if about else "")
+                               + (". A long-history series that is the fund itself once the fund exists; name a fund "
+                                  f"(e.g. {opts[-1]}) to use the fund alone" if t.endswith("SIM") else "")
+                               + (f" ({t} stands in until the data job builds {opts[0]})" if t != opts[0] else "") + ".")
+            return None
+    return None
+
+
+def _asset_class_names(text: str) -> str:
+    """Portfolio Visualizer asset-class names after a weight ('40% US stock market') -> their series, with a
+    note. Only right after 'NN%' (optionally 'in' / 'of'), so words elsewhere in a sentence are untouched.
+    Next to real tickers ('60% SPY and 40% short-term treasuries'), a phrase that already names a fund
+    (COMPANIES: 'short-term treasuries' = SHY) keeps that fund, so the mix stays fund against fund."""
+    known = _known()
+    mixed = any(t in known and not t.endswith("SIM") for t in re.findall(r"(?<![\w^$])[$^]?([A-Z]{1,5}(?:-[A-Z])?)\b", text))
+    fund_names = {k.lower() for k in COMPANIES}
+
+    def fix(m):
+        if mixed and m.group("name").strip().lower() in fund_names:
+            return m.group(0)
+        hit = _asset_class_ticker(m.group("name"))
+        if not hit:
+            return m.group(0)
+        _note(hit[1])
+        return m.group("pre") + hit[0]
+    return _sub_outside(rf"(?i)(?P<pre>\d+(?:\.\d+)?% (?:in |of |to )?(?:the )?)(?P<name>{ASSET_CLASS_RX})(?![\w-])", fix, text)
 
 
 # words that may be left over after everything meaningful was recognised
@@ -1998,6 +2115,10 @@ def looks_like_allocation(text: str) -> bool:
     lead = re.match(r"(?i)\s*(?:(?:hold|own|buy and hold|invest in|allocate)\s+)?(.+?)(?=,\s*(?:re-?balanc|rebalance|with|from|since|starting|between)\b|$)", t)
     if lead and _bare_weights(lead.group(1).strip(" ,.")) != lead.group(1).strip(" ,."):
         return True
+    # "40% VTISIM, 60% BNDSIM": weight-first lists naming long-history series (asset classes)
+    sw = re.findall(r"\d+(?:\.\d+)?% (?:in |of |to )?(\^?[A-Z]{1,5}SIM)\b", t)
+    if len(sw) >= 2 and all(x in _known() for x in sw):
+        return True
     # "if C [then] X else Y" is a regime switch between holdings (Composer), whatever the branches say
     if re.match(r"(?is)\s*[(\[]?\s*if\b", t) and (
             re.search(r"(?i)\b(?:else|otherwise)\b", _mask(t))
@@ -2132,6 +2253,7 @@ def _parse(text: str, **overrides):
         raise ParseError("Describe a strategy, e.g. 'buy MSFT at the close when it is down 5 days in a row, hold 1 day'.")
     original = text
     text = _lowercase_tickers(text)
+    text = _asset_class_names(text)
     _intraday_check(text)
     _negative_costs(text)
     # "buy UVXY and hold" = "buy and hold UVXY" (an allocation that never rebalances)

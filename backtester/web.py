@@ -784,7 +784,7 @@ def api_status(_body=None):
     st["last_bar"] = last_bar_date()
     return report._clean({"data": st, "examples": EXAMPLES, "nasdaq100": data.nasdaq100(),
                           "sims": [{"ticker": t, "about": data.SIMS.get(t, "simulated long history")} for t in data.sims()],
-                          "etfs": data.etfs(), "indexes": m.get("indexes", []),
+                          "etfs": data.etfs(), "funds": data.funds(), "indexes": m.get("indexes", []),
                           "former": m.get("former_members", []), "help": expr.HELP,
                           "tickers": data.available_tickers(), "factor_models": _factor_models()})
 
@@ -820,8 +820,22 @@ def api_fetch(body):
         data.load.cache_clear()
         data._nasdaq100_ever.cache_clear()
         return {"ticker": t, "status": "downloaded"}
-    raise ClientError(f"Could not download {t} (unknown symbol, or no internet access from this machine). No data for {t}: "
-                      "add it to data/extra_tickers.txt and run the 'Fetch price data' workflow (GitHub Actions), then pull.")
+    # no internet here (the cloud sandbox) or an unknown symbol: queue it for the data job
+    try:
+        how = data.request_ticker(t)
+    except data.DataError as e:
+        raise ClientError(str(e))
+    after = ("then run the 'Fetch price data' workflow if it doesn't start by itself, and pull the new data. "
+             "(A symbol Yahoo doesn't know is listed under requested_failed in data/universe.json.)")
+    if how == "in the built-in list":
+        msg = (f"{t} is in the built-in fund list, downloaded in rotating batches by the daily 'Fetch price data' "
+               "workflow: it arrives with one of the next runs (or run the workflow now), then pull.")
+    elif how == "already requested":
+        msg = f"{t} is already in data/extra_tickers.txt: commit and push that file, " + after
+    else:
+        msg = (f"Couldn't download {t} from here, so it was added to data/extra_tickers.txt. Commit and push that file "
+               "(pushing it starts the workflow), " + after)
+    return {"ticker": t, "status": "queued: " + msg, "queued": how}
 
 
 def api_delete(rid):
