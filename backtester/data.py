@@ -49,7 +49,9 @@ def unknown_ticker_message(ticker: str) -> str:
     t = canonical(ticker)
     s = suggest(t)
     return (f"No price data for {t}." + (f" Did you mean {', '.join(s)}?" if s else "")
-            + " (The Data page lists every ticker; on your own computer new tickers are downloaded automatically.)")
+            + f" To add {t}, put it on its own line in data/extra_tickers.txt and run the 'Fetch price data' workflow "
+            "(GitHub Actions; pushing the file also starts it), then pull the new data. (The Data page lists every "
+            "ticker; on your own computer new tickers are downloaded automatically.)")
 
 
 @lru_cache(maxsize=1)
@@ -117,7 +119,7 @@ def sims() -> list[str]:
 
 # symbols that show up in old revisions of the Wikipedia article but were never index members
 LARGE_STOCKS = set("""JPM XOM BRK-B JNJ UNH V MA HD PG CVX LLY ABBV MRK KO BAC WFC DIS MCD NKE ORCL CRM IBM GE CAT
-BA GS MS C T VZ PFE TMO DHR ABT NEE DUK SO LMT RTX UPS UNP MMM""".split())
+BA GS MS C T VZ PFE TMO DHR ABT NEE DUK SO LMT RTX UPS UNP MMM MSTR COIN""".split())
 NOT_MEMBERS = {"NDX", "QQQ", "QQQQ", "TQQQ", "SQQQ", "QLD", "QID", "PSQ", "ONEQ", "NASDAQ", "ETF", "NQ", "ND",
                "NXP"}  # NXP is a Nuveen municipal fund (a typo for NXPI in one stretch of revisions)
 

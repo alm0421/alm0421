@@ -123,16 +123,39 @@ SCHP STIP VTIP SPHQ SPLV XLG QQQM SCHG SCHB SCHX SCHA SCHF SCHE VEU IXUS IEMG AC
 REET RWR SCHH GDX GDXJ SIL PPLT PALL DBA DBB DBE DBO UNG CORN WEAT BNO COPX TAIL CTA DBMF PFIX RPAR NTSX
 VTSAX VTIAX VBTLX VGSLX VIMAX VSMAX VBIAX VWIAX VFIAX FXAIX FSKAX FTIHX SWPPX VTMGX VEMAX VSIAX VGSTX
 SCZ EFV AVDV DLS JNK VWEHX SCHP PFORX
+BOIL KOLD UTSL WEBL BULZ DPST IGV FXE FXY FXF FXB UDN SPHB NAIL JNUG JDST GLL AGQ ZSL TBF ROM GUSH DRIP
+CWEB RETL MIDU DFEN PILL DUSL UYG SPDN SPUU FNGO BNKU TPOR WANT
 """.split()
 ETFS = list(dict.fromkeys(ETFS))
 # large US stocks outside the Nasdaq-100 (stocks, not ETFs: kept separate so they are never mistaken
 # for funds, e.g. when ETFs are stripped from index membership)
 STOCKS = """
 JPM XOM BRK-B JNJ UNH V MA HD PG CVX LLY ABBV MRK KO BAC WFC DIS MCD NKE ORCL CRM IBM GE CAT BA GS MS C T VZ
-PFE TMO DHR ABT NEE DUK SO LMT RTX UPS UNP MMM
+PFE TMO DHR ABT NEE DUK SO LMT RTX UPS UNP MMM MSTR COIN
 """.split()
 INDEXES = ["^NDX", "^GSPC", "^VIX", "^IRX", "^TNX", "^DJI", "^RUT", "^SP500TR", "^VIX3M", "^TYX", "^FVX"]
-EXTRA = ETFS + STOCKS + INDEXES
+# tickers users ask for: one or more per line in data/extra_tickers.txt ('#' starts a comment)
+EXTRA_TICKERS_FILE = ROOT / "data" / "extra_tickers.txt"
+
+
+def requested_tickers(path: Path = EXTRA_TICKERS_FILE) -> list[str]:
+    """The tickers listed in data/extra_tickers.txt (upper-cased, de-duplicated; invalid symbols are skipped
+    with a message)."""
+    if not path.exists():
+        return []
+    out = []
+    for line in path.read_text().splitlines():
+        for tok in line.split("#", 1)[0].replace(",", " ").split():
+            t = tok.strip().upper().lstrip("$")
+            if re.fullmatch(r"\^?[A-Z0-9][A-Z0-9.\-]{0,14}", t):
+                out.append(t)
+            else:
+                print(f"extra_tickers.txt: skipping {tok!r} (not a ticker symbol)", file=sys.stderr)
+    return list(dict.fromkeys(out))
+
+
+REQUESTED = [t for t in requested_tickers() if t not in set(ETFS) | set(STOCKS) | set(INDEXES)]
+EXTRA = ETFS + STOCKS + INDEXES + REQUESTED
 
 # Symbol changes: membership lists use the old symbol, Yahoo keeps history under the new one.
 # Only renames where Yahoo's history for the new symbol genuinely continues the same company.
@@ -1255,6 +1278,8 @@ def main() -> None:
         "etfs": [t for t in ETFS if t in ok],
         "stocks": [t for t in STOCKS if t in ok],
         "indexes": [t for t in INDEXES if t in ok],
+        "requested": [t for t in REQUESTED if t in ok],            # from data/extra_tickers.txt
+        "requested_failed": [t for t in REQUESTED if t not in ok],
         "benchmarks": ["SPY", "QQQ"],
         "sims": sims,
         "former_members": sorted(former_ok),

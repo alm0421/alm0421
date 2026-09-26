@@ -2,7 +2,8 @@
 
     python -m backtester web [--port 8000] [--host 127.0.0.1]
 
-Pages: Backtest (plain English, live interpretation), Build (block editor for portfolios and
+Pages: Backtest (plain English, live interpretation), Community (published strategies: search, sort,
+fork, run), Build (block editor for portfolios and
 rule forms for signal strategies), Compare, Research (parameter sweep, walk-forward, portfolio
 optimiser), Signals & paper trading, History (saved runs with share links) and Data.
 """
@@ -15,6 +16,7 @@ import difflib
 import hashlib
 import json
 import mimetypes
+import os
 import re
 import threading
 import time
@@ -393,6 +395,108 @@ def api_gallery_stats(body):
     return {"id": x["id"], "text": x.get("text"), "stats": stats}
 
 
+# ------------------------------------------------------------------ community gallery (published strategies)
+
+# shared and committed with the repo (BACKTESTER_COMMUNITY points it elsewhere, e.g. for tests)
+COMMUNITY = Path(os.environ.get("BACKTESTER_COMMUNITY") or report.ROOT / "data" / "community.json")
+COMMUNITY_MAX = 5000
+_CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _community() -> list[dict]:
+    try:
+        rows = json.loads(COMMUNITY.read_text()) if COMMUNITY.exists() else []
+    except (OSError, json.JSONDecodeError):
+        return []
+    return rows if isinstance(rows, list) else []
+
+
+def _save_community(rows: list[dict]) -> None:
+    COMMUNITY.parent.mkdir(parents=True, exist_ok=True)
+    tmp = COMMUNITY.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(rows, indent=1, default=str))
+    tmp.replace(COMMUNITY)
+
+
+def _clean_text(v, limit: int, what: str, required: bool = False) -> str:
+    s = _CTRL.sub("", str(v or "")).strip()
+    if required and not s:
+        raise ClientError(f"Give the strategy a {what}.")
+    if len(s) > limit:
+        raise ClientError(f"The {what} is too long ({len(s)} characters; at most {limit}).")
+    return s
+
+
+COMMUNITY_SORTS = {"cagr": ("cagr", True), "sharpe": ("sharpe", True), "max_drawdown": ("max_drawdown", True),
+                   "newest": ("created", True), "name": ("name", False)}
+
+
+def api_community(query: dict | None = None) -> dict:
+    """Published strategies, optionally searched (q: every word must appear in the name, author, description,
+    sentence or tickers) and sorted (cagr / sharpe: highest first; max_drawdown: the smallest drawdown first;
+    newest; name)."""
+    q = (query or {}).get("q", [""])[0].strip().lower() if query else ""
+    sort = (query or {}).get("sort", ["newest"])[0] if query else "newest"
+    if sort not in COMMUNITY_SORTS:
+        raise ClientError(f"sort must be one of {', '.join(COMMUNITY_SORTS)}")
+    rows = _community()
+    if q:
+        rows = [r for r in rows if all(w in str(r.get("hay", "")) for w in q.split())]
+    key, desc = COMMUNITY_SORTS[sort]
+
+    def k(r):
+        v = r.get(key) if key in ("created", "name") else (r.get("stats") or {}).get(key)
+        if key == "name":
+            return str(v or "").lower()
+        return (v is not None, v if v is not None else 0)
+
+    rows = sorted(rows, key=k, reverse=desc)
+    return {"strategies": [{x: v for x, v in r.items() if x != "hay"} for r in rows], "count": len(rows)}
+
+
+def api_community_publish(body):
+    """Publish a strategy (a sentence or a spec) to the community gallery with its name, author and description.
+    It is backtested first (a saved run with the same spec and data is reused), so every entry carries its
+    headline numbers and a report."""
+    name = _clean_text(body.get("name"), 80, "name", required=True)
+    author = _clean_text(body.get("author"), 60, "author name") or "anonymous"
+    about = _clean_text(body.get("description"), 2000, "description")
+    text = _clean_text(body.get("text"), 4000, "sentence")
+    if not body.get("spec") and not text:
+        raise ClientError("Nothing to publish: describe a strategy or build one first.")
+    if body.get("spec") and len(json.dumps(body["spec"], default=str)) > 200_000:
+        raise ClientError("This strategy is too large to publish.")
+    run = api_run({"spec": body["spec"]} if body.get("spec") else {"text": text, "options": body.get("options") or {}})
+    spec = dict(run["spec"])
+    spec.pop("notes", None)
+    if spec.get("universe_name") == "NDX":
+        spec.pop("universe", None)
+    spec["name"] = name
+    s = run["summary"]
+    tickers = []
+    if isinstance(spec.get("tree"), dict):
+        from .portfolio import tickers_in
+        try:
+            tickers = tickers_in(spec["tree"])[:60]
+        except Exception:  # noqa: BLE001 - search words are a convenience
+            tickers = []
+    else:
+        tickers = list(spec.get("universe") or [])[:50]
+    entry = {"id": hashlib.sha1(f"{name}|{author}|{time.time()}".encode()).hexdigest()[:10],
+             "created": datetime.now().isoformat(timespec="seconds"), "name": name, "author": author,
+             "description": about, "text": text or None, "kind": s.get("kind"), "spec": spec,
+             "stats": {k: s.get(k) for k in ("cagr", "sharpe", "max_drawdown", "start", "end")},
+             "share": run.get("share"), "run_id": run.get("id")}
+    entry["hay"] = " ".join([name, author, about, text, " ".join(tickers), str(s.get("kind") or "")]).lower()
+    with LOCK:
+        rows = _community()
+        if len(rows) >= COMMUNITY_MAX:
+            raise ClientError("The community gallery is full.")
+        rows.insert(0, report._clean(entry))
+        _save_community(rows)
+    return {"entry": {k: v for k, v in report._clean(entry).items() if k != "hay"}, "url": run.get("url")}
+
+
 def api_import_composer(body):
     """A Composer symphony (JSON text or object) -> a Portfolio spec for the block editor. Problems that
     don't stop the tree from loading (e.g. a ticker without data) come back in "problems"."""
@@ -699,7 +803,8 @@ def api_fetch(body):
     if data.fetch_on_demand(t):
         data.load.cache_clear()
         return {"ticker": t, "status": "downloaded"}
-    raise ClientError(f"Could not download {t} (unknown symbol, or no internet access from this machine).")
+    raise ClientError(f"Could not download {t} (unknown symbol, or no internet access from this machine). No data for {t}: "
+                      "add it to data/extra_tickers.txt and run the 'Fetch price data' workflow (GitHub Actions), then pull.")
 
 
 def api_delete(rid):
@@ -804,6 +909,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, LIBRARY)
             if path == "/api/gallery":
                 return self._json(200, api_gallery())
+            if path == "/api/community":
+                try:
+                    return self._json(200, api_community(urllib.parse.parse_qs(u.query)))
+                except ClientError as e:
+                    return self._json(400, {"error": str(e)})
             if path == "/api/paper":
                 return self._json(200, api_paper({}, "GET"))
             if path.startswith("/r/"):
@@ -832,6 +942,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/paper": lambda b: api_paper(b, "POST"),
                 "/api/fetch": api_fetch, "/api/share": api_share, "/api/orders": api_orders,
                 "/api/gallery/stats": api_gallery_stats, "/api/import/composer": api_import_composer,
+                "/api/community/publish": api_community_publish,
                 "/api/montecarlo": api_montecarlo, "/api/factors": api_factors, "/api/style": api_style, "/api/correlation": api_correlation,
             }
             if path in handlers:

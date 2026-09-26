@@ -103,6 +103,7 @@ class Portfolio:
         if self.rebalance not in FREQS:
             raise ValueError(f"rebalance must be one of {FREQS}")
         validate_node(self.tree)
+        check_tree(self)
         if not (0 < self.leverage <= 10):
             raise ValueError("leverage must be between 0 and 10")
         if not 0 <= self.maintenance_margin < 1:
@@ -737,7 +738,7 @@ def describe(n: dict, indent: int = 0) -> list[str]:
 OPTIMISERS = ("risk_parity", "min_variance", "max_sharpe", "max_diversification")
 
 
-_LEVEL_FUNCS = {"sma", "ema", "wma", "rma", "ma", "highest", "lowest", "vwap", "bb_upper", "bb_lower", "donchian_upper",
+_LEVEL_FUNCS = {"sma", "ema", "wma", "rma", "ma", "stdev", "atr", "highest", "lowest", "vwap", "bb_upper", "bb_lower", "donchian_upper",
                 "donchian_lower", "keltner_upper", "keltner_lower", "supertrend", "sar", "weekly_sma", "monthly_sma",
                 "weekly_ema", "monthly_ema", "weekly_close", "monthly_close"}
 _LEVEL_NAMES = {"close", "open", "high", "low", "price"}
@@ -777,6 +778,114 @@ def price_level_threshold(rule) -> bool:
             if any(is_num(o) for o in ops) and any(is_level(o) for o in ops):
                 return True
     return False
+
+
+def _is_num(x) -> bool:
+    import ast
+    if isinstance(x, ast.UnaryOp) and isinstance(x.op, (ast.USub, ast.UAdd)):
+        x = x.operand
+    return isinstance(x, ast.Constant) and isinstance(x.value, (int, float)) and not isinstance(x.value, bool)
+
+
+def _is_level(x) -> bool:
+    import ast
+    if isinstance(x, ast.Name):
+        return x.id in _LEVEL_NAMES
+    if isinstance(x, ast.Attribute):
+        return x.attr in _LEVEL_NAMES
+    if isinstance(x, ast.Call) and isinstance(x.func, ast.Name) and x.func.id in _LEVEL_FUNCS:
+        a = [y for y in x.args if not _is_num(y)]
+        return not a or _is_level(a[0])
+    return False
+
+
+def quote_levels(rule: str) -> str:
+    """Wrap each price level compared with a fixed number in quoted(...): 'close > 400' -> 'quoted(close) > 400',
+    'sma(close, 200) < 350' -> 'quoted(sma(close, 200)) < 350'. A fixed price level means the quoted price;
+    relative comparisons (close > sma(close, 200)), ratios, returns and oscillators are left alone."""
+    import ast
+    if not isinstance(rule, str) or not price_level_threshold(rule):
+        return rule
+    text = " ".join(rule.split())   # one line, so AST column offsets index the text directly
+    spans = []
+    for node in ast.walk(ast.parse(text, mode="eval")):
+        if isinstance(node, ast.Compare):
+            ops = [node.left] + list(node.comparators)
+            if any(_is_num(o) for o in ops):
+                spans += [(o.col_offset, o.end_col_offset) for o in ops if _is_level(o)]
+    for a, b in sorted(set(spans), reverse=True):   # the rest of the text (quotes, brackets) is kept as written
+        text = f"{text[:a]}quoted({text[a:b]}){text[b:]}"
+    return text
+
+
+def _self_comparison(rule: str, on: str | None) -> str | None:
+    """The first comparison of an expression with itself ('close > close', 'rsi(close, 10) > rsi(close, 10)',
+    'close > sym("SPY").close' on SPY), which is always true or always false, as text; else None."""
+    import ast
+    try:
+        tree = ast.parse(str(rule).strip(), mode="eval")
+    except SyntaxError:
+        return None
+    on_c = data.canonical(on) if on else None
+
+    class _Own(ast.NodeTransformer):   # sym("<the if's own ticker>").close -> close
+        def visit_Attribute(self, node):
+            self.generic_visit(node)
+            v = node.value
+            if (on_c and isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == "sym" and v.args
+                    and isinstance(v.args[0], ast.Constant) and isinstance(v.args[0].value, str)
+                    and data.canonical(v.args[0].value) == on_c):
+                return ast.Name(id=node.attr, ctx=ast.Load())
+            return node
+
+    tree = _Own().visit(tree)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare):
+            ops = [node.left] + list(node.comparators)
+            for a, b in zip(ops, ops[1:]):
+                if ast.dump(a) == ast.dump(b) and not _is_num(a):
+                    return ast.unparse(node)
+    return None
+
+
+def check_tree(p: "Portfolio") -> None:
+    """Checks and rewrites that apply however the tree was written (parser, JSON, Build page, Composer): a
+    comparison of a value with itself is refused; an if whose two branches are the same earns a note; and on an
+    adjusted price basis a price level compared with a fixed number is read on quoted prices (quoted(...))."""
+    def note(msg):
+        if msg not in p.notes:
+            p.notes.append(msg)
+
+    def walk(n):
+        if not isinstance(n, dict):
+            return
+        if isinstance(n.get("if"), str):
+            bad = _self_comparison(n["if"], n.get("on"))
+            if bad:
+                raise ValueError(f"The condition `{n['if']}` compares a value with itself ({bad}), so it is always true or "
+                                 "always false. Compare it with a number, another indicator or another ticker.")
+            if n.get("then") == n.get("else"):
+                note(f"Both branches of the condition `{n['if']}` on {n.get('on', 'SPY')} hold the same thing "
+                     f"({short_name(n['then'], 60)}), so the condition changes nothing.")
+        f = n.get("filter")
+        if isinstance(f, dict) and isinstance(f.get("require"), str):
+            bad = _self_comparison(f["require"], None)
+            if bad:
+                raise ValueError(f"The requirement `{f['require']}` compares a value with itself ({bad}).")
+        if getattr(p, "price_basis", "adjusted") == "adjusted":
+            for holder, key in ((n, "if"), (f if isinstance(f, dict) else {}, "require")):
+                r = holder.get(key)
+                if isinstance(r, str):
+                    q = quote_levels(r)
+                    if q != r:
+                        holder[key] = q
+                        note(f"The rule `{r}` compares a price level with a fixed number, so that price is read as quoted "
+                             f"(`{q}`): the other indicators use total-return prices (price_basis \"adjusted\"), whose "
+                             "level grows with the reinvested dividends and sits above the quote for a dividend payer.")
+        for k in _kids(n):
+            walk(k)
+
+    walk(p.tree)
 
 
 class _Evaluator:

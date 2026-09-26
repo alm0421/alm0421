@@ -91,7 +91,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 <body>
 <header><div class="bar"><div class="brand">📈 Backtester</div>
   <nav id="nav">
-    <a href="#backtest">Backtest</a><a href="#library">Library</a><a href="#gallery">Gallery</a><a href="#build">Build</a><a href="#compare">Compare</a><a href="#research">Research</a><a href="#montecarlo">Monte Carlo</a><a href="#factors">Factors</a><a href="#correlations">Correlations</a>
+    <a href="#backtest">Backtest</a><a href="#library">Library</a><a href="#gallery">Gallery</a><a href="#community">Community</a><a href="#build">Build</a><a href="#compare">Compare</a><a href="#research">Research</a><a href="#montecarlo">Monte Carlo</a><a href="#factors">Factors</a><a href="#correlations">Correlations</a>
     <a href="#signals">Signals &amp; paper</a><a href="#history">History</a><a href="#data">Data</a>
   </nav><div class="note" id="dataStamp" style="margin-left:auto"></div></div></header>
 <main>
@@ -124,6 +124,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       <span id="runStatus" class="note"></span>
     </div>
     <details class="orders" id="btOrders"><summary>Today's orders (export to your broker)</summary></details>
+    <details class="orders" id="btPublish"><summary>Publish to the community gallery</summary></details>
   </div>
   <div id="result" class="hide">
     <div class="row" style="margin-bottom:8px"><span class="note" id="resultMeta"></span><span style="flex:1"></span>
@@ -150,6 +151,17 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     <div class="row"><input id="galSearch" type="search" placeholder="search strategies, tickers…" style="min-width:240px"><span class="chips" id="galTags" style="margin-top:0"></span><span class="note" id="galCount"></span></div>
     <div class="xscroll"><table id="galLib"></table></div>
     <h3>Saved runs</h3><div class="xscroll"><table id="galRuns"></table></div>
+  </div>
+</section>
+
+<!-- COMMUNITY -->
+<section id="p-community" class="hide">
+  <div class="card"><h2>Community</h2>
+    <p class="note">Strategies people published from the Backtest and Build pages ("Publish to the community gallery"), with the numbers of their backtest when published. Fork one into the editor to change it, or run it on today's data.</p>
+    <div class="row"><input id="comSearch" type="search" placeholder="search names, authors, tickers…" style="min-width:240px">
+      <label class="note" style="display:inline-flex;gap:6px;align-items:center">Sort by <select id="comSort"><option value="newest">newest</option><option value="cagr">CAGR (highest)</option><option value="sharpe">Sharpe (highest)</option><option value="max_drawdown">max drawdown (smallest)</option><option value="name">name</option></select></label>
+      <span class="note" id="comCount"></span><span class="note" id="comStatus"></span></div>
+    <div class="xscroll"><table id="comList"></table></div>
   </div>
 </section>
 
@@ -238,6 +250,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       <button class="btn hide" id="buildShare">Copy share link</button>
       <span id="buildStatus" class="note"></span></div>
     <details class="orders" id="buildOrders"><summary>Today's orders (export to your broker)</summary></details>
+    <details class="orders" id="buildPublish"><summary>Publish to the community gallery</summary></details>
   </div>
   <div id="buildResult" class="hide"><iframe id="buildFrame" title="Report"></iframe></div>
 </section>
@@ -443,7 +456,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   let STATUS = null;
 
   // ---------- routing
-  const pages = ['backtest', 'library', 'gallery', 'build', 'compare', 'research', 'montecarlo', 'factors', 'correlations', 'signals', 'history', 'data'];
+  const pages = ['backtest', 'library', 'gallery', 'community', 'build', 'compare', 'research', 'montecarlo', 'factors', 'correlations', 'signals', 'history', 'data'];
   function route() {
     const h = location.hash.replace('#', '');
     const [page, qs] = h.split('?');
@@ -456,6 +469,8 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     if (p === 'data') loadData();
     if (p === 'library') loadLibrary();
     if (p === 'gallery') loadGallery();
+    if (p === 'community') loadCommunity();
+    if (p === 'build' && buildMode === 'portfolio') buildPreview();
     if (qs) {
       const q = new URLSearchParams(qs);
       if (q.get('s') && p === 'backtest') openShared(q.get('s'));
@@ -575,6 +590,36 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       } catch (e) { st.textContent = ''; out.append(el('div', { class: 'err' }, e.message)); }
     };
   }
+  // ---------- publish to the community gallery, shared by the Backtest and Build pages
+  function publishPanel(host, getBody, defaultName) {
+    const box = el('div', { style: 'margin-top:8px' });
+    const name = el('input', { type: 'text', maxlength: '80', placeholder: 'e.g. TQQQ with an RSI hedge', style: 'min-width:240px' });
+    const author = el('input', { type: 'text', maxlength: '60', placeholder: 'your name or handle' });
+    try { author.value = localStorage.getItem('bt_author') || ''; } catch (e) { /* storage blocked */ }
+    const about = el('textarea', { maxlength: '2000', placeholder: 'What it does and why (optional)', style: 'min-height:60px' });
+    const go = el('button', { class: 'btn primary small', type: 'button' }, 'Publish');
+    const st = el('span', { class: 'note' });
+    box.append(el('p', { class: 'note' }, 'Saves the strategy with its name, your name and a description to the Community page, where anyone using this site can search, fork and run it. It is backtested first, so the entry shows its CAGR, Sharpe and max drawdown.'),
+      (() => { const r = el('div', { class: 'row' }); r.append(field('Name', name), field('Author', author)); return r; })(), about,
+      (() => { const r = el('div', { class: 'row', style: 'margin-top:6px' }); r.append(go, st); return r; })());
+    host.append(box);
+    host.addEventListener('toggle', () => { if (host.open && !name.value && defaultName) name.value = defaultName() || ''; });
+    go.onclick = async () => {
+      let body; try { body = getBody(); } catch (e) { st.replaceChildren(el('span', { class: 'err' }, e.message)); return; }
+      if (!name.value.trim()) { st.replaceChildren(el('span', { class: 'err' }, 'Give the strategy a name.')); return; }
+      try { localStorage.setItem('bt_author', author.value.trim()); } catch (e) { /* storage blocked */ }
+      go.disabled = true; st.replaceChildren(el('span', { class: 'spin' }), document.createTextNode(' backtesting and publishing…'));
+      try {
+        const j = await api('/api/community/publish', Object.assign(body, { name: name.value, author: author.value, description: about.value }));
+        const s = j.entry.stats || {};
+        st.replaceChildren(document.createTextNode(`Published "${j.entry.name}" (CAGR ${pct(s.cagr)}, Sharpe ${num(s.sharpe)}, max drawdown ${pct(s.max_drawdown, 1)}). `),
+          el('a', { href: '#community' }, 'See it on the Community page'));
+      } catch (e) { st.replaceChildren(el('span', { class: 'err' }, e.message)); }
+      go.disabled = false;
+    };
+  }
+  publishPanel($('btPublish'), () => { const t = $('text').value.trim(); if (t) return { text: t, options: opt() }; if (lastSpec) return { spec: lastSpec }; throw new Error('Describe a strategy first.'); },
+    () => $('o_name').value.trim());
   ordersPanel($('btOrders'), () => { const t = $('text').value.trim(); if (!t) throw new Error('Describe a strategy first.'); return curShare() ? { share: curShare() } : { text: t, options: opt() }; });
 
   $('toBuild').addEventListener('click', async () => {
@@ -648,11 +693,13 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     const clauses = sp.parts.map(p => parseCond(p, own));
     return clauses.every(Boolean) ? { join: sp.ops[0] || 'and', clauses } : null;
   }
+  // quoted(x): the server reads a price level compared with a fixed number on quoted prices (it adds quoted() itself)
+  const unquote = s => { const m = (s || '').trim().match(/^quoted\((.*)\)$/); return m && balanced(m[1]) ? m[1] : s; };
   function parseCond(s, own) {
     const m = stripParens(s).match(/^([^<>=]+?)\s*(>=|<=|>|<)\s*([^<>=]+)$/);
     if (!m) return null;
-    const lhs = parseInd(m[1], own); if (!lhs) return null;
-    const r = m[3].trim();
+    const lhs = parseInd(unquote(m[1]), own); if (!lhs) return null;
+    const r = unquote(m[3]).trim();
     if (NUM.test(r)) return { lhs, op: m[2], rhs: { num: INDK[lhs.k].pct ? +r * 100 : +r } };
     const rhs = parseInd(r, own); return rhs ? { lhs, op: m[2], rhs } : null;
   }
@@ -699,7 +746,11 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     states.forEach((st, i) => {
       if (i) box.append(sel([['and', 'and'], ['or', 'or']], join, v => { join = v; commit(true); }));
       const cl = el('span', { class: 'row', style: 'gap:4px;display:inline-flex;flex-wrap:wrap' + (multi ? ';border:1px dashed var(--border);border-radius:6px;padding:2px 4px' : '') });
-      cl.append(indPicker(st.lhs, commit, withTicker));
+      cl.append(indPicker(st.lhs, redraw => {
+        // an oscillator (RSI, 0-100) against a price-level indicator compares different units: default the right side to a number
+        if (UNIT[st.lhs.k] === 'osc' && st.rhsMode === 'ind' && UNIT[st.rhs.k] !== 'osc') { st.rhsMode = 'num'; st.num = st.op.startsWith('<') ? 30 : 70; redraw = true; }
+        commit(redraw);
+      }, withTicker));
       cl.append(sel([['>', 'is greater than'], ['<', 'is less than'], ['>=', 'is at least'], ['<=', 'is at most']], st.op, v => { st.op = v; commit(); }));
       cl.append(sel([['num', 'a number'], ['ind', 'an indicator']], st.rhsMode, v => { st.rhsMode = v; if (v === 'ind') st.rhs = { k: st.lhs.k === 'close' ? 'sma' : st.lhs.k, n: INDK[st.lhs.k].def || 200, t: st.lhs.t || own }; commit(true); }));
       if (st.rhsMode === 'num') { cl.append(inp(fmtN(st.num), v => { st.num = +v; commit(); }, { type: 'number', step: 'any', style: 'width:84px' })); if (INDK[st.lhs.k].pct) cl.append(el('span', { class: 'lab' }, '%')); }
@@ -806,7 +857,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   function tickerMsg(t) {
     if (!t) return 'Enter a ticker.';
     const near = (STATUS && STATUS.tickers || []).map(x => [lev(t, x) - (x[0] === t[0] ? 0.5 : 0), x]).sort((a, b) => a[0] - b[0]).slice(0, 3).map(x => x[1]);
-    return `Unknown ticker ${t}` + (near.length ? ` — did you mean ${near.join(', ')}?` : '') + ' (add it on the Data page).';
+    return `Unknown ticker ${t}` + (near.length ? ` — did you mean ${near.join(', ')}?` : '') + ' (no data: add it on the Data page, or to data/extra_tickers.txt and run the Fetch price data workflow).';
   }
   function checkRuleTickers(rule, out) { for (const m of (rule || '').matchAll(/sym\("([^"]+)"\)/g)) if (!known(m[1].toUpperCase())) out.push(tickerMsg(m[1].toUpperCase())); }
   // what an indicator measures, to catch comparisons that can hardly mean anything (RSI against a price average)
@@ -816,6 +867,8 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     const cc = parseCompound(rule || '', own); if (!cc) return [];
     const out = [];
     cc.clauses.forEach(c => {
+      if (c.rhs.num !== undefined && UNIT[c.lhs.k] === 'price' && $('p_price_basis').value === 'adjusted')
+        out.push(`${INDK[c.lhs.k].label} is compared with the fixed price ${c.rhs.num}: it is read on quoted prices (quoted(...)), since the total-return prices the other indicators use sit above the quote for a dividend payer.`);
       if (c.rhs.num !== undefined) { if (UNIT[c.lhs.k] === 'osc' && (c.rhs.num < 0 || c.rhs.num > 100)) out.push(`${INDK[c.lhs.k].label} is between 0 and 100, so comparing it with ${c.rhs.num} is always true or always false.`); return; }
       const a = UNIT[c.lhs.k], b = UNIT[c.rhs.k];
       if (a && b && a !== b) out.push(`Different units: ${INDK[c.lhs.k].label} is ${UNIT_TXT[a]}, ${INDK[c.rhs.k].label} is ${UNIT_TXT[b]}; the condition compares numbers on different scales (e.g. RSI 70 vs a $400 average is always below).`);
@@ -868,6 +921,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     });
     $('treeErrors').textContent = count ? `${count} problem${count > 1 ? 's' : ''} to fix before running (marked in red).` : '';
     if (!count && /to fix before running/.test($('buildStatus').textContent)) $('buildStatus').textContent = '';
+    if (!count) buildPreview();
     return count;
   }
 
@@ -994,6 +1048,22 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     (n.children || []).forEach(withDefaults); ['then', 'else', 'fallback'].forEach(k => withDefaults(n[k]));
     return n;
   }
+  $('p_price_basis').addEventListener('change', () => { if (buildMode === 'portfolio') revalidate(); });
+  // live interpretation of the block tree (with the server's notes: fixed price levels, identical branches, shorts)
+  let prevTimer = null, prevSeq = 0;
+  function buildPreview() {
+    clearTimeout(prevTimer);
+    prevTimer = setTimeout(async () => {
+      if (buildMode !== 'portfolio' || !location.hash.startsWith('#build')) return;
+      const seq = ++prevSeq;
+      try {
+        const j = await api('/api/parse?soft=1', { spec: specFromEditor() });
+        if (seq !== prevSeq) return;
+        $('buildInterp').classList.remove('hide', 'err');
+        $('buildInterp').textContent = j.interpretation + (j.notes && j.notes.length ? '\n' + j.notes.map(n => 'Note: ' + n).join('\n') : '');
+      } catch (e) { if (seq === prevSeq) { $('buildInterp').classList.remove('hide'); $('buildInterp').textContent = e.message; } }
+    }, 500);
+  }
   $('p_rebalance').addEventListener('change', () => { rebalTouched = true; $('rebalNote').textContent = ''; if (buildMode === 'portfolio') draw(); });
   async function importComposer(src, label) {
     $('composerNotes').replaceChildren();
@@ -1052,6 +1122,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     } catch (e) { $('buildStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
   });
   ordersPanel($('buildOrders'), () => { const p = buildProblems(); if (p.length) throw new Error(p.join(' ')); return { spec: specFromEditor() }; });
+  publishPanel($('buildPublish'), () => { const p = buildProblems(); if (p.length) throw new Error(p.join(' ')); return { spec: specFromEditor() }; }, () => buildName);
 
   // ---------- compare
   let cmpSel = new Set();
@@ -1254,6 +1325,38 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     catch (err) { $('galStatus').textContent = 'Could not import ' + f.name + ': ' + err.message; }
     e.target.value = '';
   });
+
+  // ---------- community: published strategies (search and sort on the server)
+  let comSeq = 0, comTimer = null;
+  async function loadCommunity() {
+    const seq = ++comSeq;
+    const qs = new URLSearchParams({ q: $('comSearch').value.trim(), sort: $('comSort').value });
+    let j;
+    try { j = await api('/api/community?' + qs.toString()); } catch (e) { $('comStatus').textContent = e.message; return; }
+    if (seq !== comSeq) return;
+    const t = $('comList'); t.replaceChildren();
+    const hr = el('tr'); ['Strategy', 'Author', 'Type', 'CAGR', 'Sharpe', 'Max DD', 'Period', ''].forEach(h => hr.append(el('th', {}, h))); t.append(hr);
+    $('comCount').textContent = `${j.count} strateg${j.count === 1 ? 'y' : 'ies'}`;
+    if (!j.strategies.length) { const tr = el('tr'); tr.append(el('td', { colspan: 8, class: 'note' }, $('comSearch').value.trim() ? 'Nothing matches the search.' : 'Nothing published yet: use "Publish to the community gallery" on the Backtest or Build page.')); t.append(tr); }
+    j.strategies.forEach(x => {
+      const tr = el('tr', { 'data-id': x.id }), act = el('td', { style: 'white-space:normal' });
+      const d = el('td', { style: 'white-space:normal;min-width:260px;overflow-wrap:anywhere' });
+      d.append(el('div', { class: 'com-name' }, x.name));
+      if (x.description) d.append(el('div', { class: 'note' }, x.description));
+      if (x.text) d.append(el('code', {}, x.text));
+      d.append(el('div', { class: 'note' }, 'published ' + (x.created || '').replace('T', ' ').slice(0, 16)));
+      const run = el('button', { class: 'btn small primary com-run' }, 'Run'); run.onclick = () => runEntry({ spec: x.spec, name: x.name });
+      const fork = el('button', { class: 'btn small com-fork', title: 'copy into the Build editor to change it' }, 'Fork');
+      fork.onclick = () => { try { loadSpec(Object.assign(clone(x.spec), { name: x.name })); location.hash = '#build'; $('buildStatus').textContent = `Forked "${x.name}" by ${x.author}.`; } catch (e) { $('comStatus').textContent = e.message; } };
+      act.append(run, document.createTextNode(' '), fork);
+      if (x.run_id) act.append(document.createTextNode(' '), el('a', { class: 'btn small', href: `/r/${x.run_id}/report.html`, target: '_blank' }, 'Report'));
+      const exp = el('button', { class: 'btn small' }, 'Export JSON'); exp.onclick = () => exportSpec(x.spec, x.name); act.append(document.createTextNode(' '), exp);
+      tr.append(d, el('td', {}, x.author || 'anonymous'), el('td', { class: 'note' }, x.kind || ''), ...statCells(x.stats || {}), act);
+      t.append(tr);
+    });
+  }
+  $('comSearch').addEventListener('input', () => { clearTimeout(comTimer); comTimer = setTimeout(loadCommunity, 250); });
+  $('comSort').addEventListener('change', loadCommunity);
 
   $('tkAddBtn').addEventListener('click', async () => { $('tkAddStatus').textContent = '…'; try { const j = await api('/api/fetch', { ticker: $('tkAdd').value }); $('tkAddStatus').textContent = `${j.ticker}: ${j.status}`; STATUS = null; } catch (e) { $('tkAddStatus').textContent = e.message; } });
 

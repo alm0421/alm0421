@@ -19,6 +19,7 @@ python -m backtester "buy at the close Microsoft when it trades down 5 days in a
 | **Backtest** | Type a strategy. The interpretation updates as you type, and the full report appears on the page. You can download Excel, CSV and JSON, save a PDF, or copy a share link that carries the full spec and settings, so opening it re-runs exactly the same backtest. "Today's orders" turns the strategy's current target into buy/sell orders for your account value and holdings (generic CSV, or an Interactive Brokers basket file). |
 | **Build** | A block editor for portfolios (weighted groups, if/else switches and top-N filters, nested as deep as you like), like a Composer symphony: indicator pickers for conditions and rankings, eight weightings (equal, specified, inverse volatility, risk parity, min variance, max Sharpe, max diversification, market cap), drag and drop, duplicate, inline checks, leverage and expense ratio. It also has a form for every field of a signal strategy. Both convert to and from JSON files and from sentences, and both offer "Today's orders". |
 | **Gallery** | Library strategies and saved runs with their headline numbers. Fork one into the editor, or export/import a strategy JSON file. |
+| **Community** | Strategies people published with "Publish to the community gallery" (Backtest and Build pages: a name, an author and a description; the strategy is backtested first). Search, sort by CAGR, Sharpe or max drawdown, **Fork** into the editor or **Run**. Kept in `data/community.json` (`BACKTESTER_COMMUNITY` points elsewhere). |
 | **Compare** | Put several strategies (from history or typed) in one report. Every column is compared over the same period. |
 | **Research** | A parameter sweep (`hold {1..5} days`) with a heatmap. Walk-forward optimisation (rolling or anchored). A portfolio optimiser: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity, max diversification, max return / max drawdown, max Omega (at a threshold return), target return, target volatility, inverse volatility and equal weight (pick any subset), with per-asset and group limits (`SPY+QQQ <= 70%`), the efficient frontier, an out-of-sample check and rolling (walk-forward) re-optimisation compared with the static weights. A target that can't be reached says what can ("the minimum achievable volatility is 9.1%"). |
 | **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), and any number of cash-flow phases (contribute, then withdraw). |
@@ -72,6 +73,10 @@ hold 60% SPY and 40% TLT with 2x leverage and a 0.5% expense ratio       hold 12
 hold 60% SPYSIM and 40% TLTSIM, rebalance yearly, since 1972
 add $1,000 a month for 20 years, then withdraw $50,000 a year, hold 60% VTI and 40% BND
 hold 70% QQQ and 30% TLT, rebalance quarterly or when any weight drifts more than 5%
+if QQQ RSI(10) is above 79 then short TQQQ else hold TQQQ        if SPY is above its 200 day moving average then buy TQQQ else sell TQQQ
+unless SPY is below its 200 day moving average hold QQQ, otherwise TLT
+hold the 2 of SPY, QQQ and IWM with the highest 10 day return    hold the best performing of SPY, QQQ and IWM over 10 days
+hold the top 2 of SPY, QQQ and IWM by 60 day return, only if their 60 day return beats BIL's, otherwise TLT
 ```
 
 Portfolios with if-conditions, top-N filters or dynamic weights (inverse volatility, risk parity, ...)
@@ -90,7 +95,7 @@ Build page.
 
 | Idea | Examples |
 |---|---|
-| Streaks and moves | down N days in a row, after 3 down days, down *exactly* N days, drops 2% in a day, up 10% over 5 days, gaps down 1%, 10% below / within 2% of its 52-week high |
+| Streaks and moves | down N days in a row, after 3 down days, down *exactly* N days, drops 2% in a day, up 10% over 5 days, gaps down 1%, 10% below / within 2% of / less than 10% below its 52-week high |
 | Averages | above/below/crosses its N-day (or N-week / N-month) SMA/EMA, "the 9 EMA crosses above the 21 EMA", "the 50 MA", "20 period EMA", EMA(9), 50-day MA above the 200-day MA, golden/death cross |
 | Oscillators | RSI(2) below 10, RSI crosses above 30, RSI(2) falls back below 30 / rises back above 70 (crossings), stochastic below 20, ADX above 25, CCI, Williams %R, MFI, MACD crosses its signal / turns positive, +DI above -DI, ATR(14) above 2% of price |
 | Bands and trends | Bollinger ("the upper / middle / lower band" = 20-day SMA ± 2 sd), Keltner, Supertrend, Parabolic SAR, VWAP (rolling 20-day volume-weighted typical price on daily bars; "its 10 day VWAP"), closes above its 20-day high (breakout), new N-day low, all-time high, IBS, inside day, volume twice its 20-day average |
@@ -101,7 +106,9 @@ Build page.
 | Exits | hold N days, sell when …, "sell after 10 days or when RSI is above 70", "sell when it's over 70" (*it* = the entry's indicator; refused if the entry has several), a bare "RSI" takes the entry's period, "sell when it crosses back below", "sell at the open when …" (same open if the rule is known at the open, e.g. a gap; otherwise checked at the close and sold at the next open), "cover at the next open when …", % stop, ATR stop, trailing / chandelier stop, take profit, sell half at +X%. "buy TSLA while …" / "hold TSLA when …" with no exit: in the market while the condition holds |
 | Sizing | max N positions, X% per position, risk X% per trade, target X% volatility, $X or N shares per trade, 2x leverage |
 | Costs | bps or % slippage, volume-based slippage / market impact, $ per trade, $ per share, % commission, IBKR commissions (fixed or tiered), borrow fee, margin rate, short rebate X% below T-bills, 30% maintenance margin / no margin calls, cap at X% of volume |
-| Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, top/bottom N by momentum/RSI/volatility, rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
+| Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, "when/whenever … hold X, otherwise Y", "unless … hold X, otherwise Y", top/bottom N by momentum/RSI/volatility, "the 2 of … with the highest …", "the best/worst performing of … over 10 days", "only if their 60 day return beats BIL's", rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
+| Directions in holdings | "buy/hold/go long X" = long; "short X", "go short X", "sell short X", "X short" = a short position (-100% of the slice plus the proceeds in cash); "sell X", "exit X", "cover X", "sell everything", "exit" in an if/otherwise branch = cash. "sell X" inside a list ("hold TQQQ and sell TMF") is refused as ambiguous. Two identical branches get a note; a comparison of a value with itself is refused |
+| Ranking by drawdown | "by max drawdown" and "by drawdown" both rank by the size of the drawdown (a positive number, as Composer): "top 1" selects the most drawn down, "bottom 1" or "smallest drawdown" the least; the notes say which |
 | Higher timeframes | the weekly RSI is above 50, weekly RSI(14), the monthly 10 SMA, weekly 20 EMA (computed on completed weeks/months only) |
 | More signals | ROC(10) above 5 / rate of change, %K crosses above %D, MACD histogram turns negative, yesterday's high, not on Fridays, except in October, buy stop 1% above the close / at yesterday's high |
 | Portfolio conditions | any indicator phrase compared with a number or another ticker's indicator: "TQQQ 6 day cumulative return is less than -12%", "the 10 day max drawdown of TQQQ is above 20%", "SPY 10 day standard deviation of return is above 2%", "QQQ's 3 month return beats TLT's" (total returns) |
@@ -188,7 +195,11 @@ python -m backtester tickers                                                 # w
   TradingView does. Allocation portfolios read them on dividend-adjusted, total-return prices, as
   Composer and Portfolio Visualizer do (`price_basis: "adjusted"`; say "using quoted prices" or set
   `"quoted"` to switch). The adjusted series is built forward from the first bar, so it never changes
-  when newer data arrives. Trading always uses the quoted price plus cash dividends.
+  when newer data arrives. Trading always uses the quoted price plus cash dividends. A price level
+  compared with a fixed number ("SPY price is above 400"; an SMA, standard deviation or Bollinger band
+  of price against a number, also from Composer imports and the Build page) is read on quoted prices:
+  the rule becomes `quoted(close) > 400` and a note says so. Relative comparisons (price vs its own
+  average, returns, ratios, RSI) stay on the adjusted basis.
 - **Warm-up.** A portfolio holds cash until every rule, ranking and weighting has its full lookback,
   and the statistics start that day with the starting capital. Nasdaq-100 universes start at the first
   point-in-time membership snapshot (March 2004); nothing counts as a member before it.
@@ -283,6 +294,13 @@ close and commits updates, so `git pull` gets fresh data. It downloads:
   aggregate). Each file is parsed on its own (`backtester/sources.py`); a failure is logged in
   `data/factors/fetch_log.txt` and the rest of the job carries on
 - share counts for market-cap weighting
+
+**Adding tickers.** Besides its built-in lists (Nasdaq-100 members, several hundred ETFs including the
+leveraged and inverse funds common in Composer symphonies, indexes), the job downloads every ticker in
+`data/extra_tickers.txt` (one or more per line, `#` for comments). Add a symbol there and run the
+**Fetch price data** workflow (Actions → Fetch price data → Run workflow; pushing a change to the file
+also starts it), then pull. A sentence or tree that names a ticker without data says so and points to
+this file.
 
 **Delisted former members.** Yahoo drops companies that were acquired or went bankrupt (Celgene,
 Xilinx, Activision, Yahoo, …), which is the main survivorship gap. Add a free API key as a repository

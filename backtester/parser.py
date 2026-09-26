@@ -411,7 +411,10 @@ def find_tickers(text: str, strict: bool = False) -> list[str]:
             sug = data.suggest(u.split(" (")[-1].rstrip(")") if " (" in u else u)
             return f"unknown ticker {u}" + (f" (closest: {', '.join(sug)})" if sug else "")
         msg = "; ".join(one(u) for u in dict.fromkeys(unknown))
-        raise ParseError(msg[0].upper() + msg[1:] + " - no price data. (`python -m backtester tickers` lists all.)")
+        syms = ", ".join(dict.fromkeys(u.split(" (")[-1].rstrip(")") if " (" in u else u for u in unknown))
+        raise ParseError(msg[0].upper() + msg[1:] + f" - no price data for {syms}. If the symbol is right, add it to "
+                         "data/extra_tickers.txt and run the 'Fetch price data' workflow (GitHub Actions), then pull. "
+                         "(`python -m backtester tickers` lists all.)")
     out: list[str] = []
     for _, s in sorted(found):
         if s not in out:
@@ -890,6 +893,9 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     EXT_SPAN = (r"(?P<span>(?:its |the |their )?(?:(?P<n>\d+) (?P<unit>day|week|month|year|bar|session)s? |(?:all[- ]time |record |lifetime ))?"
                 r"(?P<hl>high|peak|top|low|bottom|trough)s?)(?! (?:of|in) the day)")
     take(rf"(?:is |trades? |closes? |sits? |stays? |remains? )?(?P<within>within) (?P<pct>{NUM[1:-1]})% (?:of|from) {EXT_SPAN}", extreme)
+    # "less than 10% below its 52 week high" = within 10% of it
+    take(rf"(?:is |trades? |closes? |sits? |stays? |remains? )?(?P<within>less than|no more than|not more than|at most) (?P<pct>{NUM[1:-1]})% "
+         rf"(?:below|under|from|off|above|over) {EXT_SPAN}", extreme)
     take(rf"{MOVE_AUX}(?:(?P<dn>{DOWN_VERBS})|(?P<up>{UP_VERBS}|bounced|rebounded|recovered)|off|sits?|stays?|remains?)?(?: by)?"
          rf"(?: at least| more than| over| greater than)? (?P<pct>{NUM[1:-1]})%(?: or more)? (?P<prep>from|off|below|under|above|over) {EXT_SPAN}", extreme)
     take(rf"(?:at least |more than )?(?P<pct>{NUM[1:-1]})% (?:or more )?(?P<prep>from|off|below|under|above|over) {EXT_SPAN}", extreme)
@@ -1731,7 +1737,7 @@ def looks_like_allocation(text: str) -> bool:
         return True
     if not ALLOC_HINT.search(t):
         return False
-    strong = re.search(r"\b(?:rebalanc\w*|buy and hold|equal[- ]weight|inverse[- ]volatility|(?:top|bottom) \d+(?![\d.%]|\s*%)|rotat|dual momentum|otherwise hold|allocat|contribut|withdraw|\d+/\d+|"
+    strong = re.search(r"^\s*(?:hold|own)\s+\d+(?:\.\d+)?%|\b(?:rebalanc\w*|buy and hold|equal[- ]weight|inverse[- ]volatility|(?:top|bottom) \d+(?![\d.%]|\s*%)|rotat|dual momentum|otherwise hold|allocat|contribut|withdraw|\d+/\d+|"
                        r"(?:else|otherwise),? (?:buy|hold|be in|own|switch to|go to) (?:[a-z^]{1,5}|cash)\b(?! (?:at|when|if|on)\b)|min(?:imum)?[- ]variance|whichever of|\d+ (?:best|worst)[- ]perform|"
                        r"(?:\d+ )?(?:least|most) volatile(?: \d+)? (?:of|among|from)|(?:best|worst)[- ]performing \d+ (?:of|among|from))", t, re.I)
     if SIGNAL_HINT.search(t) and not strong:
@@ -2638,6 +2644,22 @@ def value_phrase(text: str, ctx: Ctx | None = None, default_n: int | None = None
                      f"'market cap', or a rule in backticks.")
 
 
+def _dd_rank(metric: str, direction: str, text: str, n: int = 1) -> tuple[str, str | None]:
+    """Rankings by drawdown use its size, a positive number (Composer's max drawdown): 'top' = the largest drawdown.
+    The current drawdown (drawdown(), <= 0) is negated so that 'by drawdown' and 'by max drawdown' agree."""
+    if metric.startswith("drawdown("):
+        metric = f"-{metric}"
+    elif not metric.startswith("max_drawdown("):
+        return metric, None
+    which = "largest" if direction == "top" else "smallest"
+    other = "smallest" if direction == "top" else "largest"
+    what = "the asset" if n == 1 else f"the {n} assets"
+    return metric, (f"Ranking by '{text.strip()}' uses the size of the drawdown (a positive number, as Composer's max "
+                    f"drawdown filter): this selects {what} with the {which} drawdown"
+                    + (" (the most drawn down)" if which == "largest" else " (the least drawn down)")
+                    + f"; say '{other} drawdown' for the opposite.")
+
+
 def _skip_momentum(n: int, skip: int, tr: str, c: str, total: bool) -> str:
     """'12-1 momentum': the return over the last n months excluding the most recent `skip` months."""
     if not 0 < skip < n:
@@ -2714,11 +2736,77 @@ def _strip_parens(s: str) -> str:
     return s
 
 
+SIDE_WORDS = {"short", "shorting", "shorted", "sell", "selling", "sold", "exit", "cover", "long"}
+EXIT_WORDS = r"(?:sell|exit|cover|close(?: out)?|get out(?: of)?|liquidate|dump)"
+_NOT_SIDE = r"(?i)[- ]?term\b|treasur|bonds?\b"     # "short-term treasuries", "long bonds" are names, not directions
+
+
+def _holding_side(it: str) -> tuple[str, str | None]:
+    """Direction words on one holding: 'short X', 'go short X', 'sell short X', 'X short' -> (X, 'short');
+    'buy X', 'hold X', 'go long X', 'X long' -> (X, 'long'). 'sell/exit/cover X' inside a list of holdings is
+    refused: it could mean cash, a short or leaving X out (in an if branch it means cash, see _branch)."""
+    t = it.strip()
+    m = re.fullmatch(r"(?is)(?:(?:and|then) )?(?:(?:hold|be|stay|go|goes|going|sell) )?short(?:[- ]sell)?\s+(?:in |on )?(.+)", t)
+    if m and not re.match(_NOT_SIDE, m.group(1)):
+        return m.group(1), "short"
+    m = re.fullmatch(r"(?is)(?:(?:and|then) )?(?:(?:hold|be|stay|buy|keep|own) )?(.+?)\s+short", t)
+    if m and not re.search(r"(?i)\b(?:long|short)\b", m.group(1)):
+        return m.group(1), "short"
+    m = re.fullmatch(r"(?is)(?:(?:and|then) )?(?:(?:(?:hold|be|stay|go|goes|going|buy) )?long|buy|hold|own|keep)\s+(.+)", t)
+    if m and not re.match(_NOT_SIDE, m.group(1)):
+        return m.group(1), "long"
+    m = re.fullmatch(r"(?is)(.+?)\s+long", t)
+    if m and not re.search(r"(?i)\b(?:long|short)\b", m.group(1)):
+        return m.group(1), "long"
+    m = re.fullmatch(rf"(?is)(?:(?:and|then) )?{EXIT_WORDS}\b(.*)", t)
+    if m:
+        raise ParseError(f"{it.strip()!r} inside a list of holdings is ambiguous: it could mean holding cash instead, a short "
+                         "position, or leaving it out. Write 'short X' for a short position, 'cash' for cash, or leave it out. "
+                         "(In an if/otherwise branch, 'sell X' means going to cash.)")
+    return t, None
+
+
+def _short_node(kids: list[dict], what: str) -> dict:
+    """A short position in a holding: -100% of it plus the sale proceeds (200% in all) in cash."""
+    if len(kids) != 1 or "asset" not in kids[0]:
+        raise ParseError(f"'short {what.strip()}': name one ticker to short, e.g. 'short SQQQ'.")
+    tk = kids[0]["asset"]
+    _note(f"'short {tk}' is a short position the size of its slice: -100% {tk} with the sale proceeds held as cash "
+          f"(so the slice shows 200% cash). The proceeds earn the T-bill rate less the short rebate spread (0.25%/yr by "
+          f"default); a borrow fee is not charged unless set (borrow_fee in the JSON spec). Leveraged and inverse ETFs "
+          f"are often costly or impossible to borrow, and a short loses when {tk} rises, with no upper limit.")
+    return {"weights": "specified", "w": [-1.0, 2.0], "children": [{"asset": tk}, {"cash": True}]}
+
+
+def _branch(text: str, notes: list[str]) -> dict:
+    """An if/otherwise branch: any node, or 'sell X' / 'exit' / 'cover X' / 'sell everything' = go to cash."""
+    t = _strip_parens(text.strip().strip(",;. "))
+    m = re.fullmatch(rf"(?is)(?:(?:and|then) )?{EXIT_WORDS}(?:\s+(?:all|everything|it|them|out|the position|positions?|of))*"
+                     rf"(?:\s+(?P<what>.+?))?", t)
+    if m and not re.match(r"(?i)short\b", m.group("what") or ""):
+        what = m.group("what")
+        if what:
+            kids = _asset_list(what)
+            if not all("asset" in k for k in kids):
+                raise ParseError(f"{t!r}: name the tickers to sell, e.g. 'otherwise sell TQQQ' (= hold cash).")
+            names = ", ".join(k["asset"] for k in kids)
+        else:
+            names = "everything"
+        notes.append(f"'{t}' in a branch is read as selling {names} and holding cash (earning the T-bill rate) while that "
+                     f"branch applies; say 'short {names if what else 'X'}' for a short position.")
+        return {"cash": True}
+    return _node(text, notes)
+
+
 def _asset_list(s: str) -> list[dict]:
     """'QQQ, SPY and cash' -> [{'asset': 'QQQ'}, {'asset': 'SPY'}, {'cash': True}]"""
     out = []
     for it in _split_top_level(s, r",| and | or |/| plus |&"):
         it = _strip_parens(it)
+        it, side = _holding_side(it)
+        if side == "short":
+            out.append(_short_node(_asset_list(it), it))
+            continue
         if re.fullmatch(r"(?i)(?:hold |in )?(?:cash|t-?bills? as cash|money market)", it):
             out.append({"cash": True})
             continue
@@ -2738,9 +2826,10 @@ def _asset_list(s: str) -> list[dict]:
         for name, sym in COMPANIES.items():
             if sym == tk[0]:
                 rest = re.sub(rf"\b{re.escape(name)}\b", " ", rest, flags=re.I)
-        left = [w for w in re.findall(r"[a-z%']+|\d+", rest.lower()) if w not in STOP]
+        left = [w for w in re.findall(r"[a-z%']+|\d+", rest.lower()) if w not in STOP or w in SIDE_WORDS]
         if left:
-            raise ParseError(f"Could not interpret {' '.join(left)!r} in {it!r}")
+            raise ParseError(f"Could not interpret {' '.join(left)!r} in {it!r}"
+                             + (": write 'short X' for a short position, or 'cash'" if set(left) & SIDE_WORDS else ""))
         out.append({"asset": tk[0]})
     if not out:
         raise ParseError(f"No holdings found in {s!r}")
@@ -2807,7 +2896,7 @@ def _if_chain(s: str, notes: list[str]) -> dict:
             raise ParseError(f"'{s.strip()}': an 'if' needs an 'otherwise' branch, e.g. '..., otherwise hold BIL' "
                              "(or 'otherwise cash'). Put a nested if/else in parentheses.")
         then_txt, else_txt = rest[: chosen.start()], rest[chosen.end():]
-        return {"if": rule, "on": on, "then": _node(then_txt, notes), "else": _node(else_txt, notes)}
+        return {"if": rule, "on": on, "then": _branch(then_txt, notes), "else": _branch(else_txt, notes)}
     raise first_err or ParseError(f"Could not find the condition in {s.strip()!r}: write 'if <condition> then <holding> "
                                   "otherwise <holding>'.")
 
@@ -2829,6 +2918,15 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     # if COND [then] X, (else if COND [then] Y,)* otherwise Z   -- any node in any branch
     if re.match(r"(?i)if\b", s):
         return _if_chain(s, notes)
+    # "when/whenever/while C hold X, otherwise Y" = if; "unless C hold X, otherwise Y" = if C then Y else X
+    mw = re.match(r"(?i)(when(?:ever)?|while|unless)\s+", s)
+    if mw and re.search(ELSE_RX, _mask(s), re.I):
+        node = _if_chain("if " + s[mw.end():], notes)
+        if mw.group(1).lower() == "unless":
+            node = {**node, "then": node["else"], "else": node["then"]}
+            notes.append(f"'unless <condition> ..., otherwise ...' holds the otherwise branch while `{node['if']}` is true "
+                         "and the first holding while it is false.")
+        return node
     # per-asset timing: "SPY, EFA, IEF, VNQ and DBC equally, each only when above its 10 month moving average,
     # otherwise cash" -> equal weights of (asset if its own condition else cash)
     m = _msearch(r"^(?P<lst>.+?)(?:,? (?:equally|in equal weights?|(?:with )?equal weights?|equal[- ]weight(?:ed)?))?,? "
@@ -2858,9 +2956,9 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     m = _msearch(rf"(.+?) (?:if|when|while|as long as|whenever) (.+?),? (?:and )?(?:otherwise|else|or else)[, ]+{VERB}?(.+)$", s,
                  flags=re.I | re.S, match=True)
     if m and not re.search(r"(?i)\b(?:top|bottom|best|worst)\s+\d", m.group(1)) and not re.search(r"(?i)\bonly\s*$", m.group(1)):
-        then_node = _node(m.group(1), notes)
+        then_node = _branch(m.group(1), notes)
         on, rule = _condition_on(m.group(2), then_node.get("asset"))
-        return {"if": rule, "on": on, "then": then_node, "else": _node(m.group(3), notes)}
+        return {"if": rule, "on": on, "then": then_node, "else": _branch(m.group(3), notes)}
 
     # dual momentum
     m = re.match(r"(?i)dual momentum (?:between|among|of|on|with) (.+?)(?:,? (?:with|using) (.+?) as (?:the )?(?:safe|defensive|risk[- ]off) (?:asset|haven)| (?:otherwise|else|or) (.+?))?(?:,? (?:(?:using|with|on|by) )?(?:a |the )?(\d+) (month|day|week) (?:lookback|momentum|(?:total )?returns?)"
@@ -2885,8 +2983,8 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
                  r"(?: (?P<n2>\d+))? (?:of|among|from|in) (?:the )?(?P<uni>.+?)"
                  r"(?:,? (?:over|in|during|across|based on|using) (?:the )?(?:last |past |prior |trailing )?(?P<n>\d+) (?P<u>day|week|month|year)s?(?: volatility| returns?| performance)?)?"
                  r"(?P<rest>,\s*(?:and |then |with |using |but )?(?:weight|equal|inverse|only|risk|min|max|market|that|which)\b.*)?$", s)
-    if m and (m.group("n1") is None) != (m.group("n2") is None) and not re.search(r"(?i)\b(?:by|ranked by|sorted by)\b", m.group("uni")):
-        n_sel = m.group("n1") or m.group("n2")
+    if m and not (m.group("n1") and m.group("n2")) and not re.search(r"(?i)\b(?:by|ranked by|sorted by)\b", m.group("uni")):
+        n_sel = m.group("n1") or m.group("n2") or "1"     # "the best performing of X, Y and Z": the single best
         vol = m.group("k").lower() == "volatile"
         w = m.group("w").lower()
         if vol and w not in ("least", "most") or not vol and w not in ("best", "worst", "top", "bottom"):
@@ -2901,6 +2999,13 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
                          "returns, as in '60 day volatility' elsewhere (say 'by 60 day standard deviation of return' to rank by "
                          "the daily figure of total returns, as Composer does).")
         s = f"{'top' if top else 'bottom'} {n_sel} of {m.group('uni')} by {look}{'volatility' if vol else 'return'}{m.group('rest') or ''}"
+        low = s.lower()
+    # "the 2 of X, Y and Z with the highest 10 day return" -> "top 2 of X, Y and Z by 10 day return"
+    m = re.match(r"(?is)(?:the )?(\d+) (?:of|among|from) (?:the )?(.+?) with the (highest|lowest|best|worst|strongest|weakest|largest|"
+                 r"smallest|biggest|greatest|most|least) (.+)$", s)
+    if m:
+        low_adj = m.group(3).lower() in ("lowest", "worst", "weakest", "smallest", "least")
+        s = f"{'bottom' if low_adj else 'top'} {m.group(1)} of {m.group(2)} by {m.group(4)}"
         low = s.lower()
     m = re.match(r"(?is)(?:the )?(\d+) (best|worst|top|bottom)[- ]perform(?:ing|ers)(?: (?:of|among|from|in))? (?:the )?(.+?) over (?:the )?(?:last |past )?(\d+) (day|week|month|year)s?(,.*)?$", s)
     if m:
@@ -2921,6 +3026,9 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
         direction = "bottom" if re.search(LOW_WORDS, metric_text.lower()) else "top"
         if word.lower() in ("bottom", "worst", "weakest", "lowest"):
             direction = "bottom" if direction == "top" else "top"
+        metric, dd_note = _dd_rank(metric, direction, metric_text, int(n))
+        if dd_note:
+            notes.append(dd_note)
         uu, uname = _universe_phrase(uni)
         wt, look = lead_w or ("equal", None)
         node: dict = {"filter": {"select": direction, "n": int(n), "by": metric}}
@@ -2951,13 +3059,22 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
                 elif re.match(r"(?i)(?:otherwise|else)\b", nxt):
                     other = re.sub(r"(?i)^(?:otherwise|else)[, ]+", "", nxt)
                     i += 1
-                own = re.match(r"(?i)(?:their|its|the (?:selected|chosen) (?:assets?|stocks?|ones?)'?s?)\s+(.+?)\s+(?:is |are )?(positive|negative|above (-?[\d.]+)%|below (-?[\d.]+)%|beats? (?:cash|t-?bills|bil|the risk[- ]free rate))\s*$", cond.strip())
+                own = re.match(r"(?i)(?:their|its|the (?:selected|chosen) (?:assets?|stocks?|ones?)'?s?)\s+(.+?)\s+(?:is |are )?(positive|negative|above (-?[\d.]+)%|below (-?[\d.]+)%|beats? (?:cash|t-?bills|bil|the risk[- ]free rate)|(?:beats?|outperforms?) (\^?[a-z]{1,5})'s?(?: (?:return|one|performance))?)\s*$", cond.strip())
                 if own:
                     mexpr, mn = value_phrase(own.group(1))
                     notes.extend(mn)
                     look_n = re.search(r"(\d+)\)", mexpr)
                     rel = own.group(2).lower()
-                    if rel == "positive":
+                    if own.group(5):
+                        # "their 60 day return beats BIL's": the same measure of that ticker (its actual return)
+                        ref_tk = find_tickers(own.group(5).upper(), strict=True)
+                        if not ref_tk:
+                            raise ParseError(f"{own.group(5)!r} in {cond.strip()!r} is not a ticker with data.")
+                        oexpr, _ = value_phrase(own.group(1), Ctx.for_ticker(ref_tk[0], total=True))
+                        req = f"{mexpr} > {oexpr}"
+                        notes.append(f"'{own.group(2)}': each pick's {own.group(1).strip()} must be above {ref_tk[0]}'s "
+                                     f"({req}); the slot of a pick that fails it goes to the otherwise holding (cash if none).")
+                    elif rel == "positive":
                         req = f"{mexpr} > 0"
                     elif rel == "negative":
                         req = f"{mexpr} < 0"
@@ -2997,13 +3114,18 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     if m:
         metric, mn = value_phrase(m.group(2))
         notes.extend(mn)
-        return {"filter": {"select": "bottom" if re.search(LOW_WORDS, m.group(2).lower()) else "top", "n": 1, "by": metric, "weights": "equal"},
+        sel = "bottom" if re.search(LOW_WORDS, m.group(2).lower()) else "top"
+        metric, dd_note = _dd_rank(metric, sel, m.group(2))
+        notes.extend([dd_note] if dd_note else [])
+        return {"filter": {"select": sel, "n": 1, "by": metric, "weights": "equal"},
                 "universe": "children", "children": _asset_list(m.group(1))}
     m = re.match(r"(?is)whichever of (.+?) has (?:the )?(higher|highest|lower|lowest|best|stronger|strongest|weaker|weakest) (.+)$", s)
     if m:
         metric, mn = value_phrase(m.group(3))
         notes.extend(mn)
         direction = "top" if m.group(2).lower() in ("higher", "highest", "best", "stronger", "strongest") else "bottom"
+        metric, dd_note = _dd_rank(metric, direction, m.group(3))
+        notes.extend([dd_note] if dd_note else [])
         return {"filter": {"select": direction, "n": 1, "by": metric, "weights": "equal"},
                 "universe": "children", "children": _asset_list(m.group(1))}
 
