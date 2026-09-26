@@ -371,6 +371,7 @@ def load(ticker: str) -> pd.DataFrame:
     raw = pd.read_csv(path, parse_dates=["date"], index_col="date").sort_index()
     raw = raw[~raw.index.duplicated(keep="last")]
     raw = raw[(raw["close"] > 0) & raw["close"].notna()]
+    raw, repaired = repair_bars(t, raw)
     df = pd.DataFrame(index=raw.index)
     opn = raw["open"].where(raw["open"] > 0, raw["close"]).fillna(raw["close"])
     low = raw["low"].where(raw["low"] > 0)
@@ -401,7 +402,119 @@ def load(ticker: str) -> pd.DataFrame:
     stale = (raw["open"] - raw["close"].shift(1)).abs() <= 1e-9 * raw["close"].abs().clip(lower=1)
     # causal: judged on the quarter up to the day before (so it never depends on later bars)
     df["open_ok"] &= ~(stale.astype(float).rolling(63, min_periods=20).mean().shift(1).fillna(0) > 0.5)
+    if repaired.any():
+        # a repaired open is an estimate, not a quote: no fills at it
+        df.loc[repaired.reindex(df.index, fill_value=False).to_numpy(), "open_ok"] = False
     return df
+
+
+# Bars whose repair needs outside knowledge: {ticker: {date: {field: value}}}. Values are split-adjusted.
+BAR_FIXES: dict[str, dict[str, dict[str, float]]] = {}
+REPAIRS: dict[str, pd.DataFrame] = {}   # what repair_bars changed, per ticker (for notes and the Data page)
+
+
+def _raw_file(t: str) -> pd.DataFrame | None:
+    path = PRICES / f"{t}.csv"
+    if not path.exists():
+        return None
+    raw = pd.read_csv(path, parse_dates=["date"], index_col="date").sort_index()
+    raw = raw[~raw.index.duplicated(keep="last")]
+    return raw[(raw["close"] > 0) & raw["close"].notna()]
+
+
+def repair_bars(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+    """Data sanity pass on opening prices, using only each bar and the ones before it (never later bars,
+    so truncating the data cannot change a repaired value). Returns (bars, repaired-open mask).
+
+    - An open outside the bar's own [low, high] (when high/low/close are consistent) is a bad print: it is
+      clipped into the range.
+    - For a share class of a company with another listed class (SHARE_CLASSES), an open that disagrees with
+      the other class's open by more than 4% - after scaling by the two classes' closes that day - where the two classes' price ratio has been
+      steady (daily changes under 1% over the previous month), while the
+      other class's own gap is ordinary, is replaced by the other class's open scaled the same way; a high
+      or low more than 3% outside the other class's scaled range is pulled back to it (GOOG on 2014-04-02,
+      the day before the Class C listing, has an open and high about 6% above anything that traded).
+    - BAR_FIXES: explicit corrections.
+    Every repaired open is flagged (open_ok False: no fills at it)."""
+    if raw.empty or not {"open", "high", "low", "close"} <= set(raw.columns):
+        return raw, pd.Series(False, index=raw.index)
+    raw = raw.copy()
+    o, h, lo, c = (raw[k].astype(float) for k in ("open", "high", "low", "close"))
+    fixed = pd.Series(False, index=raw.index)
+    log = []
+    ok_range = (lo > 0) & (h >= lo) & (c <= h * 1.001) & (c >= lo * 0.999) & (o > 0)
+    out = ok_range & ((o > h * 1.005) | (o < lo * 0.995))
+    if out.any():
+        new = o.clip(lower=lo, upper=h)
+        for d in raw.index[out.to_numpy()]:
+            log.append((d, "open", float(o[d]), float(new[d]), "outside the bar's low-high range"))
+        raw.loc[out, "open"] = new[out]
+        fixed |= out
+    sib = next((g for g in SHARE_CLASSES if t in g), None)
+    if sib:
+        for other in (g for g in sib if g != t):
+            b = _raw_file(other)
+            if b is None or b.empty:
+                continue
+            common = raw.index.intersection(b.index)
+            if len(common) < 2:
+                continue
+            a_ = raw.loc[common]
+            b_ = b.loc[common].astype(float)
+            ratio = a_["close"] / b_["close"]             # same-day class ratio
+            est_o = b_["open"] * ratio
+            dev = np.log(a_["open"] / est_o)
+            gap_a = np.log(a_["open"] / a_["close"].shift(1)).abs()
+            gap_b = np.log(b_["open"] / b_["close"].shift(1)).abs()
+            # only where the two classes track each other tightly (the ratio held that day and its daily
+            # changes over the previous month were tiny): thinly traded classes legitimately diverge
+            dr = np.log(ratio / ratio.shift(1))
+            steady = (dr.abs() < 0.01) & (dr.abs().rolling(20, min_periods=10).max().shift(1) < 0.01)
+            bad = (dev.abs() > 0.04) & steady & (b_["open"] > 0) & (a_["open"] > 0) & (gap_b < gap_a - 0.02)
+            bad = bad.fillna(False)
+            for d in common[bad.to_numpy()]:
+                log.append((d, "open", float(raw.at[d, "open"]), float(est_o[d]), f"inconsistent with {other}"))
+                raw.at[d, "open"] = float(est_o[d])
+                hi_est, lo_est = float(b_.at[d, "high"] * ratio[d]), float(b_.at[d, "low"] * ratio[d])
+                cc = float(raw.at[d, "close"])
+                if raw.at[d, "high"] > hi_est * 1.03:
+                    new_h = max(hi_est, cc, float(est_o[d]))
+                    log.append((d, "high", float(raw.at[d, "high"]), new_h, f"inconsistent with {other}"))
+                    raw.at[d, "high"] = new_h
+                if raw.at[d, "low"] < lo_est / 1.03:
+                    new_l = min(lo_est, cc, float(est_o[d]))
+                    log.append((d, "low", float(raw.at[d, "low"]), new_l, f"inconsistent with {other}"))
+                    raw.at[d, "low"] = new_l
+            fixed.loc[common[bad.to_numpy()]] = True
+    for ds, fields in BAR_FIXES.get(t, {}).items():
+        d = pd.Timestamp(ds)
+        if d in raw.index:
+            for k, v in fields.items():
+                log.append((d, k, float(raw.at[d, k]), float(v), "BAR_FIXES"))
+                raw.at[d, k] = v
+            fixed.loc[d] = fixed.loc[d] or "open" in fields
+    REPAIRS[t] = pd.DataFrame(log, columns=["date", "field", "was", "now", "why"])
+    return raw, fixed
+
+
+def open_anomalies(ticker: str, jump: float = 0.08) -> pd.DataFrame:
+    """Report (not used by the simulators): opens that look like bad prints judged with hindsight - far
+    from both the previous close and the next open while the close barely moved. Judging a bar by the
+    next one would leak the future into a backtest, so these are only listed for review; the causal
+    repairs are in repair_bars."""
+    t = canonical(ticker)
+    raw = _raw_file(t)
+    if raw is None or raw.empty:
+        return pd.DataFrame(columns=["date", "open", "prev_close", "close", "next_open"])
+    o, c = raw["open"].astype(float), raw["close"].astype(float)
+    pc, no = c.shift(1), o.shift(-1)
+    g = np.log(o / pc)
+    typical = g.abs().rolling(60, min_periods=20).median().shift(1)
+    wild = ((g.abs() > np.maximum(jump, 10 * typical)) & (np.log(o / no).abs() > np.maximum(jump, 10 * typical))
+            & (np.log(c / pc).abs() < 0.25 * g.abs()) & (o > 0)).fillna(False)
+    rows = raw.index[wild.to_numpy()]
+    return pd.DataFrame({"date": rows, "open": o[rows].to_numpy(), "prev_close": pc[rows].to_numpy(),
+                         "close": c[rows].to_numpy(), "next_open": no[rows].to_numpy()})
 
 
 def fetch_on_demand(ticker: str) -> bool:
@@ -507,12 +620,162 @@ def factors() -> pd.DataFrame:
     return df
 
 
+# Symbol changes (same company, new symbol): mirrors RENAMES in scripts/fetch_data.py. The old symbol's
+# price file is a copy of the new one's, so its share counts can come from the new symbol too.
+RENAMED = {"FB": "META", "PCLN": "BKNG", "DISCA": "WBD", "RIMM": "BB", "MYL": "VTRS", "NLOK": "GEN",
+           "SYMC": "GEN", "JDSU": "VIAV", "JDSUD": "VIAV", "HANS": "MNST", "CTRP": "TCOM", "WLTW": "WTW",
+           "UAUA": "UAL", "KFT": "MDLZ", "KLA": "KLAC", "ERICY": "ERIC", "WFMI": "WFM", "LINTA": "QRTEA"}
+
+# Listed share classes of one company. Yahoo reports the whole company's share count for each class,
+# so a class's market cap is approximated as the company's divided by the number of listed classes
+# (the index itself weights each class by its own share count, which free data does not give).
+SHARE_CLASSES = [("GOOG", "GOOGL"), ("FOX", "FOXA"), ("LBTYA", "LBTYK"), ("BATRA", "BATRK"), ("LILA", "LILAK"),
+                 ("NWS", "NWSA"), ("DISCA", "DISCK"), ("LMCA", "LMCK")]
+
+
 @lru_cache(maxsize=None)
 def shares_outstanding(ticker: str) -> pd.Series:
-    p = DATA / "shares" / f"{canonical(ticker)}.csv"
-    if not p.exists():
+    """Shares outstanding as reported (point in time: each count on the date Yahoo dates it, in the share
+    units of that date - NOT adjusted for later splits). See shares_adjusted for the split-consistent count."""
+    t = canonical(ticker)
+
+    def read(sym):
+        p = DATA / "shares" / f"{sym}.csv"
+        if not p.exists():
+            return pd.Series(dtype=float)
+        s = pd.read_csv(p, parse_dates=["date"], index_col="date")["shares"]
+        s = pd.to_numeric(s, errors="coerce").dropna()
+        return s[~s.index.duplicated(keep="last")].sort_index()
+    s = read(t)
+    if t in RENAMED:
+        alt = read(RENAMED[t])
+        if len(alt):
+            s = s.combine_first(alt) if len(s) else alt
+    return s
+
+
+@lru_cache(maxsize=None)
+def splits(ticker: str) -> pd.Series:
+    """Stock splits on their ex-dates (ratio, e.g. 4.0 for 4-for-1), from the price file's split column."""
+    path = PRICES / f"{canonical(ticker)}.csv"
+    if not path.exists():
         return pd.Series(dtype=float)
-    return pd.read_csv(p, parse_dates=["date"], index_col="date")["shares"].sort_index()
+    raw = pd.read_csv(path, usecols=lambda c: c in ("date", "split"), parse_dates=["date"], index_col="date")
+    if "split" not in raw:
+        return pd.Series(dtype=float)
+    s = pd.to_numeric(raw["split"], errors="coerce").fillna(0.0)
+    s = s[(s > 0) & ((s - 1).abs() > 1e-9)]
+    return s[~s.index.duplicated(keep="last")].sort_index()
+
+
+def split_factor_after(ticker: str, dates) -> np.ndarray:
+    """Product of the split ratios with an ex-date after each date: a quantity dated d in the share units of
+    that day times this is in today's units (and a split-adjusted price times it is the price as quoted)."""
+    dates = pd.DatetimeIndex(dates)
+    sp = splits(ticker)
+    out = np.ones(len(dates))
+    for d, r in sp.items():
+        out[dates < d] *= float(r)
+    return out
+
+
+def quoted_close(ticker: str) -> pd.Series:
+    """The close as actually quoted on each day (not adjusted for later splits or for dividends)."""
+    c = load(ticker)["close"]
+    return c * split_factor_after(ticker, c.index)
+
+
+@lru_cache(maxsize=None)
+def shares_adjusted(ticker: str) -> pd.Series:
+    """Shares outstanding in today's share units (reported count x later splits), cleaned causally:
+
+    - a count reported after a split but still in pre-split units (Yahoo lags a few weeks, e.g. AAPL and
+      TSLA after their 2020 splits) is put on the right basis when it is off from the previous count by
+      about a split ratio that took effect within ~6 months;
+    - a count that jumps more than 15% from the accepted one is only used once a later report confirms it
+      (from that report's date on), so isolated junk values never are.
+    Each value is used from the trading day after its date (it is known once reported)."""
+    raw = shares_outstanding(ticker)
+    raw = raw[raw > 0]
+    if raw.empty:
+        return pd.Series(dtype=float)
+    adj = raw.to_numpy(dtype=float) * split_factor_after(ticker, raw.index)
+    sp = splits(ticker)
+    out_d, out_v = [], []
+    last = None
+    pending = None
+    for d, v in zip(raw.index, adj):
+        if last is not None and abs(np.log(v / last)) > 0.2:
+            near = [float(r) for sd, r in sp.items() if abs((sd - d).days) <= 190]
+            for r in near:
+                for k in (r, 1.0 / r):
+                    if abs(np.log(v * k / last)) < 0.1:
+                        v *= k
+                        break
+                else:
+                    continue
+                break
+        if last is None:
+            last = v
+        elif abs(np.log(v / last)) > np.log(1.15):
+            if pending is not None and abs(np.log(v / pending)) <= np.log(1.15):
+                last, pending = v, None      # confirmed by a second report
+            else:
+                pending = v
+                continue
+        else:
+            last, pending = v, None
+        out_d.append(d)
+        out_v.append(last)
+    s = pd.Series(out_v, index=pd.DatetimeIndex(out_d), dtype=float)
+    return s[~s.index.duplicated(keep="last")]
+
+
+def _class_divisor(ticker: str) -> int:
+    t = canonical(ticker)
+    for grp in SHARE_CLASSES:
+        if t in grp:
+            return max(1, sum(1 for g in grp if (PRICES / f"{g}.csv").exists()))
+    return 1
+
+
+@lru_cache(maxsize=None)
+def market_cap(ticker: str) -> pd.Series:
+    """Daily market capitalisation in dollars: the close as quoted that day x the shares outstanding last
+    reported before that day (both on the same split basis). NaN before the first share count, and where
+    the result is implausible against the traded dollar volume (see MCAP_TURNOVER). A total-return
+    (dividend-adjusted) price is never used: its level is not a price anyone paid."""
+    t = canonical(ticker)
+    try:
+        df = load(t)
+    except DataError:
+        return pd.Series(dtype=float)
+    idx = df.index
+    sh = shares_adjusted(t)
+    if sh.empty or not len(idx):
+        return pd.Series(np.nan, index=idx)
+    # point in time: a count dated d is known from the next session
+    known = sh.copy()
+    known.index = known.index + pd.Timedelta(days=1)
+    known = known[~known.index.duplicated(keep="last")]
+    s = known.reindex(idx.union(known.index)).ffill().reindex(idx)
+    mc = df["close"] * s / _class_divisor(t)
+    if t in IDENTITY_FROM:
+        mc[idx < pd.Timestamp(IDENTITY_FROM[t])] = np.nan
+    # plausibility: daily turnover (dollar volume / market cap) of a listed stock is far inside
+    # [0.001%, 100%]; outside it the share count is in the wrong units or belongs to another company
+    dv = (df["close"] * df["volume"]).rolling(60, min_periods=20).median().shift(1)
+    turn = dv / mc
+    lo, hi = MCAP_TURNOVER
+    bad = (turn > hi) | (turn < lo)
+    return mc.where(~bad.fillna(False))
+
+
+MCAP_TURNOVER = (1e-5, 1.0)
+MCAP_NOTE = ("Market cap: the close as quoted that day x the shares outstanding last reported before it (free "
+             "Yahoo share counts, mostly from late 2015 - earlier dates and tickers without counts have no market "
+             "cap). Share classes of one company (GOOG/GOOGL, FOX/FOXA, ...) each count as the company's value "
+             "divided by the number of listed classes.")
 
 
 def _membership_gaps(mem) -> list[str]:
@@ -521,6 +784,71 @@ def _membership_gaps(mem) -> list[str]:
     d = pd.Series(mem.index)
     g = d.diff().dt.days
     return [f"{d[i - 1].date()} .. {d[i].date()}" for i in range(1, len(d)) if g[i] > 62]
+
+
+DELISTED_FILE = DATA / "delisted.json"
+
+
+@lru_cache(maxsize=1)
+def delisted() -> dict:
+    """{ticker: {"last_date", "reason", ...}} for tickers whose price history has ended (written by the
+    data job, which keeps their last good file)."""
+    try:
+        return json.loads(DELISTED_FILE.read_text()) if DELISTED_FILE.exists() else {}
+    except ValueError:
+        return {}
+
+
+def identity_notes(ticker: str, start=None, end=None) -> list[str]:
+    """Warnings when the price file for `ticker` is probably not the company the user means in the
+    period (a recycled symbol, a junk series) or when the listing ended within it."""
+    t = canonical(ticker)
+    if is_sim(t) or t.startswith("^"):
+        return []
+    try:
+        df = load(t)
+    except DataError:
+        return []
+    if df.empty:
+        return []
+    out = []
+    s = pd.Timestamp(start) if start else df.index[0]
+    e = pd.Timestamp(end) if end else df.index[-1]
+    f0, f1 = df.index[0], df.index[-1]
+    mem = membership()
+    months = mem.index[mem[t].to_numpy()] if mem is not None and t in mem else pd.DatetimeIndex([])
+    if len(months):
+        m0, m1 = months[0], months[-1] + pd.offsets.MonthEnd(0)
+        span = f"{m0:%Y-%m}..{m1:%Y-%m}"
+        # only when the period overlaps the membership: then the user most likely means the member company
+        overlap = s <= m1 and e >= m0
+        if t in IDENTITY_FROM and s < pd.Timestamp(IDENTITY_FROM[t]):
+            out.append(f"Identity: {t}'s price file is a different company before {IDENTITY_FROM[t]} (the symbol was "
+                       f"reused); earlier dates do not show the {t} that was in the Nasdaq-100.")
+        elif overlap and f0 > m0 + pd.DateOffset(months=2):
+            out.append(f"Identity: {t} was a Nasdaq-100 member in {span}, but its price file only starts on "
+                       f"{f0.date()}: most likely a later company that reused the symbol, not that member.")
+        elif overlap:
+            q = quality(t)
+            covered = [m for m in months if m >= f0.to_period("M").to_timestamp()]
+            if covered and not q.empty:
+                per = q.groupby(q.index.to_period("M")).mean()
+                bad = sum(1 for m in covered if per.get(m.to_period("M"), 0.0) < 0.5)
+                if bad >= 0.5 * len(covered):
+                    out.append(f"Identity: during {t}'s Nasdaq-100 membership ({span}) its price file trades like a tiny, "
+                               f"illiquid stock - probably a different company that took over the symbol, or junk data. "
+                               f"It is not the index member.")
+    win = df[(df.index >= s) & (df.index <= e)]
+    if len(win) >= 20 and not any(n.startswith("Identity:") for n in out):
+        dv = float((win["close"] * win["volume"]).median())
+        if dv < MIN_DOLLAR_VOLUME:
+            out.append(f"Liquidity: {t} trades about ${dv:,.0f} a day in this period (median dollar volume) - a very "
+                       f"thin series; check it is the company you mean.")
+    info = delisted().get(t)
+    if info and info.get("last_date") and pd.Timestamp(info["last_date"]) < e:
+        why = f" ({info['reason']})" if info.get("reason") else ""
+        out.append(f"Delisted: {t} stopped trading on {info['last_date']}{why}; the data ends there.")
+    return out
 
 
 def data_status() -> dict:
@@ -532,6 +860,7 @@ def data_status() -> dict:
         "nasdaq100_current": len(nasdaq100()),
         "former_members_with_data": len(m.get("former_members", [])),
         "former_members_missing": len(m.get("former_members_missing_data", [])),
+        "delisted": len(delisted()),
         "membership_from": str(mem.index[0].date()) if mem is not None else None,
         "membership_to": str(mem.index[-1].date()) if mem is not None else None,
         "membership_gaps": _membership_gaps(mem),

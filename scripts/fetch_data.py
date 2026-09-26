@@ -165,7 +165,9 @@ RENAMES = {"FB": "META", "PCLN": "BKNG", "DISCA": "WBD", "RIMM": "BB", "MYL": "V
 
 
 STOOQ_FAILS = [0]
-KEYED_BUDGET = {"alphavantage": 20, "tiingo": 400}   # per run; free tiers allow 25/day and 1,000/day
+# per run. Free tiers: Alpha Vantage 25 requests/day; Tiingo 50 requests/hour, 1,000/day and 500 distinct
+# symbols/month (so a run stays under the hourly cap and the rest are picked up by the next runs).
+KEYED_BUDGET = {"alphavantage": 20, "tiingo": 45}
 
 
 KEYED_FILE = ROOT / "data" / "delisted_sources.json"
@@ -199,6 +201,12 @@ def fetch_delisted_keyed(t: str) -> pd.DataFrame | None:
                     out[col] = out[col] / cum
                 out["dividend"] = out["dividend"] / cum
                 out["volume"] = out["volume"] * cum
+                out.attrs["source"] = "tiingo"
+                try:   # the company name, logged so a recycled symbol can be spotted by eye
+                    m = requests.get(f"https://api.tiingo.com/tiingo/daily/{t.lower()}", params={"token": key}, timeout=30)
+                    out.attrs["name"] = (m.json() or {}).get("name", "") if m.status_code == 200 else ""
+                except Exception:  # noqa: BLE001
+                    out.attrs["name"] = ""
                 return out
         except Exception as e:  # noqa: BLE001
             print(f"tiingo {t}: {e}", file=sys.stderr)
@@ -219,6 +227,7 @@ def fetch_delisted_keyed(t: str) -> pd.DataFrame | None:
                                     "volume": df["volume"] * cum, "dividend": df["dividend_amount"] / cum,
                                     "split": df["split_coefficient"]})
                 if len(out) > 20:
+                    out.attrs["source"] = "alphavantage"
                     return out
         except Exception as e:  # noqa: BLE001
             print(f"alphavantage {t}: {e}", file=sys.stderr)
@@ -226,11 +235,18 @@ def fetch_delisted_keyed(t: str) -> pd.DataFrame | None:
 
 
 def fetch_stooq(t: str) -> pd.DataFrame | None:
-    """Secondary source for delisted US stocks (no dividends; split-adjusted closes used as adj_close)."""
-    if STOOQ_FAILS[0] >= 5:  # the source is unreachable or has nothing: stop paying for timeouts
+    """Stooq daily history (split-adjusted OHLC, no dividends: adj_close = close, a price-return series).
+
+    Since early 2026 Stooq's CSV endpoint answers "Access denied" without an API key; a free key comes from
+    https://stooq.com/q/d/?s=aapl.us&get_apikey (a CAPTCHA). Set it as the STOOQ_API_KEY repository secret.
+    Stooq carries few delisted US stocks, so it mostly helps with renamed or thinly covered symbols."""
+    import os
+    key = os.environ.get("STOOQ_API_KEY")
+    if not key or STOOQ_FAILS[0] >= 5:  # no key, or the source is unreachable: stop paying for timeouts
         return None
     try:
-        r = requests.get(f"https://stooq.com/q/d/l/?s={t.lower().replace('-', '.')}.us&i=d", headers=UA, timeout=10)
+        r = requests.get("https://stooq.com/q/d/l/", headers=UA, timeout=15,
+                         params={"s": f"{t.lower().replace('-', '.')}.us", "i": "d", "apikey": key})
         if r.status_code != 200 or not r.text.lower().startswith("date"):
             STOOQ_FAILS[0] += 1
             return None
@@ -238,14 +254,115 @@ def fetch_stooq(t: str) -> pd.DataFrame | None:
         if len(df) < 20:
             return None
         df = df.rename(columns=str.lower)
+        if "volume" not in df:
+            df["volume"] = 0
         df["adj_close"] = df["close"]
         df["dividend"], df["split"] = 0.0, 0.0
         df.index.name = "date"
-        return df[["open", "high", "low", "close", "adj_close", "volume", "dividend", "split"]]
+        df = df[["open", "high", "low", "close", "adj_close", "volume", "dividend", "split"]]
+        df.attrs["source"] = "stooq (split-adjusted, no dividends)"
+        return df
     except Exception as e:  # noqa: BLE001
         print(f"stooq {t}: {e}", file=sys.stderr)
         STOOQ_FAILS[0] += 1
         return None
+
+
+# ------------------------------------------------------------------ never lose a good history
+
+DELISTED_FILE = ROOT / "data" / "delisted.json"
+# what we know about why a listing ended (shown to users when a backtest runs past the last date)
+DELISTED_REASONS = {
+    "EA": "taken private: acquired for $210 a share in cash by a PIF / Silver Lake / Affinity Partners group",
+}
+
+
+def load_delisted() -> dict:
+    try:
+        return json.loads(DELISTED_FILE.read_text()) if DELISTED_FILE.exists() else {}
+    except ValueError:
+        return {}
+
+
+def read_prices(t: str) -> pd.DataFrame | None:
+    p = PRICES / f"{t}.csv"
+    if not p.exists():
+        return None
+    try:
+        df = pd.read_csv(p, parse_dates=["date"], index_col="date").sort_index()
+    except Exception:  # noqa: BLE001 - unreadable file: treat as absent, but never delete it
+        return None
+    return df[~df.index.duplicated(keep="last")]
+
+
+def merge_history(t: str, new: pd.DataFrame, old: pd.DataFrame | None) -> tuple[pd.DataFrame, str]:
+    """The history to save for `t` given a fresh download and the file already on disk.
+
+    A fresh download normally covers the whole history (and Yahoo re-bases adj_close after each new
+    dividend), so it replaces the file. But sources sometimes return a truncated history - Yahoo reset EA to
+    a single bar when it was taken private in August 2026, and the old job then overwrote years of data.
+    Rules:
+      - new starts at (or within 5 days of) the old start: use new;
+      - new starts later but overlaps old: keep old rows before the overlap, rescaled onto new's split and
+        dividend basis when the prices on the overlap agree up to a constant factor; if they don't agree
+        (another company, bad data), keep old unchanged;
+      - new starts after old ends: append it if it follows on (within 10 days and a 30% move), else keep old.
+    Returns (frame, how) where how is "new", "spliced", "appended" or "kept-old: <why>"."""
+    cols = ["open", "high", "low", "close", "adj_close", "volume", "dividend", "split"]
+    if old is None or len(old) < 2 or not len(new):
+        return new, "new"
+    for c in cols:
+        if c not in old:
+            old[c] = 0.0 if c in ("dividend", "split", "volume") else old["close"]
+    if new.index[0] <= old.index[0] + pd.Timedelta(days=5):
+        return new, "new"
+    ov = old.index.intersection(new.index)
+    if len(ov) >= 3:
+        k = (new.loc[ov, "close"] / old.loc[ov, "close"]).replace([np.inf, -np.inf], np.nan).dropna()
+        ka = (new.loc[ov, "adj_close"] / old.loc[ov, "adj_close"]).replace([np.inf, -np.inf], np.nan).dropna()
+        if len(k) < 3 or np.log(k).std() > 0.01 or np.log(ka).std() > 0.01:
+            return old, "kept-old: the new download disagrees with the saved prices on the overlap"
+        kc, kac = float(k.median()), float(ka.median())
+        head = old[old.index < new.index[0]].copy()
+        for c in ("open", "high", "low", "close", "dividend"):
+            head[c] = head[c] * kc
+        head["volume"] = head["volume"] / kc
+        head["adj_close"] = head["adj_close"] * kac
+        return pd.concat([head[cols], new[cols]]), "spliced"
+    if new.index[0] > old.index[-1]:
+        gap = (new.index[0] - old.index[-1]).days
+        jump = abs(float(new["close"].iloc[0]) / float(old["close"].iloc[-1]) - 1)
+        if gap <= 10 and jump < 0.3:
+            tail = new[cols].copy()
+            ratio = float(old["adj_close"].iloc[-1]) / float(old["close"].iloc[-1])
+            tail["adj_close"] = tail["close"] * ratio * (tail["adj_close"] / tail["close"]) / (
+                float(new["adj_close"].iloc[0]) / float(new["close"].iloc[0]))
+            return pd.concat([old[cols], tail]), "appended"
+    return old, "kept-old: the new download does not connect to the saved history"
+
+
+def plausible_member_series(t: str, df: pd.DataFrame, months: list[str]) -> str | None:
+    """Identity check for a history from a fallback source: None if it can be the Nasdaq-100 member `t`
+    (it trades during the membership months like a large Nasdaq stock), else the reason it can't.
+    Recycled symbols (a small company that later took the ticker) fail: their data starts after the
+    membership, or trades a few thousand dollars a day during it."""
+    if df is None or len(df) < 20:
+        return "fewer than 20 bars"
+    if (df["close"] <= 0).any():
+        return "non-positive prices"
+    if not months:
+        return None
+    m = pd.PeriodIndex(months, freq="M")
+    per = df.index.to_period("M")
+    cover = np.isin(m, per).mean()
+    if cover < 0.5:
+        return f"covers only {cover:.0%} of the membership months"
+    inm = df[np.isin(per, m)]
+    dv = float((inm["close"] * inm["volume"]).median())
+    if inm["volume"].sum() > 0 and dv < 2_000_000:
+        return f"median dollar volume ${dv:,.0f} during membership - not the index member"
+    return None
+
 
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 # Wikimedia asks automated clients for a descriptive user agent with a contact URL (browser-like
@@ -502,15 +619,26 @@ def fetch_factors() -> None:
 
 
 def fetch_shares(tickers: list[str]) -> None:
+    """Shares outstanding history (Yahoo, point in time: each count in the share units of its date, not
+    split-adjusted - backtester/data.py puts them on the price files' split basis). Fetched under the
+    renamed symbol for old symbols (FB -> META). Merged into the saved file, never replacing it: Yahoo
+    only serves the last several years, so the saved file is the only record of older counts."""
     SHARES.mkdir(parents=True, exist_ok=True)
     for t in tickers:
+        src = RENAMES.get(t, t)
         try:
-            s = yf.Ticker(t).get_shares_full(start="2000-01-01")
+            s = yf.Ticker(src).get_shares_full(start="2000-01-01")
             if s is None or len(s) == 0:
                 continue
             s.index = pd.to_datetime(s.index).tz_localize(None).normalize()
-            s = s[~s.index.duplicated(keep="last")].sort_index()
-            s.rename("shares").to_csv(SHARES / f"{t}.csv", index_label="date")
+            s = pd.to_numeric(s, errors="coerce").dropna()
+            s = s[(s > 0) & ~s.index.duplicated(keep="last")].sort_index().rename("shares")
+            path = SHARES / f"{t}.csv"
+            if path.exists():
+                old = pd.read_csv(path, parse_dates=["date"], index_col="date")["shares"]
+                old = old[~old.index.duplicated(keep="last")]
+                s = s.combine_first(old).sort_index().rename("shares")
+            s.to_csv(path, index_label="date")
         except Exception as e:  # noqa: BLE001
             print(f"shares {t} failed: {e}", file=sys.stderr)
 
@@ -1217,6 +1345,17 @@ def main() -> None:
     print(f"{len(ndx)} current constituents from {source}; {len(former)} former members; {len(tickers)} other tickers")
 
     ok, failed = {}, []
+    delisted = load_delisted()
+    merge_log: list[str] = []
+
+    def save_merged(t: str, df: pd.DataFrame) -> dict:
+        """Save a download without ever losing the history already on disk (see merge_history)."""
+        out, how = merge_history(t, df, read_prices(t))
+        if how != "new":
+            merge_log.append(f"{t}: {how} (download {df.index[0].date()}..{df.index[-1].date()}, {len(df)} rows)")
+            print(f"{t}: {how}", flush=True)
+        return save_prices(t, out)
+
     t0 = time.time()
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=6) as pool:
@@ -1224,9 +1363,30 @@ def main() -> None:
             if df is None:
                 failed.append(t)
                 continue
-            ok[t] = save_prices(t, df)
+            ok[t] = save_merged(t, df)
             print(f"{t:6s} {ok[t]}", flush=True)
     print(f"prices: {len(ok)} ok, {len(failed)} failed in {time.time() - t0:.0f}s", flush=True)
+
+    def file_info(t: str) -> dict | None:
+        df = read_prices(t)
+        if df is None or not len(df):
+            return None
+        return {"first": str(df.index[0].date()), "last": str(df.index[-1].date()), "rows": len(df)}
+
+    # a failed refresh keeps the last good copy (the file is never deleted)
+    kept = {}
+    for t in failed:
+        info = file_info(t)
+        if info:
+            kept[t] = info
+            print(f"{t}: refresh failed, keeping the saved history {info}")
+
+    # months each symbol was an index member (for the identity check of fallback sources)
+    member_months: dict[str, list[str]] = {}
+    if membership is not None:
+        for m, row in zip(membership["month"], membership["tickers"]):
+            for sym in str(row).split():
+                member_months.setdefault(sym, []).append(m)
 
     # former members: fetch under the (possibly renamed) current symbol, store under the old symbol
     former_ok, former_missing = {}, []
@@ -1236,35 +1396,78 @@ def main() -> None:
             df = pd.read_csv(PRICES / f"{src}.csv", parse_dates=["date"], index_col="date")
         else:
             df = fetch_with_retry(src, tries=2)
-        if (df is None or len(df) < 5) and (PRICES / f"{t}.csv").exists() and t in KEYED_OK:
-            df = pd.read_csv(PRICES / f"{t}.csv", parse_dates=["date"], index_col="date")  # fetched on an earlier run
-        if df is None or len(df) < 5:
-            df = fetch_delisted_keyed(t)
-            if df is not None:
-                KEYED_OK.add(t)
-                print(f"former {t}: {len(df)} rows from a keyed delisted-data source")
-        if df is None or len(df) < 5:
-            df = fetch_stooq(t)
-            if df is not None:
-                print(f"former {t}: {len(df)} rows from stooq")
-        if df is None or len(df) < 5:
-            former_missing.append(t)
+        saved = read_prices(t)
+        if t in KEYED_OK and saved is not None and len(saved) >= 20:
+            # a delisted history from a keyed source: Yahoo's symbol may now be another company
+            former_ok[t] = file_info(t)
             continue
-        former_ok[t] = save_prices(t, df)
-        print(f"former {t:6s} {former_ok[t]}{' (from ' + src + ')' if src != t else ''}")
+        if df is not None and len(df) >= 5:
+            former_ok[t] = save_merged(t, df)
+            print(f"former {t:6s} {former_ok[t]}{' (from ' + src + ')' if src != t else ''}")
+            continue
+        # Yahoo has nothing (usual for acquired / bankrupt companies). A saved history of reasonable length
+        # is kept as it is (delisted histories don't change); a short or missing one is looked up in the
+        # fallback sources, and a result is only used if it passes the identity check.
+        if saved is not None and len(saved) >= 20:
+            former_ok[t] = file_info(t)
+            continue
+        got, why_not = None, []
+        for name, fn in (("keyed", fetch_delisted_keyed), ("stooq", fetch_stooq)):
+            cand = fn(t)
+            if cand is None:
+                continue
+            problem = plausible_member_series(t, cand, member_months.get(t, []))
+            if problem:
+                why_not.append(f"{name}: {problem}")
+                print(f"former {t}: {name} history rejected ({problem})")
+                continue
+            got = cand
+            if name == "keyed":
+                KEYED_OK.add(t)
+            print(f"former {t}: {len(cand)} rows from {name} {cand.attrs.get('name', '')}")
+            break
+        if got is not None:
+            former_ok[t] = save_merged(t, got)
+            delisted.setdefault(t, {}).update({k: v for k, v in (("source", got.attrs.get("source")),
+                                                                  ("source_name", got.attrs.get("name"))) if v})
+            continue
+        if saved is not None and len(saved):
+            former_ok[t] = file_info(t) if len(saved) >= 20 else None
+            if former_ok[t] is None:
+                former_ok.pop(t)
+                former_missing.append(t)       # kept on disk, but too short to be useful
+        else:
+            former_missing.append(t)
+        if why_not:
+            merge_log.append(f"{t}: fallback histories rejected: {'; '.join(why_not)}")
 
-    # current constituents whose history stopped are not really current
-    last_bench = max(pd.Timestamp(ok[b]["last"]) for b in ("SPY", "QQQ") if b in ok)
-    stale = [t for t in ndx if t in ok and ((last_bench - pd.Timestamp(ok[t]["last"])).days > 10 or ok[t]["rows"] < 5)]
+    # current constituents whose history stopped are not really current (their files are kept)
+    last_bench = max(pd.Timestamp((ok.get(b) or kept.get(b) or {"last": "1900-01-01"})["last"]) for b in ("SPY", "QQQ"))
+    cur = {t: ok.get(t) or kept.get(t) for t in ndx if ok.get(t) or kept.get(t)}
+    stale = [t for t, info in cur.items() if (last_bench - pd.Timestamp(info["last"])).days > 10 or info["rows"] < 5]
     for t in stale:
-        print(f"dropping {t}: stale or too little data {ok[t]}")
-        (PRICES / f"{t}.csv").unlink(missing_ok=True)
-        ok.pop(t)
-    ndx = [t for t in ndx if t in ok]
-    keep = set(ok) | set(former_ok)
-    for f in PRICES.glob("*.csv"):
-        if f.stem not in keep:
-            f.unlink()
+        print(f"{t}: stale or too little data {cur[t]}; kept on disk, not listed as a current member")
+    ndx = [t for t in ndx if t in cur and t not in stale]
+
+    # every symbol whose history has ended: its last date (and the reason, when known)
+    for t in sorted(set(former) | set(stale) | set(kept)):
+        info = former_ok.get(t) or kept.get(t) or file_info(t)
+        if not info:
+            continue
+        if (last_bench - pd.Timestamp(info["last"])).days <= 10:
+            delisted.pop(t, None)          # trading (again): not delisted
+            continue
+        entry = delisted.get(t, {})
+        entry.update({"last_date": info["last"], "first_date": info["first"], "rows": info["rows"]})
+        if t in DELISTED_REASONS:
+            entry["reason"] = DELISTED_REASONS[t]
+        elif t in RENAMES:
+            entry.setdefault("reason", f"symbol changed to {RENAMES[t]}")
+        if t in member_months:
+            entry["member_months"] = f"{member_months[t][0]}..{member_months[t][-1]}"
+        delisted[t] = entry
+    DELISTED_FILE.write_text(json.dumps(dict(sorted(delisted.items())), indent=1) + "\n")
+    (ROOT / "data" / "merge_log.txt").write_text("\n".join(merge_log) + "\n")
 
     fetch_macro()
     fetch_factors()
@@ -1275,17 +1478,18 @@ def main() -> None:
         "updated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "constituent_source": source,
         "nasdaq100": ndx,
-        "etfs": [t for t in ETFS if t in ok],
-        "stocks": [t for t in STOCKS if t in ok],
-        "indexes": [t for t in INDEXES if t in ok],
-        "requested": [t for t in REQUESTED if t in ok],            # from data/extra_tickers.txt
-        "requested_failed": [t for t in REQUESTED if t not in ok],
+        "etfs": [t for t in ETFS if t in ok or t in kept],
+        "stocks": [t for t in STOCKS if t in ok or t in kept],
+        "indexes": [t for t in INDEXES if t in ok or t in kept],
+        "requested": [t for t in REQUESTED if t in ok or t in kept],            # from data/extra_tickers.txt
+        "requested_failed": [t for t in REQUESTED if t not in ok and t not in kept],
         "benchmarks": ["SPY", "QQQ"],
         "sims": sims,
         "former_members": sorted(former_ok),
         "former_members_missing_data": sorted(former_missing),
-        "tickers": {**ok, **former_ok},
+        "tickers": {**kept, **ok, **former_ok},
         "failed": failed,
+        "kept_after_failed_refresh": sorted(kept),
         "dropped_stale": stale,
     }
     (ROOT / "data" / "universe.json").write_text(json.dumps(meta, indent=1))

@@ -982,12 +982,13 @@ class _Evaluator:
     def mcap(self, t: str) -> np.ndarray:
         key = ("mcap", t)
         if key not in self.cache:
-            sh = data.shares_outstanding(t)
-            if sh.empty:
+            # quoted close x point-in-time shares (data.market_cap), not the total-return price level
+            mc = data.market_cap(t)
+            self.note(data.MCAP_NOTE)
+            if mc.empty:
                 self.cache[key] = np.full(len(self.cal), np.nan)
             else:
-                s = sh.reindex(self.cal.union(sh.index)).ffill().reindex(self.cal)
-                self.cache[key] = (s * self.dfs[t]["close"].reindex(self.cal)).to_numpy()
+                self.cache[key] = mc.reindex(self.cal).to_numpy(dtype=float)
         return self.cache[key]
 
     def is_member(self, t: str, i: int) -> bool:
