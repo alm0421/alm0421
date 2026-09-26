@@ -60,6 +60,17 @@ h3 { font-size: 13px; margin: 14px 0 8px; font-weight: 600; color: var(--text-2)
 .pxwrap canvas { display: block; position: absolute; left: 0; top: 0; }
 .pxwrap canvas.top { cursor: crosshair; touch-action: pan-y; }
 .pxwrap canvas.top.drag { cursor: grabbing; }
+.pxwrap canvas.top:focus { outline: none; }
+.pxwrap canvas.top[data-tool="hline"], .pxwrap canvas.top[data-tool="trend"] { cursor: cell; }
+.pxbar { margin: 0 0 8px; }
+.pxbar .btn, .pxbar select { font-size: 12px; padding: 4px 9px; }
+.btn.on, .seg button.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
+#pxLegend { gap: 4px 12px; margin-bottom: 6px; min-height: 36px; }
+#pxLegend .ohlc { flex-basis: 100%; color: var(--text); font-variant-numeric: tabular-nums; }
+#pxLegend .ohlc.pos { color: var(--good); } #pxLegend .ohlc.neg { color: var(--bad); }
+#pxLegend .lgpane { color: var(--text-3); }
+#pxLegend b.lv { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; min-width: 4ch; }
+@media (max-width: 560px) { .card { padding: 12px; } .ctrls { gap: 6px; } .seg button { padding: 4px 8px; } }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 16px; min-width: 0; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 16px; }
 .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; min-width: 0; }
@@ -190,11 +201,21 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     <div class="row"><h2>Price and trades <span class="pill runName"></span></h2>
       <div class="ctrls"><select id="pxTicker"></select>
         <div class="seg" id="pxRange"><button data-v="126">6M</button><button data-v="252" class="on">1Y</button><button data-v="1260">5Y</button><button data-v="0">All</button></div>
+        <div class="seg" id="pxStyle" title="Chart type"><button data-v="candles" class="on">Candles</button><button data-v="line">Line</button></div>
         <div class="seg" id="pxScale" title="Price scale"><button data-v="lin" class="on">Linear</button><button data-v="log">Log</button></div>
         <button class="btn" id="pxPrev" title="Earlier">◀</button><button class="btn" id="pxNext" title="Later">▶</button></div></div>
+    <div class="ctrls noprint pxbar">
+      <div class="seg" id="pxTools" title="Drawing tools (drawings are kept in this browser)"><button data-v="hline" title="Horizontal line: click a price">― H-line</button><button data-v="trend" title="Trend line: drag, or click two points">╱ Trend</button><button id="pxDel" title="Delete the selected drawing (Delete key), or pick drawings to delete">✕ Delete</button><button id="pxClear" title="Remove every drawing on this ticker">Clear</button></div>
+      <button class="btn" id="pxReplay" title="Bar replay: step through time, revealing bars and trades one at a time">⏵ Replay</button>
+    </div>
+    <div class="ctrls noprint pxbar hide" id="pxReplayBar">
+      <button class="btn" id="rpBack" title="One bar back (←)">◀ Back</button><button class="btn" id="rpPlay">▶ Play</button><button class="btn" id="rpStep" title="One bar forward (→)">Step ▶</button>
+      <label class="muted">Speed <select id="rpSpeed"><option value="1">1 bar/s</option><option value="2">2 bars/s</option><option value="5" selected>5 bars/s</option><option value="10">10 bars/s</option><option value="25">25 bars/s</option><option value="60">60 bars/s</option></select></label>
+      <button class="btn" id="rpExit">Exit replay</button><span class="muted" id="rpDate"></span>
+    </div>
     <div class="legend" id="pxLegend"></div>
     <div class="pxwrap" id="pxChart"></div>
-    <p class="note">Scroll to zoom, drag to pan, double-click to reset. Hover for prices, indicator values and trades on that day. ▲ entries and ▼ exits (short trades are drawn the other way round), with faint vertical lines through every pane. Dashed lines over each trade are its stop (red), trailing stop (orange, stepping up with the best price) and target (green). Other tickers the rule filters on have their own pane, and the strip at the bottom shows on which bars the entry and exit rules were true. Click a row in the trade list to jump to it (it stays highlighted).</p>
+    <p class="note">Scroll to zoom, drag to pan, double-click to reset. The legend shows the values on the bar under the crosshair. ▲ entries and ▼ exits (short trades are drawn the other way round), with faint vertical lines through every pane. Dashed lines over each trade are its stop (red), trailing stop (orange, stepping up with the best price) and target (green). Every series the rules use is charted: price-scale indicators over the candles, the others in their own panes (click a pane's title to fold it, drag its bottom edge to resize it), other tickers the rule filters on in theirs. Weekly and monthly indicators (⌐) are drawn as steps: each holds the last completed period's value, as the rules read it. The strip at the bottom shows on which bars the entry and exit rules were true. Drawing tools add horizontal and trend lines; Replay reveals the bars and trades one at a time (click the chart to jump, ← → to step). Click a row in the trade list to jump to it (it stays highlighted).</p>
   </div>
 
   <div class="card" id="allocCard">
@@ -630,20 +651,64 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   // ---------- price chart with trades
   // Canvas, so it stays smooth for 10k+ bars: only the visible window is drawn and, when there are more bars
   // than pixels, each pixel column is reduced to its min/max. Wheel zooms around the cursor, drag pans,
-  // double-click resets; oscillators used by the rules get their own panes with the rule's thresholds.
+  // double-click resets. Every series the rules use is charted: price-scale ones over the candles, the others
+  // in panes (one per family or other ticker, as many as needed; click a pane's title to fold it, drag its bottom
+  // edge to resize it). Weekly / monthly series are drawn as steps. The legend shows the values under the
+  // crosshair. Drawing tools (horizontal line, trend line) live on the top canvas; bar replay reveals the bars
+  // and trades one at a time.
   let pxRange = 252;
-  const PX = { a: 0, b: 0, key: null, P: null, trades: [], byBar: new Map(), geo: null, hover: null, drag: null, raf: 0, series: [], log: false, focus: null };
-  const PX_MIN_BARS = 10, PANE_H = 118, PANE_GAP = 12, PRICE_H = 340, AXIS_H = 24, RS_H = 30;
+  const PX = { a: 0, b: 0, key: null, P: null, trades: [], byBar: new Map(), geo: null, hover: null, drag: null, raf: 0, series: [], log: false, focus: null,
+    style: 'candles', paneSt: {}, priceH: null, tool: 'cursor', sel: null, pending: null, resize: null, replay: null, timer: 0, speed: 5, draws: {} };
+  const PX_MIN_BARS = 10, PANE_H = 118, PANE_GAP = 12, PRICE_H = 340, AXIS_H = 24, RS_H = 30, FOLD_H = 20, PANE_MIN = 40, EDGE = 5;
+  const FONT = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+  const fmtV = v => !isNum(v) ? '—' : Math.abs(v) >= 1e5 ? compact(v) : num(v, Math.abs(v) < 10 ? 3 : 2);
+  const narrow = () => ($('pxChart').clientWidth || 800) < 560;
+  const priceH = () => PX.priceH || (narrow() ? 240 : PRICE_H);
+  const paneSt = name => PX.paneSt[name] || (PX.paneSt[name] = { h: narrow() ? 92 : PANE_H, fold: false });
   function pxLogTicks(lo, hi) {
     const out = [];
     for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++) for (const m of [1, 1.5, 2, 3, 5, 7]) { const v = m * Math.pow(10, e); if (v >= lo && v <= hi) out.push(v); }
     return out.length > 8 ? out.filter((_, i) => i % Math.ceil(out.length / 8) === 0) : out;
   }
+  // drawings are kept per report and ticker in this browser (best effort: storage may be unavailable)
+  const drawKey = () => 'bt-draw|' + location.pathname + '|' + PX.key;
+  function drawings() {
+    if (!PX.draws[PX.key]) { let v = []; try { v = JSON.parse(localStorage.getItem(drawKey()) || '[]'); } catch (e) { v = []; } PX.draws[PX.key] = Array.isArray(v) ? v : []; }
+    return PX.draws[PX.key];
+  }
+  function saveDrawings() { try { localStorage.setItem(drawKey(), JSON.stringify(drawings())); } catch (e) { /* no storage */ } pxBase.dataset.drawings = drawings().length; }
   let pxBase, pxTop, pxTip;
+  const barAt = x => { const g = PX.geo; return PX.a + (x - g.l) / g.iw * (PX.b - PX.a) - 0.5; };   // fractional bar index under x
+  function pxHit(p) {
+    const g = PX.geo; if (!g) return null;
+    for (let k = 0; k < g.regions.length; k++) {   // bottom edges resize their pane (a folded pane has no edge)
+      const rg = g.regions[k]; if (rg.fold) continue;
+      if (p.x >= g.l && p.x <= g.l + g.iw && Math.abs(p.y - (rg.y + rg.h)) <= EDGE) return { type: 'resize', k, h: rg.h };
+    }
+    for (let k = 0; k < g.plates.length; k++) { const q = g.plates[k]; if (q && p.x >= q.x && p.x <= q.x + q.w && p.y >= q.y && p.y <= q.y + q.h) return { type: 'plate', k }; }
+    const rp = g.regions[0];
+    if (p.y < rp.y || p.y > rp.y + rp.h) return null;
+    const Y = g.scales[0].Y, ds = drawings();
+    for (let j = ds.length - 1; j >= 0; j--) {
+      const d = ds[j];
+      if (d.t === 'h' && Math.abs(Y(d.v) - p.y) <= 5) return { type: 'drawing', j };
+      if (d.t === 'tr') {
+        const x1 = g.X(d.i1), y1 = Y(d.v1), x2 = g.X(d.i2), y2 = Y(d.v2), dx = x2 - x1, dy = y2 - y1, L = dx * dx + dy * dy || 1;
+        const u = Math.max(0, Math.min(1, ((p.x - x1) * dx + (p.y - y1) * dy) / L));
+        if (Math.hypot(p.x - x1 - u * dx, p.y - y1 - u * dy) <= 5) return { type: 'drawing', j };
+      }
+    }
+    return null;
+  }
+  function setTool(t) {
+    PX.tool = t; PX.pending = null;
+    [...$('pxTools').querySelectorAll('button[data-v]')].forEach(x => x.classList.toggle('on', x.dataset.v === t));
+    if (pxTop) pxTop.dataset.tool = t;
+  }
   function pxDom() {
     if (pxBase) return;
     const box = $('pxChart');
-    pxBase = el('canvas'); pxTop = el('canvas', { class: 'top', 'aria-label': 'Price chart: scroll to zoom, drag to pan, double-click to reset' });
+    pxBase = el('canvas'); pxTop = el('canvas', { class: 'top', tabindex: '0', 'aria-label': 'Price chart: scroll to zoom, drag to pan, double-click to reset' });
     box.append(pxBase, pxTop); pxTip = tipFor(box);
     pxTop.addEventListener('wheel', ev => {
       const g = PX.geo; if (!g) return;
@@ -656,11 +721,34 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     }, { passive: false });
     pxTop.addEventListener('pointerdown', ev => {
       if (ev.button !== 0 || !PX.geo) return;
-      PX.drag = { x: ev.clientX, a: PX.a, b: PX.b, moved: false };
+      const p = pxLocal(ev), g = PX.geo, hit = pxHit(p), rp = g.regions[0];
+      const inPrice = p.x >= g.l && p.x <= g.l + g.iw && p.y >= rp.y && p.y <= rp.y + rp.h;
+      if (hit && hit.type === 'resize') { PX.resize = { k: hit.k, y: p.y, h: hit.h }; pxTop.setPointerCapture(ev.pointerId); return; }
+      if (hit && hit.type === 'plate') { const pn = PX.P.panes[hit.k - 1]; if (pn) { const st = paneSt(pn.name); st.fold = !st.fold; pxSchedule(null); } return; }
+      if (PX.tool === 'hline' && inPrice) { drawings().push({ t: 'h', v: g.scales[0].inv(p.y) }); PX.sel = drawings().length - 1; saveDrawings(); setTool('cursor'); pxSchedule(p); return; }
+      if (PX.tool === 'trend' && inPrice) {
+        const i = barAt(p.x), v = g.scales[0].inv(p.y);
+        if (PX.pending) { finishTrend(i, v); return; }
+        PX.pending = { t: 'tr', i1: i, v1: v, i2: i, v2: v, down: true, x: p.x, y: p.y }; pxTop.setPointerCapture(ev.pointerId); pxSchedule(p, true); return;
+      }
+      if (PX.tool === 'erase') { if (hit && hit.type === 'drawing') { drawings().splice(hit.j, 1); PX.sel = null; saveDrawings(); pxSchedule(p, true); } return; }
+      if (hit && hit.type === 'drawing') { PX.sel = hit.j; pxSchedule(p, true); return; }
+      if (PX.sel != null) { PX.sel = null; pxSchedule(p, true); }
+      PX.drag = { x: ev.clientX, a: PX.a, b: PX.b, moved: false, p };
       pxTop.setPointerCapture(ev.pointerId);
     });
+    function finishTrend(i, v) {
+      const d = PX.pending; PX.pending = null;
+      drawings().push({ t: 'tr', i1: d.i1, v1: d.v1, i2: i, v2: v }); PX.sel = drawings().length - 1; saveDrawings(); setTool('cursor'); pxSchedule(null, true);
+    }
     pxTop.addEventListener('pointermove', ev => {
       const p = pxLocal(ev);
+      if (PX.resize) {
+        const k = PX.resize.k, h = Math.max(PANE_MIN, Math.min(900, Math.round(PX.resize.h + p.y - PX.resize.y)));
+        if (k === 0) PX.priceH = h; else paneSt(PX.P.panes[k - 1].name).h = h;
+        pxSchedule(null); return;
+      }
+      if (PX.pending && PX.geo) { PX.pending.i2 = barAt(p.x); PX.pending.v2 = PX.geo.scales[0].inv(p.y); pxSchedule(p, true); return; }
       if (PX.drag) {
         const dx = ev.clientX - PX.drag.x;
         if (Math.abs(dx) > 2) { PX.drag.moved = true; pxTop.classList.add('drag'); }
@@ -669,12 +757,31 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
           pxSetWindow(PX.drag.a + di, PX.drag.b + di); pxCustom(); pxSchedule(null); return;
         }
       }
+      const hit = PX.drag ? null : pxHit(p);
+      pxTop.style.cursor = hit ? (hit.type === 'resize' ? 'row-resize' : 'pointer') : PX.tool === 'erase' ? 'not-allowed' : '';
       PX.hover = p; pxSchedule(p, true);
     });
-    const end = () => { PX.drag = null; pxTop.classList.remove('drag'); };
+    const end = ev => {
+      if (PX.resize) { PX.resize = null; return; }
+      if (PX.pending && PX.pending.down) {   // a drag draws the line; a click starts it and a second click ends it
+        const p = ev && ev.type === 'pointerup' ? pxLocal(ev) : null;
+        if (p && Math.hypot(p.x - PX.pending.x, p.y - PX.pending.y) > 6) finishTrend(PX.pending.i2, PX.pending.v2); else PX.pending.down = false;
+        return;
+      }
+      if (PX.drag && !PX.drag.moved && PX.replay != null && ev && ev.type === 'pointerup' && PX.geo) {   // replay: click picks the bar
+        const g = PX.geo, p = PX.drag.p; if (p.x >= g.l && p.x <= g.l + g.iw) rpGo(Math.round(barAt(p.x)), true);
+      }
+      PX.drag = null; pxTop.classList.remove('drag');
+    };
     pxTop.addEventListener('pointerup', end); pxTop.addEventListener('pointercancel', end);
-    pxTop.addEventListener('pointerleave', () => { if (PX.drag) return; PX.hover = null; pxSchedule(null, true); });
-    pxTop.addEventListener('dblclick', ev => { ev.preventDefault(); pxReset(); pxSchedule(pxLocal(ev)); });
+    pxTop.addEventListener('pointerleave', () => { if (PX.drag || PX.resize) return; PX.hover = null; pxSchedule(null, true); });
+    pxTop.addEventListener('dblclick', ev => { ev.preventDefault(); if (PX.tool !== 'cursor') return; pxReset(); pxSchedule(pxLocal(ev)); });
+    pxTop.addEventListener('keydown', ev => {
+      if ((ev.key === 'Delete' || ev.key === 'Backspace') && PX.sel != null) { ev.preventDefault(); drawings().splice(PX.sel, 1); PX.sel = null; saveDrawings(); pxSchedule(null, true); }
+      else if (ev.key === 'Escape') { setTool('cursor'); PX.sel = null; pxSchedule(null, true); }
+      else if (PX.replay != null && ev.key === 'ArrowRight') { ev.preventDefault(); rpGo(PX.replay + 1); }
+      else if (PX.replay != null && ev.key === 'ArrowLeft') { ev.preventDefault(); rpGo(PX.replay - 1); }
+    });
   }
   function pxLocal(ev) { const bb = pxTop.getBoundingClientRect(), k = PX.width / (bb.width || 1); return { x: (ev.clientX - bb.left) * k, y: (ev.clientY - bb.top) * k }; }
   function pxSetWindow(a, b) {
@@ -682,11 +789,12 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     let w = Math.min(n, Math.max(Math.min(PX_MIN_BARS, n), b - a));
     if (a < 0) { a = 0; b = w; } else b = a + w;
     if (b > n) { b = n; a = n - w; }
+    if (PX.replay != null && a > PX.replay - 2) { a = Math.max(0, PX.replay - 2); b = Math.min(n, a + w); }   // keep revealed bars in view
     PX.a = a; PX.b = b;
   }
   function pxRangeWindow() { const n = PX.P.dates.length, w = pxRange ? Math.min(pxRange, n) : n; const b = pxRange ? Math.min(n, Math.max(w, PX.b || n)) : n; pxSetWindow(b - w, b); }
   function pxCustom() { [...$('pxRange').children].forEach(x => x.classList.remove('on')); }
-  function pxReset() { pxRange = 252; [...$('pxRange').children].forEach(x => x.classList.toggle('on', x.dataset.v === '252')); PX.b = PX.P.dates.length; pxRangeWindow(); }
+  function pxReset() { pxRange = 252; [...$('pxRange').children].forEach(x => x.classList.toggle('on', x.dataset.v === '252')); PX.b = PX.replay != null ? Math.min(PX.P.dates.length, PX.replay + 30) : PX.P.dates.length; pxRangeWindow(); }
   function pxSchedule(p, overlayOnly) {
     if (p !== undefined) PX.hover = p;
     PX.needBase = PX.needBase || !overlayOnly;
@@ -744,7 +852,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     if (!P) { if ((r.chart_files || {})[t]) showChart(t, focus); return; }
     const key = sel + '|' + t, n = P.dates.length;
     if (PX.key !== key) {
-      PX.key = key; PX.P = P; PX.a = 0; PX.b = n;
+      rpStop(true);
+      PX.key = key; PX.P = P; PX.a = 0; PX.b = n; PX.sel = null; PX.pending = null;
       if (!P._t) P._t = P.dates.map(d => Date.parse(d));
       const idx = new Map(P.dates.map((d, i) => [d, i]));
       PX.trades = r.trades.filter(tr => tr.ticker === t).map(tr => ({ tr, ei: idx.get(tr.entry_date), xi: idx.get(tr.exit_date) }));
@@ -753,26 +862,56 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       PX.trades.forEach(x => { add(x.ei, { ...x, entry: true }); add(x.xi, { ...x, entry: false }); });
       // colours: overlays first, then pane series, in one sequence so every line is distinct
       let ci = 0; PX.series = [];
-      Object.keys(P.overlays || {}).forEach(k => PX.series.push({ name: k, values: P.overlays[k], color: color(ci++), pane: -1 }));
-      (P.panes || []).forEach((pn, pi) => Object.keys(pn.series).forEach(k => PX.series.push({ name: k, values: pn.series[k], color: /^macd_hist/.test(k) ? css('--neutral') : color(ci++), pane: pi, hist: /^macd_hist/.test(k) })));
+      const steps = new Set(P.step || []), isHist = k => /(^|\(|\s)macd_hist/.test(k);
+      Object.keys(P.overlays || {}).forEach(k => PX.series.push({ name: k, values: P.overlays[k], color: color(ci++), pane: -1, step: steps.has(k) }));
+      (P.panes || []).forEach((pn, pi) => Object.keys(pn.series).forEach(k => PX.series.push({ name: k, values: pn.series[k], color: isHist(k) ? css('--neutral') : color(ci++), pane: pi, hist: isHist(k), step: steps.has(k) })));
       pxRangeWindow();
+      pxLegendBuild();
+      pxBase.dataset.drawings = drawings().length;
     }
     if (focus) {
       const i = Math.max(0, lowerBound(P.dates, focus.from)), j = Math.min(n - 1, lowerBound(P.dates, focus.to || focus.from));
+      if (PX.replay != null && j > PX.replay) rpStop(true);
       const w = Math.max(PX.b - PX.a, j - i + 30, 40), mid = (i + j + 1) / 2;
       pxSetWindow(mid - w / 2, mid + w / 2);
       PX.focus = { i, j, trade: focus.trade };   // highlighted until another trade is picked
     }
-    legend($('pxLegend'), PX.series.map(s => ({ name: s.name, color: s.color })).concat([{ name: 'entry', color: css('--up') }, { name: 'exit', color: css('--down') }]), 'box');
     PX.hover = null; pxTip.hide();
     pxSchedule(null);
+  }
+  // Legend: one entry per series with its value on the bar under the crosshair (the last visible bar otherwise)
+  function pxLegendBuild() {
+    const box = $('pxLegend'); box.replaceChildren();
+    PX.lgHead = el('span', { class: 'ohlc' }); box.append(PX.lgHead);
+    const panes = PX.P.panes || [];
+    PX.lgVals = PX.series.map((s, k) => {
+      if (s.pane >= 0 && (k === 0 || PX.series[k - 1].pane !== s.pane) && panes[s.pane]) box.append(el('span', { class: 'lgpane' }, panes[s.pane].name + ':'));
+      const sp = el('span', { title: s.name + (s.step ? ' (held each completed period, as the rule reads it)' : '') }), i = el('i'); i.style.background = s.color;
+      const b = el('b', { class: 'lv' }, '—');
+      sp.append(i, document.createTextNode(s.name + (s.step ? ' ⌐' : '')), b); box.append(sp); return b;
+    });
+    [['entry', css('--up')], ['exit', css('--down')]].forEach(([nm, c]) => { const sp = el('span'), i = el('i', { class: 'box' }); i.style.background = c; sp.append(i, document.createTextNode(nm)); box.append(sp); });
+  }
+  function pxLegendVals(i) {
+    const P = PX.P; if (!P || !PX.lgHead || !(i >= 0 && i < P.dates.length)) return;
+    const chg = i > 0 && isNum(P.c[i - 1]) ? P.c[i] / P.c[i - 1] - 1 : null;
+    PX.lgHead.textContent = `${P.dates[i]}  O ${num(P.o[i])}  H ${num(P.h[i])}  L ${num(P.l[i])}  C ${num(P.c[i])}` + (isNum(chg) ? ` (${chg >= 0 ? '+' : ''}${(chg * 100).toFixed(2)}%)` : '');
+    PX.lgHead.classList.toggle('pos', chg > 0); PX.lgHead.classList.toggle('neg', chg < 0);
+    PX.series.forEach((s, k) => { const v = s.values[i]; PX.lgVals[k].textContent = fmtV(v); });
   }
   function pxDraw() {
     const P = PX.P; if (!P) return;
     const box = $('pxChart'), W = box.clientWidth || 800, panes = P.panes || [];
-    const l = 56, rgt = 44, top = 8, iw = W - l - rgt;
+    const l = W < 420 ? 46 : 56, rgt = W < 420 ? 34 : 44, top = 8, iw = W - l - rgt;
     const hasRS = typeof P.rs === 'string' && P.rs.length === P.dates.length;
-    const H = top + PRICE_H + panes.length * (PANE_H + PANE_GAP) + (hasRS ? RS_H + PANE_GAP : 0) + AXIS_H;
+    const n = P.dates.length, a = PX.a, b = PX.b, lim = PX.replay != null ? Math.min(n - 1, PX.replay) : n - 1;
+    // regions: price pane, then one per pane (folded panes keep only their title)
+    const regions = [{ y: top, h: priceH() }];
+    panes.forEach(pn => { const st = paneSt(pn.name), prev = regions[regions.length - 1]; regions.push({ y: prev.y + prev.h + PANE_GAP, h: st.fold ? FOLD_H : st.h, fold: st.fold }); });
+    const lastRg = regions[regions.length - 1];
+    const strip = hasRS ? { y: lastRg.y + lastRg.h + PANE_GAP, h: RS_H } : null;
+    const bottom = strip ? strip.y + strip.h : lastRg.y + lastRg.h;
+    const H = bottom + AXIS_H;
     const dpr = window.devicePixelRatio || 1;
     if (PX.size !== W + 'x' + H + '@' + dpr) {  // resizing a canvas reallocates it, so only when needed
       PX.size = W + 'x' + H + '@' + dpr;
@@ -782,15 +921,9 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     PX.width = W;
     const tStart = performance.now();
     const ctx = pxBase.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-    const n = P.dates.length, a = PX.a, b = PX.b;
-    const i0 = Math.max(0, Math.floor(a)), i1 = Math.min(n - 1, Math.ceil(b) - 1);
+    const i0 = Math.max(0, Math.floor(a)), iw1 = Math.min(n - 1, Math.ceil(b) - 1), i1 = Math.min(iw1, lim);
     const X = i => l + (i - a + 0.5) / (b - a) * iw, bpp = (b - a) / iw;
-    // regions: price pane, then one per oscillator family
-    const regions = [{ y: top, h: PRICE_H }].concat(panes.map((_, k) => ({ y: top + PRICE_H + PANE_GAP + k * (PANE_H + PANE_GAP), h: PANE_H })));
-    const lastRg = regions[regions.length - 1];
-    const strip = hasRS ? { y: lastRg.y + lastRg.h + PANE_GAP, h: RS_H } : null;
-    const bottom = strip ? strip.y + strip.h : lastRg.y + lastRg.h;
-    // price scale from the visible bars and overlays
+    // price scale from the visible (revealed) bars and overlays
     let lo = Infinity, hi = -Infinity;
     for (let i = i0; i <= i1; i++) { if (isNum(P.l[i])) lo = Math.min(lo, P.l[i]); if (isNum(P.h[i])) hi = Math.max(hi, P.h[i]); }
     PX.series.forEach(s => { if (s.pane !== -1) return; for (let i = i0; i <= i1; i++) { const v = s.values[i]; if (isNum(v)) { if (v < lo) lo = v; if (v > hi) hi = v; } } });
@@ -817,60 +950,65 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       scales.push({ lo: plo, hi: phi, Y: v => rg.y + 4 + (1 - (v - plo) / (phi - plo || 1)) * (rg.h - 8),
         inv: y => plo + (1 - (y - rg.y - 4) / (rg.h - 8)) * (phi - plo) });
     });
-    PX.geo = { l, iw, W, H, X, regions, scales, i0, i1, bottom, strip };
+    PX.geo = { l, iw, W, H, X, regions, scales, i0, i1, bottom, strip, plates: [] };
     const grid = css('--grid'), axis = css('--axis'), text3 = css('--text-3'), up = css('--up'), down = css('--down');
-    ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.font = FONT;
+    const fmtAxis = v => Math.abs(v) >= 1000 ? compact(v) : v.toFixed(Math.abs(v) < 10 && v !== Math.round(v) ? 2 : 0);
     // horizontal grid + y labels
     regions.forEach((rg, k) => {
       const sc = scales[k];
       ctx.strokeStyle = axis; ctx.lineWidth = 1; ctx.strokeRect(l + 0.5, rg.y + 0.5, iw - 1, rg.h - 1);
-      (sc.log ? (t => t.length >= 3 ? t : niceTicks(sc.lo, sc.hi, 6))(pxLogTicks(sc.lo, sc.hi)) : niceTicks(sc.lo, sc.hi, k ? 3 : 6)).forEach(v => {
+      if (rg.fold) return;
+      (sc.log ? (t => t.length >= 3 ? t : niceTicks(sc.lo, sc.hi, 6))(pxLogTicks(sc.lo, sc.hi)) : niceTicks(sc.lo, sc.hi, k ? Math.max(2, Math.round(rg.h / 40)) : Math.max(3, Math.round(rg.h / 56)))).forEach(v => {
         const y = Math.round(sc.Y(v)) + 0.5; if (y < rg.y + 2 || y > rg.y + rg.h - 2) return;
         ctx.strokeStyle = grid; ctx.beginPath(); ctx.moveTo(l, y); ctx.lineTo(l + iw, y); ctx.stroke();
         ctx.fillStyle = text3; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-        ctx.fillText(Math.abs(v) >= 1000 ? compact(v) : v.toFixed(Math.abs(v) < 10 && v !== Math.round(v) ? 2 : 0), l - 8, y);
+        ctx.fillText(fmtAxis(v), l - 8, y);
       });
     });
-    // x axis: time labels + vertical grid through every pane
-    const tt = timeTicks(P._t[i0], P._t[i1], iw);
+    // x axis: time labels + vertical grid through every pane (the whole window, also the part replay hides)
+    const tt = timeTicks(P._t[i0], P._t[iw1], iw);
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     tt.forEach(([t, lab]) => {
-      const k = lowerBound(P._t, t); if (k < i0 || k > i1) return;
+      const k = lowerBound(P._t, t); if (k < i0 || k > iw1) return;
       const x = Math.round(X(k)) + 0.5;
-      ctx.strokeStyle = grid; regions.forEach(rg => { ctx.beginPath(); ctx.moveTo(x, rg.y + 1); ctx.lineTo(x, rg.y + rg.h - 1); ctx.stroke(); });
+      ctx.strokeStyle = grid; regions.forEach(rg => { if (rg.fold) return; ctx.beginPath(); ctx.moveTo(x, rg.y + 1); ctx.lineTo(x, rg.y + rg.h - 1); ctx.stroke(); });
       ctx.fillStyle = text3; ctx.fillText(lab, x, bottom + 16);
     });
     // clip each region while drawing data
     const clip = rg => { ctx.save(); ctx.beginPath(); ctx.rect(l + 1, rg.y + 1, iw - 2, rg.h - 2); ctx.clip(); };
     // threshold level labels (the dashed lines are drawn over the series below)
     panes.forEach((pn, k) => {
+      if (regions[k + 1].fold) return;
       const sc = scales[k + 1];
       ctx.fillStyle = text3; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
       (pn.levels || []).forEach(v => ctx.fillText(String(+v.toFixed(4)), l + iw + 4, sc.Y(v)));
     });
-    // trade verticals through every pane (skipped when so many are visible that they would be a wash)
-    const vis = PX.trades.filter(x => (x.ei != null && x.ei >= i0 && x.ei <= i1) || (x.xi != null && x.xi >= i0 && x.xi <= i1));
+    // trades revealed so far (all of them outside replay): an exit is shown once its bar is revealed
+    const vis = PX.trades.filter(x => (x.ei == null || x.ei <= lim) && ((x.ei != null && x.ei >= i0 && x.ei <= i1) || (x.xi != null && x.xi >= i0 && x.xi <= i1)));
     const dense = vis.length > iw / 4;
-    if (!dense) {
+    if (!dense) {  // trade verticals through every pane (skipped when so many are visible that they would be a wash)
       ctx.globalAlpha = Math.max(0.1, Math.min(0.28, 12 / Math.max(1, vis.length))); ctx.lineWidth = 1;
       vis.forEach(x => [[x.ei, up], [x.xi, down]].forEach(([i, c]) => {
         if (i == null || i < i0 || i > i1) return; const px = Math.round(X(i)) + 0.5; ctx.strokeStyle = c;
-        regions.forEach(rg => { ctx.beginPath(); ctx.moveTo(px, rg.y + 1); ctx.lineTo(px, rg.y + rg.h - 1); ctx.stroke(); });
+        regions.forEach(rg => { if (rg.fold) return; ctx.beginPath(); ctx.moveTo(px, rg.y + 1); ctx.lineTo(px, rg.y + rg.h - 1); ctx.stroke(); });
       }));
       ctx.globalAlpha = 1;
     }
     // the trade picked in the list: a band through every pane
     const halfBar = 0.5 * iw / (b - a);
     if (PX.focus && PX.focus.j >= i0 && PX.focus.i <= i1) {
-      const x0 = Math.max(l, X(PX.focus.i) - halfBar), x1 = Math.min(l + iw, X(PX.focus.j) + halfBar);
+      const x0 = Math.max(l, X(PX.focus.i) - halfBar), x1 = Math.min(l + iw, X(Math.min(PX.focus.j, i1)) + halfBar);
       ctx.fillStyle = css('--s4'); ctx.globalAlpha = 0.14;
-      regions.concat(strip ? [strip] : []).forEach(rg => ctx.fillRect(x0, rg.y + 1, Math.max(1, x1 - x0), rg.h - 2));
+      regions.concat(strip ? [strip] : []).forEach(rg => { if (!rg.fold) ctx.fillRect(x0, rg.y + 1, Math.max(1, x1 - x0), rg.h - 2); });
       ctx.globalAlpha = 1;
     }
-    // price: candles when there is room, else a close line reduced to min/max per pixel column
+    // price: candles when there is room, else OHLC sticks / a high-low envelope; or a close line
     clip(rp);
     const Yp = scales[0].Y;
-    if (bpp <= 0.34) {
+    if (PX.style === 'line') {
+      strokeSeries(ctx, P.c, i0, i1, X, Yp, bpp, css('--s1'), 1.6);
+    } else if (bpp <= 0.34) {
       const cw = Math.max(1, 0.62 / bpp), wick = { true: new Path2D(), false: new Path2D() }, body = { true: new Path2D(), false: new Path2D() };
       for (let i = i0; i <= i1; i++) {
         const o = P.o[i], c = P.c[i]; if (!isNum(c)) continue;
@@ -896,7 +1034,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       flush(); ctx.stroke(); ctx.globalAlpha = 1;
       strokeSeries(ctx, P.c, i0, i1, X, Yp, bpp, css('--text-2'), 1.4);
     }
-    PX.series.forEach(s => { if (s.pane === -1) strokeSeries(ctx, s.values, i0, i1, X, Yp, bpp, s.color, 1.6); });
+    PX.series.forEach(s => { if (s.pane === -1) strokeSeries(ctx, s.values, i0, i1, X, Yp, bpp, s.color, 1.6, s.step); });
     // each trade's stop (red), trailing stop (orange) and target (green) over its duration: levels from the engine
     // at the entry; the trailing stop steps with the best price since the entry, as the engine moves it
     if (!dense) {
@@ -904,7 +1042,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ctx.setLineDash([4, 3]); ctx.lineWidth = 1.3;
       vis.forEach(x => {
         const tr = x.tr; if (x.ei == null) return;
-        const xi = x.xi == null ? i1 : x.xi, xa = X(x.ei) - halfBar, xb = X(xi) + halfBar;
+        const xi = x.xi == null || x.xi > lim ? i1 : x.xi, xa = X(x.ei) - halfBar, xb = X(xi) + halfBar;
         [[tr.stop_level, down], [tr.target_level, up]].forEach(([v, c]) => {
           if (!isNum(v)) return; ctx.strokeStyle = c; ctx.beginPath(); ctx.moveTo(xa, Yp(v)); ctx.lineTo(xb, Yp(v)); ctx.stroke(); });
         if (!isNum(tr.trail_level)) return;
@@ -921,23 +1059,26 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       });
       ctx.setLineDash([]);
     }
+    const closed = x => x.xi != null && x.xi <= lim;   // exited, as far as replay has revealed
     // trade markers and entry→exit connectors
     const ms = dense ? 3 : 6;
     if (!dense) {  // entry→exit connectors, green for winners and red for losers
       ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
       [[true, up], [false, down]].forEach(([win, c]) => {
         ctx.strokeStyle = c; ctx.beginPath();
-        vis.forEach(x => { const tr = x.tr; if ((tr.pnl > 0) !== win || x.ei == null || x.xi == null || !isNum(tr.entry_price) || !isNum(tr.exit_price)) return; ctx.moveTo(X(x.ei), Yp(tr.entry_price)); ctx.lineTo(X(x.xi), Yp(tr.exit_price)); });
+        vis.forEach(x => { const tr = x.tr; if ((tr.pnl > 0) !== win || !closed(x) || !isNum(tr.entry_price) || !isNum(tr.exit_price)) return; ctx.moveTo(X(x.ei), Yp(tr.entry_price)); ctx.lineTo(X(x.xi), Yp(tr.exit_price)); });
         ctx.stroke();
       });
       ctx.setLineDash([]);
     }
     // markers: one path per colour, filled once
     const tri = { true: new Path2D(), false: new Path2D() };
+    let shown = 0;
     vis.forEach(x => {
       const tr = x.tr, isLong = tr.side === 'long';
-      [[x.ei, tr.entry_price, true], [x.xi, tr.exit_price, false]].forEach(([i, price, entry]) => {
+      [[x.ei, tr.entry_price, true], [closed(x) ? x.xi : null, tr.exit_price, false]].forEach(([i, price, entry]) => {
         if (i == null || i < i0 || i > i1 || !isNum(price)) return;
+        shown++;
         const pointsUp = entry ? isLong : !isLong, cx = X(i), cy = pointsUp ? Yp(price) + ms + 4 : Yp(price) - ms - 4, pth = tri[entry];
         if (pointsUp) { pth.moveTo(cx, cy - ms); pth.lineTo(cx - ms, cy + ms); pth.lineTo(cx + ms, cy + ms); }
         else { pth.moveTo(cx, cy + ms); pth.lineTo(cx - ms, cy - ms); pth.lineTo(cx + ms, cy - ms); }
@@ -949,35 +1090,45 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ctx.fillStyle = c; ctx.fill(pth);
     });
     ctx.restore();
-    // oscillator series
+    // replay: the hidden future is shaded
+    if (PX.replay != null && lim < iw1) {
+      const xr = X(lim) + halfBar;
+      ctx.fillStyle = css('--surface-2'); ctx.globalAlpha = 0.6;
+      regions.concat(strip ? [strip] : []).forEach(rg => ctx.fillRect(xr, rg.y + 1, l + iw - 1 - xr, rg.h - 2));
+      ctx.globalAlpha = 1; ctx.strokeStyle = css('--s4'); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(Math.round(xr) + 0.5, top); ctx.lineTo(Math.round(xr) + 0.5, bottom); ctx.stroke();
+    }
+    // pane series
     panes.forEach((pn, k) => {
       const rg = regions[k + 1], Y = scales[k + 1].Y;
-      clip(rg);
-      PX.series.forEach(s => {
-        if (s.pane !== k) return;
-        if (s.hist) {
-          const y0 = Y(0), bw = Math.max(1, 0.62 / bpp), pos = new Path2D(), neg = new Path2D();
-          let col = -1, best = null;
-          const bar = (x, v) => { const y = Y(v); (v >= 0 ? pos : neg).rect(x - bw / 2, Math.min(y, y0), bw, Math.max(1, Math.abs(y - y0))); };
-          if (bpp <= 1) { for (let i = i0; i <= i1; i++) if (isNum(s.values[i])) bar(X(i), s.values[i]); }
-          else {
-            for (let i = i0; i <= i1; i++) { const c = Math.floor(X(i)), v = s.values[i]; if (c !== col) { if (best != null) bar(col + 0.5, best); col = c; best = null; } if (isNum(v) && (best == null || Math.abs(v) > Math.abs(best))) best = v; }
-            if (best != null) bar(col + 0.5, best);
-          }
-          ctx.globalAlpha = 0.55; ctx.fillStyle = up; ctx.fill(pos); ctx.fillStyle = down; ctx.fill(neg); ctx.globalAlpha = 1;
-        } else strokeSeries(ctx, s.values, i0, i1, X, Y, bpp, s.color, 1.4);
-      });
-      // the rule's thresholds, on top so they stay visible over a dense trace
-      ctx.setLineDash([5, 4]); ctx.strokeStyle = css('--text'); ctx.globalAlpha = 0.7; ctx.lineWidth = 1;
-      (pn.levels || []).forEach(v => { const y = Math.round(Y(v)) + 0.5; ctx.beginPath(); ctx.moveTo(l, y); ctx.lineTo(l + iw, y); ctx.stroke(); });
-      ctx.setLineDash([]); ctx.globalAlpha = 1;
-      ctx.restore();
-      // pane title on a small plate so the data never hides it
+      if (!rg.fold) {
+        clip(rg);
+        PX.series.forEach(s => {
+          if (s.pane !== k) return;
+          if (s.hist) {
+            const y0 = Y(0), bw = Math.max(1, 0.62 / bpp), pos = new Path2D(), neg = new Path2D();
+            let col = -1, best = null;
+            const bar = (x, v) => { const y = Y(v); (v >= 0 ? pos : neg).rect(x - bw / 2, Math.min(y, y0), bw, Math.max(1, Math.abs(y - y0))); };
+            if (bpp <= 1) { for (let i = i0; i <= i1; i++) if (isNum(s.values[i])) bar(X(i), s.values[i]); }
+            else {
+              for (let i = i0; i <= i1; i++) { const c = Math.floor(X(i)), v = s.values[i]; if (c !== col) { if (best != null) bar(col + 0.5, best); col = c; best = null; } if (isNum(v) && (best == null || Math.abs(v) > Math.abs(best))) best = v; }
+              if (best != null) bar(col + 0.5, best);
+            }
+            ctx.globalAlpha = 0.55; ctx.fillStyle = up; ctx.fill(pos); ctx.fillStyle = down; ctx.fill(neg); ctx.globalAlpha = 1;
+          } else strokeSeries(ctx, s.values, i0, i1, X, Y, bpp, s.color, 1.4, s.step);
+        });
+        // the rule's thresholds, on top so they stay visible over a dense trace
+        ctx.setLineDash([5, 4]); ctx.strokeStyle = css('--text'); ctx.globalAlpha = 0.7; ctx.lineWidth = 1;
+        (pn.levels || []).forEach(v => { const y = Math.round(Y(v)) + 0.5; ctx.beginPath(); ctx.moveTo(l, y); ctx.lineTo(l + iw, y); ctx.stroke(); });
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+        ctx.restore();
+      }
+      // pane title on a small plate so the data never hides it; click it to fold / unfold the pane
       ctx.font = '600 11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-      const tw = ctx.measureText(pn.name).width + 10;
+      const title = (rg.fold ? '▸ ' : '▾ ') + pn.name, tw = ctx.measureText(title).width + 10;
       ctx.fillStyle = css('--surface'); ctx.globalAlpha = 0.85; ctx.fillRect(l + 2, rg.y + 2, tw, 16); ctx.globalAlpha = 1;
-      ctx.fillStyle = css('--text-2'); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(pn.name, l + 7, rg.y + 10);
-      ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+      ctx.fillStyle = css('--text-2'); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(title, l + 7, rg.y + 10);
+      PX.geo.plates[k + 1] = { x: l + 2, y: rg.y + 2, w: tw, h: 16 };
+      ctx.font = FONT;
     });
     // rule state: on which bars the entry rule (top row) and the exit rule (bottom row) were true
     if (strip) {
@@ -994,17 +1145,21 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ctx.font = '600 10.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = css('--text-2');
       ctx.fillText('entry', l - 6, strip.y + 2 + rowH / 2);
       ctx.fillText(P.rs_exit ? 'exit' : '', l - 6, strip.y + 4 + rowH * 1.5);
-      ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+      ctx.font = FONT;
     }
     PX.drawMs = performance.now() - tStart;
-    pxBase.dataset.drawMs = PX.drawMs.toFixed(1);  // exposed for performance checks
+    const ds = pxBase.dataset;   // exposed for performance checks and tests
+    ds.drawMs = PX.drawMs.toFixed(1); ds.panes = panes.length; ds.folded = regions.filter(r => r.fold).length;
+    ds.lastBar = i1; ds.markers = shown; ds.style = PX.style; ds.log = PX.log && !!scales[0].log; ds.height = H;
+    ds.regions = JSON.stringify(regions.map(r => [Math.round(r.y), Math.round(r.h)])); ds.plot = JSON.stringify([l, iw]);
   }
   // One path through the visible values; with more bars than pixels, each pixel column contributes its
-  // minimum and maximum (in time order), so spikes survive decimation.
-  function strokeSeries(ctx, vals, i0, i1, X, Y, bpp, colr, w) {
+  // minimum and maximum (in time order), so spikes survive decimation. `step` draws a staircase (weekly and
+  // monthly values held until the next period closes).
+  function strokeSeries(ctx, vals, i0, i1, X, Y, bpp, colr, w, step) {
     ctx.strokeStyle = colr; ctx.lineWidth = w; ctx.lineJoin = 'round'; ctx.beginPath();
-    let pen = false;
-    const pt = i => { const x = X(i), y = Y(vals[i]); if (pen) ctx.lineTo(x, y); else ctx.moveTo(x, y); pen = true; };
+    let pen = false, py = 0;
+    const pt = i => { const x = X(i), y = Y(vals[i]); if (pen) { if (step && y !== py) ctx.lineTo(x, py); ctx.lineTo(x, y); } else ctx.moveTo(x, y); pen = true; py = y; };
     if (bpp <= 1) { for (let i = i0; i <= i1; i++) { if (isNum(vals[i])) pt(i); else pen = false; } }
     else {
       // One pixel-aligned rectangle per pixel column spanning that column's min..max (widened to meet the
@@ -1031,44 +1186,69 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     }
     ctx.stroke();
   }
+  function pxDrawings(ctx) {
+    const g = PX.geo, rp = g.regions[0], Y = g.scales[0].Y, ds = drawings().slice();
+    if (PX.pending) ds.push(PX.pending);
+    if (!ds.length) return;
+    ctx.save(); ctx.beginPath(); ctx.rect(g.l + 1, rp.y + 1, g.iw - 2, rp.h - 2); ctx.clip();
+    ds.forEach((d, j) => {
+      const on = j === PX.sel || d === PX.pending;
+      ctx.strokeStyle = on ? css('--s1') : css('--s7'); ctx.lineWidth = on ? 2.2 : 1.5; ctx.setLineDash([]);
+      ctx.beginPath();
+      if (d.t === 'h') {
+        const y = Math.round(Y(d.v)) + 0.5; ctx.moveTo(g.l, y); ctx.lineTo(g.l + g.iw, y); ctx.stroke();
+        ctx.font = FONT; const lab = num(d.v, 2), tw = ctx.measureText(lab).width + 8;
+        ctx.fillStyle = ctx.strokeStyle; ctx.fillRect(g.l + g.iw - tw - 2, y - 8, tw, 16);
+        ctx.fillStyle = css('--surface'); ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(lab, g.l + g.iw - 6, y);
+      } else {
+        const x1 = g.X(d.i1), y1 = Y(d.v1), x2 = g.X(d.i2), y2 = Y(d.v2);
+        ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        if (on) [[x1, y1], [x2, y2]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fillStyle = css('--surface'); ctx.fill(); ctx.stroke(); });
+      }
+    });
+    ctx.restore();
+  }
   function pxOverlay() {
     const g = PX.geo, P = PX.P; if (!g || !P) return;
     const dpr = window.devicePixelRatio || 1, ctx = pxTop.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, g.W, g.H);
+    pxDrawings(ctx);
     const p = PX.hover;
-    if (!p || PX.drag && PX.drag.moved || p.x < g.l || p.x > g.l + g.iw || p.y < g.regions[0].y || p.y > g.bottom) { pxTip.hide(); return; }
-    const rsRow = g.strip && p.y >= g.strip.y ? P.rs.charCodeAt(Math.max(g.i0, Math.min(g.i1, Math.floor(PX.a + (p.x - g.l) / g.iw * (PX.b - PX.a))))) - 48 : null;
+    if (!p || PX.drag && PX.drag.moved || PX.resize || p.x < g.l || p.x > g.l + g.iw || p.y < g.regions[0].y || p.y > g.bottom || g.i1 < g.i0) { pxTip.hide(); pxLegendVals(Math.max(0, g.i1)); return; }
     let i = Math.floor(PX.a + (p.x - g.l) / g.iw * (PX.b - PX.a)); i = Math.max(g.i0, Math.min(g.i1, i));
+    const rsRow = g.strip && p.y >= g.strip.y ? P.rs.charCodeAt(i) - 48 : null;
+    pxLegendVals(i);
     const x = Math.round(g.X(i)) + 0.5;
     ctx.strokeStyle = css('--text-3'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-    g.regions.concat(g.strip ? [g.strip] : []).forEach(rg => { ctx.beginPath(); ctx.moveTo(x, rg.y); ctx.lineTo(x, rg.y + rg.h); ctx.stroke(); });
+    g.regions.concat(g.strip ? [g.strip] : []).forEach(rg => { if (rg.fold) return; ctx.beginPath(); ctx.moveTo(x, rg.y); ctx.lineTo(x, rg.y + rg.h); ctx.stroke(); });
     const k = g.regions.findIndex(rg => p.y >= rg.y && p.y <= rg.y + rg.h);
-    if (k >= 0) {
-      const rg = g.regions[k], sc = g.scales[k], y = Math.round(p.y) + 0.5;
+    if (k >= 0 && !g.regions[k].fold) {
+      const sc = g.scales[k], y = Math.round(p.y) + 0.5;
       ctx.beginPath(); ctx.moveTo(g.l, y); ctx.lineTo(g.l + g.iw, y); ctx.stroke();
       const v = sc.inv(p.y);
       const lab = Math.abs(v) >= 1000 ? compact(v) : v.toFixed(2);
-      ctx.setLineDash([]); ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+      ctx.setLineDash([]); ctx.font = FONT;
       const tw = ctx.measureText(lab).width + 8;
       ctx.fillStyle = css('--text'); ctx.fillRect(g.l - tw - 2, y - 8, tw, 16);
       ctx.fillStyle = css('--surface'); ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(lab, g.l - 6, y);
     }
     ctx.setLineDash([]);
     { // the date under the crosshair, on the time axis
-      ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+      ctx.font = FONT;
       const lab = P.dates[i], tw = ctx.measureText(lab).width + 10, cx = Math.min(Math.max(x, g.l + tw / 2), g.l + g.iw - tw / 2);
       ctx.fillStyle = css('--text'); ctx.fillRect(cx - tw / 2, g.bottom + 3, tw, 17);
       ctx.fillStyle = css('--surface'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(lab, cx, g.bottom + 11.5);
     }
     // dots on each series at the hovered bar
-    PX.series.forEach(s => { const v = s.values[i]; if (!isNum(v) || s.hist) return; const Y = g.scales[s.pane + 1].Y; ctx.beginPath(); ctx.arc(g.X(i), Y(v), 3.5, 0, Math.PI * 2); ctx.fillStyle = s.color; ctx.fill(); ctx.strokeStyle = css('--surface'); ctx.lineWidth = 1.5; ctx.stroke(); });
+    PX.series.forEach(s => { const v = s.values[i]; if (!isNum(v) || s.hist || (s.pane >= 0 && g.regions[s.pane + 1].fold)) return; const Y = g.scales[s.pane + 1].Y; ctx.beginPath(); ctx.arc(g.X(i), Y(v), 3.5, 0, Math.PI * 2); ctx.fillStyle = s.color; ctx.fill(); ctx.strokeStyle = css('--surface'); ctx.lineWidth = 1.5; ctx.stroke(); });
+    if (PX.tool !== 'cursor' || PX.pending) { pxTip.hide(); return; }   // drawing: the legend has the values, no tooltip in the way
     const f2 = v => num(v, 2), none = 'transparent';
     const chg = i > 0 && isNum(P.c[i - 1]) ? P.c[i] / P.c[i - 1] - 1 : null;
     const rows = [
       { name: 'open', value: f2(P.o[i]), color: none }, { name: 'high', value: f2(P.h[i]), color: none },
       { name: 'low', value: f2(P.l[i]), color: none }, { name: 'close' + (isNum(chg) ? ` (${chg >= 0 ? '+' : ''}${(chg * 100).toFixed(2)}%)` : ''), value: f2(P.c[i]), color: none },
     ];
-    PX.series.forEach(s => rows.push({ name: s.name, value: isNum(s.values[i]) ? num(s.values[i], Math.abs(s.values[i]) < 10 ? 3 : 2) : '—', color: s.color }));
+    PX.series.forEach(s => rows.push({ name: s.name, value: fmtV(s.values[i]), color: s.color }));
     if (typeof P.rs === 'string' && P.rs.length === P.dates.length) {
       const c = P.rs.charCodeAt(i) - 48;
       rows.push({ name: 'entry rule' + (P.rs_exit ? ' / exit rule' : ''), value: (c & 1 ? 'true' : 'false') + (P.rs_exit ? ' / ' + (c & 2 ? 'true' : 'false') : ''), color: rsRow != null ? css('--s4') : none });
@@ -1081,11 +1261,58 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const bb = pxTop.getBoundingClientRect(), s = bb.width / g.W;
     pxTip.show(g.X(i) * s, Math.max(0, p.y * s - 60), P.dates[i], rows);
   }
+  // ---- bar replay: step through time revealing bars and trades
+  function rpUi() {
+    const on = PX.replay != null;
+    $('pxReplayBar').classList.toggle('hide', !on); $('pxReplay').classList.toggle('on', on);
+    $('rpPlay').textContent = PX.timer ? '❚❚ Pause' : '▶ Play';
+    if (on && PX.P) {
+      const n = PX.P.dates.length, k = PX.replay, seen = PX.trades.filter(x => x.ei != null && x.ei <= k).length;
+      $('rpDate').textContent = `${PX.P.dates[k]} · bar ${k + 1} of ${n} · ${seen} trade${seen === 1 ? '' : 's'} so far`;
+    }
+  }
+  function rpGo(k, keepView) {
+    if (!PX.P || PX.replay == null) return;
+    const n = PX.P.dates.length; k = Math.max(0, Math.min(n - 1, k)); PX.replay = k;
+    if (k >= n - 1 && PX.timer) rpPause();
+    const w = PX.b - PX.a;
+    if (!keepView && (k + 1 > PX.b - Math.max(1, w * 0.05) || k < PX.a)) pxSetWindow(k + 1 + w * 0.15 - w, k + 1 + w * 0.15);   // follow the revealed bar
+    else pxSetWindow(PX.a, PX.b);
+    rpUi(); pxSchedule(null);
+  }
+  function rpStart() {
+    if (!PX.P) return;
+    const n = PX.P.dates.length;
+    PX.replay = Math.max(0, Math.min(n - 1, Math.floor(PX.a + (PX.b - PX.a) * 0.35)));   // click the chart to start elsewhere
+    rpGo(PX.replay, true);
+  }
+  function rpPause() { clearInterval(PX.timer); PX.timer = 0; rpUi(); }
+  function rpPlay() {
+    if (PX.timer) return rpPause();
+    if (PX.replay == null) rpStart();
+    if (PX.replay >= PX.P.dates.length - 1) return;
+    PX.timer = setInterval(() => rpGo(PX.replay + 1), 1000 / PX.speed); rpUi();
+  }
+  function rpStop(quiet) { clearInterval(PX.timer); PX.timer = 0; PX.replay = null; if (!quiet) { pxSetWindow(PX.a, PX.b); pxSchedule(null); } if ($('pxReplayBar')) rpUi(); }
+  $('pxReplay').addEventListener('click', () => { if (PX.replay == null) rpStart(); else rpStop(); });
+  $('rpPlay').addEventListener('click', rpPlay);
+  $('rpStep').addEventListener('click', () => { rpPause(); rpGo(PX.replay + 1); });
+  $('rpBack').addEventListener('click', () => { rpPause(); rpGo(PX.replay - 1); });
+  $('rpExit').addEventListener('click', () => rpStop());
+  $('rpSpeed').addEventListener('change', e => { PX.speed = +e.target.value || 5; if (PX.timer) { rpPause(); rpPlay(); } });
+  // ---- toolbar
   $('pxTicker').addEventListener('change', () => { PX.key = null; PX.focus = null; renderPrice(); });
   $('pxScale').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || !PX.P) return; PX.log = b.dataset.v === 'log'; [...$('pxScale').children].forEach(x => x.classList.toggle('on', x === b)); pxSchedule(null); });
-  $('pxRange').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || !PX.P) return; pxRange = +b.dataset.v; [...$('pxRange').children].forEach(x => x.classList.toggle('on', x === b)); pxRangeWindow(); pxSchedule(null); });
+  $('pxStyle').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || !PX.P) return; PX.style = b.dataset.v; [...$('pxStyle').children].forEach(x => x.classList.toggle('on', x === b)); pxSchedule(null); });
+  $('pxRange').addEventListener('click', e => { const b = e.target.closest('button'); if (!b || !PX.P) return; pxRange = +b.dataset.v; [...$('pxRange').children].forEach(x => x.classList.toggle('on', x === b)); if (PX.replay != null) PX.b = Math.min(PX.P.dates.length, PX.replay + 1 + Math.round((pxRange || PX.P.dates.length) * 0.15)); pxRangeWindow(); pxSchedule(null); });
   $('pxPrev').addEventListener('click', () => { if (!PX.P) return; const w = PX.b - PX.a; pxSetWindow(PX.a - w * 0.8, PX.b - w * 0.8); pxSchedule(null); });
   $('pxNext').addEventListener('click', () => { if (!PX.P) return; const w = PX.b - PX.a; pxSetWindow(PX.a + w * 0.8, PX.b + w * 0.8); pxSchedule(null); });
+  $('pxTools').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b || !PX.P) return;
+    if (b.id === 'pxDel') { if (PX.sel != null) { drawings().splice(PX.sel, 1); PX.sel = null; saveDrawings(); pxSchedule(null, true); } else setTool(PX.tool === 'erase' ? 'cursor' : 'erase'); return; }
+    if (b.id === 'pxClear') { drawings().length = 0; PX.sel = null; saveDrawings(); setTool('cursor'); pxSchedule(null, true); return; }
+    setTool(PX.tool === b.dataset.v ? 'cursor' : b.dataset.v); pxTop.focus({ preventScroll: true });
+  });
 
   // ---------- allocation over time (stacked area)
   function drawAlloc() {
