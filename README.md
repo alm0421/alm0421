@@ -61,7 +61,24 @@ hold the top 2 of QQQ, SPY, TLT and GLD by 3 month return, only if their 3 month
 rotate monthly between QQQ, SPY and TLT by 3 month return
 dual momentum between SPY and EFA with AGG as the safe asset
 hold the top 3 sector ETFs by 6 month momentum
+if the 10 day RSI of QQQ is greater than 79 then buy UVXY else buy TQQQ
+if QQQ 10 day RSI is greater than SPY 10 day RSI then hold QQQ else hold SPY
+if SPY is above its 200 day moving average then (if TQQQ RSI(10) is above 79 then hold UVXY else hold TQQQ) else (if SPY RSI(10) is below 30 then hold TECL else hold BIL)
+if TQQQ 6 day cumulative return is less than -12% then hold TECL else hold the top 2 of TQQQ, SOXL and TECL by 10 day cumulative return, inverse volatility weighted
+hold 50% QQQ and 50% (if SPY is above its 200 day moving average then TLT else GLD)
+risk parity SPY, TLT, GLD and DBC over 90 days          minimum variance weighted SPY, TLT and GLD using a 60 day lookback
+hold 60% SPY and 40% TLT with 2x leverage and a 0.5% expense ratio       hold 120% SPY and -20% TLT
+hold 60% SPYSIM and 40% TLTSIM, rebalance yearly, since 1972
+add $1,000 a month for 20 years, then withdraw $50,000 a year, hold 60% VTI and 40% BND
+hold 70% QQQ and 30% TLT, rebalance quarterly or when any weight drifts more than 5%
 ```
+
+Portfolios with if-conditions are checked **every day** by default (as in Composer); pure weight and
+top-N trees rebalance monthly unless you say otherwise. Filters and weightings can also rank or
+weight whole groups: in a JSON spec or the Build editor, any node can sit inside a filter, and it is
+measured on its own simulated value over time. **Composer symphonies** can be imported directly:
+`python -m backtester import-composer symphony.json --run`, or "Import Composer symphony" on the
+Build page.
 
 **Vocabulary** (numbers can be words):
 
@@ -79,7 +96,11 @@ hold the top 3 sector ETFs by 6 month momentum
 | Sizing | max N positions, X% per position, risk X% per trade, target X% volatility, $X or N shares per trade, 2x leverage |
 | Costs | bps or % slippage, volume-based slippage / market impact, $ per trade, $ per share, % commission, IBKR commissions (fixed or tiered), borrow fee, margin rate, short rebate X% below T-bills, 30% maintenance margin / no margin calls, cap at X% of volume |
 | Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, top/bottom N by momentum/RSI/volatility, rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
-| Other | starting with $X, since/from/until YEAR, vs TICKER, cash earns nothing, using today's members only |
+| Higher timeframes | the weekly RSI is above 50, weekly RSI(14), the monthly 10 SMA, weekly 20 EMA (computed on completed weeks/months only) |
+| More signals | ROC(10) above 5 / rate of change, %K crosses above %D, MACD histogram turns negative, yesterday's high, not on Fridays, except in October, buy stop 1% above the close / at yesterday's high |
+| Portfolio conditions | any indicator phrase compared with a number or another ticker's indicator: "TQQQ 6 day cumulative return is less than -12%", "the 10 day max drawdown of TQQQ is above 20%", "SPY 10 day standard deviation of return is above 2%", "QQQ's 3 month return beats TLT's" (total returns) |
+| Schedules and flows | semi-annually, relative bands ("drifts 25% relative to its target"), schedule + band, contributions/withdrawals for N years / starting in YEAR / from year N, growing X% a year |
+| Other | starting with $X, since/from/until YEAR, vs TICKER (incl. SPYSIM), versus T-bills, cash earns nothing, using today's members only |
 
 Anything else can be written in the **rule language** inside backticks
 (`` `zscore(close, 20) < -2` ``). See `python -m backtester --help-expr` for about 60 functions and
@@ -215,7 +236,7 @@ The **Daily signals** Action then scans the paper-trading strategies (`paper/*.j
 `signals/latest.md`. It also posts to a webhook if you add a repository secret `ALERT_WEBHOOK_URL`
 (for example a Slack or Discord incoming webhook).
 
-### Long-history series (SPYSIM, TLTSIM, IEFSIM, SHYSIM, BILSIM)
+### Long-history series (SPYSIM, TLTSIM, IEFSIM, IEISIM, SHYSIM, BILSIM, VBSIM, VBRSIM, VTVSIM, VUGSIM, EFASIM, GLDSIM)
 
 The data job also builds simulated total-return indexes that extend funds back before they
 existed, then continue with the real fund's total return:
@@ -227,6 +248,13 @@ existed, then continue with the real fund's total return:
 | IEFSIM | ~9-year Treasuries from the 10-year yield | IEF |
 | SHYSIM | 2-year Treasuries from the 2-year yield | SHY |
 | BILSIM | 1-month T-bills (Fama-French RF) | BIL |
+| IEISIM | 5-year Treasuries from the 5-year yield (from 1962) | IEI |
+| VBSIM | US small caps (Fama-French small portfolios, from 1926) | VB |
+| VBRSIM | US small-cap value (Fama-French small / high book-to-market) | VBR |
+| VTVSIM | US large-cap value (Fama-French big / high book-to-market) | VTV |
+| VUGSIM | US large-cap growth (Fama-French big / low book-to-market) | VUG |
+| EFASIM | Developed markets ex-US (Fama-French, from 1990) | EFA |
+| GLDSIM | Gold (World Bank monthly average price, stepped daily, from 1960) | GLD |
 
 They are total-return indexes: `close` = `adj_close`, no dividends, `volume` 0 and
 open = high = low = close. Use them in the optimiser, Monte Carlo and factor pages (and in JSON
@@ -234,8 +262,9 @@ specs) for many more market regimes than the ETFs alone. Keep in mind:
 - the early parts are models, not tradable funds (no fees, no bid/ask);
 - rules that need intraday prices or volume (gaps, ranges, ATR, volume caps, MFI/VWAP) are
   meaningless on them;
-- plain-English sentences read tickers of up to five letters, so refer to a SIM series with the
-  JSON spec or the tickers-and-weights boxes for now.
+- Fama-French portfolios are gross of costs and GLDSIM moves in monthly steps before 2004;
+- sentences can name them like any ticker ("hold 60% SPYSIM and 40% TLTSIM", "vs SPYSIM"). A
+  portfolio that starts before SPY existed is compared with SPYSIM by default.
 
 ## Monte Carlo
 
