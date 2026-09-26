@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 from functools import lru_cache
 
+import numpy as np
 import pandas as pd
 
 
@@ -83,3 +84,37 @@ def extend(idx: pd.DatetimeIndex, n: int = 70) -> pd.DatetimeIndex:
     if len(idx) == 0:
         return idx
     return idx.append(next_sessions(idx[-1], n))
+
+
+def _holiday_array(start_year: int, end_year: int) -> np.ndarray:
+    return np.array(sorted(d for y in range(start_year, end_year + 1) for d in holidays(y)), dtype="datetime64[D]")
+
+
+def next_scheduled(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """For each date, the next session on the regular NYSE schedule (weekends and holidays skipped).
+
+    Unscheduled closures (9/11, hurricanes, state funerals) are deliberately not known in advance:
+    on 2001-09-10 the next scheduled session was 2001-09-11."""
+    if len(idx) == 0:
+        return idx
+    d = idx.values.astype("datetime64[D]")
+    hol = _holiday_array(int(idx[0].year) - 1, int(idx[-1].year) + 1)
+    nxt = np.busday_offset(d, 1, roll="forward", holidays=hol)
+    return pd.DatetimeIndex(nxt.astype("datetime64[ns]"))
+
+
+def scheduled_period_end(idx: pd.DatetimeIndex, freq: str) -> np.ndarray:
+    """True where the date is the last scheduled session of its week/month/quarter/year."""
+    if len(idx) == 0:
+        return np.zeros(0, bool)
+    return np.asarray(next_scheduled(idx).to_period(freq) != idx.to_period(freq))
+
+
+def scheduled_sessions_left(idx: pd.DatetimeIndex, freq: str = "M") -> np.ndarray:
+    """Scheduled sessions from each date to the end of its period, counting the date itself."""
+    if len(idx) == 0:
+        return np.zeros(0, int)
+    d = idx.values.astype("datetime64[D]")
+    end = (idx.to_period(freq).end_time.normalize() + pd.Timedelta(days=1)).values.astype("datetime64[D]")
+    hol = _holiday_array(int(idx[0].year) - 1, int(idx[-1].year) + 1)
+    return np.busday_count(d, end, holidays=hol)

@@ -138,8 +138,8 @@ class Namespace(dict):
             "market_cap": lambda: self._market_cap(),
             "trading_day_of_month": lambda: pd.Series(idx.to_period("M"), index=idx).groupby(idx.to_period("M")).cumcount() + 1,
             # counted on the NYSE calendar, so the latest bar knows the sessions still to come this month
-            "trading_days_left_in_month": lambda: (lambda ext: pd.Series(1, index=ext).groupby(ext.to_period("M")).transform(
-                lambda s: np.arange(len(s), 0, -1)).reindex(idx))(_cal.extend(idx, 25)),
+            # scheduled NYSE sessions left this month, as known on each day (no hindsight about closures)
+            "trading_days_left_in_month": lambda: pd.Series(_cal.scheduled_sessions_left(idx, "M"), index=idx),
         }
         if key in lazy:
             v = lazy[key]()
@@ -473,12 +473,27 @@ class Namespace(dict):
             return per, last
 
         def _ends(base, freq):
-            """Each complete period's last bar (a period still in progress at the data edge is left out)."""
+            """Each complete period's closing value, indexed by the day it became known: the period's
+            last bar if that was its last scheduled session, otherwise (an unscheduled closure, or a
+            gap in the data) the first bar of the next period. A period still in progress at the data
+            edge is left out."""
+            if not len(base):
+                return base
             per = base.index.to_period(freq)
-            ends = base.groupby(per).tail(1)
-            if len(base) and _cal.next_sessions(base.index[-1])[0].to_period(freq) == per[-1]:
-                ends = ends.iloc[:-1]
-            return ends
+            last_pos = pd.Series(np.arange(len(base)), index=base.index).groupby(per).max().to_numpy()
+            sched = _cal.scheduled_period_end(base.index, freq)
+            vals, when = [], []
+            for p_ in last_pos:
+                if sched[p_]:
+                    k = p_
+                elif p_ + 1 < len(base):
+                    k = p_ + 1
+                else:
+                    continue
+                vals.append(base.iloc[p_])
+                when.append(base.index[k])
+            out = pd.Series(vals, index=pd.DatetimeIndex(when), dtype=float)
+            return out[~out.index.duplicated(keep="last")]
 
         def _periodic_sma(freq, n, x=None):
             base = c if x is None else _s(x, c)
@@ -505,12 +520,9 @@ class Namespace(dict):
             return _ends(base, freq).reindex(base.index).ffill()
 
         def is_period_end(freq):
-            per = c.index.to_period(freq)
-            s = pd.Series(False, index=c.index)
-            s.loc[pd.Series(c.index, index=c.index).groupby(per).max().to_numpy()] = True
-            if len(s) and _cal.next_sessions(c.index[-1])[0].to_period(freq) == per[-1]:
-                s.iloc[-1] = False  # the period is not over yet: more sessions follow on the exchange calendar
-            return s
+            # the last scheduled session of the period, as known that day (on 2001-09-10 the week was
+            # not over: 9/11 was a scheduled session)
+            return pd.Series(_cal.scheduled_period_end(c.index, freq), index=c.index)
 
         def _tf(freq: str, src: str):
             """weekly(expr) / monthly(expr): evaluate `expr` on completed weekly/monthly bars built from
@@ -524,15 +536,23 @@ class Namespace(dict):
                 "adj_close": g["adj_close"].last() if "adj_close" in df else g["close"].last(),
             })
             agg["open_ok"] = True
-            ends = pd.Series(df.index, index=df.index).groupby(per).max()
-            agg.index = pd.DatetimeIndex(ends.reindex(agg.index).to_numpy())
-            if len(df) and _cal.next_sessions(df.index[-1])[0].to_period(freq) == per[-1]:
-                agg = agg.iloc[:-1]  # the period in progress at the data edge is not complete
+            # each period's bar becomes known on its last scheduled session, or - after an
+            # unscheduled closure - on the next bar; the period in progress at the data edge is left out
+            last_pos = pd.Series(np.arange(len(df)), index=df.index).groupby(per).max()
+            sched = _cal.scheduled_period_end(df.index, freq)
+            known = []
+            for p_ in last_pos.reindex(agg.index).to_numpy():
+                p_ = int(p_)
+                known.append(df.index[p_] if sched[p_] else (df.index[p_ + 1] if p_ + 1 < len(df) else pd.NaT))
+            agg.index = pd.DatetimeIndex(known)
+            agg = agg[agg.index.notna()]
+            agg = agg[~agg.index.duplicated(keep="last")]
             val = evaluate_value(src, Namespace(agg, ticker=self.ticker)) if len(agg) else pd.Series(dtype=float)
             return val.reindex(df.index).ffill()
 
         def sym(ticker: str) -> Bars:
-            return Bars(data.load(ticker), df.index)
+            other = _SYM_OVERRIDE.get(data.canonical(ticker))
+            return Bars(other if other is not None else data.load(ticker), df.index)
 
         return {
             "sma": sma, "ma": sma, "ema": ema, "rma": rma, "wma": wma, "highest": highest, "lowest": lowest,
@@ -749,15 +769,19 @@ def open_safe(rule) -> bool:
     """True if `rule` can be evaluated at the bar's open, i.e. uses no data from later in the bar."""
     if callable(rule):
         return bool(getattr(rule, "open_safe", False))
-    def const(node):
-        """Value of a constant-foldable numeric expression (e.g. `1+0`, `-(-5)`), else None."""
-        if any(isinstance(ch, (ast.Name, ast.Attribute, ast.Call, ast.Subscript)) for ch in ast.walk(node)):
-            return None
-        try:
-            v = eval(compile(ast.Expression(node), "<const>", "eval"), {"__builtins__": {}}, {})
-        except Exception:
-            return None
-        return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+    def literal(node):
+        """A plain number literal (optionally negated), else None. Anything computed - `1+0`, `2 and 1`,
+        `~0` - is not accepted: the vectorised runtime may evaluate it differently."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+            return node.value
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+            v = literal(node.operand)
+            return None if v is None else (-v if isinstance(node.op, ast.USub) else v)
+        return None
+
+    def constant_expr(node):
+        """No series inside (only numbers and operators)."""
+        return not any(isinstance(ch, (ast.Name, ast.Attribute, ast.Call, ast.Subscript)) for ch in ast.walk(node))
 
     def ok(node) -> bool:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
@@ -768,12 +792,16 @@ def open_safe(rule) -> bool:
                 n = node.args[1] if len(node.args) > 1 else None
                 if n is None:
                     return True
-                v = const(n)
+                v = literal(n)
                 return v is not None and v >= 1 and float(v).is_integer()
             if f in _ALWAYS_CLOSE:
                 return False
             if f in _DEFAULTS_TO_CLOSE:
-                series_args = [a for a in node.args if const(a) is None]
+                # every argument must be either a plain number (a lookback) or contain a series;
+                # a computed constant like `1+0` is ambiguous at runtime, so the rule is not open-safe
+                if any(constant_expr(a) and literal(a) is None for a in node.args):
+                    return False
+                series_args = [a for a in node.args if literal(a) is None]
                 if not series_args:
                     return False
             if f == "sym":
@@ -786,6 +814,9 @@ def open_safe(rule) -> bool:
         return all(ok(ch) for ch in ast.iter_child_nodes(node))
 
     return ok(ast.parse(rule.strip(), mode="eval"))
+
+
+_SYM_OVERRIDE: dict = {}   # lookahead probe: perturbed copies of other tickers' data
 
 
 def open_time_probe(rule, df: pd.DataFrame, ticker: str | None = None, samples: int = 16) -> str | None:
@@ -803,21 +834,40 @@ def open_time_probe(rule, df: pd.DataFrame, ticker: str | None = None, samples: 
     cand = np.arange(max(30, len(idx) - 2000), len(idx))
     picks = list(rng.choice(pos_true[pos_true >= 30], size=min(samples // 2, int((pos_true >= 30).sum())), replace=False)) if len(pos_true) else []
     picks += list(rng.choice(cand, size=min(samples - len(picks), len(cand)), replace=False))
+    import re as _re
+    others = sorted({data.canonical(t) for t in _re.findall(r"""sym\(\s*["']([^"']+)["']\s*\)""", str(rule))})
+    other_df = {t: data.load(t) for t in others}
+
+    def perturb(frame, day, f):
+        frame = frame.copy()
+        if day not in frame.index:
+            return frame
+        o = float(frame.at[day, "open"])
+        new_c = o * f
+        old_c = float(frame.at[day, "close"])
+        frame.at[day, "close"] = new_c
+        frame.at[day, "high"] = max(o, new_c) * 1.01
+        frame.at[day, "low"] = min(o, new_c) * 0.99
+        frame.at[day, "volume"] = float(frame.at[day, "volume"]) * (3 if f > 1 else 0.3)
+        if "adj_close" in frame:
+            frame.at[day, "adj_close"] = float(frame.at[day, "adj_close"]) * new_c / max(old_c, 1e-12)
+        return frame
+
     for i in sorted(set(int(x) for x in picks)):
         cut = df.iloc[: i + 1]
-        want = bool(evaluate(rule, Namespace(cut, ticker=ticker)).iloc[-1])
-        for f in (1.09, 0.91):
-            pert = cut.copy()
-            o = float(pert["open"].iloc[-1])
-            new_c = o * f
-            j = pert.index[-1]
-            pert.loc[j, "close"] = new_c
-            pert.loc[j, "high"] = max(o, new_c) * 1.01
-            pert.loc[j, "low"] = min(o, new_c) * 0.99
-            pert.loc[j, "volume"] = float(pert["volume"].iloc[-1]) * (3 if f > 1 else 0.3)
-            if "adj_close" in pert:
-                pert.loc[j, "adj_close"] = float(pert["adj_close"].iloc[-1]) * new_c / max(float(cut["close"].iloc[-1]), 1e-12)
-            got = bool(evaluate(rule, Namespace(pert, ticker=ticker)).iloc[-1])
-            if got != want:
-                return f"on {j.date()} the rule's answer changes when that day's close/high/low change"
+        day = cut.index[-1]
+        try:
+            for t, od in other_df.items():
+                _SYM_OVERRIDE[t] = od.loc[:day]
+            want = bool(evaluate(rule, Namespace(cut, ticker=ticker)).iloc[-1])
+            for f in (1.09, 0.91):
+                pert = perturb(cut, day, f)
+                for t, od in other_df.items():
+                    _SYM_OVERRIDE[t] = perturb(od.loc[:day], day, f)
+                got = bool(evaluate(rule, Namespace(pert, ticker=ticker)).iloc[-1])
+                if got != want:
+                    j = day
+                    return f"on {j.date()} the rule's answer changes when that day's close/high/low change"
+        finally:
+            _SYM_OVERRIDE.clear()
     return None

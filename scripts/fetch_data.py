@@ -118,13 +118,17 @@ BTC-USD ETH-USD
 SVIX UVIX SVOL TSLL TSLQ NVDL NVDS BITX CONL MSTU USD HIBL HIBS TARK SARK BSV BIV BLV VCIT VCSH VGLT SPTL SPIB
 SCHP STIP VTIP SPHQ SPLV XLG QQQM SCHG SCHB SCHX SCHA SCHF SCHE VEU IXUS IEMG ACWI VT VSS VBR VBK VOE VOT VNQI
 REET RWR SCHH GDX GDXJ SIL PPLT PALL DBA DBB DBE DBO UNG CORN WEAT BNO COPX TAIL CTA DBMF PFIX RPAR NTSX
-JPM XOM BRK-B JNJ UNH V MA HD PG CVX LLY ABBV MRK KO BAC WFC DIS MCD NKE ORCL CRM IBM GE CAT BA GS MS C T VZ
-PFE TMO DHR ABT NEE DUK SO LMT RTX UPS UNP MMM
 VTSAX VTIAX VBTLX VGSLX VIMAX VSMAX VBIAX VWIAX VFIAX FXAIX FSKAX FTIHX SWPPX VTMGX VEMAX VSIAX VGSTX
 """.split()
 ETFS = list(dict.fromkeys(ETFS))
+# large US stocks outside the Nasdaq-100 (stocks, not ETFs: kept separate so they are never mistaken
+# for funds, e.g. when ETFs are stripped from index membership)
+STOCKS = """
+JPM XOM BRK-B JNJ UNH V MA HD PG CVX LLY ABBV MRK KO BAC WFC DIS MCD NKE ORCL CRM IBM GE CAT BA GS MS C T VZ
+PFE TMO DHR ABT NEE DUK SO LMT RTX UPS UNP MMM
+""".split()
 INDEXES = ["^NDX", "^GSPC", "^VIX", "^IRX", "^TNX", "^DJI", "^RUT", "^SP500TR", "^VIX3M", "^TYX", "^FVX"]
-EXTRA = ETFS + INDEXES
+EXTRA = ETFS + STOCKS + INDEXES
 
 # Symbol changes: membership lists use the old symbol, Yahoo keeps history under the new one.
 # Only renames where Yahoo's history for the new symbol genuinely continues the same company.
@@ -627,6 +631,7 @@ def main() -> None:
         "constituent_source": source,
         "nasdaq100": ndx,
         "etfs": [t for t in ETFS if t in ok],
+        "stocks": [t for t in STOCKS if t in ok],
         "indexes": [t for t in INDEXES if t in ok],
         "benchmarks": ["SPY", "QQQ"],
         "sims": sims,

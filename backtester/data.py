@@ -100,6 +100,8 @@ def sims() -> list[str]:
 
 
 # symbols that show up in old revisions of the Wikipedia article but were never index members
+LARGE_STOCKS = set("""JPM XOM BRK-B JNJ UNH V MA HD PG CVX LLY ABBV MRK KO BAC WFC DIS MCD NKE ORCL CRM IBM GE CAT
+BA GS MS C T VZ PFE TMO DHR ABT NEE DUK SO LMT RTX UPS UNP MMM""".split())
 NOT_MEMBERS = {"NDX", "QQQ", "QQQQ", "TQQQ", "SQQQ", "QLD", "QID", "PSQ", "ONEQ", "NASDAQ", "ETF", "NQ", "ND",
                "NXP"}  # NXP is a Nuveen municipal fund (a typo for NXPI in one stretch of revisions)
 
@@ -187,6 +189,24 @@ def _quality_month(t: str, month_start: pd.Timestamp) -> bool:
     return bool(len(sl)) and sl.mean() >= 0.5
 
 
+def corporate_action_days(ticker: str, threshold: float = 0.15) -> pd.DatetimeIndex:
+    """Days where the quoted price jumps by more than `threshold` and the total-return series does not
+    agree with price + cash dividend - usually a spin-off, special dividend or split that the free data
+    did not fully adjust (e.g. EXPE on 2011-12-21, the TripAdvisor spin-off)."""
+    try:
+        df = load(ticker)
+    except Exception:  # noqa: BLE001 - unknown or synthetic ticker
+        return pd.DatetimeIndex([])
+    if not {"close", "dividend", "adj_close"} <= set(df.columns):
+        return pd.DatetimeIndex([])
+    c, d, a = df["close"], df["dividend"], df["adj_close"]
+    price_tr = (c + d) / c.shift(1) - 1
+    adj_tr = a / a.shift(1) - 1
+    big = price_tr.abs() > threshold
+    mismatch = (price_tr - adj_tr).abs() > 0.05
+    return df.index[(big & mismatch).fillna(False).to_numpy()]
+
+
 def coverage_note(start, end) -> str | None:
     c = coverage(start, end)
     if c.empty:
@@ -196,7 +216,8 @@ def coverage_note(start, end) -> str | None:
     worst = c.loc[c["coverage"].idxmin()]
     note = (f"Survivorship: {got / tot:.0%} of index member-months in this period have usable price data "
             f"(lowest {worst['coverage']:.0%} in {int(worst['year'])}). The rest are mostly companies that were acquired "
-            f"or went bankrupt; free data sources no longer carry them, so results lean optimistic.")
+            f"or went bankrupt; free data sources no longer carry them, so the former members that are included "
+            f"are almost all companies still trading today and results lean optimistic.")
     gaps = [g for g in _membership_gaps(membership())
             if pd.Timestamp(g.split(" .. ")[1]) >= pd.Timestamp(start) and pd.Timestamp(g.split(" .. ")[0]) <= pd.Timestamp(end)]
     if gaps:
@@ -213,7 +234,9 @@ def membership() -> pd.DataFrame | None:
     raw = pd.read_csv(MEMBERSHIP_FILE, dtype=str)
     if raw.empty:
         return None
-    bad = NOT_MEMBERS | set(etfs())
+    # strip funds, never stocks (older universe files listed some large stocks among the ETFs)
+    stocks = set(universe_meta().get("stocks", [])) | LARGE_STOCKS
+    bad = NOT_MEMBERS | (set(etfs()) - stocks)
     rows = {pd.Period(m, "M").to_timestamp(): set(t.split()) - bad for m, t in zip(raw["month"], raw["tickers"])}
     for d, syms in rows.items():
         for old, new in DUPLICATES.items():
@@ -311,6 +334,10 @@ def load(ticker: str) -> pd.DataFrame:
     # for mutual funds, simulated series and very old index data. Such an "open" is really the close.
     flat = (raw["open"] == raw["close"]) & (raw["high"] == raw["low"]) & (raw["high"] == raw["close"])
     df["open_ok"] = (raw["open"] > 0).fillna(False) & ~flat.fillna(False)
+    # old records often carry the previous close as the "open": where that happens on most days of a
+    # rolling quarter, the open was never really quoted
+    stale = (raw["open"] - raw["close"].shift(1)).abs() <= 1e-9 * raw["close"].abs().clip(lower=1)
+    df["open_ok"] &= ~(stale.astype(float).rolling(63, min_periods=20, center=True).mean().fillna(0) > 0.5)
     return df
 
 

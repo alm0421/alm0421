@@ -698,5 +698,16 @@ def run(strat: Strategy) -> Result:
     inm = pd.Series(np.concatenate([[False], in_mkt]), index=idx, name="in_market")
     hw = pd.DataFrame(hold_w, index=cal, columns=tick)
     hw = hw.loc[:, (hw != 0).any()]
+    if tr is not None and len(tr):
+        for t in tr["ticker"].unique():
+            days = data.corporate_action_days(t)
+            if not len(days):
+                continue
+            g = tr[tr["ticker"] == t]
+            hit = [d for d in days if ((pd.to_datetime(g["entry_date"]) < d) & (pd.to_datetime(g["exit_date"]) >= d)).any()]
+            if hit:
+                strat.notes.append(f"Data: {t}'s prices on {', '.join(str(d.date()) for d in hit)} don't reconcile with its "
+                                   "total return (an unadjusted spin-off, split or special dividend); trades held over that "
+                                   "day may be misstated.")
     return Result(strategy=strat, equity=eq, trades=tr, exposure=ex, positions=npo, prices=P["dfs"],
                   holdings=hw, interest=S["interest"], in_market=inm)

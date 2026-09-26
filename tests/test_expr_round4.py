@@ -55,3 +55,52 @@ def test_weekly_function_matches_dedicated_weekly_rsi():
 
 def test_weekly_is_not_open_safe():
     assert not expr.open_safe("open > weekly(close)")
+
+
+HAVE = bool(data.available_tickers())
+needs_data = pytest.mark.skipif(not HAVE, reason="price data not downloaded")
+
+
+@pytest.mark.parametrize("rule", ['ref(sym("SPY").close, 2 and 1) > sym("SPY").open * 1.003', "ref(close, 2 and 1) > open",
+                                  "open < sma(1+0)", "open < ref(close, 3 - 2 - 1 + 1 and 1)", "open > ref(close, ~-2)"])
+def test_open_guard_rejects_computed_offsets(rule):
+    assert not expr.open_safe(rule)
+
+
+@needs_data
+def test_probe_perturbs_other_tickers():
+    df = data.load("QQQ")
+    assert expr.open_time_probe('sym("SPY").close > sym("SPY").open', df, "QQQ") is not None
+    assert expr.open_time_probe('sym("SPY").open > ref(sym("SPY").close, 1)', df, "QQQ") is None
+
+
+@needs_data
+@pytest.mark.parametrize("rule", ["is_week_end()", "weekly(close) > ref(weekly(close), 1)", "weekly_rsi(14) > 50",
+                                  "close > weekly_sma(10)", "trading_days_left_in_month <= 1", "is_month_end()"])
+def test_period_ends_have_no_hindsight_about_unscheduled_closures(rule):
+    df = data.load("SPY")
+    full = expr.evaluate(rule, expr.Namespace(df))
+    for cut in ("2001-09-10", "2012-10-26", "2018-12-04"):
+        part = expr.evaluate(rule, expr.Namespace(df.loc[:cut]))
+        assert (full.reindex(part.index) == part).all(), cut
+    assert not bool(full.loc["2001-09-10"]) if rule == "is_week_end()" else True
+
+
+@needs_data
+def test_large_stocks_are_not_stripped_from_membership_as_etfs():
+    m = data.membership()
+    assert "ORCL" in m.columns and m["ORCL"].sum() > 100
+    for etf in ("TQQQ", "SQQQ", "QQQ"):
+        assert etf not in m.columns
+
+
+@needs_data
+def test_stale_opens_are_flagged():
+    assert not data.load("^GSPC").loc["1990"]["open_ok"].any()
+    assert data.load("SPY").loc["2010":]["open_ok"].all()
+
+
+@needs_data
+def test_unadjusted_corporate_actions_are_flagged():
+    assert pd.Timestamp("2011-12-21") in data.corporate_action_days("EXPE")
+    assert len(data.corporate_action_days("SPY")) == 0
