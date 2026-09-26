@@ -1,0 +1,6 @@
+pandas>=2.2
+numpy>=1.26
+yfinance>=0.2.40   # only needed to download data
+requests
+lxml
+pytest

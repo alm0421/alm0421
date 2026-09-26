@@ -1,0 +1,251 @@
+{
+  "description": "buy at the close Microsoft when it trades down 5 days in a row, hold for 1 day, and sell at the close",
+  "interpretation": "Buy MSFT at the close of the signal day when: (down_days >= 5)\nExit: after 1 bar(s) at the close\nSizing: $10,000 start, up to 1 position(s) at 100% of equity each\nCosts: none",
+  "strategy": {
+    "universe": [
+      "MSFT"
+    ],
+    "entry": "(down_days >= 5)",
+    "side": "long",
+    "entry_fill": "close",
+    "hold_bars": 1,
+    "hold_exit_fill": "close",
+    "exit_when": null,
+    "exit_when_fill": "close",
+    "stop_loss": null,
+    "take_profit": null,
+    "trailing_stop": null,
+    "capital": 10000.0,
+    "max_positions": 1,
+    "position_size": 1.0,
+    "leverage": 1.0,
+    "rank_by": null,
+    "rank_ascending": false,
+    "fractional_shares": true,
+    "commission": 0.0,
+    "commission_per_share": 0.0,
+    "slippage_bps": 0.0,
+    "start": null,
+    "end": null,
+    "name": "",
+    "description": "buy at the close Microsoft when it trades down 5 days in a row, hold for 1 day, and sell at the close",
+    "notes": [
+      "'N days in a row' also fires on later days of a longer streak (6th, 7th...); say 'exactly N days' to fire only on the Nth."
+    ]
+  },
+  "stats": {
+    "start": "1986-03-13",
+    "end": "2026-09-25",
+    "years": 40.53661875427789,
+    "start_equity": 10000.0,
+    "end_equity": 38088.5370979025,
+    "total_return": 2.80885370979025,
+    "cagr": 0.03354084700209414,
+    "volatility": 0.058985057142931764,
+    "sharpe": 0.5877359553073938,
+    "sortino": 1.4049578847529103,
+    "max_drawdown": -0.1194446030707107,
+    "max_dd_peak": "2008-10-13",
+    "max_dd_trough": "2011-11-25",
+    "max_dd_recovery": "2015-08-26",
+    "longest_underwater_days": 2371,
+    "calmar": 0.28080671825949394,
+    "ulcer_index": 3.1378097903533417,
+    "best_day": 0.18604636154779408,
+    "worst_day": -0.07391531318240963,
+    "pct_positive_days": 0.01126126126126126
+  },
+  "trade_stats": {
+    "trades": 191,
+    "trades_per_year": 4.711789139538025,
+    "win_rate": 0.6020942408376964,
+    "avg_return": 0.00735531306690517,
+    "median_return": 0.005715215269493545,
+    "avg_win": 0.020666574404639055,
+    "avg_loss": -0.012786727115192149,
+    "payoff_ratio": 1.6162520884710767,
+    "profit_factor": 2.3519223074703515,
+    "expectancy_usd": 147.06040365393986,
+    "total_pnl": 28088.53709790251,
+    "largest_win": 0.18604636154779414,
+    "largest_loss": -0.07391531318240975,
+    "avg_bars_held": 1.0,
+    "max_consecutive_wins": 10,
+    "max_consecutive_losses": 6,
+    "avg_mae": -0.009931678581315877,
+    "avg_mfe": 0.01827474063773654,
+    "t_stat": 3.8737126809007836,
+    "total_commission": 0.0
+  },
+  "exposure": {
+    "time_in_market": 0.018701654753745228,
+    "avg_exposure": 0.018701654753745228,
+    "max_positions_held": 1,
+    "avg_positions_when_invested": 1.0
+  },
+  "relative_to_spy": {
+    "beta": 0.05797335496548979,
+    "alpha_annual": 0.026156969296221865,
+    "correlation": 0.18825361188028958,
+    "information_ratio": -0.4757466028671376
+  },
+  "benchmarks": {
+    "MSFT buy & hold": {
+      "start": "1986-03-13",
+      "end": "2026-09-25",
+      "years": 40.53661875427789,
+      "start_equity": 10000.0,
+      "end_equity": 87465686.10838106,
+      "total_return": 8745.568610838107,
+      "cagr": 0.25095418296521865,
+      "volatility": 0.33248761602245114,
+      "sharpe": 0.8406548415003251,
+      "sortino": 1.2493563733292186,
+      "max_drawdown": -0.6938627619645579,
+      "max_dd_peak": "1999-12-27",
+      "max_dd_trough": "2009-03-09",
+      "max_dd_recovery": "2014-07-16",
+      "longest_underwater_days": 5315,
+      "calmar": 0.3616769723377045,
+      "ulcer_index": 29.459043614680137,
+      "best_day": 0.19564760637451228,
+      "worst_day": -0.30115922064028255,
+      "pct_positive_days": 0.5071484528006267
+    },
+    "SPY buy & hold": {
+      "start": "1993-01-29",
+      "end": "2026-09-25",
+      "years": 33.65366187542779,
+      "start_equity": 10000.0,
+      "end_equity": 320680.98197767476,
+      "total_return": 31.068098197767476,
+      "cagr": 0.1085419551375153,
+      "volatility": 0.18531952392398748,
+      "sharpe": 0.6494967330818322,
+      "sortino": 0.9245086308899536,
+      "max_drawdown": -0.5518929769515251,
+      "max_dd_peak": "2007-10-09",
+      "max_dd_trough": "2009-03-09",
+      "max_dd_recovery": "2012-08-16",
+      "longest_underwater_days": 2407,
+      "calmar": 0.1966721079457566,
+      "ulcer_index": 14.420183026914216,
+      "best_day": 0.1451994445392477,
+      "worst_day": -0.10942413080585744,
+      "pct_positive_days": 0.5404320623303034
+    },
+    "QQQ buy & hold": {
+      "start": "1999-03-10",
+      "end": "2026-09-25",
+      "years": 27.54551676933607,
+      "start_equity": 10000.0,
+      "end_equity": 173210.83329649645,
+      "total_return": 16.321083329649646,
+      "cagr": 0.10908458529574738,
+      "volatility": 0.2689530024871355,
+      "sharpe": 0.5199466744625697,
+      "sortino": 0.7474423161264181,
+      "max_drawdown": -0.8296387098076011,
+      "max_dd_peak": "2000-03-27",
+      "max_dd_trough": "2002-10-09",
+      "max_dd_recovery": "2015-02-20",
+      "longest_underwater_days": 5443,
+      "calmar": 0.1314844449833408,
+      "ulcer_index": 43.304621668562504,
+      "best_day": 0.16842294815190284,
+      "worst_day": -0.11978958295037989,
+      "pct_positive_days": 0.5449559821041997
+    }
+  },
+  "monte_carlo": {
+    "sims": 1000,
+    "cagr_p5": 0.021091325135861483,
+    "cagr_p50": 0.03276012734308753,
+    "cagr_p95": 0.047081828491966404,
+    "mdd_p5": -0.13743560377165542,
+    "mdd_p50": -0.08378789640071915,
+    "mdd_p95": -0.05787436912570442,
+    "prob_loss": 0.0
+  },
+  "cost_sensitivity": [
+    {
+      "slippage_bps": 0,
+      "final_equity": 38088.5370979025,
+      "cagr": 0.03354084700209414,
+      "sharpe": 0.5877359553073938,
+      "max_drawdown": -0.1194446030707107,
+      "current": true
+    },
+    {
+      "slippage_bps": 5,
+      "final_equity": 31466.18123074689,
+      "cagr": 0.028682474859977658,
+      "sharpe": 0.5085246740960835,
+      "max_drawdown": -0.13817437029664958,
+      "current": false
+    },
+    {
+      "slippage_bps": 10,
+      "final_equity": 25995.234843086873,
+      "cagr": 0.023846938087124903,
+      "sharpe": 0.42874688304443714,
+      "max_drawdown": -0.15650554603919298,
+      "current": false
+    },
+    {
+      "slippage_bps": 25,
+      "final_equity": 14656.902482262598,
+      "cagr": 0.009476245524100868,
+      "sharpe": 0.1881571086086494,
+      "max_drawdown": -0.22760714567362472,
+      "current": false
+    }
+  ],
+  "drawdowns": [
+    {
+      "peak": "2009-02-27",
+      "trough": "2011-11-25",
+      "recovery": "2015-08-26",
+      "depth": -0.1194446030707107,
+      "days_to_trough": 1001,
+      "days_to_recover": 1370.0,
+      "total_days": 2371.0
+    },
+    {
+      "peak": "2000-12-19",
+      "trough": "2000-12-20",
+      "recovery": "2002-08-06",
+      "depth": -0.07391531318240963,
+      "days_to_trough": 1,
+      "days_to_recover": 594.0,
+      "total_days": 595.0
+    },
+    {
+      "peak": "1997-12-23",
+      "trough": "1999-10-19",
+      "recovery": "1999-10-20",
+      "depth": -0.05612961885172352,
+      "days_to_trough": 665,
+      "days_to_recover": 1.0,
+      "total_days": 666.0
+    },
+    {
+      "peak": "1988-08-05",
+      "trough": "1988-08-10",
+      "recovery": "1989-10-30",
+      "depth": -0.05607509788532228,
+      "days_to_trough": 5,
+      "days_to_recover": 446.0,
+      "total_days": 451.0
+    },
+    {
+      "peak": "2005-03-21",
+      "trough": "2006-02-09",
+      "recovery": "2007-11-13",
+      "depth": -0.04039777594823879,
+      "days_to_trough": 325,
+      "days_to_recover": 642.0,
+      "total_days": 967.0
+    }
+  ]
+}

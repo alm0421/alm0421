@@ -1,0 +1,32 @@
+{
+  "universe": [
+    "MSFT"
+  ],
+  "entry": "(down_days >= 5)",
+  "side": "long",
+  "entry_fill": "close",
+  "hold_bars": 1,
+  "hold_exit_fill": "close",
+  "exit_when": null,
+  "exit_when_fill": "close",
+  "stop_loss": null,
+  "take_profit": null,
+  "trailing_stop": null,
+  "capital": 10000.0,
+  "max_positions": 1,
+  "position_size": 1.0,
+  "leverage": 1.0,
+  "rank_by": null,
+  "rank_ascending": false,
+  "fractional_shares": true,
+  "commission": 0.0,
+  "commission_per_share": 0.0,
+  "slippage_bps": 0.0,
+  "start": null,
+  "end": null,
+  "name": "",
+  "description": "buy at the close Microsoft when it trades down 5 days in a row, hold for 1 day, and sell at the close",
+  "notes": [
+    "'N days in a row' also fires on later days of a longer streak (6th, 7th...); say 'exactly N days' to fire only on the Nth."
+  ]
+}
