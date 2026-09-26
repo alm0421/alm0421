@@ -138,6 +138,64 @@ RENAMES = {"FB": "META", "PCLN": "BKNG", "DISCA": "WBD", "RIMM": "BB", "MYL": "V
 
 
 STOOQ_FAILS = [0]
+KEYED_BUDGET = {"alphavantage": 20, "tiingo": 400}   # per run; free tiers allow 25/day and 1,000/day
+
+
+KEYED_FILE = ROOT / "data" / "delisted_sources.json"
+KEYED_OK: set[str] = set(json.loads(KEYED_FILE.read_text())) if KEYED_FILE.exists() else set()
+
+
+def fetch_delisted_keyed(t: str) -> pd.DataFrame | None:
+    """Delisted former members from a keyed source (optional repository secrets TIINGO_API_KEY or
+    ALPHAVANTAGE_API_KEY). Both keep acquired/bankrupt companies' histories that Yahoo drops.
+    A few names per run are fetched and kept, so coverage grows over successive runs."""
+    import os
+    key = os.environ.get("TIINGO_API_KEY")
+    if key and KEYED_BUDGET["tiingo"] > 0:
+        KEYED_BUDGET["tiingo"] -= 1
+        try:
+            r = requests.get(f"https://api.tiingo.com/tiingo/daily/{t.lower()}/prices",
+                             params={"startDate": "1990-01-01", "token": key, "format": "json"}, timeout=60)
+            rows = r.json() if r.status_code == 200 else []
+            if isinstance(rows, list) and len(rows) > 20:
+                df = pd.DataFrame(rows)
+                df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.normalize()
+                df = df.set_index("date").sort_index()
+                # Tiingo: raw OHLC, split factor and cash dividend; adjClose is split+dividend adjusted
+                out = pd.DataFrame({"open": df["open"], "high": df["high"], "low": df["low"], "close": df["close"],
+                                    "adj_close": df["adjClose"], "volume": df["volume"],
+                                    "dividend": df.get("divCash", 0.0), "split": df.get("splitFactor", 1.0)})
+                # split-adjust OHLC/volume like Yahoo's history (dividends stay as paid)
+                f = out["split"].replace(0, 1.0)
+                cum = f[::-1].cumprod()[::-1].shift(-1).fillna(1.0)
+                for col in ("open", "high", "low", "close"):
+                    out[col] = out[col] / cum
+                out["dividend"] = out["dividend"] / cum
+                out["volume"] = out["volume"] * cum
+                return out
+        except Exception as e:  # noqa: BLE001
+            print(f"tiingo {t}: {e}", file=sys.stderr)
+    key = os.environ.get("ALPHAVANTAGE_API_KEY")
+    if key and KEYED_BUDGET["alphavantage"] > 0:
+        KEYED_BUDGET["alphavantage"] -= 1
+        try:
+            r = requests.get("https://www.alphavantage.co/query", timeout=60, params={
+                "function": "TIME_SERIES_DAILY_ADJUSTED", "symbol": t, "outputsize": "full",
+                "datatype": "csv", "apikey": key})
+            if r.status_code == 200 and r.text.lower().startswith("timestamp"):
+                df = pd.read_csv(io.StringIO(r.text), parse_dates=["timestamp"], index_col="timestamp").sort_index()
+                df.index.name = "date"
+                coef = df["split_coefficient"].replace(0, 1.0)
+                cum = coef[::-1].cumprod()[::-1].shift(-1).fillna(1.0)
+                out = pd.DataFrame({"open": df["open"] / cum, "high": df["high"] / cum, "low": df["low"] / cum,
+                                    "close": df["close"] / cum, "adj_close": df["adjusted_close"],
+                                    "volume": df["volume"] * cum, "dividend": df["dividend_amount"] / cum,
+                                    "split": df["split_coefficient"]})
+                if len(out) > 20:
+                    return out
+        except Exception as e:  # noqa: BLE001
+            print(f"alphavantage {t}: {e}", file=sys.stderr)
+    return None
 
 
 def fetch_stooq(t: str) -> pd.DataFrame | None:
@@ -598,6 +656,13 @@ def main() -> None:
             df = pd.read_csv(PRICES / f"{src}.csv", parse_dates=["date"], index_col="date")
         else:
             df = fetch_with_retry(src, tries=2)
+        if (df is None or len(df) < 5) and (PRICES / f"{t}.csv").exists() and t in KEYED_OK:
+            df = pd.read_csv(PRICES / f"{t}.csv", parse_dates=["date"], index_col="date")  # fetched on an earlier run
+        if df is None or len(df) < 5:
+            df = fetch_delisted_keyed(t)
+            if df is not None:
+                KEYED_OK.add(t)
+                print(f"former {t}: {len(df)} rows from a keyed delisted-data source")
         if df is None or len(df) < 5:
             df = fetch_stooq(t)
             if df is not None:
@@ -642,6 +707,7 @@ def main() -> None:
         "dropped_stale": stale,
     }
     (ROOT / "data" / "universe.json").write_text(json.dumps(meta, indent=1))
+    KEYED_FILE.write_text(json.dumps(sorted(KEYED_OK), indent=1))
     print(f"done: {len(ok)} current/ETF ok, {len(former_ok)} former members ok, "
           f"{len(former_missing)} former members without data, {len(failed)} failed {failed}")
     if len(ok) < len(tickers) * 0.85:

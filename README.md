@@ -232,6 +232,12 @@ close and commits updates, so `git pull` gets fresh data. It downloads:
 - Fama-French factors from Kenneth French's data library
 - share counts for market-cap weighting
 
+**Delisted former members.** Yahoo drops companies that were acquired or went bankrupt (Celgene,
+Xilinx, Activision, Yahoo, …), which is the main survivorship gap. Add a free API key as a repository
+secret and the data job fills them in automatically, a batch per run:
+`TIINGO_API_KEY` (tiingo.com, about 400 names a run) or `ALPHAVANTAGE_API_KEY` (alphavantage.co, 20 a
+run on the free tier). Every report states the current member-month coverage.
+
 The **Daily signals** Action then scans the paper-trading strategies (`paper/*.json`) and writes
 `signals/latest.md`. It also posts to a webhook if you add a repository secret `ALERT_WEBHOOK_URL`
 (for example a Slack or Discord incoming webhook).
