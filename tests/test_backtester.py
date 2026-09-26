@@ -395,3 +395,99 @@ def test_sweep_expansion():
     from backtester import research
     labels, texts, combos = research.expand("buy QQQ when RSI({2..3}) is below {5..15 step 5}, hold {1,3} days")
     assert len(texts) == 12 and texts[0] == "buy QQQ when RSI(2) is below 5, hold 1 days"
+
+
+@needs_data
+@pytest.mark.parametrize("rule", ["open < ref(x=close, n=0)", "open < sma(1+0)", "open < sma(-(-1))",
+                                  "open < highest(0+1)", "open < ref(close, 2-2)"])
+def test_open_guard_cannot_be_bypassed(rule):
+    assert not expr.open_safe(rule)
+    s = Strategy(universe=["QQQ"], entry=rule, entry_fill="open", hold_bars=1)
+    with pytest.raises(ValueError):
+        engine.run(s)
+
+
+def test_open_time_probe_catches_close_use():
+    idx = pd.bdate_range("2020-01-01", periods=300)
+    rng = np.random.default_rng(1)
+    c = pd.Series(100 * np.exp(np.cumsum(rng.normal(0, 0.01, len(idx)))), index=idx)
+    df = pd.DataFrame({"open": c.shift(1).fillna(100), "high": c * 1.01, "low": c * 0.99, "close": c,
+                       "volume": 1e6, "dividend": 0.0, "adj_close": c})
+    assert expr.open_time_probe("open < close", df) is not None
+    assert expr.open_time_probe("open < ref(close, 1)", df) is None
+
+
+def test_nyse_calendar_month_end_at_data_edge():
+    from backtester import calendar
+    assert not calendar.is_session("2026-11-26")  # Thanksgiving
+    assert not calendar.is_session("2025-04-18")  # Good Friday
+    assert calendar.next_sessions("2026-09-25")[0] == pd.Timestamp("2026-09-28")
+    idx = pd.bdate_range("2026-08-03", "2026-09-25")
+    c = pd.Series(np.linspace(100, 110, len(idx)), index=idx)
+    df = pd.DataFrame({"open": c, "high": c, "low": c, "close": c, "volume": 1e6, "dividend": 0.0, "adj_close": c})
+    ns = expr.Namespace(df)
+    assert not bool(ns["is_month_end"]().iloc[-1])            # Sept 25 is not the last session of September
+    assert int(ns["trading_days_left_in_month"].iloc[-1]) == 4  # 25, 28, 29, 30
+    assert bool(ns["is_month_end"]().loc["2026-08-31"])
+
+
+@needs_data
+def test_membership_has_no_etfs_and_quality_gate():
+    mem = data.membership()
+    for etf in ("TQQQ", "SQQQ", "QQQ", "QLD"):
+        assert etf not in mem.columns
+    months = mem.sum(axis=1)
+    assert months.min() >= 85 and months.max() <= 115
+    m, _ = data.member_mask(["GENZ", "SSCC", "AAPL"], data.load("AAPL").loc["2005-01":"2005-06"].index)
+    assert not m[:, 0].any() and not m[:, 1].any() and m[:, 2].all()
+
+
+def test_wiki_components_section_ignores_change_lists():
+    import importlib.util, pathlib
+    spec = importlib.util.spec_from_file_location("fetch_data", pathlib.Path(__file__).parents[1] / "scripts" / "fetch_data.py")
+    fd = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fd)
+    text = ("==Investing==\n* ProShares UltraPro QQQ (TQQQ)\n==Components==\n#[[Apple Inc.]] (AAPL)\n#[[Microsoft]] (MSFT)\n"
+            "===Historical Components===\n* [[Apollo Group]] (APOL)\n==Yearly Changes==\n* [[Dell]] (DELL)\n")
+    assert fd.wiki_tickers(text) == {"AAPL", "MSFT"}
+
+
+@needs_data
+@pytest.mark.parametrize("text, check", [
+    ("if the 10 day RSI of QQQ is greater than 79 then buy UVXY else buy TQQQ",
+     lambda p: p.tree["if"] == "(rsi(close, 10) > 79)" and p.tree["on"] == "QQQ" and p.rebalance == "daily"),
+    ("if QQQ 10 day RSI is greater than SPY 10 day RSI then hold QQQ else hold SPY",
+     lambda p: p.tree["if"] == 'rsi(close, 10) > rsi(sym("SPY").close, 10)'),
+    ("hold the top 2 of QQQ, SPY, TLT and GLD by 3 month return, only if QQQ is above its 200 day moving average, otherwise SHY",
+     lambda p: p.tree["on"] == "QQQ" and "filter" in p.tree["then"] and p.tree["else"] == {"asset": "SHY"}),
+    ("minimum variance weighted SPY, TLT and GLD using a 60 day lookback",
+     lambda p: p.tree["weights"] == "min_variance" and p.tree["lookback"] == 60),
+    ("hold 60% SPY and 40% TLT with 2x leverage", lambda p: p.leverage == 2),
+    ("hold 60% SPY and 40% TLT with a 0.5% expense ratio", lambda p: abs(p.expense_ratio - 0.005) < 1e-12),
+    ("hold 120% SPY and -20% TLT", lambda p: p.tree["w"] == [1.2, -0.2]),
+    ("hold 50% QQQ and 50% (if SPY is above its 200 day moving average then TLT else GLD)",
+     lambda p: "if" in p.tree["children"][1]),
+])
+def test_allocation_parser_round2(text, check):
+    p = parser.parse(text)
+    assert check(p)
+
+
+@needs_data
+@pytest.mark.parametrize("text", ["hold 60% SPY and 40% TLT, purple elephant",
+                                  "hold 60% SPY and 40% TLT, minimum purple weighted"])
+def test_allocation_refuses_unknown_words(text):
+    with pytest.raises(parser.ParseError):
+        parser.parse(text)
+
+
+@needs_data
+def test_leverage_and_optimiser_weights_run():
+    from backtester import runner
+    r1 = runner.run(parser.parse("hold 60% SPY and 40% TLT, rebalance monthly, since 2010"))
+    r2 = runner.run(parser.parse("hold 60% SPY and 40% TLT with 2x leverage, rebalance monthly, since 2010"))
+    assert r2.holdings.drop(columns="cash").sum(axis=1).iloc[5] > 1.8
+    assert r2.equity.iloc[-1] != r1.equity.iloc[-1]
+    r3 = runner.run(parser.parse("risk parity SPY, TLT and GLD over 90 days, rebalance monthly, since 2010"))
+    w = r3.holdings.drop(columns="cash").iloc[-1]
+    assert abs(w.sum() - 1) < 0.05 and w["TLT"] > w["SPY"]

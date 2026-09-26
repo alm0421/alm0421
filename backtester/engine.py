@@ -120,9 +120,18 @@ def _prepare(strat: Strategy):
     rank = np.zeros((T, N))
     per_trade_exit = bool(strat.exit_when) and bool(expr.names_in(strat.exit_when) & expr.POSITION_VARS)
     namespaces = {}
+    if strat.entry_fill == "open":
+        # the static check (Strategy.validate) is backed by an empirical one on the longest history
+        t0 = max(tick, key=lambda t: len(dfs[t]))
+        for rule in (strat.entry, strat.short_entry):
+            if rule:
+                bad = expr.open_time_probe(rule, dfs[t0], t0)
+                if bad:
+                    raise ValueError(f"Lookahead: the entry is filled at the open but {bad} ({t0}). "
+                                     "Use ref(..., 1) for yesterday's values or fill at the next open.")
     for j, t in enumerate(tick):
         df = dfs[t]
-        ns = expr.Namespace(df)
+        ns = expr.Namespace(df, ticker=t)
         namespaces[t] = ns
         a = df.reindex(cal)
         O[:, j], H[:, j], L[:, j], C[:, j] = a["open"], a["high"], a["low"], a["close"]
@@ -153,6 +162,9 @@ def _prepare(strat: Strategy):
         mask, first = data.member_mask(tick, cal)
         long_sig &= mask
         short_sig &= mask
+        cov = data.coverage_note(str(cal[0].date()), str(cal[-1].date()))
+        if cov and not any(n.startswith("Survivorship:") for n in strat.notes):
+            strat.notes.append(cov)
         if first is not None and cal[0] < first and not any(n.startswith("Membership:") for n in strat.notes):
             strat.notes.append(
                 f"Membership: point-in-time Nasdaq-100 membership starts {first.date()}; before that the "
@@ -295,7 +307,7 @@ def run(strat: Strategy) -> Result:
                      "pnl": sgn * (dfk["close"] / fill - 1),
                      "highest_since_entry": np.maximum(hs.fillna(fill), fill),
                      "lowest_since_entry": np.minimum(ls.fillna(fill), fill)}
-            p.exit_sig = expr.evaluate(strat.exit_when, expr.Namespace(dfk, extra)).reindex(cal, fill_value=False).to_numpy()
+            p.exit_sig = expr.evaluate(strat.exit_when, expr.Namespace(dfk, extra, ticker=tick[k])).reindex(cal, fill_value=False).to_numpy()
         positions[k] = p
         note_gross(prices)
         return True

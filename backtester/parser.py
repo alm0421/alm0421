@@ -467,14 +467,19 @@ def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list:
             if not o.strip():
                 continue
             mentioned = [t for t in find_tickers(o, strict=True) if t not in traded]
+            pair = _pair_compare(o, traded)
+            if pair:
+                or_exprs.append(pair)
+                continue
             if len(mentioned) > 1:
                 raise ParseError(f"'{o.strip()}' mentions several tickers ({', '.join(mentioned)}); split it into separate conditions")
             ctx = Ctx.for_ticker(mentioned[0] if mentioned else None)
             o_clean = o
             for t in find_tickers(o):
-                o_clean = re.sub(rf"(?<![\w])[\$^]?{re.escape(t.lstrip('^'))}\b", " ", o_clean, flags=re.I)
+                o_clean = re.sub(rf"(?:\b(?:of|for|on) )?(?<![\w])[\$^]?{re.escape(t.lstrip('^'))}(?:'s)?\b", " ", o_clean, flags=re.I)
             for name, sym in COMPANIES.items():
-                o_clean = re.sub(rf"\b{re.escape(name)}\b", " ", o_clean, flags=re.I)
+                o_clean = re.sub(rf"(?:\b(?:of|for|on) )?\b{re.escape(name)}(?:'s)?\b", " ", o_clean, flags=re.I)
+            o_clean = re.sub(r"^\s*the\b", " ", o_clean)
             e, left = parse_condition(o_clean, ctx)
             if e:
                 or_exprs.append(e)
@@ -491,6 +496,63 @@ def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list:
     if not exprs:
         raise ParseError(f"No conditions found in {text.strip()!r}")
     return exprs if as_list else " and ".join(exprs)
+
+
+CMP_WORDS = [
+    (r"(?:is |are )?(?:greater than or equal to|at least|>=)", ">="),
+    (r"(?:is |are )?(?:less than or equal to|at most|<=)", "<="),
+    (r"(?:is |are )?(?:greater than|higher than|above|more than|over|exceeds?|beats?|outperforms?|>)", ">"),
+    (r"(?:is |are )?(?:less than|lower than|below|under|underperforms?|<)", "<"),
+]
+
+
+def _side(text: str, traded: list[str]) -> str | None:
+    """"QQQ's 10 day RSI" / "the 10 day RSI of QQQ" / "QQQ 10 day RSI" -> expression on that ticker."""
+    t = text.strip()
+    tk = find_tickers(t, strict=True)
+    if len(tk) != 1:
+        return None
+    rest = re.sub(rf"(?<![\w])[\$^]?{re.escape(tk[0].lstrip('^'))}(?:'s)?\b", " ", t, flags=re.I)
+    for name, sym in COMPANIES.items():
+        if sym == tk[0]:
+            rest = re.sub(rf"\b{re.escape(name)}(?:'s)?\b", " ", rest, flags=re.I)
+    rest = re.sub(r"(?i)\b(?:of|for|on)\s*$", " ", rest.strip())
+    rest = re.sub(r"(?i)^\s*(?:the|its)\b", " ", rest).strip()
+    if not rest:
+        rest = "price"
+    try:
+        e, _ = value_phrase(rest, Ctx() if tk[0] in traded else Ctx.for_ticker(tk[0]), default_n=None)
+    except ParseError:
+        return None
+    return e
+
+
+def _pair_compare(text: str, traded: list[str]) -> str | None:
+    """Two-ticker comparison, e.g. 'QQQ 10 day RSI is greater than SPY 10 day RSI' or
+    'the 3 month return of QQQ beats the 3 month return of TLT'."""
+    if len(find_tickers(text, strict=True)) != 2 or "`" in text:
+        return None
+    for pat, op in CMP_WORDS:
+        m = re.search(rf"(?i)\s{pat}\s", f" {text} ")
+        if not m:
+            continue
+        a, b = f" {text} "[: m.start()], f" {text} "[m.end():]
+        if len(find_tickers(a, strict=True)) != 1 or len(find_tickers(b, strict=True)) != 1:
+            return None
+        ea = _side(a, traded)
+        if ea is None:
+            return None
+        # "QQQ's RSI is above SPY's" -> same indicator on the other side
+        tb = find_tickers(b, strict=True)[0]
+        b_only = re.sub(rf"(?i)(?<![\w])[\$^]?{re.escape(tb.lstrip('^'))}(?:'s)?\b|\bthat of\b|\bthe\b", " ", b).strip()
+        if not b_only:
+            a_rest = re.sub(rf"(?i)(?<![\w])[\$^]?{re.escape(find_tickers(a, strict=True)[0].lstrip('^'))}(?:'s)?\b", " ", a)
+            b = f"{tb} {a_rest}"
+        eb = _side(b, traded)
+        if eb is None:
+            return None
+        return f"{ea} {op} {eb}"
+    return None
 
 
 def split_and(rule: str) -> list[str]:
@@ -619,6 +681,8 @@ def common_options(T: Text, notes: list[str]) -> dict:
 ALLOC_HINT = re.compile(
     r"\b(?:rebalanc\w*|buy and hold|buy-and-hold|equal[- ]weight\w*|inverse[- ]volatility|market[- ]cap weight\w*|"
     r"risk parity|(?:top|bottom|best|worst) \d+(?![\d.%]|\s*%)|rotat\w+|dual momentum|otherwise hold|else hold|"
+    r"(?:else|otherwise),? (?:buy|hold|be in|own|switch to|go to) (?:[a-z^]{1,5}|cash)\b(?! (?:at|when|if|on)\b)|"
+    r"min(?:imum)?[- ]variance|max(?:imum)?[- ](?:sharpe|diversification)[- ]weight|whichever of|\d+ (?:best|worst)[- ]perform|"
     r"allocat\w+|portfolio of|contribut\w+|withdraw\w*|\d+/\d+ (?:[a-z]+/[a-z]+)|"
     r"(?:hold|invest|put)\s+\d+(?:\.\d+)?%|\d+(?:\.\d+)?% (?:in |of )?(?:[a-z^$]{1,5}|cash)\b(?:,| and| plus)|"
     r"otherwise (?:hold |be in |in |go to |switch to )?(?:cash|[a-z^]{1,5}\b(?! days))|"
@@ -637,7 +701,8 @@ def looks_like_allocation(text: str) -> bool:
         return True
     if not ALLOC_HINT.search(t):
         return False
-    strong = re.search(r"\b(?:rebalanc\w*|buy and hold|equal[- ]weight|inverse[- ]volatility|(?:top|bottom) \d+(?![\d.%]|\s*%)|rotat|dual momentum|otherwise hold|allocat|contribut|withdraw|\d+/\d+)", t, re.I)
+    strong = re.search(r"\b(?:rebalanc\w*|buy and hold|equal[- ]weight|inverse[- ]volatility|(?:top|bottom) \d+(?![\d.%]|\s*%)|rotat|dual momentum|otherwise hold|allocat|contribut|withdraw|\d+/\d+|"
+                       r"(?:else|otherwise),? (?:buy|hold|be in|own|switch to|go to) (?:[a-z^]{1,5}|cash)\b(?! (?:at|when|if|on)\b)|min(?:imum)?[- ]variance|whichever of|\d+ (?:best|worst)[- ]perform)", t, re.I)
     if SIGNAL_HINT.search(t) and not strong:
         return False
     return True
@@ -1032,56 +1097,146 @@ FREQ_WORDS = {"daily": "daily", "day": "daily", "weekly": "weekly", "week": "wee
               "yearly": "yearly", "year": "yearly", "annual": "yearly"}
 
 
-def _metric(text: str) -> tuple[str, str]:
-    """('ret(63)', 'top') from phrases like '3 month momentum', 'lowest volatility', 'RSI(10)'."""
-    s = text.strip().lower()
-    direction = "top"
-    if re.search(r"\b(lowest|least|weakest|worst|smallest)\b", s):
-        direction = "bottom"
-    m = re.search(r"(\d+) (day|week|month|year) (?:total )?(?:momentum|return|returns|performance|change|gain)", s) or \
-        re.search(r"(?:momentum|return|returns|performance) over (?:the (?:last|past) )?(\d+) (day|week|month|year)s?", s)
-    if m:
-        return f"ret({_period(m.group(1), m.group(2))})", direction
-    if re.search(r"\b(?:momentum|return|performance)\b", s):
-        return "ret(252)", direction
-    m = re.search(r"(?:(\d+) (?:day|period) )?rsi(?:\s*\(?(\d+)\)?)?", s)
-    if m:
-        return f"rsi({m.group(1) or m.group(2) or 14})", direction
-    m = re.search(r"(?:(\d+) (day|week|month) )?(?:volatility|vol|standard deviation)", s)
-    if m:
-        return f"volatility({_period(m.group(1) or 20, m.group(2))})", direction
-    m = re.search(r"(?:(\d+) (day|week|month) )?(?:drawdown)", s)
-    if m:
-        return f"drawdown({_period(m.group(1) or 63, m.group(2))})", direction
-    m = re.search(r"distance (?:from|above) (?:its |the )?(\d+) (day|week|month) (?:moving average|ma|sma)", s)
-    if m:
-        return f"close / sma({_period(m.group(1), m.group(2))}) - 1", direction
-    m = re.search(r"`([^`]+)`", text)
-    if m:
-        return m.group(1), direction
-    raise ParseError(f"Unknown ranking metric {text.strip()!r}. Use e.g. '3 month momentum', '10 day RSI', "
-                     f"'60 day volatility', or a rule in backticks.")
+DIRECTION_WORDS = {"top", "bottom", "best", "worst", "strongest", "weakest", "highest", "lowest", "most", "least",
+                   "largest", "smallest", "greatest", "biggest"}
+LOW_WORDS = r"\b(lowest|least|weakest|worst|smallest|bottom)\b"
 
 
-def _weighting(s: str) -> str | None:
-    if re.search(r"inverse[- ]vol(?:atility)?|risk[- ]parity", s):
-        return "inverse_vol"
-    if re.search(r"market[- ]cap", s):
-        return "market_cap"
-    if re.search(r"equal(?:ly)?[- ]?weight|equally", s):
-        return "equal"
+def _unit_n(n, unit, default=None):
+    if n is None:
+        return default
+    return _period(n, unit)
+
+
+def value_phrase(text: str, ctx: Ctx | None = None, default_n: int | None = None) -> tuple[str, list[str]]:
+    """An indicator phrase -> (numeric expression, notes), e.g. '10 day RSI' -> rsi(close, 10).
+
+    Used for ranking metrics and two-ticker comparisons. Every word must be understood."""
+    ctx = ctx or Ctx()
+    s = " " + re.sub(r"\s+", " ", text.strip().lower()) + " "
+    s = re.sub(r"'s\b", " ", s)
+    notes: list[str] = []
+    c = ctx.c
+    tr = "tr" if ctx.base else f"{ctx.c[:-len('.close')]}.tr"
+    U = r"(day|week|month|year|bar|session)s?"
+    pats = [
+        (rf"`([^`]+)`", lambda m: m.group(1)),
+        (rf"(?:(\d+) {U} )?(?:moving average|average|mean|ma) of (?:the )?(?:daily )?returns?(?: over (?:the )?(?:last |past )?(\d+) {U})?",
+         lambda m: f"ma_return({tr}, {_unit_n(m.group(1) or m.group(3), m.group(2) or m.group(4), 20)})"),
+        (rf"(?:(\d+) {U} )?(?:max(?:imum)?|largest|biggest) drawdowns?(?: over (?:the )?(?:last |past )?(\d+) {U})?",
+         lambda m: f"max_drawdown({tr}, {_unit_n(m.group(1) or m.group(3), m.group(2) or m.group(4), 63)})"),
+        (rf"(?:(\d+) {U} )?(?:standard deviation|stdev|std dev|std) of (?:the )?(?:daily )?returns?(?: over (?:the )?(?:last |past )?(\d+) {U})?",
+         lambda m: f"stdev_return({tr}, {_unit_n(m.group(1) or m.group(3), m.group(2) or m.group(4), 20)})"),
+        (rf"(?:(\d+) {U} )?(?:standard deviation|stdev|std dev|std) of (?:the )?(?:price|prices|close)(?: over (?:the )?(?:last |past )?(\d+) {U})?",
+         lambda m: f"stdev({c}, {_unit_n(m.group(1) or m.group(3), m.group(2) or m.group(4), 20)})"),
+        (rf"(?:(\d+) {U} )?(?:annuali[sz]ed |historical |realized )?(?:volatility|vol)(?: over (?:the )?(?:last |past )?(\d+) {U})?",
+         lambda m: f"volatility({_unit_n(m.group(1) or m.group(3), m.group(2) or m.group(4), 20)}{'' if ctx.base else ', ' + c})"),
+        (rf"(?:(\d+) {U} )?(?:current )?drawdown(?: from (?:its |the )?(?:high|peak))?",
+         lambda m: f"drawdown({c}{', ' + str(_period(m.group(1), m.group(2))) if m.group(1) else ''})"),
+        (rf"distance (?:from|above|to) (?:its |the )?(\d+) {U} (?:moving average|ma|sma)",
+         lambda m: f"{c} / sma({c}, {_period(m.group(1), m.group(2))}) - 1"),
+        (rf"(?:(\d+) {U} )?(exponential moving average|ema)(?: of (?:the )?price)?",
+         lambda m: f"ema({c}, {_unit_n(m.group(1), m.group(2), 20)})"),
+        (rf"(?:(\d+) {U} )?(?:simple )?(?:moving average|sma|ma)(?: of (?:the )?price)?",
+         lambda m: f"sma({c}, {_unit_n(m.group(1), m.group(2), 20)})"),
+        (rf"(?:(\d+) {U} )?(?:relative strength index|rsi)(?:\s*\(\s*(\d+)\s*\)|\s+(\d+)(?! {U}))?",
+         lambda m: f"rsi({c}, {m.group(3) or m.group(4) or _unit_n(m.group(1), m.group(2), 14)})"),
+        (r"market cap(?:italization)?", lambda m: "market_cap" if ctx.base else _unsupported("market cap of another ticker")),
+        (rf"(?:(\d+) {U} )?(?:cumulative |total |trailing )?(?:returns?|momentum|performance|gains?|change|price change)(?: over (?:the )?(?:last |past |prior )?(\d+) {U})?",
+         None),
+        (r"(?:current |latest |last )?(?:price|close|closing price)", lambda m: c),
+    ]
+    for pat, fn in pats:
+        m = re.search(pat, s)
+        if not m:
+            continue
+        if fn is None:  # return / momentum
+            n = _unit_n(m.group(1) or m.group(3), m.group(2) or m.group(4), None)
+            if n is None:
+                n = default_n or 252
+                notes.append(f"No lookback given for '{m.group(0).strip()}': using {n} trading days ({n // 21} months).")
+            expr_ = f"tret({tr}, {n})"
+        else:
+            expr_ = fn(m)
+        rest = (s[: m.start()] + " " + s[m.end():]).split()
+        left = [w for w in rest if w not in STOP and w not in DIRECTION_WORDS and w not in ("its", "their", "by", "the", "of", "value")]
+        if left:
+            raise ParseError(f"Could not interpret {' '.join(left)!r} in {text.strip()!r}")
+        return expr_, notes
+    raise ParseError(f"Unknown indicator {text.strip()!r}. Use e.g. '3 month return', '10 day RSI', '60 day volatility', "
+                     f"'20 day max drawdown', '20 day moving average of return', '20 day standard deviation of price', "
+                     f"'market cap', or a rule in backticks.")
+
+
+WEIGHT_METHODS = [
+    (r"(?:inverse[- ]vol(?:atility)?)", "inverse_vol"),
+    (r"(?:equal[- ]risk(?: contribution)?|risk[- ]parity)", "risk_parity"),
+    (r"(?:min(?:imum)?[- ]variance|min[- ]vol(?:atility)?|minimum volatility)", "min_variance"),
+    (r"(?:max(?:imum)?[- ]sharpe(?: ratio)?)", "max_sharpe"),
+    (r"(?:max(?:imum)?[- ]diversification)", "max_diversification"),
+    (r"(?:market[- ]cap(?:italization)?)", "market_cap"),
+    (r"(?:equal(?:ly)?)", "equal"),
+]
+
+
+def _weighting_phrase(s: str) -> tuple[str, int | None] | None:
+    """'inverse volatility weighted over 60 days' -> ('inverse_vol', 60). None if not a weighting phrase."""
+    t = s.strip().lower()
+    for pat, name in WEIGHT_METHODS:
+        m = re.fullmatch(rf"(?:and |then |with |using )?(?:weight(?:ed|ing)? (?:by |using )?|use )?{pat}(?:[- ]weight(?:ed|ing|s)?)?"
+                         rf"(?:(?: weighted)?(?: over| using| with)? (?:an? |the )?(?:last |past )?(\d+) (day|week|month)s?(?: lookback| window| volatility)?)?", t)
+        if m:
+            return name, (_period(m.group(1), m.group(2)) if m.group(1) else None)
+    if re.search(r"\bweight(?:ed|ing|s)?\b", t):
+        raise ParseError(f"Unknown weighting {s.strip()!r}. Use equal, inverse volatility, risk parity, minimum variance, "
+                         f"max Sharpe, max diversification or market cap (optionally 'over N days').")
     return None
+
+
+def _split_top_level(s: str, seps: str = r",|;| and | plus |&") -> list[str]:
+    """Split on separators that are not inside parentheses or backticks."""
+    out, depth, tick, buf, i = [], 0, False, "", 0
+    rx = re.compile(seps)
+    while i < len(s):
+        ch = s[i]
+        if ch == "`":
+            tick = not tick
+        elif not tick and ch == "(":
+            depth += 1
+        elif not tick and ch == ")":
+            depth -= 1
+        if depth == 0 and not tick:
+            m = rx.match(s, i)
+            if m and m.end() > i:
+                out.append(buf)
+                buf = ""
+                i = m.end()
+                continue
+        buf += ch
+        i += 1
+    out.append(buf)
+    return [x.strip() for x in out if x.strip()]
+
+
+def _strip_parens(s: str) -> str:
+    s = s.strip()
+    while s.startswith("(") and s.endswith(")"):
+        depth = 0
+        for i, ch in enumerate(s):
+            depth += ch == "("
+            depth -= ch == ")"
+            if depth == 0 and i < len(s) - 1:
+                return s
+        s = s[1:-1].strip()
+    return s
 
 
 def _asset_list(s: str) -> list[dict]:
     """'QQQ, SPY and cash' -> [{'asset': 'QQQ'}, {'asset': 'SPY'}, {'cash': True}]"""
     out = []
-    items = re.split(r",|\band\b|\bor\b|/|\bplus\b|&", s)
-    for it in items:
-        it = it.strip()
-        if not it:
-            continue
-        if re.fullmatch(r"(?:hold |in )?(?:cash|t-?bills? as cash|money market)", it):
+    for it in _split_top_level(s, r",| and | or |/| plus |&"):
+        it = _strip_parens(it)
+        if re.fullmatch(r"(?i)(?:hold |in )?(?:cash|t-?bills? as cash|money market)", it):
             out.append({"cash": True})
             continue
         probe = it.upper() if re.fullmatch(r"[a-z^$]{1,6}", it) else it
@@ -1096,134 +1251,206 @@ def _asset_list(s: str) -> list[dict]:
         if left:
             raise ParseError(f"Could not interpret {' '.join(left)!r} in {it!r}")
         out.append({"asset": tk[0]})
+    if not out:
+        raise ParseError(f"No holdings found in {s!r}")
     return out
 
 
-def _node(text: str) -> dict:
-    """Parse an allocation phrase into a portfolio tree node."""
-    s = text.strip().strip(",;. ")
-    s = re.sub(r"^(?:and |then )?(?:hold|buy and hold|buy|own|be in|invest(?: in)?|allocate(?: to)?|put (?:everything |it all |all )?in(?:to)?|go (?:to|into)|switch (?:to|into)|rotate (?:to|into)|stay in|move (?:to|into)|in)\s+", "", s)
+VERB = r"(?:hold |buy |own |be in |invest in |go (?:to|into) |switch (?:to|into) |rotate (?:to|into) |stay in |be |allocate to |put (?:it |everything )?in(?:to)? )"
+
+
+def _node(text: str, notes: list[str] | None = None) -> dict:
+    """Parse an allocation phrase into a portfolio tree node (strict: every word must be understood)."""
+    notes = notes if notes is not None else []
+    s = _strip_parens(text.strip().strip(",;. "))
+    s = re.sub(r"(?i)^(?:and |then )?(?:hold|buy and hold|buy|own|be in|invest(?: in)?|allocate(?: to)?|put (?:everything |it all |all )?in(?:to)?|go (?:to|into)|switch (?:to|into)|rotate (?:to|into)|stay in|move (?:to|into)|in)\s+", "", s)
+    s = _strip_parens(s)
     low = s.lower()
     if re.fullmatch(r"(?:cash|t-?bills|treasury bills|money market|nothing|flat)", low):
         return {"cash": True}
 
-    # if COND[,] [then] hold X[,] (else if ...)* otherwise Y
-    m = re.match(r"if (.+?),? (?:then )?(?:hold |buy |own |be in |invest in |go (?:to|into) |switch to |rotate (?:to|into) |stay in |be )(.+?)[,;]? (?:and )?(?:otherwise|else)[, ]+(?:hold |buy |own |be in |go to |switch to |in )?(.+)$", s, flags=re.I)
-    if m:
+    # if COND[,] [then] X[,] (else if ...)* otherwise Y      (also "if COND then buy X else buy Y")
+    m = re.match(rf"(?is)if (.+?)(?:,? then {VERB}?|,? (?={VERB})|, ){VERB}?(.+?)[,;]? (?:and )?(?:otherwise|else)[, ]+{VERB}?(.+)$", s)
+    if m and not re.match(r"(?i)if .+? (?:then )?(?:the )?(?:top|bottom)\b", s) or (m and " then " in s.lower()):
         cond, then, other = m.group(1), m.group(2), m.group(3)
         on, rule = _condition_on(cond, None)
-        return {"if": rule, "on": on, "then": _node(then), "else": _node(other)}
-    # hold X when/while COND, otherwise Y
-    m = re.match(r"(.+?) (?:when|while|if|as long as|whenever) (.+?),? (?:and )?(?:otherwise|else|or else)[, ]+(?:hold |buy |be in |go to |switch to |in )?(.+)$", s, flags=re.I)
-    if m and not re.search(r"\b(?:top|bottom|best|worst)\b", m.group(1)):
-        then_node = _node(m.group(1))
-        ref = then_node.get("asset")
-        on, rule = _condition_on(m.group(2), ref)
-        return {"if": rule, "on": on, "then": then_node, "else": _node(m.group(3))}
+        return {"if": rule, "on": on, "then": _node(then, notes), "else": _node(other, notes)}
+    # X if COND else Y
+    m = re.match(rf"(?is)(.+?) (?:if|when|while|as long as|whenever) (.+?),? (?:and )?(?:otherwise|else|or else)[, ]+{VERB}?(.+)$", s)
+    if m and not re.search(r"(?i)\b(?:top|bottom|best|worst)\s+\d", m.group(1)) and not re.search(r"(?i)\bonly\s*$", m.group(1)):
+        then_node = _node(m.group(1), notes)
+        on, rule = _condition_on(m.group(2), then_node.get("asset"))
+        return {"if": rule, "on": on, "then": then_node, "else": _node(m.group(3), notes)}
 
     # dual momentum
-    m = re.match(r"dual momentum (?:between|among|of|on|with) (.+?)(?:,? (?:with|using) (.+?) as (?:the )?(?:safe|defensive|risk[- ]off) (?:asset|haven)| (?:otherwise|else|or) (.+?))?(?:,? using (?:a )?(\d+) (month|day|week) (?:lookback|momentum))?$", low)
+    m = re.match(r"(?i)dual momentum (?:between|among|of|on|with) (.+?)(?:,? (?:with|using) (.+?) as (?:the )?(?:safe|defensive|risk[- ]off) (?:asset|haven)| (?:otherwise|else|or) (.+?))?(?:,? using (?:a )?(\d+) (month|day|week) (?:lookback|momentum))?$", s)
     if m:
         kids = _asset_list(m.group(1))
         safe = m.group(2) or m.group(3) or "AGG"
         n = _period(m.group(4) or 12, m.group(5) or "month")
-        return {"filter": {"select": "top", "n": 1, "by": f"ret({n})",
-                           "require": f"ret({n}) > ret(sym('BIL').close, {n})"},
-                "universe": "children", "children": kids, "fallback": _node(safe)}
+        return {"filter": {"select": "top", "n": 1, "by": f"tret({n})", "require": f"tret({n}) > tbill_ret({n})"},
+                "universe": "children", "children": kids, "fallback": _node(safe, notes)}
 
-    # top/bottom N of UNIVERSE by METRIC
-    m = re.match(r"(?:the )?(top|bottom|best|worst|strongest|weakest|highest|lowest) (\d+) (?:of |among |from |in )?(?:the )?(.+?) (?:by|ranked by|based on|sorted by|with the (?:highest|lowest|best|strongest|weakest)) (.+)$", low)
+    # [equal weight] the top/bottom N (of) UNIVERSE by METRIC[, options]
+    lead_w = None
+    mw = re.match(r"(?i)((?:equal(?:ly)?|inverse[- ]vol(?:atility)?|risk[- ]parity|min(?:imum)?[- ]variance|market[- ]cap|max(?:imum)?[- ](?:sharpe|diversification))[- ]weight(?:ed)?)\s+(?:the )?(?=(?:top|bottom|best|worst|\d))", s)
+    if mw:
+        lead_w = _weighting_phrase(mw.group(1))
+        s = s[mw.end():]
+        low = s.lower()
+    m = re.match(r"(?is)(?:the )?(\d+) (best|worst|top|bottom)[- ]perform(?:ing|ers)(?: (?:of|among|from|in))? (?:the )?(.+?) over (?:the )?(?:last |past )?(\d+) (day|week|month|year)s?(,.*)?$", s)
+    if m:
+        s = f"{'top' if m.group(2) in ('best', 'top') else 'bottom'} {m.group(1)} of {m.group(3)} by {m.group(4)} {m.group(5)} return{m.group(6) or ''}"
+        low = s.lower()
+    m = re.match(r"(?is)(?:the )?(top|bottom|best|worst|strongest|weakest|highest|lowest) (\d+) (?:of |among |from |in )?(?:the )?(.+?) (?:by|ranked by|based on|sorted by|according to|with the (?:highest|lowest|best|strongest|weakest)) (.+)$", s)
     if m:
         word, n, uni, rest = m.groups()
-        wt = _weighting(rest) or "equal"
-        rest = re.sub(r",?\s*(?:(?:and )?(?:weighted )?(?:equal(?:ly)?[- ]?weight(?:ed)?|inverse[- ]vol(?:atility)?(?:[- ]weight(?:ed)?)?|market[- ]cap(?:[- ]weight(?:ed)?)?|risk[- ]parity)(?: weighting)?)", "", rest)
-        req = None
-        fb = None
-        mreq = re.search(r",? (?:but )?only (?:if|when) (?:their|its|the) (.+?)(?: is| are)? positive(?:,? (?:otherwise|else) (.+))?$", rest)
-        if mreq:
-            rest = rest[: mreq.start()]
-            metric_req, _ = _metric(mreq.group(1))
-            req = f"{metric_req} > 0"
-            fb = _node(mreq.group(2)) if mreq.group(2) else {"cash": True}
-        mfb = re.search(r",? (?:that )?(?:beat|beats|outperform|outperforms) (?:cash|t-?bills|bil)(?:,? (?:otherwise|else) (.+))?$", rest)
-        if mfb:
-            rest = rest[: mfb.start()]
-            metric_req, _ = _metric(rest)
-            nlook = re.search(r"\((\d+)\)", metric_req)
-            req = f"{metric_req} > ret(sym('BIL').close, {nlook.group(1) if nlook else 252})"
-            fb = _node(mfb.group(1)) if mfb.group(1) else {"cash": True}
-        metric, direction = _metric(rest)
-        if word in ("bottom", "worst", "weakest", "lowest"):
+        parts = _split_top_level(rest, r",|;")
+        metric_text, opts = parts[0], parts[1:]
+        # weighting may be glued to the metric: "... by 6 month return inverse volatility weighted"
+        mm = re.search(r"(?i)\s+((?:weighted |weight )?(?:by |using )?(?:equal(?:ly)?|inverse[- ]vol(?:atility)?|risk[- ]parity|min(?:imum)?[- ]variance|max(?:imum)?[- ](?:sharpe|diversification)|market[- ]cap)\b.*)$", metric_text)
+        if mm:
+            opts.insert(0, mm.group(1))
+            metric_text = metric_text[: mm.start()]
+        metric, mnotes = value_phrase(metric_text)
+        notes.extend(mnotes)
+        direction = "bottom" if re.search(LOW_WORDS, metric_text.lower()) else "top"
+        if word.lower() in ("bottom", "worst", "weakest", "lowest"):
             direction = "bottom" if direction == "top" else "top"
         uu, uname = _universe_phrase(uni)
-        node: dict = {"filter": {"select": direction, "n": int(n), "by": metric, "weights": wt}}
+        wt, look = lead_w or ("equal", None)
+        node: dict = {"filter": {"select": direction, "n": int(n), "by": metric}}
         if uname == "NDX":
             node["universe"] = "NDX"
         elif uu is not None:
             node["universe"] = uu
         else:
-            kids = _asset_list(uni)
             node["universe"] = "children"
-            node["children"] = kids
-        if req:
-            node["filter"]["require"] = req
-            node["fallback"] = fb
+            node["children"] = _asset_list(uni)
+        gate, fallback = None, None
+        i = 0
+        while i < len(opts):
+            o = opts[i].strip()
+            nxt = opts[i + 1].strip() if i + 1 < len(opts) else ""
+            wp = _weighting_phrase(o)
+            if wp:
+                wt, look = wp[0], wp[1] or look
+                i += 1
+                continue
+            mo = re.fullmatch(r"(?is)(?:but )?only (?:if|when) (.+)", o)
+            if mo:
+                cond = mo.group(1)
+                other = None
+                mo2 = re.fullmatch(r"(?is)(.+?)\s+(?:otherwise|else)\s+(.+)", cond)
+                if mo2:
+                    cond, other = mo2.group(1), mo2.group(2)
+                elif re.match(r"(?i)(?:otherwise|else)\b", nxt):
+                    other = re.sub(r"(?i)^(?:otherwise|else)[, ]+", "", nxt)
+                    i += 1
+                own = re.match(r"(?i)(?:their|its|the (?:selected|chosen) (?:assets?|stocks?|ones?)'?s?)\s+(.+?)\s+(?:is |are )?(positive|negative|above (-?[\d.]+)%|below (-?[\d.]+)%|beats? (?:cash|t-?bills|bil|the risk[- ]free rate))\s*$", cond.strip())
+                if own:
+                    mexpr, mn = value_phrase(own.group(1))
+                    notes.extend(mn)
+                    look_n = re.search(r"(\d+)\)", mexpr)
+                    rel = own.group(2).lower()
+                    if rel == "positive":
+                        req = f"{mexpr} > 0"
+                    elif rel == "negative":
+                        req = f"{mexpr} < 0"
+                    elif rel.startswith("above"):
+                        req = f"{mexpr} > {float(own.group(3)) / 100:g}"
+                    elif rel.startswith("below"):
+                        req = f"{mexpr} < {float(own.group(4)) / 100:g}"
+                    else:
+                        req = f"{mexpr} > tbill_ret({look_n.group(1) if look_n else 252})"
+                    node["filter"]["require"] = req
+                    node["fallback"] = _node(other, notes) if other else {"cash": True}
+                else:
+                    gate = cond
+                    fallback = _node(other, notes) if other else {"cash": True}
+                    if not other:
+                        notes.append("No 'otherwise' given for the condition: holding cash when it is false.")
+                i += 1
+                continue
+            mb = re.fullmatch(r"(?i)(?:that |which )?(?:beat|beats|outperform|outperforms) (?:cash|t-?bills|bil|the risk[- ]free rate)(?:,? (?:otherwise|else) (.+))?", o)
+            if mb:
+                look_n = re.search(r"(\d+)\)", metric)
+                node["filter"]["require"] = f"{metric} > tbill_ret({look_n.group(1) if look_n else 252})"
+                node["fallback"] = _node(mb.group(1), notes) if mb.group(1) else {"cash": True}
+                i += 1
+                continue
+            raise ParseError(f"Could not interpret {o!r} in {text.strip()!r}")
+        node["filter"]["weights"] = wt
+        if look:
+            node["filter"]["lookback"] = look
+        if gate:
+            on, rule = _condition_on(gate, None)
+            return {"if": rule, "on": on, "then": node, "else": fallback}
         return node
 
     # rotate between A, B and C by METRIC  (top 1)
-    m = re.match(r"(?:rotate|rotation|switch)(?: \w+)? (?:between|among|across) (.+?) (?:by|based on|using|according to) (.+)$", low)
+    m = re.match(r"(?is)(?:rotate|rotation|switch)(?: \w+)? (?:between|among|across) (.+?) (?:by|based on|using|according to) (.+)$", s)
     if m:
-        metric, direction = _metric(m.group(2))
-        return {"filter": {"select": direction, "n": 1, "by": metric, "weights": "equal"},
+        metric, mn = value_phrase(m.group(2))
+        notes.extend(mn)
+        return {"filter": {"select": "bottom" if re.search(LOW_WORDS, m.group(2).lower()) else "top", "n": 1, "by": metric, "weights": "equal"},
                 "universe": "children", "children": _asset_list(m.group(1))}
-    m = re.match(r"whichever of (.+?) has (?:the )?(higher|highest|lower|lowest|best|stronger|strongest|weaker|weakest) (.+)$", low)
+    m = re.match(r"(?is)whichever of (.+?) has (?:the )?(higher|highest|lower|lowest|best|stronger|strongest|weaker|weakest) (.+)$", s)
     if m:
-        metric, _ = _metric(m.group(3))
-        direction = "top" if m.group(2) in ("higher", "highest", "best", "stronger", "strongest") else "bottom"
+        metric, mn = value_phrase(m.group(3))
+        notes.extend(mn)
+        direction = "top" if m.group(2).lower() in ("higher", "highest", "best", "stronger", "strongest") else "bottom"
         return {"filter": {"select": direction, "n": 1, "by": metric, "weights": "equal"},
                 "universe": "children", "children": _asset_list(m.group(1))}
 
     # 60/40 SPY/TLT  or  SPY/TLT 60/40
-    m = re.fullmatch(r"(\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)+) ([a-z^$ -]+(?:/[a-z^$ -]+)+)|([a-z^$ -]+(?:/[a-z^$ -]+)+) (\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)+)", low)
+    m = re.fullmatch(r"(?i)(-?\d+(?:\.\d+)?(?:/-?\d+(?:\.\d+)?)+) ([a-z^$ -]+(?:/[a-z^$ -]+)+)|([a-z^$ -]+(?:/[a-z^$ -]+)+) (-?\d+(?:\.\d+)?(?:/-?\d+(?:\.\d+)?)+)", s)
     if m:
         ws = [float(x) for x in (m.group(1) or m.group(4)).split("/")]
         names = (m.group(2) or m.group(3)).split("/")
         if len(ws) != len(names):
             raise ParseError(f"{len(ws)} weights but {len(names)} holdings in {s!r}")
-        kids = [_node(x) for x in names]
+        kids = [_node(x, notes) for x in names]
         return _weights_node([w / sum(ws) for w in ws], kids, s)
 
-    # 60% SPY, 30% TLT and 10% GLD   /   SPY 60%, TLT 40%
-    pairs = re.findall(r"(\d+(?:\.\d+)?)% (?:in |of |into )?(?:the )?([^,%]+?)(?=,|\band\b|\bplus\b|$| \d)", low)
-    if not pairs:
-        pairs = [(w, n) for n, w in re.findall(r"([a-z^$][^,%]*?) (\d+(?:\.\d+)?)%", low)]
-    if pairs:
-        ws = [float(w) / 100 for w, _ in pairs]
-        kids = [_node(n) for _, n in pairs]
+    # weighted list: 60% SPY, 30% TLT and 10% (if ... else ...)   /   SPY 60%, TLT 40%
+    items = _split_top_level(s, r",| and | plus |;")
+    pct_re = re.compile(r"(?is)^(-?\d+(?:\.\d+)?)% (?:in |of |into )?(?:the )?(.+)$|^(.+?) (-?\d+(?:\.\d+)?)%$")
+    if items and any(pct_re.match(x) for x in items):
+        ws, kids = [], []
+        for x in items:
+            mm = pct_re.match(x)
+            if not mm:
+                raise ParseError(f"Could not interpret {x!r}: every holding needs a weight, e.g. '60% SPY and 40% TLT'.")
+            w = float(mm.group(1) or mm.group(4)) / 100
+            ws.append(w)
+            kids.append(_node(mm.group(2) or mm.group(3), notes))
         if abs(sum(ws) - 1) > 1e-6:
             if sum(ws) < 1 - 1e-6 and not any(k.get("cash") for k in kids):
                 kids.append({"cash": True})
                 ws.append(1 - sum(ws))
+                notes.append(f"Weights add up to {sum(ws[:-1]):.0%}: the remaining {ws[-1]:.0%} is held in cash.")
             else:
                 raise ParseError(f"Weights add up to {sum(ws):.0%}, not 100%.")
         return _weights_node(ws, kids, s)
 
-    # equal weight / inverse volatility of a list
-    wt = _weighting(low)
-    if wt:
-        lst = re.sub(r"(?:weighted |weight(?:ed)? |weighting )?(?:by )?(?:equal(?:ly)?[- ]?weight(?:ed)?|equally(?: in)?|inverse[- ]vol(?:atility)?(?:[- ]weight(?:ed)?)?|market[- ]cap(?:[- ]weight(?:ed)?)?|risk[- ]parity)(?: weighting)?(?: of| in| across| between| among)?", " ", low)
-        mlb = re.search(r"(?:using |with |over )?(?:a )?(\d+) (day|week|month) (?:lookback|volatility|window)", lst)
-        lookback = 20
+    # equal weight / inverse volatility / ... of a list
+    mlw = re.match(r"(?is)^((?:weight(?:ed|ing)? )?(?:by |using )?(?:equal(?:ly)?|inverse[- ]vol(?:atility)?|risk[- ]parity|equal[- ]risk(?: contribution)?|min(?:imum)?[- ](?:variance|vol(?:atility)?)|max(?:imum)?[- ](?:sharpe(?: ratio)?|diversification)|market[- ]cap(?:italization)?)(?:[- ]weight(?:ed|ing|s)?)?)(?: in| of| across| between| among)?\s+(.+)$", s)
+    if mlw:
+        wp = _weighting_phrase(mlw.group(1))
+        lst = mlw.group(2)
+        look = wp[1]
+        mlb = re.search(r"(?i),?\s*(?:using |with |over )(?:an? |the )?(?:last |past )?(\d+) (day|week|month)s?(?: lookback| window| volatility)?\s*$", lst)
         if mlb:
-            lookback = _period(mlb.group(1), mlb.group(2))
-            lst = lst.replace(mlb.group(0), " ")
+            look = _period(mlb.group(1), mlb.group(2))
+            lst = lst[: mlb.start()]
         uu, uname = _universe_phrase(lst)
         if uu is not None:
             raise ParseError("Weighting a whole index needs a selection: say e.g. 'top 20 Nasdaq 100 stocks by 12 month momentum, equal weight'.")
-        kids = _asset_list(lst.strip(" ,"))
-        node = {"weights": wt, "children": kids}
-        if wt == "inverse_vol":
-            node["lookback"] = lookback
+        node = {"weights": wp[0], "children": [_node(x, notes) if re.search(r"\b(?:if|top|bottom)\b|%", x, re.I) else _asset_list(x)[0]
+                                               for x in _split_top_level(lst, r",| and |&| plus ")]}
+        if look and wp[0] != "equal":
+            node["lookback"] = look
         return node
 
     # a single asset, or a plain list (equal weight)
@@ -1234,8 +1461,10 @@ def _node(text: str) -> dict:
 
 
 def _weights_node(ws: list[float], kids: list[dict], s: str) -> dict:
-    if any(w <= 0 for w in ws):
-        raise ParseError(f"Weights must be positive in {s!r}")
+    if any(w == 0 for w in ws):
+        raise ParseError(f"A 0% weight in {s!r}")
+    if any(w < 0 for w in ws) and not all(k.get("cash") or w > 0 for w, k in zip(ws, kids)):
+        pass  # negative weights (short positions) are allowed; the engine borrows / shorts accordingly
     return {"weights": "specified", "w": [round(w, 10) for w in ws], "children": kids}
 
 
@@ -1300,6 +1529,18 @@ def parse_allocation(text: str) -> Portfolio:
         kw["reinvest_dividends"] = False
     T.find(r",? ?(?:with )?dividends reinvested|reinvest(?:ing)? dividends")
 
+    extra: dict = {}
+    m = T.find(rf",? ?(?:(?:with|using|at|and) )?{NUM}(?:x| ?times) (?:leverage|leveraged)|,? ?(?:with |using )?(?:a )?leverage (?:of )?{NUM}(?:x| ?times)?|,? ?(?:levered|leveraged) {NUM}(?:x| ?times)")
+    if m:
+        extra["leverage"] = float(m.group(1) or m.group(2) or m.group(3))
+        notes.append(f"Leverage {extra['leverage']:g}x: every weight is scaled up and the difference is borrowed at the T-bill rate"
+                     " (plus any margin rate).")
+    m = T.find(rf",? ?(?:(?:with|and) )?(?:an? )?(?:expense ratio|annual fee|management fee|fee) of {NUM}%(?: (?:a|per) year)?|,? ?(?:with |and )?(?:an? )?{NUM}% (?:expense ratio|annual fee|management fee|fee)(?: (?:a|per) year)?")
+    if m:
+        extra["expense_ratio"] = float(m.group(1) or m.group(2)) / 100
+    m = T.find(rf",? ?(?:(?:with|and|paying) )?(?:a )?margin (?:rate|interest|spread) of {NUM}%(?: above (?:t-?bills|the t-?bill rate))?|,? ?(?:paying )?{NUM}% margin (?:rate|interest)")
+    if m:
+        extra["margin_rate"] = float(m.group(1) or m.group(2)) / 100
     mrot = re.search(r"\b(?:rotate|switch)\w* (daily|weekly|monthly|quarterly|annually|yearly)\b", T.rest, re.I)
     if mrot and rb is None:
         rb = FREQ_WORDS[mrot.group(1).lower()]
@@ -1313,10 +1554,14 @@ def parse_allocation(text: str) -> Portfolio:
     body = re.sub(r"^buy[- ]and[- ]hold\s+", "", body)
     if not body:
         raise ParseError("What should the portfolio hold? e.g. 'hold 60% SPY and 40% TLT, rebalance quarterly'.")
-    tree = _node(body)
+    tree = _node(body, notes)
     if rb is None:
         if buy_hold:
             rb = "none"
+        elif _has(tree, "if") and not _has(tree, "filter"):
+            rb = "daily"
+            notes.append("Rebalance frequency not stated: the conditions are checked every day at the close and the "
+                         "portfolio switches as soon as they change (say 'rebalance monthly' to check less often).")
         elif _has(tree, "if") or _has(tree, "filter"):
             rb = "monthly"
             notes.append("Rebalance frequency not stated: re-evaluating the rules and rebalancing monthly (month-end close).")
@@ -1338,7 +1583,7 @@ def parse_allocation(text: str) -> Portfolio:
                      "then the same amount grown with inflation. Say 'withdraw 4% of the balance each year' for a percentage of the current balance.")
     p = Portfolio(tree=tree, rebalance=rb, drift_band=band, fill=fill, contribution=contrib, contribution_freq=cfreq,
                   withdrawal=wd, withdrawal_pct=wd_pct, withdrawal_freq=wfreq, inflation_adjust=infl,
-                  description=raw, notes=notes, **pk,
+                  description=raw, notes=notes, **pk, **extra,
                   **({"reinvest_dividends": kw["reinvest_dividends"]} if "reinvest_dividends" in kw else {}))
     p.benchmark = benchmark
     if _has(tree, "filter", universe="NDX") and p.point_in_time:
