@@ -498,14 +498,20 @@ def compile_expr(text: str):
 POSITION_VARS = {"bars_held", "entry_price", "pnl"}
 
 
-def names_in(text: str) -> set[str]:
+def names_in(text) -> set[str]:
+    if callable(text):
+        return set()
     return {n.id for n in ast.walk(ast.parse(text.strip(), mode="eval")) if isinstance(n, ast.Name)}
 
 
-def evaluate(text: str, ns: Namespace) -> pd.Series:
-    """Evaluate a rule to a boolean Series (NaN -> False)."""
-    code = compile_expr(text)
-    out = eval(code, {"__builtins__": {}}, ns)  # noqa: S307 - AST is whitelisted above
+def evaluate(text, ns: Namespace) -> pd.Series:
+    """Evaluate a rule to a boolean Series (NaN -> False). `text` may also be a Python callable
+    f(df, ns) -> Series (the Python API); it is responsible for not looking ahead."""
+    if callable(text):
+        out = text(ns.df, ns)
+    else:
+        code = compile_expr(text)
+        out = eval(code, {"__builtins__": {}}, ns)  # noqa: S307 - AST is whitelisted above
     idx = ns.df.index
     if not isinstance(out, pd.Series):
         out = pd.Series(out, index=idx)
@@ -514,9 +520,9 @@ def evaluate(text: str, ns: Namespace) -> pd.Series:
     return out.reindex(idx, fill_value=False)
 
 
-def evaluate_value(text: str, ns: Namespace) -> pd.Series:
-    """Evaluate a numeric expression (used for ranking)."""
-    out = eval(compile_expr(text), {"__builtins__": {}}, ns)  # noqa: S307
+def evaluate_value(text, ns: Namespace) -> pd.Series:
+    """Evaluate a numeric expression (used for ranking); callables f(df, ns) are allowed."""
+    out = text(ns.df, ns) if callable(text) else eval(compile_expr(text), {"__builtins__": {}}, ns)  # noqa: S307
     if not isinstance(out, pd.Series):
         out = pd.Series(out, index=ns.df.index, dtype=float)
     return out.astype(float)
@@ -537,8 +543,10 @@ _ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "m
                  "is_month_end", "is_quarter_end", "is_year_end", "bars_since", "count"}
 
 
-def open_safe(rule: str) -> bool:
+def open_safe(rule) -> bool:
     """True if `rule` can be evaluated at the bar's open, i.e. uses no data from later in the bar."""
+    if callable(rule):
+        return bool(getattr(rule, "open_safe", False))
     def ok(node) -> bool:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             f = node.func.id

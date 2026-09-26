@@ -110,7 +110,7 @@ def load(ticker: str) -> pd.DataFrame:
     """
     t = canonical(ticker)
     path = PRICES / f"{t}.csv"
-    if not path.exists():
+    if not path.exists() and not fetch_on_demand(t):
         raise DataError(f"No price data for {t}. Available: {', '.join(available_tickers())}")
     raw = pd.read_csv(path, parse_dates=["date"], index_col="date").sort_index()
     raw = raw[~raw.index.duplicated(keep="last")]
@@ -128,6 +128,33 @@ def load(ticker: str) -> pd.DataFrame:
     df["adj_close"] = adj.where(adj > 0, raw["close"]).ffill()
     df["quote_close"] = df["close"]
     return df
+
+
+def fetch_on_demand(ticker: str) -> bool:
+    """Download a missing ticker's full daily history with yfinance (needs internet; used on your own
+    machine - the cloud sandbox relies on the GitHub Action instead). Returns True on success."""
+    import os
+    if os.environ.get("BACKTESTER_OFFLINE"):
+        return False
+    try:
+        import yfinance as yf
+    except ImportError:
+        return False
+    try:
+        df = yf.Ticker(ticker).history(period="max", interval="1d", auto_adjust=False, actions=True)
+    except Exception:  # noqa: BLE001 - no internet, unknown symbol, rate limit...
+        return False
+    if df is None or len(df) < 20:
+        return False
+    df.index = pd.to_datetime(df.index).tz_localize(None).normalize()
+    df = df.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Adj Close": "adj_close",
+                            "Volume": "volume", "Dividends": "dividend", "Stock Splits": "split"})
+    cols = [c for c in ("open", "high", "low", "close", "adj_close", "volume", "dividend", "split") if c in df]
+    df = df[cols][~df.index.duplicated(keep="last")].dropna(subset=["close"])
+    df.index.name = "date"
+    PRICES.mkdir(parents=True, exist_ok=True)
+    df.round(6).to_csv(PRICES / f"{ticker}.csv", float_format="%.6g")
+    return True
 
 
 def load_many(tickers: list[str]) -> dict[str, pd.DataFrame]:

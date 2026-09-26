@@ -64,7 +64,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 <body>
 <header><div class="bar"><div class="brand">📈 Backtester</div>
   <nav id="nav">
-    <a href="#backtest">Backtest</a><a href="#build">Build</a><a href="#compare">Compare</a><a href="#research">Research</a>
+    <a href="#backtest">Backtest</a><a href="#library">Library</a><a href="#build">Build</a><a href="#compare">Compare</a><a href="#research">Research</a>
     <a href="#signals">Signals &amp; paper</a><a href="#history">History</a><a href="#data">Data</a>
   </nav><div class="note" id="dataStamp" style="margin-left:auto"></div></div></header>
 <main>
@@ -103,6 +103,13 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       <span id="dlLinks" class="row"></span></div>
     <iframe id="frame" title="Backtest report"></iframe>
   </div>
+</section>
+
+<!-- LIBRARY -->
+<section id="p-library" class="hide">
+  <div class="card"><h2>Strategy library</h2>
+    <p class="note">Classic, published strategies written in plain English. Run one as is, or open it to change it.</p>
+    <div id="libList"></div></div>
 </section>
 
 <!-- BUILD -->
@@ -236,6 +243,8 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 <section id="p-data" class="hide">
   <div class="card"><h2>Data</h2><div id="dataStatus"></div>
     <h3>Search tickers</h3><input id="tkSearch" placeholder="type to filter"><div id="tkList" class="chips"></div>
+    <h3>Add a ticker</h3><div class="row"><input id="tkAdd" placeholder="e.g. IBM, BRK-B, ^VIX3M"><button class="btn" id="tkAddBtn">Download history</button><span class="note" id="tkAddStatus"></span></div>
+    <p class="note">Works on your own computer (it downloads from Yahoo Finance). Any ticker you mention in a strategy is also fetched automatically.</p>
     <details style="margin-top:10px"><summary>Rule language reference</summary><pre class="help" id="helpExpr2"></pre></details>
   </div>
 </section>
@@ -259,7 +268,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   let STATUS = null;
 
   // ---------- routing
-  const pages = ['backtest', 'build', 'compare', 'research', 'signals', 'history', 'data'];
+  const pages = ['backtest', 'library', 'build', 'compare', 'research', 'signals', 'history', 'data'];
   function route() {
     const h = location.hash.replace('#', '');
     const [page, qs] = h.split('?');
@@ -270,6 +279,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     if (p === 'compare') loadCompare();
     if (p === 'signals') loadPaper();
     if (p === 'data') loadData();
+    if (p === 'library') loadLibrary();
     if (qs) {
       const q = new URLSearchParams(qs);
       if (q.get('q') && p === 'backtest') { $('text').value = q.get('q'); interpret(); if (q.get('run')) runBacktest(); }
@@ -494,6 +504,25 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     const drawT = () => { const q = $('tkSearch').value.toUpperCase(); $('tkList').replaceChildren(...all.filter(t => !q || t.includes(q)).slice(0, 400).map(t => el('span', { class: 'chip' }, t))); };
     $('tkSearch').oninput = drawT; drawT();
   }
+
+  // ---------- library
+  async function loadLibrary() {
+    const box = $('libList'); if (box.children.length) return;
+    const lib = await api('/api/library');
+    const cats = [...new Set(lib.map(x => x.category))];
+    cats.forEach(c => {
+      box.append(el('h3', {}, c));
+      const t = el('table'); lib.filter(x => x.category === c).forEach(x => {
+        const tr = el('tr'), act = el('td');
+        const run = el('button', { class: 'btn small primary' }, 'Run'); run.onclick = () => { $('text').value = x.text; location.hash = '#backtest'; interpret(); runBacktest(); };
+        const edit = el('button', { class: 'btn small' }, 'Open'); edit.onclick = () => { $('text').value = x.text; location.hash = '#backtest'; interpret(); };
+        act.append(run, document.createTextNode(' '), edit);
+        const d = el('td', { style: 'white-space:normal' }); d.append(el('div', {}, x.name), el('div', { class: 'note' }, x.about), el('code', {}, x.text));
+        tr.append(d, act); t.append(tr); });
+      box.append(t);
+    });
+  }
+  $('tkAddBtn').addEventListener('click', async () => { $('tkAddStatus').textContent = '…'; try { const j = await api('/api/fetch', { ticker: $('tkAdd').value }); $('tkAddStatus').textContent = `${j.ticker}: ${j.status}`; STATUS = null; } catch (e) { $('tkAddStatus').textContent = e.message; } });
 
   // ---------- init
   (async () => {

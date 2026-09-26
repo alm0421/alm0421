@@ -19,7 +19,7 @@ from pathlib import Path
 
 from . import data, expr, parser, report, runner
 
-SUBCOMMANDS = {"run", "compare", "sweep", "walkforward", "optimize", "signals", "paper", "web", "tickers"}
+SUBCOMMANDS = {"run", "compare", "sweep", "walkforward", "optimize", "signals", "paper", "web", "tickers", "library"}
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -286,6 +286,11 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_paper(rest)
         if cmd == "tickers":
             return cmd_tickers(rest)
+        if cmd == "library":
+            from .library import LIBRARY
+            for x in LIBRARY:
+                print(f"[{x['category']}] {x['name']}: {x['about']}\n    python -m backtester \"{x['text']}\"")
+            return 0
         if cmd == "web":
             from . import web
             return web.main(rest)

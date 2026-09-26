@@ -222,6 +222,18 @@ def api_status(_body=None):
                           "former": m.get("former_members", []), "help": expr.HELP})
 
 
+def api_fetch(body):
+    t = data.canonical(str(body.get("ticker") or ""))
+    if not t or len(t) > 12:
+        raise ClientError("Give a ticker symbol.")
+    if t in data.available_tickers():
+        return {"ticker": t, "status": "already available"}
+    if data.fetch_on_demand(t):
+        data.load.cache_clear()
+        return {"ticker": t, "status": "downloaded"}
+    raise ClientError(f"Could not download {t} (unknown symbol, or no internet access from this machine).")
+
+
 def api_delete(rid):
     import shutil
     with LOCK:
@@ -273,6 +285,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, api_status())
             if path == "/api/runs":
                 return self._json(200, _index())
+            if path == "/api/library":
+                from .library import LIBRARY
+                return self._json(200, LIBRARY)
             if path == "/api/paper":
                 return self._json(200, api_paper({}, "GET"))
             if path.startswith("/r/"):
@@ -296,6 +311,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/sweep": lambda b: api_research(b, "sweep"), "/api/walkforward": lambda b: api_research(b, "walkforward"),
                 "/api/optimize": lambda b: api_research(b, "optimize"), "/api/signals": api_signals,
                 "/api/paper": lambda b: api_paper(b, "POST"),
+                "/api/fetch": api_fetch,
             }
             if path in handlers:
                 return self._json(200, handlers[path](body))

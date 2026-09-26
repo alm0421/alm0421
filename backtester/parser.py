@@ -158,7 +158,10 @@ def find_tickers(text: str, strict: bool = False) -> list[str]:
         if cand in known:
             found.append((m.start(), cand))
         elif pre or (len(sym) >= 2 and sym.isupper() and sym not in NOT_TICKERS):
-            unknown.append(sym)
+            if strict and data.fetch_on_demand(cand):
+                found.append((m.start(), cand))
+            else:
+                unknown.append(sym)
     low = stripped.lower()
     for name, sym in sorted(COMPANIES.items(), key=lambda kv: -len(kv[0])):
         for m in re.finditer(rf"(?<![\w$^]){re.escape(name)}\b", low):

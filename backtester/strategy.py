@@ -88,7 +88,7 @@ class Strategy:
         if self.side == "both" and not self.short_entry:
             raise ValueError("side 'both' needs a short_entry rule")
         for rule in (self.entry, self.short_entry, self.exit_when, self.entry_level, self.rank_by):
-            if rule:
+            if rule and not callable(rule):
                 compile_expr(rule)  # raises on syntax errors / disallowed constructs
         if self.entry_fill == "open":
             for rule in (self.entry, self.short_entry):
@@ -114,7 +114,11 @@ class Strategy:
             self.position_size = self.leverage / self.max_positions
 
     def to_json(self) -> str:
-        return json.dumps(asdict(self), indent=2)
+        d = asdict(self)
+        for k, v in d.items():
+            if callable(v):
+                d[k] = f"<python function {getattr(v, '__name__', 'rule')}>"
+        return json.dumps(d, indent=2)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Strategy":

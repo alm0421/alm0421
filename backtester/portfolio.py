@@ -68,7 +68,7 @@ class Portfolio:
             raise ValueError("need starting capital or contributions")
 
     def to_json(self) -> str:
-        return json.dumps(asdict(self), indent=2)
+        return json.dumps(asdict(self), indent=2, default=lambda o: f"<python function {getattr(o, '__name__', 'custom')}>")
 
     @classmethod
     def from_dict(cls, d: dict) -> "Portfolio":
@@ -128,6 +128,11 @@ def validate_node(n: dict, depth: int = 0) -> None:
         raise ValueError(f"portfolio node must be an object, got {n!r}")
     if "asset" in n:
         data.load(n["asset"])  # raises DataError for unknown tickers
+    elif "custom" in n:
+        if not callable(n["custom"]) or not n.get("tickers"):
+            raise ValueError("custom node needs a Python callable and a 'tickers' list")
+        for t in n["tickers"]:
+            data.load(t)
     elif n.get("cash"):
         pass
     elif "weights" in n:
@@ -188,6 +193,9 @@ def tickers_in(n: dict) -> list[str]:
     def walk(x):
         if "asset" in x:
             add(x["asset"])
+        elif "custom" in x:
+            for t in x["tickers"]:
+                add(t)
         elif "weights" in x:
             for k in x["children"]:
                 walk(k)
@@ -211,6 +219,8 @@ def fixed_tickers(n: dict) -> list[str]:
     def walk(x):
         if "asset" in x:
             out.append(data.canonical(x["asset"]))
+        elif "custom" in x:
+            out.extend(data.canonical(t) for t in x["tickers"])
         elif "weights" in x:
             for k in x["children"]:
                 walk(k)
@@ -233,6 +243,8 @@ def describe(n: dict, indent: int = 0) -> list[str]:
         return [f"{pad}{data.canonical(n['asset'])}"]
     if n.get("cash"):
         return [f"{pad}cash (T-bills)"]
+    if "custom" in n:
+        return [f"{pad}python function {getattr(n['custom'], '__name__', 'custom')}({', '.join(n['tickers'])})"]
     if "weights" in n:
         kind = n["weights"]
         lines = []
@@ -350,6 +362,18 @@ class _Evaluator:
             return {"cash": 1.0}
         if n.get("cash"):
             return {"cash": 1.0}
+        if "custom" in n:
+            # Python API: fn(date, history) -> {ticker: weight}; history holds data up to and including date
+            d = self.cal[i]
+            hist = {t: self.dfs[data.canonical(t)].loc[:d] for t in n["tickers"]}
+            w = n["custom"](d, hist) or {}
+            tot = sum(max(v, 0) for v in w.values())
+            if tot > 1 + 1e-9:
+                raise ValueError(f"custom weights on {d.date()} add up to {tot:.2%}")
+            out = {data.canonical(t): float(v) for t, v in w.items() if v > 0}
+            if tot < 1 - 1e-6:
+                out["cash"] = 1 - tot
+            return out
         if "weights" in n:
             kids = n["children"]
             method = n["weights"]
