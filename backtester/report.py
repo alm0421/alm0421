@@ -115,9 +115,16 @@ def oscillator_panes(rules: str) -> list[dict]:
     return list(panes.values())
 
 
+def _series_expr(call: str) -> str:
+    """The rule expression of a charted series: "highest(high, 20)[1]" (the series as the rule reads it, one bar
+    back) is ref(highest(high, 20), 1)."""
+    m = re.fullmatch(r"(?s)(.+)\[(\d+)\]", call.strip())
+    return f"ref({m.group(1)}, {m.group(2)})" if m else call
+
+
 def _values(call: str, ns, index) -> list | None:
     try:
-        v = expr.evaluate_value(call, ns).reindex(index)
+        v = expr.evaluate_value(_series_expr(call), ns).reindex(index)
     except Exception:  # noqa: BLE001 - indicator plots are best effort
         return None
     return [None if not np.isfinite(x) else round(float(x), 4) for x in v.to_numpy(dtype=float)]
@@ -561,9 +568,12 @@ def chart_layout(rules, own: str = "") -> dict:
                 return a
         return None
 
-    def add_call(n, periodic=False):
+    def add_call(n, periodic=False, shift=0):
         fn = n.func.id
         src = _src(n)
+        # a series the rule reads n bars back (ref(x, n), Pine's x[n]) is drawn with that offset, labelled x[n]
+        emit = put if not shift else (lambda key, call, rng=None, periodic=False:
+                                      put(key, f"{call}[{shift}]", rng, periodic))
         arg = _series_arg(n)
         b = base(arg) if arg is not None else ("price",)
         periodic = periodic or fn.startswith(("weekly_", "monthly_"))
@@ -575,27 +585,27 @@ def chart_layout(rules, own: str = "") -> dict:
                     if fn.startswith("bb_"):   # the Bollinger basis
                         calls.append(f"sma({_src(n.args[0]) if n.args else '20'})")
                 for c in calls:
-                    put(None, c, periodic=periodic)
+                    emit(None, c, periodic=periodic)
             elif b[0] == "sym":
                 put(b[1], f'sym("{b[1]}").close')
-                put(b[1], src, periodic=periodic)
+                emit(b[1], src, periodic=periodic)
             else:   # an average of an oscillator, of volume...: on that series' pane
-                put(b[1], src, periodic=periodic)
+                emit(b[1], src, periodic=periodic)
             return
         fam, rng = OSCILLATORS[fn]
         key = f"{b[1]} {fam}" if b and b[0] == "sym" else fam
         if fn in ("macd", "macd_signal", "macd_hist", "stoch_k", "stoch_d") and (b is None or b[0] == "price") \
                 and all(_num_node(a) is not None for a in n.args):
             for c in _companions(fn, ", ".join(_src(a) for a in n.args)):
-                put(key, src if _norm(c) == _norm(src) else c, rng, periodic)
+                emit(key, src if _norm(c) == _norm(src) else c, rng, periodic)
             return
         if fn in ("adx", "plus_di", "minus_di") and all(_num_node(a) is not None for a in n.args):
             args = ", ".join(_src(a) for a in n.args)
             for f in ("adx", "plus_di", "minus_di"):
                 c = f"{f}({args})"
-                put(key, src if f == fn else c, rng, periodic)
+                emit(key, src if f == fn else c, rng, periodic)
             return
-        put(key, src, rng, periodic)
+        emit(key, src, rng, periodic)
 
     def walk(n, periodic=False):
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
@@ -614,6 +624,24 @@ def chart_layout(rules, own: str = "") -> dict:
                 return
             if fn == "sym":
                 return
+            if fn == "ref" and len(n.args) == 2 and isinstance(_num_node(n.args[1]), (int, float)) \
+                    and float(_num_node(n.args[1])).is_integer() and _num_node(n.args[1]) > 0:
+                inner, k = n.args[0], int(_num_node(n.args[1]))
+                if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name) and \
+                        (inner.func.id in PRICE_FNS or inner.func.id in OSCILLATORS):
+                    add_call(inner, periodic, shift=k)
+                    shifted = f"{_src(inner)}[{k}]"
+                    if shifted in where:
+                        where[_src(n)] = where[shifted]
+                    for a in inner.args:     # the series it is computed from (e.g. an oscillator of another ticker)
+                        if not (isinstance(a, ast.Name) or _num_node(a) is not None):
+                            walk(a, periodic)
+                    return
+                if isinstance(inner, ast.Name) and inner.id in VARIABLE_PANES:
+                    fam, rng = VARIABLE_PANES[inner.id]
+                    put(fam, f"{inner.id}[{k}]", rng)
+                    where[_src(n)] = fam
+                    return
             if fn in PRICE_FNS or fn in OSCILLATORS:
                 add_call(n, periodic)
             for a in n.args:

@@ -2989,8 +2989,10 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
     m = T.find(r"(\d+) shares (?:per|each|in each|for each) (?:trade|position|entry)|(?:buy|trade) (\d+) shares")
     if m:
         kw["sizing"], kw["fixed_amount"] = "fixed_shares", float(m.group(1) or m.group(2))
-    if T.find(r"whole shares(?: only)?|no fractional shares"):
+    if T.find(r"(?:(?:with|using|in) )?whole shares(?: only)?|no fractional shares"):
         kw["fractional_shares"] = False
+    elif T.find(r"(?:(?:with|using|allow(?:ing)?) )?fractional shares(?: allowed)?"):
+        kw["fractional_shares"] = True
     m = T.find(rf"(?:no more than|at most|max(?:imum)?|cap(?:ped)? at|limit(?:ed)? to) {NUM}% of (?:the )?(?:day's |daily |average )?(?:volume|adv)")
     if m:
         kw["max_volume_pct"] = float(m.group(1)) / 100
@@ -3345,6 +3347,7 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
     if any(v for k_, v in ex.items() if not k_.startswith("_")):
         exits = [cl for cl in exits if re.sub(filler, "", cl, flags=re.I)]
     hold_bars, hold_fill = None, "close"
+    hold_fill_stated = False
     exit_when, exit_when_fill = None, "close"
     for k, cl in enumerate(exits):
         mb = re.search(r"(?i)\b(sell|exit|cover|close out|take profits?)(\w*)(?: it| the position)? (?:at|on|near) (?:the )?(middle|mid|center|centre|basis|upper|lower) (bollinger )?(band|line)\b", cl)
@@ -3415,16 +3418,28 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
         for mx in re.finditer(rf"(?:sell|exit|cover|close)\w*[^,;]*?(?:at|on) (?:the )?(?:next |following |tomorrow's )?(?:day's |trading day's )?(open|close)\b", low, flags=re.I):
             if not mw or mx.start() < (mw.start("body") if mw else 0):
                 hold_fill = mx.group(1).lower() if hold_bars is not None or not mw else hold_fill
+                hold_fill_stated = True
         if hold_bars is None and not mw and not exit_when:
             m1 = re.search(r"(?:sell|exit|cover)\w* (?:it |them )?(?:at|on) (?:the )?(next |following )?(close|open)", low, flags=re.I)
             if m1:
                 hold_bars = 1
                 hold_fill = m1.group(2).lower()
+                hold_fill_stated = True
                 notes.append(f"No holding period stated: exiting at the first {hold_fill} after entry.")
     if subject_hold is not None:
         if hold_bars is not None and hold_bars != subject_hold:
             raise ParseError(f"Two holding periods ({subject_hold} and {hold_bars} bars); keep one.")
         hold_bars = subject_hold
+    if (getattr(_TL, "tv", False) and hold_bars and not hold_fill_stated and first["fill"] == "next_open"):
+        # TradingView: a time exit is a strategy.close() once N bars have passed since the entry bar - placed at that
+        # bar's close and, with process_orders_on_close = false, filled at the next open
+        n_ = hold_bars
+        hold_bars, hold_fill = n_ + 1, "open"
+        notes.append(f"Holding period in TradingView-compatible mode: 'hold {n_} day{'s' if n_ != 1 else ''}' is "
+                     f"TradingView's strategy.close() once {n_} bar{'s' if n_ != 1 else ''} have passed since the entry "
+                     f"bar: the close order is placed at the close {n_} bar{'s' if n_ != 1 else ''} after the entry bar and "
+                     f"fills at the next open ({n_ + 1} bars after the entry bar). Say 'sell at the close' to exit at "
+                     f"that close instead.")
     stops_given = any(ex.get(k) for k in ("stop_loss", "trailing_stop", "take_profit", "stop_atr", "trailing_atr", "take_profit_atr",
                                           "scale_out", "stop_level", "target_level", "target_r"))
     if hold_bars == 0 and first["fill"] not in ("open", "next_open") and first["order"] == "market":

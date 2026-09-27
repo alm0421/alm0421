@@ -442,7 +442,8 @@ def run(strat: Strategy) -> Result:
     last_close = np.full(N, np.nan)
 
     S = dict(cash=strat.capital, interest=0.0, halted=False, small=0, addon_skipped=0, nofunds=0, nofunds_days=[],
-             entry_stop=np.nan, no_risk=0, wrong_side=0, lvl_nan=0)
+             entry_stop=np.nan, no_risk=0, wrong_side=0, lvl_nan=0,
+             tv_sb=None, tv_nofunds=0, tv_nofunds_days=[])
     slot_days: set = set()                          # days an entry signal found no free position slot
     positions: dict[int, Position] = {}
     pending_mkt_open: list[tuple[int, int]] = []    # (k, sign) market orders for the next open
@@ -499,9 +500,38 @@ def run(strat: Strategy) -> Result:
             return slip
         return costs.volume_slippage(slip, shares, float(ADV[i, k]), strat.spread_bps, strat.impact_bps)
 
+    def tv_percent_shares(i: int, k: int, fill: float, eq: float, prices: np.ndarray, sgn: int, at_open: bool) -> float:
+        """TradingView's strategy.percent_of_equity: the quantity is computed on the bar the order is placed (the signal
+        bar), from the equity and the close of that bar, rounded down to whole shares for stocks and ETFs; the order
+        then fills at the next open. An order the cash can't pay for at the fill is skipped (-1), not cut."""
+        sb = S["tv_sb"]
+        eq_sig = eq if sb >= i else equity[sb]
+        px = C[sb, k]
+        if not (np.isfinite(px) and px > 0 and np.isfinite(fill) and fill > 0) or eq_sig <= 0:
+            return 0.0
+        shares = eq_sig * strat.position_size / px
+        f = SF[i, k]
+        vol_known = V[i - 1, k] if at_open and i > 0 else (np.nan if at_open else V[i, k])
+        if strat.max_volume_pct and vol_known > 0:
+            shares = min(shares, strat.max_volume_pct * vol_known)
+        if not strat.fractional_shares:
+            shares = whole(shares, f)
+        if shares <= 0:
+            return 0.0
+        value = shares * fill
+        room = strat.leverage * eq - gross(prices)
+        cost = value + (commission(shares, value, f) if sgn == 1 else 0.0)
+        avail = S["cash"] + (strat.leverage - 1) * max(eq, 0) if sgn == 1 else np.inf
+        if value > room + 1e-9 or cost > avail + 1e-9:
+            S["tv_short"] = True
+            return -1.0
+        return shares
+
     def size_shares(i: int, k: int, fill: float, eq: float, prices: np.ndarray, sgn: int, at_open: bool) -> float:
         # indicators used for sizing must be known when the order is placed
         ib = i - 1 if (at_open and i > 0) else i
+        if strat.tv_compat and strat.sizing == "percent" and S["tv_sb"] is not None:
+            return tv_percent_shares(i, k, fill, eq, prices, sgn, at_open)
         if strat.sizing == "percent":
             value = eq * strat.position_size
         elif strat.sizing == "fixed_dollars":
@@ -601,8 +631,12 @@ def run(strat: Strategy) -> Result:
                 S["entry_stop"] = lv[0]
             shares = size_shares(i, k, fill, eq, prices, sgn, at_open)
         if shares < 0:   # a fixed size the account could not pay for: skipped, as TradingView does
-            S["nofunds"] += 1
-            S["nofunds_days"].append(cal[i].date())
+            if S.pop("tv_short", False):
+                S["tv_nofunds"] += 1
+                S["tv_nofunds_days"].append(cal[i].date())
+            else:
+                S["nofunds"] += 1
+                S["nofunds_days"].append(cal[i].date())
             return False
         if shares <= 0 or shares * fill < max(strat.min_order or 0.0, 1e-9):
             # no dust: an order worth less than min_order (e.g. the leftover cash of a full position) is skipped
@@ -823,6 +857,18 @@ def run(strat: Strategy) -> Result:
         _, _, tgt = levels(p)
         return (pick(fixed) if fixed else np.nan, pick(trail) if trail else np.nan, tgt if tgt is not None else np.nan)
 
+    def profit_levels(p: Position, tgt) -> list:
+        """The profit-side resting orders of a position, in the order the price reaches them (ascending for a long,
+        descending for a short): (level, reason, scale-out index or None, fraction of what is left). Scale-outs are
+        limit orders like the target; at the same level the scale-out comes first."""
+        s = p.sign
+        out = [(p.avg_price * (1 + s * so["at"]), "scale out", j, float(so["fraction"]))
+               for j, so in enumerate(strat.scale_out or []) if j not in p.scaled]
+        if tgt is not None:
+            out.append((tgt, "take profit", None, 1.0))
+        out.sort(key=lambda x: (x[0] * s, x[2] is None))
+        return out
+
     def levels(p: Position):
         """(stop level or None, stop reason, target level or None)"""
         s, e = p.sign, p.avg_price
@@ -903,14 +949,22 @@ def run(strat: Strategy) -> Result:
                 if stop is not None and (o[k] - stop) * p.sign <= 0:
                     close_part(i, p, o[k], why, True)
                     continue
-                if tgt is not None and (o[k] - tgt) * p.sign >= 0:
-                    close_part(i, p, o[k], "take profit", True)
+                # profit-side resting orders the open already passed (a gap): each fills at the open, nearest first
+                # (a scale-out below the target before the target, which then closes what is left)
+                for lvl, what, j, frac in profit_levels(p, tgt):
+                    if (o[k] - lvl) * p.sign < 0 or k not in positions:
+                        break
+                    if j is not None:
+                        p.scaled.add(j)
+                    close_part(i, p, o[k], what, True, fraction=frac)
         # market entries at the open
         todays_open = []
         if strat.entry_fill == "open" and strat.entry_order == "market":
             todays_open = ranked_pairs(signals(i), max(i - 1, 0))  # rank with yesterday's values
-        for k, sgn in pending_mkt_open + todays_open:
+        for n_, (k, sgn) in enumerate(pending_mkt_open + todays_open):
+            S["tv_sb"] = i - 1 if n_ < len(pending_mkt_open) and i > 0 else None   # the order's signal bar
             want(i, k, sgn, o, at_open=True)
+        S["tv_sb"] = None
         pending_mkt_open = []
 
         # ---- limit / stop entry orders (open, then intraday)
@@ -941,7 +995,10 @@ def run(strat: Strategy) -> Result:
                 slot_days.add(i)
                 still.append(od)
                 continue
-            if open_pos(i, k, fill, True, sgn, o):
+            S["tv_sb"] = od["placed"]
+            opened = open_pos(i, k, fill, True, sgn, o)
+            S["tv_sb"] = None
+            if opened:
                 positions[k].lots[-1].at_open = True  # exposed from the fill onward
                 positions[k].lots[-1].fill_kind = "open" if at_o else strat.entry_order   # gapped through, or at the level
         pending_lvl = still
@@ -956,27 +1013,43 @@ def run(strat: Strategy) -> Result:
                 adverse = lo_[k] if s == 1 else h[k]
                 best = h[k] if s == 1 else lo_[k]
                 stop, why, tgt = levels(p)
-                if (strat.tv_compat and stop is not None and tgt is not None and (adverse - stop) * s <= 0
-                        and (best - tgt) * s >= 0 and (o[k] - stop) * s > 0 and (o[k] - tgt) * s < 0):
-                    # both touched inside the bar: TradingView's path - open -> high -> low -> close when the open is
-                    # nearer the high, else open -> low -> high -> close; the level on the first leg fills
+                prof = [x for x in profit_levels(p, tgt) if (best - x[0]) * s >= 0]    # profit-side levels touched
+                stop_hit = stop is not None and (adverse - stop) * s <= 0
+
+                def take(x, _p=p, _k=k, _s=s):
+                    lvl, what, j, frac = x
+                    if j is not None:
+                        _p.scaled.add(j)
+                    close_part(i, _p, lvl if (o[_k] - lvl) * _s < 0 else o[_k], what, at_open=False, fraction=frac)
+
+                if stop_hit and strat.tv_compat and prof and (o[k] - stop) * s > 0:
+                    # stop and profit levels touched inside the bar: TradingView's path - open -> high -> low -> close
+                    # when the open is nearer the high, else open -> low -> high -> close. Every level on the path fills
+                    # in turn (scale-outs are resting limit orders); the stop ends the trade when the path reaches it
                     high_first = abs(h[k] - o[k]) < abs(o[k] - lo_[k])
-                    if high_first == (s == 1):     # the target (above for longs, below for shorts) comes first
-                        close_part(i, p, tgt, "take profit", at_open=False)
-                        continue
-                if stop is not None and (adverse - stop) * s <= 0:
+                    if high_first == (s == 1):          # the favourable leg first: scale-outs / target, then the stop
+                        for x in prof:
+                            if k not in positions:
+                                break
+                            take(x)
+                    else:                               # the adverse leg first: only levels already passed at the open
+                        for x in prof:
+                            if (o[k] - x[0]) * s < 0 or k not in positions:
+                                break
+                            take(x)
+                    if k in positions:
+                        close_part(i, p, stop, why, at_open=False)
+                    continue
+                if stop_hit:
+                    # the stop is assumed to come first when it and a profit level are both touched (conservative)
                     close_part(i, p, stop if (o[k] - stop) * s > 0 else o[k], why, at_open=False)
                     continue
-                if tgt is not None and (best - tgt) * s >= 0:
-                    close_part(i, p, tgt if (o[k] - tgt) * s < 0 else o[k], "take profit", at_open=False)
-                    continue
-                for j, so in enumerate(strat.scale_out):
-                    if j in p.scaled or k not in positions:
-                        continue
-                    lvl = p.avg_price * (1 + s * so["at"])
-                    if (best - lvl) * s >= 0:
-                        p.scaled.add(j)
-                        close_part(i, p, lvl, "scale out", at_open=False, fraction=float(so["fraction"]))
+                # profit-side levels in the order the price reaches them: nearest first, so a scale-out below the
+                # target fills before the target closes the rest
+                for x in prof:
+                    if k not in positions:
+                        break
+                    take(x)
                 if k in positions:
                     p.peak = max(p.peak, h[k]) if s == 1 else min(p.peak, lo_[k])
 
@@ -1016,8 +1089,10 @@ def run(strat: Strategy) -> Result:
                         pending_lvl.append({"k": k, "sign": sgn, "level": lvl, "expires": i + strat.order_valid_bars,
                                             "placed": i})
             elif strat.entry_fill == "close":
+                S["tv_sb"] = i
                 for k, sgn in todays:
                     want(i, k, sgn, c, at_open=False)
+                S["tv_sb"] = None
             elif strat.entry_fill == "next_close":
                 for k, sgn in pending_mkt_close:
                     want(i, k, sgn, c, at_open=False)
@@ -1086,6 +1161,14 @@ def run(strat: Strategy) -> Result:
                            f"{' or it exceeded the volume cap' if strat.max_volume_pct else ''}. As in TradingView, a fixed size "
                            "is filled in full or not at all (never cut to what the cash allows). Lower the size, add "
                            "capital, or size as a percentage of equity.")
+    if S["tv_nofunds"]:
+        days = ", ".join(str(d) for d in S["tv_nofunds_days"][:5]) + (" and more" if len(S["tv_nofunds_days"]) > 5 else "")
+        strat.notes = [n for n in strat.notes if not n.startswith("TradingView orders skipped:")]
+        strat.notes.append(f"TradingView orders skipped: {S['tv_nofunds']} entry order(s) were skipped ({days}): the quantity, "
+                           f"{strat.position_size:.0%} of equity at the signal bar's close, cost more than the cash "
+                           "available when the order filled (the price gapped up by the next open). TradingView's broker "
+                           "emulator skips such an order rather than cutting it; use a smaller size (e.g. 95% of equity) "
+                           "to leave room.")
     if S["lvl_nan"]:
         strat.notes = [n for n in strat.notes if not n.startswith("Levels:")]
         strat.notes.append(f"Levels: {S['lvl_nan']} entry signal(s) were skipped because the stop / target level "

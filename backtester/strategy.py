@@ -2,12 +2,27 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field, fields
 from typing import Literal
 
 from .costs import COMMISSION_MODELS, broker_commission  # noqa: F401 - re-exported (older imports)
 
 Fill = Literal["close", "open", "next_open", "next_close"]
+
+TV_SIZING_NOTE = ("TradingView sizing: a percentage of equity is converted to a quantity on the bar the order is placed, "
+                  "from that bar's equity and close, and the order fills at the next open (TradingView's "
+                  "strategy.percent_of_equity: \"position sizes will be calculated as a percentage of the available "
+                  "equity\", \"subject to constraints due to the minimum tradable quantities for the symbol\" - TradingView "
+                  "Help Center, Strategy properties). The quantity is rounded down to whole shares (the minimum quantity "
+                  "of a stock or ETF is 1 share; say 'fractional shares' to allow fractions). An order the cash can't pay "
+                  "for at the fill (a gap up) is skipped, not cut.")
+
+
+def _fractional_market(t) -> bool:
+    """Markets TradingView trades in fractions (crypto and FX pairs); stocks and ETFs trade in whole shares."""
+    return isinstance(t, str) and bool(re.search(r"-(?:USD|USDT|EUR|BTC)$|=X$", t.upper()))
+
 
 TV_NOTE = "TradingView-compatible mode: entries and rule exits with no timing stated fill at the next bar's open (TradingView's default, process_orders_on_close = false), and when a stop and a target are both touched on one bar, the one TradingView's broker emulator reaches first is filled (open -> high -> low -> close if the open is nearer the high, else open -> low -> high -> close)."
 
@@ -65,7 +80,8 @@ class Strategy:
     leverage: float = 1.0                        # max gross exposure / equity
     rank_by: str | None = None                   # when more signals than free slots, prefer highest value
     rank_ascending: bool = False
-    fractional_shares: bool = True
+    fractional_shares: bool | None = None        # None: fractional, except whole shares in TradingView-compatible mode
+                                                 # for stocks and ETFs (TradingView's minimum quantity, 1 share)
     min_order: float = 1.0                       # orders worth less than this ($) are skipped (no dust trades)
     point_in_time: bool = True                   # only enter index stocks while they were members
     universe_name: str | None = None             # e.g. "NDX" when the universe is an index
@@ -230,6 +246,13 @@ class Strategy:
             if not (self.trailing_stop or self.trailing_atr):
                 raise ValueError("'trail the rest' needs a trailing distance: e.g. 'trail the rest with an 8% trailing stop' "
                                  "(trailing_stop) or 'with a 3 ATR chandelier stop' (trailing_atr).")
+        if self.fractional_shares is None:
+            self.fractional_shares = not (self.tv_compat and not all(_fractional_market(t) for t in self.universe or []))
+            if self.tv_compat and not self.fractional_shares and self.sizing == "percent" \
+                    and not any(n.startswith("TradingView sizing:") for n in self.notes):
+                self.notes.append(TV_SIZING_NOTE)
+        if not isinstance(self.fractional_shares, bool):
+            raise ValueError("fractional_shares must be true or false")
         if self.tv_compat and not any(n.startswith("TradingView-compatible mode") for n in self.notes):
             self.notes.append(TV_NOTE)
         self.notes = [n for n in self.notes if not n.startswith("TradingView-compatible returns:")]
