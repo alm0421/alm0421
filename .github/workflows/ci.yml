@@ -6,7 +6,7 @@ name: CI
 # the deterministic offline fixtures used by the unit tests.
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 
