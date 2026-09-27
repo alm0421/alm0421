@@ -1145,6 +1145,27 @@ class _SlopeMatch:
         return self.m.group(g)
 
 
+def _review_takes(take, c: str) -> None:
+    """Condition patterns from a Composer user's review, registered with parse_condition's `take`:
+    'below its 200 day MA by less than 2%' (= below it, and within 2% of it: close < sma and close > sma * 0.98),
+    'less than 2% above its 200 day moving average' (above it, by under 2%)."""
+    def near(m):
+        below = m.group("rel") in ("below", "under", "beneath")
+        f = float(m.group("pct")) / 100
+        strict = m.group("q") in ("less than", "under")
+        ma = _mat_expr(m, "a", c)
+        k = f"{1 - f if below else 1 + f:.6g}"
+        _note(f"'{m.group(0).strip()}' = {'below' if below else 'above'} {ma} and by {'less than' if strict else 'at most'} "
+              f"{m.group('pct')}% ({'more than' if below else 'less than'} {ma} * {k}).")
+        if below:
+            return f"{c} < {ma} and {c} {'>' if strict else '>='} {ma} * {k}"
+        return f"{c} > {ma} and {c} {'<' if strict else '<='} {ma} * {k}"
+    take(rf"(?:(?:closes?|trades?|is|stays?|remains?) )?(?P<rel>below|under|beneath|above|over) (?:its |the )?{_mat('a')} by "
+         rf"(?P<q>less than|under|at most|no more than) (?P<pct>\d+(?:\.\d+)?)%", near)
+    take(rf"(?:(?:closes?|trades?|is|stays?|remains?) )?(?P<q>less than|under|at most|no more than) (?P<pct>\d+(?:\.\d+)?)% "
+         rf"(?P<rel>below|under|beneath|above|over) (?:its |the )?{_mat('a')}", near)
+
+
 def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     """Return (expression, leftover words) for one sub-clause."""
     # "daily RSI(2)" is the normal daily-bar indicator
@@ -1216,6 +1237,7 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
                r"(?:(?:simple |exponential |weighted )?(?:moving average|moving avg|ma|sma|ema|wma)(?: ?\( ?\d+ ?\))?|vwap|"
                r"(?:\d+ (?:day|week|month|year)s? )?(?:high|low|peak)s?)) by (at least |more than |over |greater than )?"
                r"(\d+(?:\.\d+)?)%", r"\3\4% \1 \2", s)
+    _review_takes(take, c)
     s = re.sub(r"(?:(?<= )the |(?<= )its )?(?:close|closing price|price) (?:is |was )?(higher|greater|lower|less) than (?=(?:the )?"
                r"(?:highest |lowest )?(?:high|low|close)s? (?:of|in|over|during) (?:the )?(?:last|past|prior|previous) \d)",
                lambda m: "closes above " if m.group(1) in ("higher", "greater") else "closes below ", s)
@@ -2413,6 +2435,122 @@ def _every_ticker_used(o: str, e: str, traded: list[str]) -> str:
     return e
 
 
+_RV_TK = r"[\^$]?[A-Za-z][A-Za-z0-9.\-]{0,9}"
+_RV_END = r"(?=\s*(?:$|,|;|\bthen\b|\band\b|\bor\b|\bhold\b|\botherwise\b|\belse\b))"
+
+
+def _review_condition_phrases(text: str) -> str:
+    """Condition phrases from a Composer user's review, rewritten into forms the condition parser reads (outside
+    backticks). Every rewrite keeps the direction and sign of the original:
+      'has a 6 day cumulative return of less than -12%'  -> '6 day cumulative return is less than -12%'
+      'less than negative 12%'                          -> 'less than -12%'
+      'gained less than 5% over 10 days'                -> '10 day return is less than 5%'  (lost more -> < -5%)
+      '10 day return is down more than 5%'              -> '10 day return is less than -5%'
+      'under 10% from its 52 week low'                  -> 'less than 10% above its 52 week low'
+      "SPY's 20 day return is more than 2% higher than TLT's" -> '... more than 2 points above TLT's 20 day return'
+      "TQQQ's 10 day RSI is below SOXL's 10 day RSI minus 5"   -> '... is more than 5 points below SOXL's 10 day RSI'
+      'is oversold' / 'is overbought'                   -> '14 day RSI is below 30' / 'above 70' (with a warning)
+    'fails to stay above ...' is refused as ambiguous."""
+    if not text or not re.search(r"[A-Za-z]", text):
+        return text
+    mf = _msearch(r"(?i)\b(?:fails?|failed|failing) to (?:stay|hold|remain|close|keep)(?: (?:itself|it))? (above|below|over|under)"
+                  r" (.+?)" + _RV_END, text)
+    if mf:
+        rel, what = mf.group(1).lower(), mf.group(2).strip()
+        opp = "below" if rel in ("above", "over") else "above"
+        raise ParseError(f"'{mf.group(0).strip()}' is ambiguous: it could mean today's close is {opp} {what}, that it closed "
+                         f"{opp} it on any day of a period, or that it crossed {opp} it today. Say which, e.g. 'is {opp} "
+                         f"{what}', 'has closed {opp} {what} for 3 days', or 'crosses {opp} {what}'.")
+    # "less than negative 12%" / "below minus 5%": a negative threshold
+    text = _sub_outside(r"(?i)\b(?:negative|minus) (?=\d+(?:\.\d+)?\s*%)", "-", text)
+    # "has a 6 day cumulative return of less than -12%" -> "6 day cumulative return is less than -12%"
+    text = _sub_outside(r"(?i)\b(?:has|have|had) (?:a|an) ((?:\d+[- ](?:trading )?(?:day|week|month|year|bar|session)s? )?"
+                        r"[a-z][a-z' ]*?) of (?=(?:less|more|greater|lower|higher|at least|at most|above|below|over|under|no more|"
+                        r"no less)\b)", r"\1 is ", text)
+
+    # "gained less than 5% over 10 days" -> "10 day return is less than 5%"; "lost more than 5% ..." -> "... less than -5%"
+    def moved(m):
+        loss = m.group("v").lower() in ("lost", "fell", "fallen", "dropped", "declined")
+        q = m.group("q").lower()
+        more = q in ("more than", "over", "at least")
+        cmp_ = {"more than": "more than", "over": "more than", "at least": "at least", "less than": "less than",
+                "under": "less than", "at most": "at most"}[q]
+        if loss:     # a loss of more than 5% is a return below -5%
+            cmp_ = {"more than": "less than", "at least": "at most", "less than": "more than", "at most": "at least"}[cmp_]
+        _note(f"'{m.group(0).strip()}' = the {m.group('k')} {m.group('u')} return is {cmp_} "
+              f"{'-' if loss else ''}{m.group('n')}%" + (" (a gain below the threshold includes any loss)."
+                                                          if not loss and not more else "."))
+        return f"{m.group('k')} {m.group('u')} return is {cmp_} {'-' if loss else ''}{m.group('n')}%"
+    text = _sub_outside(r"(?i)\b(?:has |have )?(?P<v>gained|rose|risen|climbed|advanced|lost|fell|fallen|dropped|declined)(?: by)? "
+                        r"(?P<q>more than|less than|over|under|at least|at most) (?P<n>\d+(?:\.\d+)?)% (?:over|in|during|within) (?:the )?"
+                        r"(?:last |past |prior |previous )?(?P<k>\d+) (?:trading )?(?P<u>day|week|month|year)s?\b", moved, text)
+
+    # "10 day return is down more than 5%" -> "10 day return is less than -5%"
+    def updown(m):
+        q = m.group("q").lower()
+        q = {"over": "more than", "under": "less than"}.get(q, q)
+        if m.group("d").lower() == "down":
+            q = {"more than": "less than", "less than": "more than", "at least": "at most", "at most": "at least"}[q]
+            return f"{m.group('m')} is {q} -{m.group('n')}%"
+        return f"{m.group('m')} is {q} {m.group('n')}%"
+    text = _sub_outside(r"(?i)\b(?P<m>returns?|performance|change|gain)(?: is| was| has been)? (?P<d>up|down)(?: by)? "
+                        r"(?P<q>more than|less than|over|under|at least|at most) (?P<n>\d+(?:\.\d+)?)%", updown, text)
+    # "under 10% from its 52 week low" -> "less than 10% above its 52 week low" (and "... below its high")
+    text = _sub_outside(r"(?i)\b(?:is )?(?P<q>under|less than|no more than|at most|within) (?P<n>\d+(?:\.\d+)?)% (?:away )?(?:from|off) "
+                        r"(?P<w>(?:its |the )?(?:\d+[- ](?:day|week|month|year)s? )?(?P<hl>high|low|peak))\b",
+                        lambda m: (f"is {'less than' if m.group('q').lower() in ('under', 'less than') else 'at most'} "
+                                   f"{m.group('n')}% {'above' if m.group('hl').lower() == 'low' else 'below'} {m.group('w')}"), text)
+
+    # "SPY's 20 day return is more than 2% higher than TLT's": 2 percentage points (a difference of returns)
+    def pp(m):
+        rm = (m.group("rm") or "").strip() or m.group("m").strip()
+        side = "above" if m.group("d").lower() in ("higher", "greater", "more", "above") else "below"
+        q = (m.group("q") or "").strip()
+        _note(f"'{m.group(0).strip()}' compares two returns, so {m.group('n')}% is read as {m.group('n')} percentage points "
+              f"(a difference of returns, not {m.group('n')}% of {m.group('rt')}'s return).")
+        return f"{m.group('lt')}'s {m.group('m').strip()} is {q + ' ' if q else ''}{m.group('n')} points {side} {m.group('rt')}'s {rm}"
+    text = _sub_outside(rf"(?i)\b(?P<lt>{_RV_TK})'s (?P<m>(?:[\w-]+ ){{0,4}}?(?:returns?|performance|momentum|gain|change)) is "
+                        rf"(?P<q>more than |at least |over |less than |under |at most )?(?P<n>\d+(?:\.\d+)?)% "
+                        rf"(?P<d>higher|greater|more|above|lower|less|below) than (?P<rt>{_RV_TK})'s(?P<rm>(?: (?!then\b|and\b|or\b|hold\b)[\w-]+)*)"
+                        + _RV_END, pp, text)
+    # "... N points above TLT's" with the measure left out: the same measure as the left side
+    text = _sub_outside(rf"(?i)\b(?P<lt>{_RV_TK})'s (?P<m>(?:[\w-]+ ){{0,4}}?[\w-]+) is (?P<rel>(?:more than |at least |over |less than |under |at most )?"
+                        rf"\d+(?:\.\d+)? points? (?:above|below|higher than|lower than)) (?P<rt>{_RV_TK})'s" + _RV_END,
+                        lambda m: f"{m.group('lt')}'s {m.group('m')} is {m.group('rel')} {m.group('rt')}'s {m.group('m')}", text)
+
+    # "TQQQ's 10 day RSI is below SOXL's 10 day RSI minus 5" -> "... is more than 5 points below SOXL's 10 day RSI"
+    def offset(m):
+        below = m.group("rel").lower() in ("below", "under", "less than", "lower than")
+        plus = m.group("op").lower() in ("plus", "+")
+        n = m.group("n")
+        # a < b - n: b - a > n (more than n below); a > b + n: more than n above; a < b + n: a - b < n (less than n
+        # above); a > b - n: b - a < n (less than n below)
+        if below and not plus:
+            rel = f"more than {n} points below"
+        elif not below and plus:
+            rel = f"more than {n} points above"
+        elif below and plus:
+            rel = f"less than {n} points above"
+        else:
+            rel = f"less than {n} points below"
+        _note(f"'{m.group(0).strip()}' = {m.group('lhs').strip()} is {rel} {m.group('rhs').strip()} "
+              f"({'<' if below else '>'} {m.group('rhs').strip()} {'+' if plus else '-'} {n}).")
+        return f"{m.group('lhs')} is {rel} {m.group('rhs')}"
+    text = _sub_outside(rf"(?i)(?P<lhs>(?:\b{_RV_TK}'s |\bthe )(?:[\w-]+ ){{0,4}}?[\w-]+) is (?P<rel>below|under|less than|lower than|above|over|"
+                        rf"greater than|higher than) (?P<rhs>(?:\b{_RV_TK}'s |\bthe )(?:[\w-]+ ){{0,6}}?[\w-]+) (?P<op>minus|plus|-|\+) "
+                        rf"(?P<n>\d+(?:\.\d+)?)(?![\d.%])" + _RV_END, offset, text)
+
+    # "SPY is oversold" / "overbought": no standard threshold; read as the common 14 day RSI below 30 / above 70
+    def osc(m):
+        over = m.group(1).lower() == "overbought"
+        _note(f"Warning: 'is {m.group(1).lower()}' has no single definition; it was read as the 14 day RSI "
+              f"{'above 70' if over else 'below 30'} (the usual RSI zones). Say e.g. '10 day RSI is {'above 80' if over else 'below 20'}' "
+              "for another indicator or level.")
+        return f" 14 day RSI is {'above 70' if over else 'below 30'}"
+    text = _sub_outside(r"(?i)(?<!rsi)(?<!rsi\))\s+(?:is|are|gets|becomes|turns) (oversold|overbought)\b", osc, text)
+    return text
+
+
 def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list: bool = False, total: bool = False):
     """Parse `x and y or z` style condition text into one expression.
 
@@ -2421,6 +2559,7 @@ def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list:
     total=True (portfolio conditions) returns are total returns (tret).
     """
     _negative_lookbacks(text)
+    text = _review_condition_phrases(text)
     # "it is not the case that A and B" / "not (A or B)": the negation of the whole condition
     mneg = re.fullmatch(r"(?is)\s*(?:(?:it is|it's) not (?:the case|true) that|not the case that|it is false that)\s+(.+?)\s*|"
                         r"\s*not\s*\((.+)\)\s*", text)
@@ -2664,7 +2803,7 @@ def _pair_compare(text: str, traded: list[str]) -> str | None:
             return f"{ea} {op} {eb}"
     # "the RSI of SPY is 10 points above the RSI of QQQ": an absolute difference (for oscillators; for returns,
     # percentage points)
-    mp = re.search(r"(?i)\s(?:is |are )?(?P<q>at least |more than |over |no less than )?(?P<n>\d+(?:\.\d+)?) "
+    mp = re.search(r"(?i)\s(?:is |are )?(?P<q>at least |more than |over |no less than |less than |under |at most |no more than )?(?P<n>\d+(?:\.\d+)?) "
                    r"(?:points?|pts?)(?: or more)? (?P<rel>above|below|higher than|lower than|over|under)\s", f" {text} ")
     if mp:
         a, b = f" {text} "[: mp.start()], f" {text} "[mp.end():]
@@ -2676,7 +2815,9 @@ def _pair_compare(text: str, traded: list[str]) -> str | None:
                     n /= 100
                     _note(f"'{mp.group(0).strip()}': percentage points of return ({n:g}).")
                 up = mp.group("rel").lower() in ("above", "higher than", "over")
-                bound = _bound(">", mp.group(0))
+                # "less than 5 points below": the difference is under 5 (a < b + 5 for 'above', b - a < 5 for 'below')
+                less = (mp.group("q") or "").strip().lower() in ("less than", "under", "at most", "no more than")
+                bound = _bound("<" if less else ">", mp.group(0))
                 diff = f"{ea} - {eb}" if up else f"{eb} - {ea}"
                 return f"{diff} {bound} {n:g}"
     for pat, op in CMP_WORDS:
@@ -3435,7 +3576,56 @@ def _bare_short(text: str) -> str | None:
     return f"hold 100% short {tk[0]}" + (f", {m.group('rest')}" if m.group("rest") else "")
 
 
+_UI_TK = r"(?:[\^$]?[A-Za-z][A-Za-z0-9.\-]{0,9}|cash)"
+
+
+def _composer_ui_shorthand(text: str) -> str | None:
+    """Composer's editor labels typed as text -> the English the portfolio parser reads (None if not that shape):
+      'Weight equal: SPY, TLT'                              -> 'equal weight SPY and TLT'
+      'Weight specified 60% SPY 40% TLT'                    -> '60% SPY 40% TLT'
+      'Weight inverse volatility 20d: SPY, TLT'             -> 'SPY and TLT, inverse volatility weighted over 20 days'
+      'Filter top 2 by 10d cumulative return: TQQQ, SOXL'   -> 'the top 2 of TQQQ and SOXL by 10 day cumulative return'
+    Options after the holdings (', rebalance monthly') are kept after the rewritten phrase."""
+    t = text.strip()
+    m = re.match(r"(?is)\s*(?:weight(?:ing)?|weights)\s*:?\s*(?P<kind>equal(?:ly)?|specified|inverse[- ]vol(?:atility)?)"
+                 r"(?:\s+(?P<n>\d+)\s*(?:d|days?|-day)\b)?\s*[:\-]?\s*(?P<rest>.+)$", t)
+    f = None if m else re.match(r"(?is)\s*filter\s*:?\s*(?P<sel>top|bottom)\s+(?P<n>\d+)\s+(?:by\s+)?(?P<met>[^:]+?)\s*:\s*(?P<rest>.+)$", t)
+    if not m and not f:
+        return None
+    rest = (m or f).group("rest")
+    if m and m.group("kind").lower().startswith("specified"):
+        return rest
+    items = [x.strip() for x in re.split(r"\s*,\s*|\s+and\s+", rest)]
+    k = 0
+    while k < len(items) and re.fullmatch(_UI_TK, items[k]) and not re.fullmatch(
+            r"(?i)re-?balanc\w*|since|from|until|starting|with|vs|versus|benchmark", items[k]):
+        k += 1
+    hold, opts = items[:k], items[k:]
+    if not hold:
+        return None
+    lst = hold[0] if len(hold) == 1 else ", ".join(hold[:-1]) + " and " + hold[-1]
+    tail = (", " + ", ".join(opts)) if opts else ""
+    if f:
+        met = re.sub(r"(?i)\b(\d+)\s*d\b", r"\1 day", f.group("met").strip())
+        # "cumulative return 10 day" (Composer's label order) -> "10 day cumulative return"
+        met = re.sub(r"(?i)^(?P<w>[a-z][a-z ]*?)\s+(?P<n>\d+ day)$", r"\g<n> \g<w>", met)
+        return f"the {f.group('sel').lower()} {f.group('n')} of {lst} by {met}{tail}"
+    if m.group("kind").lower().startswith("equal"):
+        return f"equal weight {lst}{tail}"
+    look = f" over {m.group('n')} days" if m.group("n") else ""
+    return f"{lst}, inverse volatility weighted{look}{tail}"
+
+
 def _parse_text(text: str):
+    ui = _composer_ui_shorthand(text)
+    if ui:
+        obj = parse_allocation(ui)
+        obj.notes.insert(0, f"Composer editor shorthand '{text.strip()}' was read as '{ui}'.")
+        return obj
+    # "TQQQ, except when <condition> hold BIL": a switch between holdings (read by _except_when)
+    if re.search(r"(?i)^\s*(?:hold |own |be in |invest in )?[^,;]+?,?\s+except (?:when(?:ever)?|while|if|as long as)\b.+?"
+                 r"(?:\bhold\b|\bbe in\b|\bown\b|\bin which case\b|\bswitch to\b|\bgo to\b|\bmove to\b)", _mask(text)):
+        return parse_allocation(text)
     rot = _rotation(text)
     if rot:
         return parse_allocation(rot)
@@ -4830,18 +5020,51 @@ def value_phrase(text: str, ctx: Ctx | None = None, default_n: int | None = None
                      f"'market cap', or a rule in backticks.")
 
 
+def _rank_words_note(word: str, n: int, metric_text: str, direction: str, metric: str) -> str | None:
+    """'the top 1 ... by lowest 10 day RSI': the ranking word and the metric's own direction word disagree, so the
+    selection flips (the bottom 1 by RSI). Say so: it is easy to misread."""
+    low = re.search(LOW_WORDS, metric_text.lower())
+    if not low:
+        return None
+    what = re.sub(LOW_WORDS, "", metric_text, flags=re.I).strip()
+    what = re.sub(r"\s+", " ", what)
+    picks = "the one" if n == 1 else f"the {n}"
+    if direction == "bottom":
+        return (f"'{word} {n} ... by {metric_text.strip()}' was read as the bottom {n} by {what} ({metric}): {picks} with "
+                f"the lowest value{'s are' if n > 1 else ' is'} held.")
+    return (f"'{word} {n} ... by {metric_text.strip()}': '{word}' and '{low.group(1)}' cancel out, so it was read as the "
+            f"top {n} by {what} ({metric}): {picks} with the highest value{'s are' if n > 1 else ' is'} held.")
+
+
 def _dd_rank(metric: str, direction: str, text: str, n: int = 1) -> tuple[str, str | None]:
-    """Rankings by drawdown use its size, a positive number (Composer's max drawdown): 'top' = the largest drawdown.
-    The current drawdown (drawdown(), <= 0) is negated so that 'by drawdown' and 'by max drawdown' agree."""
+    """Rankings by drawdown use its size, a positive number: 'top' = the largest drawdown. Two measures:
+    'N day drawdown' is the current drawdown, how far the price is below its highest close of the last N days
+    (drawdown(), <= 0, negated here); 'N day max drawdown' is Composer's Max Drawdown indicator, the deepest
+    peak-to-trough fall within the last N days (max_drawdown(), a positive size)."""
     if metric.startswith("drawdown("):
         metric = f"-{metric}"
-    elif not metric.startswith("max_drawdown("):
+        current = True
+    elif metric.startswith("max_drawdown("):
+        current = False
+    else:
         return metric, None
     which = "largest" if direction == "top" else "smallest"
     other = "smallest" if direction == "top" else "largest"
     what = "the asset" if n == 1 else f"the {n} assets"
-    return metric, (f"Ranking by '{text.strip()}' uses the size of the drawdown (a positive number, as Composer's max "
-                    f"drawdown filter): this selects {what} with the {which} drawdown"
+    look = re.search(r",\s*(\d+)\)", metric)
+    nd = look.group(1) if look else None
+    if current:
+        measure = (f"the current drawdown: how far each asset is below its highest close of the last {nd} days today, as a "
+                   f"positive size. That is not Composer's Max Drawdown filter (the deepest peak-to-trough fall within "
+                   f"the {nd} days, even if the price has recovered since); say '{nd} day max drawdown' for that"
+                   if nd else
+                   "the current drawdown: how far each asset is below its highest close so far, as a positive size (not "
+                   "Composer's Max Drawdown, the deepest fall within a window; say e.g. '20 day max drawdown' for that)")
+    else:
+        measure = (f"the max drawdown, the deepest peak-to-trough fall within the last {nd or 'N'} days (as Composer's Max "
+                   f"Drawdown filter), a positive size; say '{nd or 'N'} day drawdown' for the current fall from the "
+                   f"{nd or 'N'} day high")
+    return metric, (f"Ranking by '{text.strip()}' uses {measure}. This selects {what} with the {which} drawdown"
                     + (" (the most drawn down)" if which == "largest" else " (the least drawn down)")
                     + f"; say '{other} drawdown' for the opposite.")
 
@@ -5035,7 +5258,7 @@ def _branch(text: str, notes: list[str]) -> dict:
     if m and not re.match(r"(?i)short\b", m.group("what") or ""):
         what = m.group("what")
         if what:
-            kids = _asset_list(what)
+            kids = _asset_list(what, choice=True)
             if not all("asset" in k for k in kids):
                 raise ParseError(f"{t!r}: name the tickers to sell, e.g. 'otherwise sell TQQQ' (= hold cash).")
             names = ", ".join(k["asset"] for k in kids)
@@ -5047,14 +5270,33 @@ def _branch(text: str, notes: list[str]) -> dict:
     return _node(text, notes)
 
 
-def _asset_list(s: str) -> list[dict]:
-    """'QQQ, SPY and cash' -> [{'asset': 'QQQ'}, {'asset': 'SPY'}, {'cash': True}]"""
+def _or_holdings(s: str) -> None:
+    """'TQQQ or TMF' in a list of holdings is a choice with no rule for choosing: refused (never read as both).
+    'or' is fine where something does choose (a filter's candidates: 'the top 1 of TQQQ or TMF by ...')."""
+    if not re.search(r"(?i)\s(?:or|and/or)\s", _mask(s)) or re.search(r"(?i)\bor else\b", _mask(s)):
+        return
+    parts = [p for p in _split_top_level(s, r",| and | or | and/or |/| plus |&") if p]
+    if len(parts) < 2:
+        return
+    either = re.sub(r"(?i)^\s*either\s+", "", s.strip())
+    both = re.sub(r"(?i)\s+(?:and/)?or\s+", " and ", either)
+    raise ParseError(f"'{s.strip()}': 'or' between holdings is a choice, and nothing says how to choose, so it is not "
+                     f"read as holding both. To hold all of them write '{both}'{'' if '%' in s else ' (equal weight)'}; to hold one of them, say "
+                     f"how to pick it, e.g. 'the top 1 of {both} by 20 day return' (or by RSI, volatility, ...), or use "
+                     "'if <condition> then ... otherwise ...'.")
+
+
+def _asset_list(s: str, choice: bool = False) -> list[dict]:
+    """'QQQ, SPY and cash' -> [{'asset': 'QQQ'}, {'asset': 'SPY'}, {'cash': True}]. 'or' between holdings is refused
+    unless `choice` (something picks among them: a filter, a rotation)."""
+    if not choice:
+        _or_holdings(s)
     out = []
     for it in _split_top_level(s, r",| and | or |/| plus |&"):
         it = _strip_parens(it)
         it, side = _holding_side(it)
         if side == "short":
-            out.append(_short_node(_asset_list(it), it))
+            out.append(_short_node(_asset_list(it, choice=choice), it))
             continue
         if re.fullmatch(r"(?i)(?:hold |in )?(?:cash|t-?bills? as cash|money market)", it):
             out.append({"cash": True})
@@ -5085,16 +5327,18 @@ def _asset_list(s: str) -> list[dict]:
     return out
 
 
-def _children(s: str, notes: list[str]) -> list[dict]:
+def _children(s: str, notes: list[str], choice: bool = False) -> list[dict]:
     """A list of holdings where each item is a ticker, cash, or a bracketed group of any kind:
     'TQQQ, (60% TECL and 40% BIL) and SVIX'."""
+    if not choice:
+        _or_holdings(s)
     out = []
     for it in _split_top_level(s, r",| and | or |/| plus |&"):
         it = it.strip()
         if it.startswith("(") and _strip_parens(it) != it:
             out.append(_node(_strip_parens(it), notes))
         else:
-            out.extend(_asset_list(it))
+            out.extend(_asset_list(it, choice=True))
     if not out:
         raise ParseError(f"No holdings found in {s!r}")
     return out
@@ -5199,6 +5443,26 @@ def _cape_model(s: str, notes: list[str]) -> dict | None:
     return node
 
 
+def _except_when(s: str, notes: list[str]) -> dict | None:
+    """'TQQQ, except when SPY is below its 200 day moving average hold BIL' = if <condition> then BIL else TQQQ
+    (also 'except while / if ...', '..., in which case BIL'). None when the phrase is not of that shape."""
+    m = _msearch(r"^(?P<d>.+?),?\s+except (?:when(?:ever)?|while|if|as long as|on days when|during periods when)\s+(?P<rest>.+)$",
+                 s, flags=re.I | re.S, match=True)
+    if not m or re.search(r"(?i)\b(?:otherwise|else)\b", _mask(m.group("rest"))):
+        return None
+    rest = _sub_outside(r"(?i),?\s+in which case,?\s+(?:(?:hold|buy|own|be in|switch to|go to|move to) )?", ", hold ", m.group("rest"))
+    try:
+        node = _if_chain(f"if {rest}, otherwise {m.group('d')}", notes)
+    except ParseError as e:
+        if "needs an 'otherwise'" not in str(e) and "Could not find the condition" not in str(e):
+            raise
+        raise ParseError(f"'{s.strip()}': what should it hold while that condition is true? Name it after the condition: "
+                         f"'{m.group('d').strip()}, except when <condition> hold <holding>' (a ticker, a group or cash).") from None
+    notes.append(f"'{m.group('d').strip()}, except when ...' holds {_pf_short_name(node['then'])} while `{node['if']}` is true "
+                 f"and {_pf_short_name(node['else'])} the rest of the time.")
+    return node
+
+
 def _node(text: str, notes: list[str] | None = None) -> dict:
     """Parse an allocation phrase into a portfolio tree node (strict: every word must be understood)."""
     notes = notes if notes is not None else []
@@ -5286,6 +5550,9 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
                      f"{1 - pct * len(kids):.0%} is held in cash.")
         return {"weights": "specified", "w": [round(pct, 10)] * len(kids) + [round(1 - pct * len(kids), 10)],
                 "children": kids + [{"cash": True}]}
+    ex = _except_when(s, notes)
+    if ex:
+        return ex
     # X if COND else Y
     m = _msearch(rf"(.+?) (?:if|when|while|as long as|whenever) (.+?),? (?:and )?(?:otherwise|else|or else)[, ]+{VERB}?(.+)$", s,
                  flags=re.I | re.S, match=True)
@@ -5298,7 +5565,7 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     m = re.match(r"(?i)dual momentum (?:between|among|of|on|with) (.+?)(?:,? (?:with|using) (.+?) as (?:the )?(?:safe|defensive|risk[- ]off) (?:asset|haven)| (?:otherwise|else|or) (.+?))?(?:,? (?:(?:using|with|on|by) )?(?:a |the )?(\d+) (month|day|week) (?:lookback|momentum|(?:total )?returns?)"
                  r"(?: (?:versus|vs\.?|against|relative to|over|above) (?:t-?bills?|treasury bills|cash|the risk[- ]free rate))?)?$", s)
     if m:
-        kids = _asset_list(m.group(1))
+        kids = _asset_list(m.group(1), choice=True)
         safe = m.group(2) or m.group(3) or "AGG"
         n = _period(m.group(4) or 12, m.group(5) or "month")
         _TL.tactical = "Dual momentum (Antonacci)"
@@ -5393,6 +5660,9 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
         direction = "bottom" if re.search(LOW_WORDS, metric_text.lower()) else "top"
         if word.lower() in ("bottom", "worst", "weakest", "lowest"):
             direction = "bottom" if direction == "top" else "top"
+        rw = _rank_words_note(word, int(n), metric_text, direction, metric)
+        if rw:
+            notes.append(rw)
         metric, dd_note = _dd_rank(metric, direction, metric_text, int(n))
         if dd_note:
             notes.append(dd_note)
@@ -5405,7 +5675,7 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
             node["universe"] = uu
         else:
             node["universe"] = "children"
-            node["children"] = _children(uni, notes)
+            node["children"] = _children(uni, notes, choice=True)
         gate, fallback = None, None
         look_set = None
         i = 0
@@ -5545,7 +5815,7 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
         metric, dd_note = _dd_rank(metric, sel, m.group(2))
         notes.extend([dd_note] if dd_note else [])
         return {"filter": {"select": sel, "n": 1, "by": metric, "weights": "equal"},
-                "universe": "children", "children": _asset_list(m.group(1))}
+                "universe": "children", "children": _asset_list(m.group(1), choice=True)}
     m = re.match(r"(?is)whichever of (.+?) has (?:the )?(higher|highest|lower|lowest|best|stronger|strongest|weaker|weakest) (.+)$", s)
     if m:
         metric, mn = value_phrase(m.group(3))
@@ -5554,7 +5824,7 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
         metric, dd_note = _dd_rank(metric, direction, m.group(3))
         notes.extend([dd_note] if dd_note else [])
         return {"filter": {"select": direction, "n": 1, "by": metric, "weights": "equal"},
-                "universe": "children", "children": _asset_list(m.group(1))}
+                "universe": "children", "children": _asset_list(m.group(1), choice=True)}
 
     # "SPY, TLT and GLD equally / in equal parts / equally weighted", "equal thirds of SPY, TLT and GLD"
     eq_words = (r"equally(?:[- ]weighted)?|evenly(?: split)?|split evenly|(?:in |with )?equal (?:parts|shares|weights?|amounts|"
@@ -5643,9 +5913,11 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
 
     mw_ = _msearch(r"^(.+?),? (?:when(?:ever)?|while|if|as long as) (.+)$", s, flags=re.I | re.S)
     if mw_ and not re.search(r"(?i)\b(?:otherwise|else)\b", _mask(s)):
-        raise ParseError(f"'{s.strip()}': holding {mw_.group(1).strip()} only while a condition holds needs an 'otherwise' "
-                         f"(e.g. '{mw_.group(1).strip()} when {mw_.group(2).strip()}, otherwise cash'). For a trading rule "
-                         f"on one ticker write 'buy <ticker> when ..., sell when ...'.")
+        x_ = mw_.group(1).strip()
+        raise ParseError(f"'{s.strip()}': {x_} is held only while a condition holds, and nothing says what to hold the rest "
+                         f"of the time. Add it: '{x_} when <condition>, otherwise <holding>' (a ticker, a group or cash); "
+                         f"to hold {x_} except while a condition holds, write '{x_}, except when <condition> hold <holding>'. "
+                         "For a trading rule on one ticker write 'buy <ticker> when ..., sell when ...'.")
     # a list followed by its weighting: "TQQQ, SOXL and TECL, weighted by inverse 10 day volatility"
     mtw = _msearch(r"^(?P<lst>.+?),?\s+(?P<w>(?:and |then |with |using )?(?:weight(?:ed|ing)? (?:by|using) .+|"
                    r"(?:inverse[- ]vol(?:atility)?|risk[- ]parity|equal[- ]risk(?: contribution)?|min(?:imum)?[- ](?:variance|vol(?:atility)?)|"
@@ -5901,6 +6173,43 @@ def _band_unreachable(tree: dict, band: float | None, band_rel: float | None, rb
     return None
 
 
+_RB_VERB = r"(?:re-?balanc\w*|trade|trading|rotat\w*|re-?evaluat\w*|check\w*)(?: (?:it|the weights|the portfolio|them))?"
+_RB_WD = r"(monday|tuesday|wednesday|thursday|friday)s?"
+
+
+def _rebalance_day_phrases(T: "Text", notes: list[str]) -> tuple[str, str | None] | None:
+    """Which day of its period a calendar schedule trades on -> (rebalance, rebalance_day), or None:
+      'rebalance on the first trading day of each month' / 'rebalance monthly at the start (of the month)' /
+      'rebalance at the beginning of every quarter'                      -> ('monthly' / 'quarterly', 'start')
+      'rebalance on the last trading day of each month' / '... at the end' -> ('monthly', None) (the default)
+      'rebalance every Monday' / 'rebalance weekly on Mondays' / 'every Friday' -> ('weekly', 'monday' / 'friday')"""
+    per = r"(?P<per>week|month|quarter|year)"
+    m = T.find(rf",? ?(?:and )?{_RB_VERB} (?:(?P<f1>weekly|monthly|quarterly|annually|yearly),? )?(?:on|at) (?:the )?"
+               rf"(?P<fl>first|last|final|start|beginning|end)(?: (?:trading |market )?day)? (?:of|in) (?:the |each |every |a )?"
+               rf"(?:new )?{per}(?![\w-])")
+    if m:
+        freq = FREQ_WORDS[m.group("per").lower()]
+        f1 = m.group("f1")
+        if f1 and FREQ_WORDS[f1.lower()] != freq:
+            raise ParseError(f"'{m.group(0).strip(' ,')}': a {f1.lower()} schedule cannot trade at the "
+                             f"{m.group('fl').lower()} of each {m.group('per').lower()}.")
+        start = m.group("fl").lower() in ("first", "start", "beginning")
+        return freq, ("start" if start else None)
+    m = T.find(rf",? ?(?:and )?{_RB_VERB} (?P<f>weekly|monthly|quarterly|annually|yearly),? (?:at|on) (?:the )?"
+               rf"(?P<fl>start|beginning|end|first (?:trading )?day|last (?:trading )?day)(?: of (?:the |each |every )?{per})?(?![\w-])")
+    if m:
+        freq = FREQ_WORDS[m.group("f").lower()]
+        if m.group("per") and FREQ_WORDS[m.group("per").lower()] != freq:
+            raise ParseError(f"'{m.group(0).strip(' ,')}': a {m.group('f').lower()} schedule cannot trade at the "
+                             f"{m.group('fl').lower()} of each {m.group('per').lower()}.")
+        return freq, ("start" if re.match(r"(?i)start|beginning|first", m.group("fl")) else None)
+    m = T.find(rf",? ?(?:and )?(?:{_RB_VERB} )?(?:weekly,? )?(?:(?:every|each|on) {_RB_WD}|on {_RB_WD})(?: (?:at|near) the close)?(?![\w-])")
+    if m:
+        day = (m.group(1) or m.group(2)).lower()
+        return "weekly", day
+    return None
+
+
 def parse_allocation(text: str) -> Portfolio:
     raw = text
     t = _normalize(text)
@@ -5947,6 +6256,10 @@ def parse_allocation(text: str) -> Portfolio:
 
     # rebalancing
     rb = None
+    rb_day_hit = _rebalance_day_phrases(T, notes)
+    rb_day = None
+    if rb_day_hit:
+        rb, rb_day = rb_day_hit
     # once a year in a chosen month: "rebalance every year in June", "rebalance annually in June", "rebalance each June",
     # "annual rebalancing in June": at that month's last trading day
     m = T.find(r",? ?(?:and )?(?:(?:re-?balanc\w*|reset|re-?evaluat\w*)(?: (?:it|the weights|the portfolio|them))?(?: back)?"
@@ -5981,7 +6294,11 @@ def parse_allocation(text: str) -> Portfolio:
                              "yearly, or every N days / weeks / months.")
     m = None if rb else T.find(r",? ?(?:and )?(?:re-?balanc\w*|reset|rotat\w*|re-?evaluat\w*|check\w*)(?: (?:it|the weights|the portfolio|them))?(?: back)?(?: to (?:target|the target weights))? (?:every|each|once (?:a|per)) (day|week|month|quarter|year)|,? ?(?:and )?re-?balanc\w*(?: (?:it|the weights|the portfolio))? (daily|weekly|monthly|quarterly|annually|yearly)|,? ?(daily|weekly|monthly|quarterly|annual|yearly) re-?balanc\w*")
     if m:
-        rb = FREQ_WORDS[(m.group(1) or m.group(2) or m.group(3)).lower()]
+        f_ = FREQ_WORDS[(m.group(1) or m.group(2) or m.group(3)).lower()]
+        if rb_day_hit and f_ != rb:
+            raise ParseError(f"'{m.group(0).strip(' ,')}' and the rebalance day given elsewhere name different schedules "
+                             f"({f_} and {rb}).")
+        rb = f_
     # "fortnightly" / "biweekly" / "every other week": every 2nd week-end
     m = T.find(r",? ?(?:and )?(?:(?:re-?balanc\w*|reset|rotat\w*|re-?evaluat\w*|check\w*)(?: (?:it|the weights|the portfolio|them))?"
                r"(?: back)?(?: to (?:target|the target weights))? (?:fortnightly|bi-?weekly|every (?:other|second|2nd) week|"
@@ -6198,6 +6515,12 @@ def parse_allocation(text: str) -> Portfolio:
         w = _band_unreachable(tree, band, band_rel, rb)
         if w:
             notes.append(w)
+    if rb_day:
+        from .portfolio import rebalance_day_text
+        notes.append(f"Rebalanced {rebalance_day_text(rb, rb_day)}, and on the first day"
+                     + ("; Composer trades weekly, monthly, quarterly and yearly symphonies on the first trading day of each "
+                        "period, near the close" if rb_day == "start" else "") + ".")
+        newer["rebalance_day"] = rb_day
     p = Portfolio(tree=tree, rebalance=rb, drift_band=band, fill=fill, contribution=contrib, contribution_freq=cfreq,
                   withdrawal=wd, withdrawal_pct=wd_pct, withdrawal_freq=wfreq, inflation_adjust=infl,
                   description=raw, notes=notes, **pk, **extra, **newer, **tv,
@@ -6208,6 +6531,10 @@ def parse_allocation(text: str) -> Portfolio:
     if any(re.search(r"\btret\(", r) for r in _rules(tree)):
         notes.append("Returns in the conditions are total returns (dividends reinvested, from adjusted prices).")
     p.benchmark = benchmark
+    if isinstance(benchmark, str) and benchmark and not _blend_bench(benchmark):
+        # "hold TQQQ vs TMF": the ticker after 'vs' is the comparison, not a holding; say so
+        notes.append(f"Benchmark: {benchmark} (the ticker after 'vs' / 'compared with'): the report compares the portfolio "
+                     "with it; it is not held.")
     if bench_rb:
         p.benchmark_rebalance = bench_rb
     elif benchmark and _blend_bench(benchmark):

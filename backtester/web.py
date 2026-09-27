@@ -403,6 +403,16 @@ def api_orders(body):
                                               whole_shares=body.get("whole_shares", True) is not False))
 
 
+def api_branches(body):
+    """The Build page's "active today" badges: which branch of each if/else the tree takes on the latest bar."""
+    from . import orders
+    from .portfolio import Portfolio
+    spec = _spec(body)
+    if not isinstance(spec, Portfolio):
+        raise ClientError("Only portfolios (block trees) have if/else branches.")
+    return orders.active_branches(spec)
+
+
 def _gallery_cache_file() -> Path:
     return RUNS / "gallery_stats.json"
 
@@ -1524,7 +1534,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/sweep": lambda b: api_research(b, "sweep"), "/api/walkforward": lambda b: api_research(b, "walkforward"),
                 "/api/optimize": lambda b: api_research(b, "optimize"), "/api/signals": api_signals,
                 "/api/paper": lambda b: api_paper(b, "POST"),
-                "/api/fetch": api_fetch, "/api/share": api_share, "/api/orders": api_orders,
+                "/api/fetch": api_fetch, "/api/share": api_share, "/api/orders": api_orders, "/api/branches": api_branches,
                 "/api/gallery/stats": api_gallery_stats, "/api/import/composer": api_import_composer,
                 "/api/export/composer": api_export_composer, "/api/tickers": api_tickers,
                 "/api/community/publish": api_community_publish,

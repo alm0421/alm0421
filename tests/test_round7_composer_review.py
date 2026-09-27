@@ -329,9 +329,15 @@ def test_composer_export_of_parsed_portfolios_gives_the_same_results():
                  "hold the top 2 of SPY, QQQ, TLT, GLD by 60 day return, rebalance monthly, since 2015",
                  "hold 60% SPY and 40% TLT, rebalance quarterly, since 2015"):
         p = port(text)
-        sym, _ = ce.export(p)
+        sym, notes = ce.export(p)
         back = Portfolio.from_dict(dict(ci.convert(json.dumps(sym))))
         back.start = p.start
+        # round 12: Composer trades monthly / quarterly symphonies on the first trading day of each period, so the
+        # import says rebalance_day "start" and the export of a period-end spec says the timing differs; the tree and
+        # everything else round-trip exactly (compared here with the spec's own rebalance day)
+        if p.rebalance in ("monthly", "quarterly"):
+            assert back.rebalance_day == "start" and any("Rebalance timing" in n for n in notes), text
+            back.rebalance_day = p.rebalance_day
         a, b = runner.run(p).equity, runner.run(back).equity
         assert np.allclose(a.to_numpy(), b.to_numpy(), rtol=0, atol=1e-9), text
 
