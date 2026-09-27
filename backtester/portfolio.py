@@ -23,6 +23,7 @@ the next open). Cash flows, dividends and interest are applied daily.
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import asdict, dataclass, field, fields
 from typing import Literal
@@ -2089,11 +2090,26 @@ def _period_ids(idx: pd.DatetimeIndex, freq: str):
     return idx.to_period(code)
 
 
+_SCHEDULE_MEMO: dict = {}
+
+
 def _schedule(cal: pd.DatetimeIndex, freq: str, day: str | None = None) -> np.ndarray:
     """True on the last trading day of each period (daily: every day; none: only the first day). With day="start",
     on the first trading day of each period instead (Composer's timing); with a weekday (weekly), on the first session
-    of each week on or after that weekday. Both use only the sessions up to that bar (no lookahead), except the
-    weekday fallback, which uses the NYSE schedule known in advance (as the period ends do)."""
+    of each week on or after that weekday. Remembered for the same dates (a report's cost reruns and benchmarks ask
+    again); each caller gets its own copy."""
+    key = (freq, day, pd.DatetimeIndex(cal).to_numpy(dtype="datetime64[ns]").tobytes())
+    hit = _SCHEDULE_MEMO.get(key)
+    if hit is None:
+        if len(_SCHEDULE_MEMO) > 64:
+            _SCHEDULE_MEMO.clear()
+        hit = _SCHEDULE_MEMO[key] = _schedule_of(cal, freq, day)
+    return hit.copy()
+
+
+def _schedule_of(cal: pd.DatetimeIndex, freq: str, day: str | None = None) -> np.ndarray:
+    """Uses only the sessions up to each bar (no lookahead), except the weekday fallback, which uses the NYSE schedule
+    known in advance (as the period ends do)."""
     T = len(cal)
     if day not in (None, "end") and freq in _DAY_FREQS and T:
         per = np.asarray(_period_ids(cal, freq))
@@ -2583,6 +2599,38 @@ def held_tickers(n: dict) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def _price_tables(dfs: dict, tick: list, cal: pd.DatetimeIndex) -> tuple:
+    """(O, DIV, SF, SPIN, OPEN_OK, has_px): day x ticker opens, dividends, split factors, spin-off days, quoted opens
+    and days with a close, on the run's calendar (read-only in the simulation)."""
+    T, N = len(cal), len(tick)
+    O = np.column_stack([dfs[t]["open"].reindex(cal).to_numpy() for t in tick])
+    DIV = np.column_stack([dfs[t]["dividend"].reindex(cal).fillna(0.0).to_numpy() for t in tick])
+    # split-adjusted -> as-traded units (data.as_traded_factor): whole-share rounding and reported order sizes use
+    # the shares as traded that day
+    SF = (np.column_stack([data.as_traded_factor(t, cal, dfs[t]) for t in tick]) if N else np.ones((T, 0)))
+    # a "dividend" that is really a spin-off (or special) distribution: same cash, labelled as such
+    SPIN = np.column_stack([cal.isin(data.spinoff_days(t)) for t in tick]) if N else np.zeros((T, 0), bool)
+    # opens that were never quoted (simulated series, mutual funds, old index data): a next-open fill there is
+    # not possible (see run)
+    OPEN_OK = np.column_stack([(dfs[t]["open_ok"] if "open_ok" in dfs[t] else pd.Series(True, index=dfs[t].index))
+                               .reindex(cal).fillna(False).to_numpy(dtype=bool) for t in tick]) if N else np.zeros((T, 0), bool)
+    has_px = ~np.isnan(np.column_stack([dfs[t]["close"].reindex(cal).to_numpy(dtype=float) for t in tick])) if N else OPEN_OK
+    return O, DIV, SF, SPIN, OPEN_OK, has_px
+
+
+def _finite(a: np.ndarray) -> np.ndarray:
+    """np.nan_to_num(a) for a float array; `a` itself (not a copy) when it is all finite, the usual case, which skips
+    nan_to_num's overhead in the daily loop. Only for arrays the caller does not mutate or keep."""
+    return a if np.isfinite(a).all() else np.nan_to_num(a)
+
+
+def _nansum(a: np.ndarray) -> float:
+    """float(np.nansum(a)) for a 1-D float array, bit for bit: the plain sum is the same reduction when nothing is
+    NaN (a NaN element makes it NaN, and then np.nansum does the work)."""
+    s = a.sum()
+    return float(s) if s == s else float(np.nansum(a))
+
+
 def run(p: Portfolio) -> Result:
     p.validate()
     for t in held_tickers(p.tree):
@@ -2730,20 +2778,25 @@ def run(p: Portfolio) -> Result:
     tick = list(dfs)
     idx = {t: j for j, t in enumerate(tick)}
     N = len(tick)
-    O = np.column_stack([dfs[t]["open"].reindex(cal).to_numpy() for t in tick])
     C = np.column_stack([ev.close[t][base:] for t in tick])
-    DIV = np.column_stack([dfs[t]["dividend"].reindex(cal).fillna(0.0).to_numpy() for t in tick])
-    # split-adjusted -> as-traded units (data.as_traded_factor): whole-share rounding and reported order sizes use
-    # the shares as traded that day
-    SF = (np.column_stack([data.as_traded_factor(t, cal, dfs[t]) for t in tick]) if N else np.ones((T, 0)))
-    # a "dividend" that is really a spin-off (or special) distribution: same cash, labelled as such
-    SPIN = np.column_stack([cal.isin(data.spinoff_days(t)) for t in tick]) if N else np.zeros((T, 0), bool)
+    # the day-by-ticker price tables: the same for a cost-sensitivity rerun (reuse_evaluations), which keeps them
+    mats_key = ("price tables", tuple(tick), cal.to_numpy(dtype="datetime64[ns]").tobytes())
+    mats = ev.cache.get(mats_key) if _REUSE["on"] else None
+    if mats is None:
+        mats = _price_tables(dfs, tick, cal)
+        if _REUSE["on"]:
+            ev.cache[mats_key] = mats
+    O, DIV, SF, SPIN, OPEN_OK, has_px = mats
     # delisted / acquired: data that ends well before the run does; sold at the last close, proceeds held in cash
     gone = np.full(N, T)
     for j, t in enumerate(tick):
         g = gone_bar(dfs[t], cal)
         if g is not None:
             gone[j] = g
+    gone_on: dict[int, list[int]] = {}      # day -> the holdings whose data ends that day
+    for j, g in enumerate(gone.tolist()):
+        gone_on.setdefault(g, []).append(j)
+    div_day = (DIV != 0).any(axis=1).tolist() if N else [False] * T   # a day with any dividend (or NaN) at all
     delisted: list[str] = []
     spun: list[str] = []
     rate = _daily_rate(cal, p.cash_rate)
@@ -2784,9 +2837,6 @@ def run(p: Portfolio) -> Result:
     # opens that were never quoted (simulated series, mutual funds, old index data): a next-open fill there is
     # not possible. A ticker with no real open at all in the period is refused (as the signal engine does);
     # a day without one fills that ticker at the day's close instead, with a note.
-    OPEN_OK = np.column_stack([(dfs[t]["open_ok"] if "open_ok" in dfs[t] else pd.Series(True, index=dfs[t].index))
-                               .reindex(cal).fillna(False).to_numpy(dtype=bool) for t in tick]) if N else np.zeros((T, 0), bool)
-    has_px = ~np.isnan(np.column_stack([dfs[t]["close"].reindex(cal).to_numpy(dtype=float) for t in tick])) if N else OPEN_OK
     no_opens = {j for j in range(N) if has_px[:, j].any() and not OPEN_OK[has_px[:, j], j].any()}
     open_fallback: set = set()
 
@@ -2848,7 +2898,7 @@ def run(p: Portfolio) -> Result:
 
     def value(prices) -> float:
         pv = px_now(prices)
-        return cash + float(np.nansum(shares * np.nan_to_num(pv)))
+        return cash + _nansum(shares * _finite(pv))
 
     def trade_to(tgt: dict[str, float], prices: np.ndarray, i: int, reason: str, min_trade: bool = True) -> None:
         nonlocal cash, turnover
@@ -2942,7 +2992,7 @@ def run(p: Portfolio) -> Result:
         eq = value(prices)
         if eq <= 0 or not target:
             return False
-        pv = np.nan_to_num(px_now(prices))
+        pv = _finite(px_now(prices))
         cur = {tick[j]: shares[j] * pv[j] / eq for j in range(N) if shares[j]}
         for t in set(cur) | {t for t in target if t != "cash"}:
             d = abs(cur.get(t, 0.0) - target.get(t, 0.0))
@@ -2953,7 +3003,7 @@ def run(p: Portfolio) -> Result:
         return False
 
     def gross_now(prices) -> float:
-        return float(np.abs(shares * np.nan_to_num(px_now(prices))).sum())
+        return float(np.abs(shares * _finite(px_now(prices))).sum())
 
     for i in range(T):
         o, c = O[i], C[i]
@@ -2961,9 +3011,12 @@ def run(p: Portfolio) -> Result:
         if i > 0:
             r = rate[i - 1]
             earned = cash * r if cash >= 0 else cash * (r + borrow_extra)
-            short_mv = -np.nan_to_num(shares * last_px)
-            short_mv = np.where(shares < 0, short_mv, 0.0)
-            smv = float(short_mv.sum())
+            if (shares < 0).any():
+                short_mv = -_finite(shares * last_px)
+                short_mv = np.where(shares < 0, short_mv, 0.0)
+                smv = float(short_mv.sum())
+            else:
+                smv = 0.0       # no short position: the market value of the shorts is 0
             if smv > 0 and cash > 0 and r > 0 and p.short_rebate_spread:
                 # short sale proceeds (part of cash) earn the rate less the rebate spread, floored at zero
                 earned -= min(smv, cash) * min(r, p.short_rebate_spread / 252.0)
@@ -2981,8 +3034,11 @@ def run(p: Portfolio) -> Result:
                 held = float(np.nansum(np.abs(shares) * np.nan_to_num(last_px)))
                 cash -= held * fee_daily
                 fees += held * fee_daily
-        div_cash = shares * DIV[i]
-        got = float(np.nansum(div_cash))
+        if div_day[i]:
+            div_cash = shares * DIV[i]
+            got = _nansum(div_cash)
+        else:
+            got = 0.0           # no dividend anywhere today: nothing is paid (div_cash is only read when got)
         if got:
             cash += got
             inc_div[i] = got
@@ -3029,7 +3085,7 @@ def run(p: Portfolio) -> Result:
         # withdrawals that overdraw cash: sell proportionally at the close
         np.copyto(last_px, c, where=np.isfinite(c))
         # delisted / acquired today (its last bar of data): sell at this last close
-        for j in np.flatnonzero(gone == i):
+        for j in gone_on.get(i, ()):
             if shares[j] and np.isfinite(c[j]):
                 q = -shares[j]
                 fill = c[j] * (1 + np.sign(q) * slip_of(j, i, q))
@@ -3048,7 +3104,9 @@ def run(p: Portfolio) -> Result:
             target.pop(tick[j], None)
             if pending_target:
                 pending_target.pop(tick[j], None)
-        eq_close = value(c)
+        mv_close = shares * _finite(px_now(c))          # value(c), keeping its parts: unless a trade or a cash
+        eq_close = cash + _nansum(mv_close)             # movement follows, the day's closing value is this one
+        close_state = (cash, shares.tobytes())
         if w_req > 0 and eq_close < 0:
             # the withdrawal is more than the account holds: sell everything at the close and pay out what is left
             # (the withdrawal is capped at the balance); the account is empty from here on
@@ -3137,7 +3195,7 @@ def run(p: Portfolio) -> Result:
             eq_now = value(c)
             tgt_gross = sum(abs(w) for t_, w in target.items() if t_ != "cash" and w == w) or p.leverage
             if g > 0 and eq_now > 0:
-                pv = np.nan_to_num(px_now(c))
+                pv = _finite(px_now(c))
                 need = float(np.abs(shares * pv) @ mreq) if mm else 0.0
                 if mm and eq_now < need * (1 - 1e-12):
                     # de-risk with a cushion (margin.call_scale): to the lower of the target exposure and the one at
@@ -3149,11 +3207,16 @@ def run(p: Portfolio) -> Result:
                     g, eq_now = gross_now(c), value(c)
                 if eq_now > 0 and g / eq_now > max(lev_peak[0], 1.5 * tgt_gross):
                     lev_peak = (g / eq_now, tgt_gross, cal[i].date())
-        equity[i] = value(c)
-        mvals[i] = shares * np.nan_to_num(px_now(c))
+        if (cash == close_state[0] and math.copysign(1.0, cash) == math.copysign(1.0, close_state[0])
+                and shares.tobytes() == close_state[1]):
+            mv_c = mv_close                     # nothing changed since: the same numbers
+            equity[i] = eq_close
+        else:
+            mv_c = shares * _finite(px_now(c))      # (value(c) is cash + the sum of these)
+            equity[i] = cash + _nansum(mv_c)
+        mvals[i] = mv_c
         if equity[i] > 0:
-            pv = np.nan_to_num(px_now(c))
-            weights[i] = shares * pv / equity[i]
+            weights[i] = mv_c / equity[i]
             cashw[i] = cash / equity[i]
         if equity[i] <= 0 and (p.withdrawal or p.withdrawal_pct or p.leverage > 1 or cash < 0 or (shares != 0).any()):
             if depleted is not None and depleted["paid"] > 0:

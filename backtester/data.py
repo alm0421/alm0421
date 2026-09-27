@@ -51,10 +51,20 @@ def not_investable(ticker: str) -> str | None:
             + f"It stays usable in conditions, e.g. `sym(\"{t}\").close > sma(sym(\"{t}\").close, 50)`.")
 
 
+def _csv_stems(folder: Path) -> set[str]:
+    """{p.stem for p in folder.glob("*.csv")}, from one directory listing (glob builds a Path per file: ~50 ms)."""
+    import os
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return set()
+    return {n[:-4] for n in names if n.endswith(".csv") and not n.startswith(".")}
+
+
 def available_tickers() -> list[str]:
-    out = {p.stem for p in PRICES.glob("*.csv")}
+    out = _csv_stems(PRICES)
     if CUSTOM.exists():
-        out |= {p.stem for p in CUSTOM.glob("*.csv")}
+        out |= _csv_stems(CUSTOM)
     return sorted(out)
 
 
@@ -85,6 +95,9 @@ def custom_notes(tickers) -> list[str]:
 
 def clear_caches() -> None:
     """Forget cached price data (after a custom series is imported or deleted)."""
+    _FINGERPRINT.clear()
+    _SPLITS.clear()
+    _CA_FIXES_OF.clear()
     for fn in (load, stepped_ranges, data_gaps, quality):
         try:
             fn.cache_clear()
@@ -595,17 +608,20 @@ def bias_estimate(start, end) -> dict | None:
         me = pd.DataFrame({t: p.groupby(p.index.to_period("M")).last() for t, p in px.items()})
         rets = []
         ref_rets = []
+        # (the month-end table as an array: the same values as me.at[month, ticker], without a lookup per cell)
+        me_np, me_row, me_col = me.to_numpy(), {m: i for i, m in enumerate(me.index)}, {t: j for j, t in enumerate(me.columns)}
         for mth in months:
             prev = mth - 1
             snap = mem[mem.index <= prev.to_timestamp()]
-            if snap.empty or prev not in me.index or mth not in me.index:
+            if snap.empty or prev not in me_row or mth not in me_row:
                 continue
-            row = snap.iloc[-1]
-            ok = [t for t in names if row.get(t, False) and _quality_month(t, prev.to_timestamp())
-                  and np.isfinite(me.at[prev, t]) and np.isfinite(me.at[mth, t])]
+            row = snap.iloc[-1].to_dict()
+            a_, b_ = me_np[me_row[prev]], me_np[me_row[mth]]
+            ok = [me_col[t] for t in names if row.get(t, False) and _quality_month(t, prev.to_timestamp())
+                  and np.isfinite(a_[me_col[t]]) and np.isfinite(b_[me_col[t]])]
             if not ok or prev not in me_ref.index or mth not in me_ref.index:
                 continue
-            rets.append(float(np.mean([me.at[mth, t] / me.at[prev, t] - 1 for t in ok])))
+            rets.append(float(np.mean([b_[j] / a_[j] - 1 for j in ok])))
             ref_rets.append(float(me_ref[mth] / me_ref[prev] - 1))
         if len(rets) < 12:
             continue
@@ -641,9 +657,12 @@ def membership() -> pd.DataFrame | None:
             if old in syms and new in syms:
                 syms.discard(old)
     names = sorted(set().union(*rows.values()))
-    df = pd.DataFrame(False, index=sorted(rows), columns=names)
-    for d, syms in rows.items():
-        df.loc[d, list(syms)] = True
+    days = sorted(rows)
+    col = {t: j for j, t in enumerate(names)}
+    v0 = np.zeros((len(days), len(names)), dtype=bool)
+    for i, d in enumerate(days):
+        v0[i, [col[t] for t in rows[d]]] = True
+    df = pd.DataFrame(v0, index=days, columns=names)
     # a name missing from one snapshot but present before and after is a transcription slip, not a
     # removal and re-addition
     v = df.to_numpy(copy=True)
@@ -928,6 +947,124 @@ def synthetic_open_days(raw: pd.DataFrame) -> pd.Series:
     return flag.fillna(False).astype(bool)
 
 
+# ------------------------------------------------------------------ processed-data cache
+#
+# data.load's processing (corporate-action reconciliation, the integrity gate, bar repairs) costs about 0.1 s a ticker,
+# far more than reading the file. Its result is kept on disk in .cache/prices/<fingerprint>/ (gitignored) and read
+# back by later processes. The fingerprint covers everything the processing reads: every price file's name, size and
+# modification time (the gate compares a ticker with reference tickers, reconcile_actions with SPY), the reference
+# files in data/ and the backtester's code; each entry is also keyed by its own file's size and modification time.
+# So any change to data/prices (the data job rewrites it), to data/*.json or to the code starts a fresh cache, and the
+# older ones are deleted. BACKTESTER_CACHE=0 turns it off (the test suite does, as tests patch the processing).
+
+CACHE_DIR = ROOT / ".cache" / "prices"
+CACHE_VERSION = 2
+_FINGERPRINT: dict = {}
+_SPLITS: dict = {}       # (ticker, price file) -> reconciled splits, as splits() computes them, filled by load
+_CA_FIXES_OF: dict = {}  # (ticker, price file) -> reconcile_actions' log, as corporate_action_fixes() computes it
+
+
+def cache_enabled() -> bool:
+    import os
+    return os.environ.get("BACKTESTER_CACHE", "1").strip().lower() not in ("0", "false", "no", "off", "")
+
+
+def _file_stamp(path: Path) -> tuple[int, int] | None:
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
+
+
+def cache_fingerprint() -> str:
+    """The identity of the data and code data.load's processing depends on (computed once per process and data
+    folder; clear_caches recomputes it)."""
+    import hashlib
+    import os
+    key = (str(PRICES), str(CUSTOM), str(DATA))
+    fp = _FINGERPRINT.get(key)
+    if fp is not None:
+        return fp
+    import sys
+    # (the library versions too: a pickled frame is only read back by the pandas that wrote it)
+    h = hashlib.sha1(f"v{CACHE_VERSION}|{key}|{sys.version}|{pd.__version__}|{np.__version__}".encode())
+    for folder, want in ((PRICES, None), (CUSTOM, None), (DATA, (".json", ".csv", ".txt"))):
+        rows = []
+        try:
+            with os.scandir(folder) as it:
+                for e in it:
+                    if not e.is_file() or e.name.startswith("."):
+                        continue
+                    if want and (not e.name.endswith(want) or e.name in ("community.json", "extra_tickers.txt")):
+                        continue
+                    st = e.stat()
+                    rows.append((e.name, st.st_mtime_ns, st.st_size))
+        except OSError:
+            pass
+        h.update(repr(sorted(rows)).encode())
+    for f in sorted(Path(__file__).parent.glob("*.py")):
+        h.update(f.name.encode())
+        h.update(f.read_bytes())
+    fp = h.hexdigest()[:20]
+    _FINGERPRINT[key] = fp
+    return fp
+
+
+def _cache_file(t: str, path: Path) -> Path | None:
+    if not cache_enabled():
+        return None
+    stamp = _file_stamp(path)
+    if stamp is None:
+        return None
+    return CACHE_DIR / cache_fingerprint() / f"{t}-{stamp[0]}-{stamp[1]}.pkl"
+
+
+def _cache_read(f: Path | None):
+    if f is None:
+        return None
+    try:
+        import pickle
+        with open(f, "rb") as fh:
+            got = pickle.load(fh)
+        return got if isinstance(got, dict) and got.get("v") == CACHE_VERSION else None
+    except Exception:  # noqa: BLE001 - a missing, partial or unreadable entry is recomputed
+        return None
+
+
+def _cache_write(f: Path | None, entry: dict) -> None:
+    if f is None:
+        return
+    import os
+    import pickle
+    import shutil
+    try:
+        if not f.parent.exists():
+            f.parent.mkdir(parents=True, exist_ok=True)
+            # a new fingerprint: the data or the code changed, so the other caches are stale
+            for old in f.parent.parent.iterdir():
+                if old != f.parent and old.is_dir():
+                    shutil.rmtree(old, ignore_errors=True)
+        tmp = f.with_name(f".{f.name}.{os.getpid()}.{_threading.get_ident()}.tmp")
+        with open(tmp, "wb") as fh:
+            pickle.dump({"v": CACHE_VERSION, **entry}, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, f)
+    except Exception:  # noqa: BLE001 - the cache is only an optimisation (read-only disk, full disk...)
+        try:
+            tmp.unlink(missing_ok=True)  # type: ignore[possibly-undefined]
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _splits_of(raw: pd.DataFrame) -> pd.Series:
+    """The reconciled splits of bars after reconcile_actions and the integrity gate (see splits)."""
+    if "split" not in raw:
+        return pd.Series(dtype=float)
+    s = pd.to_numeric(raw["split"], errors="coerce").fillna(0.0)
+    s = s[(s > 0) & ((s - 1).abs() > 1e-9)]
+    return s[~s.index.duplicated(keep="last")].sort_index()
+
+
 @lru_cache(maxsize=None)
 def load(ticker: str) -> pd.DataFrame:
     """Daily bars for `ticker`.
@@ -941,6 +1078,22 @@ def load(ticker: str) -> pd.DataFrame:
     path = price_path(t)
     if not path.exists() and not fetch_on_demand(t):
         raise DataError(unknown_ticker_message(t))
+    cf = _cache_file(t, path)
+    entry = _cache_read(cf)
+    if entry is None:
+        entry = _load_file(t, path)
+        _cache_write(cf, entry)
+    elif entry.get("events") is not None:
+        PRICE_REPAIRS[t] = entry["events"]      # (as the integrity gate records them when it runs)
+    _SPLITS[(t, str(path))] = entry["splits"]
+    _CA_FIXES_OF[(t, str(path))] = entry["ca_fixes"]
+    return entry["df"]
+
+
+def _load_file(t: str, path: Path) -> dict:
+    """data.load's processing of a price file: {"df": the bars, "splits": the reconciled splits (splits()),
+    "events": the integrity gate's events (None when the gate failed: price_repairs retries), "ca_fixes": the
+    reconciled corporate actions (corporate_action_fixes())}."""
     raw = pd.read_csv(path, parse_dates=["date"], index_col="date").sort_index()
     raw = raw[~raw.index.duplicated(keep="last")]
     raw = raw[(raw["close"] > 0) & raw["close"].notna()]
@@ -949,8 +1102,10 @@ def load(ticker: str) -> pd.DataFrame:
         # code would index into
         raise DataError(f"No price data for {t}: its price file ({path.name}) has no valid rows (empty, or no positive "
                         "closes). Re-run the 'Fetch price data' workflow (or delete the file so it is downloaded again).")
-    raw, _ = reconcile_actions(t, raw)
+    raw, ca_fixes = reconcile_actions(t, raw)
     raw, events = price_integrity(t, raw)
+    sp_after_gate = _splits_of(raw)
+    gate_ev = events if PRICE_REPAIRS.get(t) is events else None   # (None: the gate failed; price_repairs retries)
     raw, repaired = repair_bars(t, raw)
     if len(events):
         # a replaced bad tick is an estimate, not a quote: its open is not traded at either
@@ -1000,7 +1155,7 @@ def load(ticker: str) -> pd.DataFrame:
     if repaired.any():
         # a repaired open is an estimate, not a quote: no fills at it
         df.loc[repaired.reindex(df.index, fill_value=False).to_numpy(), "open_ok"] = False
-    return df
+    return {"df": df, "splits": sp_after_gate, "events": gate_ev, "ca_fixes": ca_fixes}
 
 
 # While a Python-function rule is evaluated bar by bar (expr.evaluate), data.load returns each ticker only up to the
@@ -1221,6 +1376,9 @@ def reconcile_actions(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
 def corporate_action_fixes(ticker: str) -> pd.DataFrame:
     """The days reconcile_actions re-read for `ticker` (see the comment above reconcile_actions)."""
     t = canonical(ticker)
+    known = _CA_FIXES_OF.get((t, str(price_path(t))))     # data.load computed it on the way (the same steps)
+    if known is not None:
+        return known
     raw = _raw_file(t)
     if raw is None:
         return pd.DataFrame(columns=["date", "reading"])
@@ -1350,6 +1508,8 @@ def price_repairs(ticker: str) -> pd.DataFrame:
     predicted, its residual sd, the reference ticker, the volume shift and the reasoning."""
     from . import integrity
     t = canonical(ticker)
+    if t in PRICE_REPAIRS and price_path(t).exists():
+        return PRICE_REPAIRS[t]         # (data.load ran the gate: no need to read the file again)
     raw = _raw_file(t)
     if raw is None:
         return pd.DataFrame(columns=integrity.EVENT_COLUMNS)
@@ -1952,13 +2112,13 @@ def splits(ticker: str) -> pd.Series:
     """Stock splits on their ex-dates (ratio, e.g. 4.0 for 4-for-1), from the price file's split column after
     reconcile_actions (a spin-off also booked as a 'split' is not a split)."""
     t = canonical(ticker)
+    known = _SPLITS.get((t, str(price_path(t))))     # data.load computed them on the way (the same steps)
+    if known is not None:
+        return known
     raw = _raw_file(t)
     if raw is None or "split" not in raw:
         return pd.Series(dtype=float)
-    raw = price_integrity(t, reconcile_actions(t, raw)[0])[0]
-    s = pd.to_numeric(raw["split"], errors="coerce").fillna(0.0)
-    s = s[(s > 0) & ((s - 1).abs() > 1e-9)]
-    return s[~s.index.duplicated(keep="last")].sort_index()
+    return _splits_of(price_integrity(t, reconcile_actions(t, raw)[0])[0])
 
 
 def split_factor_after(ticker: str, dates) -> np.ndarray:

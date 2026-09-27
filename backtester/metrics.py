@@ -81,12 +81,26 @@ def floor_at_zero(nav_: pd.Series) -> pd.Series:
     return nav_.where(~dead, 0.0)
 
 
+_RF_MEMO: dict = {}     # the T-bill rate on a set of dates: a report asks for the same dates many times
+
+
 def rf_daily(index: pd.DatetimeIndex, rf) -> pd.Series:
     if rf == "tbill":
         s = data.tbill_rate()
         if s.empty:
             return pd.Series(0.0, index=index)
-        return (s.reindex(index.union(s.index)).ffill().reindex(index).fillna(0.0) / TRADING_DAYS)
+        key = None
+        if isinstance(index, pd.DatetimeIndex) and index.tz is None:
+            key = (len(index), hash(index.to_numpy(dtype="datetime64[ns]").tobytes()))
+            hit = _RF_MEMO.get(key)
+            if hit is not None and hit[0] is s and hit[1].index.equals(index):
+                return pd.Series(hit[1].to_numpy(copy=True), index=index, name=hit[1].name)
+        out = (s.reindex(index.union(s.index)).ffill().reindex(index).fillna(0.0) / TRADING_DAYS)
+        if key is not None:
+            if len(_RF_MEMO) > 256:
+                _RF_MEMO.clear()
+            _RF_MEMO[key] = (s, out.copy())
+        return out
     return pd.Series(float(rf or 0.0) / TRADING_DAYS, index=index)
 
 
@@ -420,11 +434,12 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, 
     recovery = rec.index[0] if len(rec) else None
     under = (dd < 0).to_numpy()
     longest, cur = 0, None
-    for i, u in enumerate(under):
+    ns = nv.index.to_numpy(dtype="datetime64[ns]").view("i8").tolist()   # (Timestamp - Timestamp).days, without Timestamps
+    for i, u in enumerate(under.tolist()):
         if u and cur is None:
             cur = i
         if (not u or i == len(under) - 1) and cur is not None:
-            length = (nv.index[i] - nv.index[max(cur - 1, 0)]).days
+            length = (ns[i] - ns[max(cur - 1, 0)]) // 86_400_000_000_000
             longest = max(longest, length)
             cur = None
     ulcer = np.sqrt((dd.pow(2)).mean()) * 100
@@ -789,13 +804,34 @@ def yearly_returns(series: dict[str, pd.Series]) -> pd.DataFrame:
     return pd.DataFrame(cols)
 
 
+class _Years:
+    """A series' rows by calendar year: before(y) is s[s.index.year < y] and of(y) is s[s.index.year == y], as
+    positional slices when the dates are in order (the usual case: no boolean mask over the whole series per year)."""
+
+    def __init__(self, s: pd.Series):
+        self.s = s
+        self.years = s.index.year.to_numpy()        # (computed once: .year is recomputed on every access)
+        self.ordered = bool(s.index.is_monotonic_increasing)
+
+    def before(self, y) -> pd.Series:
+        if self.ordered:
+            return self.s.iloc[:int(np.searchsorted(self.years, y, "left"))]
+        return self.s[self.years < y]
+
+    def of(self, y) -> pd.Series:
+        if self.ordered:
+            return self.s.iloc[int(np.searchsorted(self.years, y, "left")):int(np.searchsorted(self.years, y, "right"))]
+        return self.s[self.years == y]
+
+
 def yearly_detail(nav_: pd.Series, trades: pd.DataFrame, exposure: pd.Series, first_bar=None) -> pd.DataFrame:
     rows = {}
     skip = _anchor_year(nav_)
-    for y, eq in nav_.groupby(nav_.index.year):
+    nav_y, exp_y = _Years(nav_), _Years(exposure)
+    for y, eq in nav_.groupby(nav_y.years):
         if y == skip:
             continue
-        prev = nav_[nav_.index.year < y]
+        prev = nav_y.before(y)
         base = prev.iloc[-1] if len(prev) else eq.iloc[0]
         path = pd.concat([pd.Series([base]), eq]).reset_index(drop=True)
         first, last = display_date(eq.index[0], first_bar), eq.index[-1]
@@ -805,7 +841,7 @@ def yearly_detail(nav_: pd.Series, trades: pd.DataFrame, exposure: pd.Series, fi
             "return": eq.iloc[-1] / base - 1 if base > 0 else np.nan,   # nothing left to earn a return on
             "max_drawdown": (path / path.cummax() - 1).min(),
             "end_equity": eq.iloc[-1],
-            "exposure": exposure[exposure.index.year == y].mean(),
+            "exposure": exp_y.of(y).mean(),
             "partial": bool(partial),
             "from": first.date() if partial else None,
             "to": last.date() if partial else None,
@@ -823,6 +859,16 @@ def yearly_detail(nav_: pd.Series, trades: pd.DataFrame, exposure: pd.Series, fi
     return out
 
 
+_CPI_PERIODS: list = [None, None]
+
+
+def _cpi_periods(m: pd.Series) -> pd.PeriodIndex:
+    """m.index.to_period("M"), kept for the CPI series it was computed from (a report asks once per year)."""
+    if _CPI_PERIODS[0] is not m:
+        _CPI_PERIODS[:] = [m, m.index.to_period("M")]
+    return _CPI_PERIODS[1]
+
+
 def calendar_inflation(start: pd.Timestamp, end: pd.Timestamp) -> float:
     """CPI inflation between two dates for REPORTING, on calendar months (no publication lag): from the CPI of the
     month before `start` (a year starting in January uses the previous December) to the CPI of `end`'s month, or
@@ -832,7 +878,7 @@ def calendar_inflation(start: pd.Timestamp, end: pd.Timestamp) -> float:
         return np.nan
     b = pd.Timestamp(start).to_period("M") - 1
     e = pd.Timestamp(end).to_period("M")
-    per = m.index.to_period("M")
+    per = _cpi_periods(m)
     mb = m[per <= b]
     me = m[per <= e]
     if not len(mb) or not len(me) or mb.index[-1].to_period("M") != b or me.index[-1].to_period("M") <= b:
@@ -850,12 +896,13 @@ def yearly_balances(equity: pd.Series, nav_: pd.Series, flows: pd.Series | None 
     rows = {}
     first_bar = equity.index[1] if len(equity) > 1 else equity.index[0]
     skip = _anchor_year(equity)
-    for y, eq in equity.groupby(equity.index.year):
+    eq_y, nav_y, f_y = _Years(equity), _Years(nav_), _Years(f)
+    for y, eq in equity.groupby(eq_y.years):
         if y == skip:
             continue
-        prev = equity[equity.index.year < y]
-        nprev, ny = nav_[nav_.index.year < y], nav_[nav_.index.year == y]
-        fy = f[f.index.year == y]
+        prev = eq_y.before(y)
+        nprev, ny = nav_y.before(y), nav_y.of(y)
+        fy = f_y.of(y)
         dead = dep is not None and y > dep.year
         ret = np.nan
         if len(ny) and not dead:
@@ -881,12 +928,14 @@ def income_yearly(equity: pd.Series, income: pd.DataFrame | None) -> pd.DataFram
     inc = income.reindex(equity.index).fillna(0.0)
     skip = _anchor_year(equity)
     rows = {}
-    for y, eq in equity.groupby(equity.index.year):
+    eq_y = _Years(equity)
+    inc_years = inc.index.year.to_numpy()
+    for y, eq in equity.groupby(eq_y.years):
         if y == skip:
             continue
-        prev = equity[equity.index.year < y]
+        prev = eq_y.before(y)
         start = float(prev.iloc[-1]) if len(prev) else float(eq.iloc[0])
-        iy = inc[inc.index.year == y]
+        iy = inc[inc_years == y]
         d, i_ = float(iy["dividends"].sum()), float(iy["interest"].sum())
         rows[y] = {"start_balance": start, "dividends": d, "interest": i_, "income": d + i_,
                    "dividend_yield": d / start if start > 0 else np.nan,
@@ -947,25 +996,40 @@ def monte_carlo(equity: pd.Series, flows: pd.Series | None = None, sims: int = 1
     fl = sched.reindex(equity.index).fillna(0.0).to_numpy()[1:] if sched is not None else np.zeros(n)
     has_flows = np.abs(fl).sum() > 0
     ruined = 0
-    for s in range(sims):
-        starts = rng.integers(0, m - block, nb)
-        path = np.concatenate([r[a:a + block] for a in starts])[:n]
-        g = np.cumprod(1 + path)
-        cagr[s] = g[-1] ** (1 / years) - 1 if g[-1] > 0 else -1.0
-        mdd[s] = (g / np.maximum.accumulate(g) - 1).min()
-        if has_flows:
-            v = float(equity.iloc[0])
-            dead = False
-            for t in range(n):
-                v = v * (1 + path[t]) + fl[t]      # flows at the close, as in the backtest
-                if v <= 0:
-                    dead = True
-                    v = 0.0
+    # every path's block starts, drawn in the same order as one path at a time
+    S = np.array([rng.integers(0, m - block, nb) for _ in range(sims)]).reshape(sims, nb)
+    e0 = float(equity.iloc[0])
+    blocks = np.lib.stride_tricks.sliding_window_view(1 + r, block)   # blocks[a] = 1 + r[a:a + block]
+    for c0 in range(0, sims, 64):          # 64 paths at a time: each row is one path, as computed alone
+        c1 = min(c0 + 64, sims)
+        G = np.ascontiguousarray(blocks[S[c0:c1]].reshape(c1 - c0, -1)[:, :n])      # 1 + each path's returns
+        np.cumprod(G, axis=1, out=G)
+        M = np.maximum.accumulate(G, axis=1)
+        np.divide(G, M, out=M)
+        # min(x - 1) is min(x) - 1 (subtracting 1 is monotonic, also after rounding)
+        dd = M.min(axis=1) - 1
+        for j, s in enumerate(range(c0, c1)):
+            g_end = G[j, -1]
+            cagr[s] = g_end ** (1 / years) - 1 if g_end > 0 else -1.0
+            mdd[s] = dd[j]
+            if not has_flows:
+                final[s] = e0 * g_end
+    if has_flows:
+        # the flow schedule replayed on every path at once, day by day (the same arithmetic as one path at a time):
+        # a balance that reaches zero is ruined and stays at 0
+        v = np.full(sims, float(equity.iloc[0]))
+        alive = np.ones(sims, dtype=bool)
+        for t in range(n):
+            nxt = v * (1 + r[S[:, t // block] + t % block]) + fl[t]      # flows at the close, as in the backtest
+            v = np.where(alive, nxt, v)
+            dead = alive & (v <= 0)
+            if dead.any():
+                v[dead] = 0.0
+                alive &= ~dead
+                if not alive.any():
                     break
-            final[s] = v
-            ruined += dead
-        else:
-            final[s] = float(equity.iloc[0]) * g[-1]
+        final[:] = v
+        ruined = int((~alive).sum())
     q = lambda a, p: float(np.percentile(a, p))  # noqa: E731
     out = {
         "sims": sims, "block_days": block,

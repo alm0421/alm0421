@@ -74,11 +74,27 @@ def _pair_rolling(a: str, b: str, freq: str, window: int, start=None, end=None) 
             "start": r.index[0].date() if len(r) else None, "end": r.index[-1].date() if len(r) else None}
 
 
+_ASSET_MEMO: dict = {}   # the same asset over the same dates (a grid's columns share holdings and period)
+
+
 def asset_stats(ticker: str, start, end, rf="tbill", first_date=None, basis: str | None = None) -> dict:
     """PV-style statistics of one asset's total return over [start, end]. basis="monthly" puts every asset on
     monthly returns (volatility, Sharpe, Sortino, and the max drawdown from month-end values), as the correlation
     matrix is when it is monthly; otherwise only a series moving in monthly steps is."""
-    s = data.load(ticker)["adj_close"].dropna()
+    df = data.load(ticker)
+    key = (ticker, str(pd.Timestamp(start)), str(pd.Timestamp(end)), repr(rf), str(first_date), basis)
+    hit = _ASSET_MEMO.get(key)
+    if hit is not None and hit[0] is df and hit[1] is data.tbill_rate():
+        return dict(hit[2])
+    out = _asset_stats(df, ticker, start, end, rf, first_date, basis)
+    if len(_ASSET_MEMO) > 256:
+        _ASSET_MEMO.clear()
+    _ASSET_MEMO[key] = (df, data.tbill_rate(), dict(out))
+    return out
+
+
+def _asset_stats(df: pd.DataFrame, ticker: str, start, end, rf, first_date, basis) -> dict:
+    s = df["adj_close"].dropna()
     s = s[(s.index >= pd.Timestamp(start)) & (s.index <= pd.Timestamp(end))]
     if len(s) < 3:
         return {"ticker": ticker, "start": str(first_date) if first_date else None}

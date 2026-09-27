@@ -163,7 +163,13 @@ def _clean(o):
     if t is str or t is int:
         return o
     if t is list:
-        return [_clean(v) for v in o]
+        out = []
+        for v in o:     # (lists of plain floats inline: a report holds hundreds of thousands)
+            if type(v) is float and v == v and v - v == 0:
+                out.append(v)
+            else:
+                out.append(_clean(v))
+        return out
     if isinstance(o, dict):
         return {str(k): _clean(v) for k, v in o.items()}
     if isinstance(o, (list, tuple)):
@@ -198,7 +204,7 @@ def _run_name(res: Result, i: int) -> str:
 
 def cost_sensitivity(res: Result, levels=(0, 5, 10, 25), warm=None) -> list[dict]:
     """The run repeated at several slippage levels (stats from `warm`, the end of the indicator warm-up)."""
-    from . import portfolio, runner
+    from . import engine, portfolio, runner
     rows = []
     base = res.strategy.slippage_bps
     for bps in sorted(set(levels) | {base}):
@@ -206,8 +212,9 @@ def cost_sensitivity(res: Result, levels=(0, 5, 10, 25), warm=None) -> list[dict
             r = res
         else:
             s = dataclasses.replace(res.strategy, slippage_bps=float(bps), notes=list(res.strategy.notes))
-            with portfolio.reuse_evaluations(res, light=True):   # the targets do not depend on costs: evaluated once
-                r = runner.run(s)
+            # the targets (portfolios) and the prepared bars and signals (strategies) do not depend on costs: evaluated once
+            with portfolio.reuse_evaluations(res, light=True), engine.reuse_prepared(res):
+                r = runner.run(s, notes=False)      # (only its equity is read)
         r = trim_result(r, warm)
         fl = r.extras.get("flows")
         st = metrics.equity_stats(r.equity, flows=fl)
@@ -986,27 +993,34 @@ def chart_file_name(t: str, run: int | None = None) -> str:
     return f"charts/{'' if run is None else f'r{run + 1}-'}{safe}.js"
 
 
-def write_chart_files(res: Result, out_dir: Path, skip: set, run: int | None = None) -> dict[str, str]:
+def write_chart_files(res: Result, out_dir: Path, skip: set, run: int | None = None,
+                      jobs: list | None = None) -> dict[str, str]:
     """One file per traded ticker not embedded in the report (charts/<TICKER>.js next to report.html), loaded
     by the report when that ticker is picked. It is a script that registers the JSON payload, so it loads
-    both from a web server and from a report opened as a local file (file://, where fetch() is blocked)."""
-    files = {}
+    both from a web server and from a report opened as a local file (file://, where fetch() is blocked).
+    With `jobs`, the files are not written now: a (name, write function) entry is added for the caller to run."""
     tks = [t for t in chart_tickers(res) if t not in skip]
     if not tks:
-        return files
-    setup = _chart_setup(res)
-    many = len(chart_tickers(res)) > 1
+        return {}
+    files = {t: chart_file_name(t, run) for t in tks}
     (out_dir / "charts").mkdir(parents=True, exist_ok=True)
-    for t in tks:
-        name = chart_file_name(t, run)
-        P = ticker_chart(res, t, setup, _chart_segment(res, t, many))
-        ds = pd.to_datetime(P.pop("dates"))
-        if len(ds):  # dates as the first date + day steps (the report rebuilds the list): ~40% smaller files
-            P["d0"] = ds[0].strftime("%Y-%m-%d")
-            P["dd"] = [int(x) for x in np.diff(ds.values).astype("timedelta64[D]").astype(int)]
-        blob = json.dumps(_clean(P), separators=(",", ":"))
-        (out_dir / name).write_text(f"(window.__charts=window.__charts||{{}})[{json.dumps(name)}]={blob};\n")
-        files[t] = name
+
+    def work():
+        setup = _chart_setup(res)
+        many = len(chart_tickers(res)) > 1
+        for t in tks:
+            name = files[t]
+            P = ticker_chart(res, t, setup, _chart_segment(res, t, many))
+            ds = pd.to_datetime(P.pop("dates"))
+            if len(ds):  # dates as the first date + day steps (the report rebuilds the list): ~40% smaller files
+                P["d0"] = ds[0].strftime("%Y-%m-%d")
+                P["dd"] = [int(x) for x in np.diff(ds.values).astype("timedelta64[D]").astype(int)]
+            blob = json.dumps(_clean(P), separators=(",", ":"))
+            (out_dir / name).write_text(f"(window.__charts=window.__charts||{{}})[{json.dumps(name)}]={blob};\n")
+    if jobs is None:
+        work()
+    else:
+        jobs.append(("charts", work))
     return files
 
 
@@ -1761,7 +1775,8 @@ def console_summary(A: dict) -> str:
 def _ser(s: pd.Series, idx: pd.DatetimeIndex | None = None, digits: int = 4) -> list:
     if idx is not None:
         s = s.reindex(idx)
-    return [None if (v is None or not np.isfinite(v)) else round(float(v), digits) for v in s.to_numpy(dtype=float)]
+    fin = math.isfinite
+    return [round(v, digits) if fin(v) else None for v in s.to_numpy(dtype=float).tolist()]
 
 
 def _trades_records(res: Result) -> list[dict]:
@@ -1875,7 +1890,8 @@ def _attribution_payload(A: dict) -> dict:
                            - (at["pnl"].sum() + A["interest"] - (A.get("fees") or 0.0)))}
 
 
-def build_payload(analyses: list[dict], out_dir: Path | None = None) -> dict:
+def build_payload(analyses: list[dict], out_dir: Path | None = None, common: dict | None = None,
+                  jobs: list | None = None) -> dict:
     """The report's data. With `out_dir`, price charts of up to MAX_EMBED_TICKERS tickers per run are embedded
     and every other traded ticker is written to out_dir/charts/ for loading on demand; without it, only the
     embedded ones (within MAX_PRICE_TICKERS and the size budget) are charted."""
@@ -1904,7 +1920,7 @@ def build_payload(analyses: list[dict], out_dir: Path | None = None) -> dict:
             continue
         rp["prices"] = price_payload(full, max_tickers=MAX_EMBED_TICKERS)
         rp["chart_tickers"] = chart_tickers(full)
-        rp["chart_files"] = write_chart_files(full, out_dir, set(rp["prices"]), i if len(analyses) > 1 else None)
+        rp["chart_files"] = write_chart_files(full, out_dir, set(rp["prices"]), i if len(analyses) > 1 else None, jobs)
     return {
         "title": title,
         "dates": [d.strftime("%Y-%m-%d") for d in idx],
@@ -1915,7 +1931,7 @@ def build_payload(analyses: list[dict], out_dir: Path | None = None) -> dict:
                         **({"with_flows": _ser(first["benchmarks_with_flows"][n], idx, 2)}
                            if n in (first.get("benchmarks_with_flows") or {}) else {})} for n, b in benches.items()],
         "benchmark_yearly": {n: {int(y): float(v) for y, v in metrics.yearly_returns({n: b})[n].items()} for n, b in benches.items()},
-        "common": common_window_stats(analyses, analyses[0]["rf"]),
+        "common": common if common is not None else common_window_stats(analyses, analyses[0]["rf"]),
         "benchmark_from": first.get("benchmark_from") or {},
         "benchmark_partial": first.get("benchmark_partial") or {},
         # CPI relative to the first date (divide a dollar series by it for dollars of the start date)
@@ -1941,34 +1957,72 @@ def export_frame(eq: pd.DataFrame, A: dict) -> pd.DataFrame:
     return eq
 
 
-def write_outputs(analyses: list[dict] | dict, out_dir: Path, excel: bool = True, pdf: bool = False) -> Path:
+def export_jobs(analyses: list[dict] | dict, out_dir: Path, excel: bool = True) -> list[tuple[str, object]]:
+    """The download files of a report (CSV tables and the Excel workbook): [(file name, write function)], so a caller
+    can list them at once and write them later (the site writes them after answering; see web._defer_exports)."""
     if isinstance(analyses, dict):
         analyses = [analyses]
-    out_dir.mkdir(parents=True, exist_ok=True)
+    jobs: list[tuple[str, object]] = []
     for i, A in enumerate(analyses):
         res = A["result"]
         pre = "" if len(analyses) == 1 else f"{slug(_run_name(res, i))}_"
-        tr = res.trades if res.trades is not None else pd.DataFrame()
-        tr.to_csv(out_dir / f"{pre}trades.csv", index_label="trade")
+
+        def trades(A=A, res=res, f=out_dir / f"{pre}trades.csv"):
+            tr = res.trades if res.trades is not None else pd.DataFrame()
+            tr.to_csv(f, index_label="trade")
+        jobs.append((f"{pre}trades.csv", trades))
         if res.orders is not None and not res.orders.empty:
-            res.orders.to_csv(out_dir / f"{pre}orders.csv", index=False)
-        eq = pd.DataFrame({"equity": res.equity, "twr_index": A["nav"], "drawdown": metrics.drawdown(A["nav"]),
-                           "exposure": res.exposure, "positions": res.positions})
-        if A["flows"] is not None:
-            eq["cash_flow"] = A["flows"]
-        if A.get("equity_real") is not None:
-            eq["equity_real"] = A["equity_real"]
-        for n, b in A["benchmarks"].items():
-            eq[n] = b
-        for n, b in (A.get("benchmarks_with_flows") or {}).items():
-            eq[n + " (with cash flows)"] = b
-        export_frame(eq, A).to_csv(out_dir / f"{pre}equity.csv", index_label="date")
+            jobs.append((f"{pre}orders.csv", lambda res=res, f=out_dir / f"{pre}orders.csv": res.orders.to_csv(f, index=False)))
+
+        def equity(A=A, res=res, f=out_dir / f"{pre}equity.csv"):
+            eq = pd.DataFrame({"equity": res.equity, "twr_index": A["nav"], "drawdown": metrics.drawdown(A["nav"]),
+                               "exposure": res.exposure, "positions": res.positions})
+            if A["flows"] is not None:
+                eq["cash_flow"] = A["flows"]
+            if A.get("equity_real") is not None:
+                eq["equity_real"] = A["equity_real"]
+            for n, b in A["benchmarks"].items():
+                eq[n] = b
+            for n, b in (A.get("benchmarks_with_flows") or {}).items():
+                eq[n + " (with cash flows)"] = b
+            export_frame(eq, A).to_csv(f, index_label="date")
+        jobs.append((f"{pre}equity.csv", equity))
         if A.get("attribution") is not None and len(A["attribution"]):
-            A["attribution"].to_csv(out_dir / f"{pre}attribution.csv", index=False)
+            jobs.append((f"{pre}attribution.csv",
+                         lambda A=A, f=out_dir / f"{pre}attribution.csv": A["attribution"].to_csv(f, index=False)))
         if res.holdings is not None and not res.holdings.empty:
-            res.holdings.to_csv(out_dir / f"{pre}holdings.csv", index_label="date")
-        A["yearly"].to_csv(out_dir / f"{pre}yearly.csv")
-        A["monthly"].to_csv(out_dir / f"{pre}monthly.csv")
+            jobs.append((f"{pre}holdings.csv",
+                         lambda res=res, f=out_dir / f"{pre}holdings.csv": res.holdings.to_csv(f, index_label="date")))
+        jobs.append((f"{pre}yearly.csv", lambda A=A, f=out_dir / f"{pre}yearly.csv": A["yearly"].to_csv(f)))
+        jobs.append((f"{pre}monthly.csv", lambda A=A, f=out_dir / f"{pre}monthly.csv": A["monthly"].to_csv(f)))
+        if excel:
+            jobs.append((f"{pre}report.xlsx", lambda A=A, f=out_dir / f"{pre}report.xlsx": _excel(A, f)))
+    return jobs
+
+
+def write_exports(analyses: list[dict] | dict, out_dir: Path, excel: bool = True) -> list[str]:
+    """Write the download files (export_jobs); returns their names."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    jobs = export_jobs(analyses, out_dir, excel)
+    for _, job in jobs:
+        job()
+    return [n for n, _ in jobs]
+
+
+def write_outputs(analyses: list[dict] | dict, out_dir: Path, excel: bool = True, pdf: bool = False,
+                  exports: bool = True, common: dict | None = None, deferred: list | None = None) -> Path:
+    """The report: report.html (and its charts), summary.json and strategy.json per run, and, unless exports=False,
+    the download files (write_exports: CSV tables and report.xlsx). `common`: common_window_stats of the analyses
+    when the caller has it already. `deferred`: a list that receives the (name, write function) jobs of the chart
+    files loaded on demand (charts/*.js) instead of writing them now (the site writes them after answering)."""
+    if isinstance(analyses, dict):
+        analyses = [analyses]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if exports:
+        write_exports(analyses, out_dir, excel)
+    for i, A in enumerate(analyses):
+        res = A["result"]
+        pre = "" if len(analyses) == 1 else f"{slug(_run_name(res, i))}_"
         (out_dir / f"{pre}strategy.json").write_text(A["strategy"].to_json())
         summary = {k: A.get(k) for k in ("stats", "cash", "trade_stats", "exposure", "relative", "monte_carlo",
                                          "sensitivity", "rolling_summary", "crises", "factors")}
@@ -1985,9 +2039,7 @@ def write_outputs(analyses: list[dict] | dict, out_dir: Path, excel: bool = True
                         "benchmark_cash": A.get("benchmark_cash") or {},
                         "attribution": _attribution_payload(A)})
         (out_dir / f"{pre}summary.json").write_text(json.dumps(_clean(summary), indent=2))
-        if excel:
-            _excel(A, out_dir / f"{pre}report.xlsx")
-    payload = build_payload(analyses, out_dir)
+    payload = build_payload(analyses, out_dir, common=common, jobs=deferred)
     blob = json.dumps(_clean(payload), separators=(",", ":")).replace("</", "<\\/")
     page = TEMPLATE.read_text().replace("__TITLE__", html.escape(payload["title"][:80])).replace("__DATA__", blob)
     path = out_dir / "report.html"
@@ -2076,7 +2128,12 @@ class _FastBook:
         head = "".join(self._cell(f"{refs[j]}1", None if v is None else str(v), bold=True) for j, v in enumerate(names))
         columns = [self._column(refs[j + (1 if index else 0)], df.iloc[:, j], 2) for j in range(len(cols))]
         if index:
-            columns.insert(0, [self._cell(f"A{r + 2}", k, bold=True) for r, k in enumerate(df.index)])
+            ix = df.index
+            if isinstance(ix, pd.DatetimeIndex) and ix.tz is None and len(ix) and not ix.hasnans and (ix == ix.normalize()).all():
+                # dates at midnight: a whole number of days, the same cells as one _cell per date, built at once
+                columns.insert(0, self._column("A", pd.Series(ix), 2))
+            else:
+                columns.insert(0, [self._cell(f"A{r + 2}", k, bold=True) for r, k in enumerate(ix)])
         rows = [f'<row r="1">{head}</row>']
         rows += [f'<row r="{r + 2}">' + "".join(cells) + "</row>" for r, cells in enumerate(zip(*columns))]
         xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -2131,7 +2188,8 @@ class _FastBook:
                   '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>'
                   '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
                   '</styleSheet>')
-        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        # (fast compression: level 1 is about three times quicker than the default for a file only ~15% larger)
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
             z.writestr("[Content_Types].xml", ctypes)
             z.writestr("_rels/.rels", rels)
             z.writestr("xl/workbook.xml", wb)

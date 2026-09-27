@@ -12,7 +12,9 @@ from .strategy import Strategy
 Spec = Strategy | Portfolio
 
 
-def run(spec: Spec) -> Result:
+def run(spec: Spec, notes: bool = True) -> Result:
+    """Run a strategy or portfolio. notes=False skips the data notes added after the run (recycled symbols,
+    corporate actions, repairs): for reruns whose notes nobody reads (report.cost_sensitivity)."""
     from .strategy import check_date
     check_date(getattr(spec, "start", None), "start")
     check_date(getattr(spec, "end", None), "end")
@@ -20,7 +22,8 @@ def run(spec: Spec) -> Result:
         res = portfolio.run(spec)
     else:
         res = engine.run(spec)
-    _identity_notes(spec, res)
+    if notes:
+        _identity_notes(spec, res)
     return res
 
 
