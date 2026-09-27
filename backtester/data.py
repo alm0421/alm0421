@@ -1073,7 +1073,7 @@ def _whole_ratio(r: float) -> bool:
 
 def _split_like(r: float) -> bool:
     """A ratio a company actually splits (or pays a stock dividend) by: p/q with q <= 4 (2, 3, 3/2, 4/3, 5/4, 5/2...)
-    or its inverse (reverse splits), or 1 + k% for a whole k up to 25 (stock dividends), within 0.1%. Not a ratio
+    or its inverse (reverse splits) within 0.2%, or 1 + k% for a whole k up to 25 (stock dividends) within 0.1%. Not a ratio
     like EBAY's 2.376 on 2015-07-20 (19/8): Yahoo books some spin-offs as a "split" of the pre-event price over the
     ex-date reference price (PayPal from eBay)."""
     if not r or r <= 0 or abs(r - 1) < 1e-9:
@@ -1081,7 +1081,7 @@ def _split_like(r: float) -> bool:
     for x in (r, 1.0 / r):
         for q in range(1, 5):
             p = round(x * q)
-            if p >= 1 and abs(p / q - x) <= 1e-3 * x:
+            if p >= 1 and abs(p / q - x) <= 2e-3 * x:     # (GOOGL's 1.998 for the class C issue in 2014: 2)
                 return True
     k = round((r - 1) * 100)
     return 1 <= k <= 25 and abs(1 + k / 100 - r) <= 1e-3 * r
@@ -1160,20 +1160,6 @@ def reconcile_actions(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
     if not len(cand_days) and not len(spin_days):
         CA_FIXES[t] = empty
         return raw, empty
-    if len(spin_days):
-        raw, spun = _spinoffs_booked_as_splits(raw, spin_days)
-        if not len(cand_days):
-            out = pd.DataFrame(spun, columns=cols)
-            CA_FIXES[t] = out
-            return raw, out
-        c = raw["close"].astype(float)
-        d = pd.to_numeric(raw["dividend"], errors="coerce").fillna(0.0)
-        sp = pd.to_numeric(raw["split"], errors="coerce").fillna(0.0)
-        a = pd.to_numeric(raw["adj_close"], errors="coerce")
-        eng = (c + d) / c.shift(1)
-        adj = a / a.shift(1)
-    else:
-        spun = []
     raw = raw.copy()
     for k in ("open", "high", "low", "close", "adj_close", "volume", "dividend", "split"):
         if k in raw:
@@ -1181,7 +1167,7 @@ def reconcile_actions(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
     raw["dividend"] = raw["dividend"].fillna(0.0)
     raw["split"] = raw["split"].fillna(0.0)
     mkt = _market_day_returns() if t != "SPY" else pd.Series(dtype=float)
-    log = list(spun)
+    log = []
     for day in cand_days:
         i = raw.index.get_loc(day)
         if i == 0:
@@ -1223,6 +1209,9 @@ def reconcile_actions(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
             raw.loc[before, "adj_close"] = raw.loc[before, "adj_close"] * (a_now / a_prev) / tr
         log.append((day, reading, r, r if keep_split else 1.0, dv, pay, float(eng.iloc[i]) - 1, tr - 1,
                     float(adj.iloc[i]) - 1, m))
+    if len(spin_days):     # last: a pure change of units for the bars before each (the readings above stand)
+        raw, spun = _spinoffs_booked_as_splits(raw, spin_days)
+        log = sorted(log + spun, key=lambda row: row[0])
     out = pd.DataFrame(log, columns=cols)
     CA_FIXES[t] = out
     return raw, out

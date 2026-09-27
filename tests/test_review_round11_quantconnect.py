@@ -234,9 +234,9 @@ def test_shorting_sqqq_pays_the_assumed_fee_with_a_note():
 # ------------------------------------------------------------ 13. a spin-off booked as a split
 
 def test_split_like_ratios():
-    for r in (2, 3, 1.5, 4 / 3, 1.25, 0.5, 0.1, 1 / 15, 1.05, 1.1, 1.02):
+    for r in (2, 3, 1.5, 4 / 3, 1.25, 0.5, 0.1, 1 / 15, 1.05, 1.1, 1.02, 1.998):
         assert data._split_like(r), r
-    for r in (2.376, 1.319, 2.0842, 1.758, 1.998):
+    for r in (2.376, 1.319, 2.0842, 1.758, 1.128):
         assert not data._split_like(r), r
 
 
