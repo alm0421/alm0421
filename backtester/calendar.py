@@ -256,3 +256,94 @@ def scheduled_sessions_left(idx: pd.DatetimeIndex, freq: str = "M") -> np.ndarra
         e = end[[pos[x] for x in d]]
         return np.busday_count(d + np.timedelta64(1, "D"), e, holidays=hol)
     return _point_in_time(idx, count)
+
+
+@lru_cache(maxsize=None)
+def holiday_names(year: int) -> dict:
+    """{date: name} of the regular NYSE holidays of `year` (the weekday closures of holidays(year))."""
+    modern = year >= 1971
+    days = holidays(year)
+    cands = [
+        (dt.date(year, 1, 1), "new year"), (dt.date(year, 12, 31), "new year"), (dt.date(year, 1, 2), "new year"),
+        (_nth_weekday(year, 1, 0, 3), "martin luther king"),
+        (dt.date(year, 2, 12), "lincoln"), (dt.date(year, 2, 11), "lincoln"), (dt.date(year, 2, 13), "lincoln"),
+        (_nth_weekday(year, 2, 0, 3) if modern else dt.date(year, 2, 22), "presidents"),
+        (dt.date(year, 2, 21), "presidents"), (dt.date(year, 2, 23), "presidents"),
+        (_easter(year) - dt.timedelta(days=2), "good friday"),
+        (_last_weekday(year, 5, 0) if modern else dt.date(year, 5, 30), "memorial"),
+        (dt.date(year, 5, 29), "memorial"), (dt.date(year, 5, 31), "memorial"),
+        (dt.date(year, 6, 19), "juneteenth"), (dt.date(year, 6, 18), "juneteenth"), (dt.date(year, 6, 20), "juneteenth"),
+        (dt.date(year, 7, 4), "independence"), (dt.date(year, 7, 3), "independence"), (dt.date(year, 7, 5), "independence"),
+        (_nth_weekday(year, 9, 0, 1), "labor"),
+        (dt.date(year, 10, 12), "columbus"), (dt.date(year, 10, 11), "columbus"), (dt.date(year, 10, 13), "columbus"),
+        (_election_day(year), "election"),
+        (dt.date(year, 11, 11), "veterans"), (dt.date(year, 11, 10), "veterans"), (dt.date(year, 11, 12), "veterans"),
+        (dt.date(year, 12, 25), "christmas"), (dt.date(year, 12, 24), "christmas"), (dt.date(year, 12, 26), "christmas"),
+    ]
+    out = {}
+    for d, name in cands:
+        if d in days and d not in out:
+            out[d] = name
+    for d in days:            # Thanksgiving (its rule changed in 1939 and 1942)
+        if d.month == 11 and d.weekday() == 3 and d not in out:
+            out[d] = "thanksgiving"
+    return out
+
+
+HOLIDAY_ALIASES = {"new year's day": "new year", "new years day": "new year", "new year's": "new year",
+                   "new years": "new year", "mlk day": "martin luther king", "mlk": "martin luther king",
+                   "martin luther king day": "martin luther king", "martin luther king jr. day": "martin luther king",
+                   "presidents day": "presidents", "presidents' day": "presidents", "president's day": "presidents",
+                   "washington's birthday": "presidents", "memorial day": "memorial", "independence day": "independence",
+                   "july 4th": "independence", "july 4": "independence", "the fourth of july": "independence",
+                   "fourth of july": "independence", "labor day": "labor", "thanksgiving day": "thanksgiving",
+                   "christmas day": "christmas", "juneteenth day": "juneteenth"}
+
+
+def holiday_key(name: str) -> str:
+    """A holiday's name as holiday_names spells it ('Thanksgiving Day' -> 'thanksgiving'); ValueError if unknown."""
+    n = " ".join(str(name).lower().replace("’", "'").split())
+    n = HOLIDAY_ALIASES.get(n, n)
+    if n not in {"new year", "martin luther king", "lincoln", "presidents", "good friday", "memorial", "juneteenth",
+                 "independence", "labor", "columbus", "election", "veterans", "thanksgiving", "christmas"}:
+        raise ValueError(f"unknown market holiday {name!r} (Thanksgiving, Christmas, New Year, Good Friday, Memorial "
+                         "Day, Independence Day, Labor Day, Juneteenth, Presidents Day, MLK Day)")
+    return n
+
+
+def _holiday_table(idx: pd.DatetimeIndex) -> tuple[np.ndarray, list]:
+    y0, y1 = int(idx.min().year) - 1, int(idx.max().year) + 1
+    items = sorted((d, n) for y in range(y0, y1 + 1) for d, n in holiday_names(y).items())
+    return np.array([d for d, _ in items], dtype="datetime64[D]"), [n for _, n in items]
+
+
+def holiday_distance(idx: pd.DatetimeIndex, direction: int) -> tuple[np.ndarray, np.ndarray]:
+    """For each date: (scheduled sessions strictly between it and the next (direction +1) / previous (-1) regular
+    NYSE holiday, that holiday's name). 0 sessions: the date is the last session before the holiday (+1) or the
+    first after it (-1). Only the published schedule is used (regular holidays, and special closures counted in the
+    session count from their announcement on), so it is known at the open."""
+    n = len(idx)
+    if n == 0:
+        return np.zeros(0, int), np.array([], dtype=object)
+    hd, names = _holiday_table(idx)
+    d = idx.values.astype("datetime64[D]")
+    if direction > 0:
+        k = np.searchsorted(hd, d, side="right")
+        ok = k < len(hd)
+        tgt = np.where(ok, hd[np.minimum(k, len(hd) - 1)], d)
+
+        def count(dd, hol):
+            t = tgt[np.searchsorted(d, dd)]
+            return np.busday_count(dd + np.timedelta64(1, "D"), t, holidays=hol)
+    else:
+        k = np.searchsorted(hd, d, side="left") - 1
+        ok = k >= 0
+        tgt = np.where(ok, hd[np.maximum(k, 0)], d)
+
+        def count(dd, hol):
+            t = tgt[np.searchsorted(d, dd)]
+            return np.busday_count(t + np.timedelta64(1, "D"), dd, holidays=hol)
+    cnt = _point_in_time(idx, count).astype(float)
+    cnt[~ok] = np.nan
+    nm = np.array([names[j] if o else None for j, o in zip(np.clip(k, 0, len(names) - 1), ok)], dtype=object)
+    return cnt, nm

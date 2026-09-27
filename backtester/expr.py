@@ -1181,6 +1181,33 @@ class Namespace(dict):
             self.notes.extend(n for n in sub.notes if n not in self.notes)
             return val
 
+        def days_to_holiday():
+            """Scheduled sessions after today before the next regular market holiday (0: the last session before
+            it), from the published NYSE schedule: known at the open."""
+            return pd.Series(_cal.holiday_distance(c.index, 1)[0], index=c.index)
+
+        def days_since_holiday():
+            """Scheduled sessions since the last regular market holiday before today (0: the first session after it)."""
+            return pd.Series(_cal.holiday_distance(c.index, -1)[0], index=c.index)
+
+        def next_holiday_is(name):
+            """True where the next market holiday is `name` ("thanksgiving", "christmas", "new year", ...)."""
+            key = _cal.holiday_key(name)
+            return pd.Series(_cal.holiday_distance(c.index, 1)[1] == key, index=c.index)
+
+        def last_holiday_is(name):
+            """True where the last market holiday before today was `name`."""
+            key = _cal.holiday_key(name)
+            return pd.Series(_cal.holiday_distance(c.index, -1)[1] == key, index=c.index)
+
+        def xrank(x=None, src=None):
+            """This ticker's cross-sectional percentile of x that day (see XRANK_NEEDS_UNIVERSE): read from the table
+            the engine computed across the universe (the compiled rule passes the argument's source)."""
+            tbl = self.__dict__.get("xrank_table") or {}
+            if src not in tbl:       # evaluated on one ticker alone (a syntax check, a chart): unknown
+                return pd.Series(np.nan, index=c.index)
+            return tbl[src].reindex(c.index)
+
         def sym(ticker: str) -> Bars:
             other = _SYM_OVERRIDE.get(data.canonical(ticker))
             other = other if other is not None else data.load(ticker)
@@ -1233,6 +1260,8 @@ class Namespace(dict):
             "monthly_close": lambda x=None: _periodic_close("M", x),
             "is_week_end": lambda: is_period_end("W-FRI"), "is_month_end": lambda: is_period_end("M"),
             "is_quarter_end": lambda: is_period_end("Q"), "is_year_end": lambda: is_period_end("Y"),
+            "days_to_holiday": days_to_holiday, "days_since_holiday": days_since_holiday,
+            "next_holiday_is": next_holiday_is, "last_holiday_is": last_holiday_is, "xrank": xrank,
             "_tf": _tf, "_q": _q, "sym": sym, "abs": np.abs, "maximum": np.maximum, "minimum": np.minimum,
             "log": np.log, "sqrt": np.sqrt,
         }
@@ -1249,6 +1278,13 @@ Variables (per bar; prices are split-adjusted, as quoted):
   dow month day year                calendar (dow: 0=Mon .. 4=Fri)
   trading_day_of_month               1 on the month's first session
   trading_days_left_in_month        scheduled sessions left this month after today (0 = the last one)
+  days_to_holiday()                 scheduled sessions before the next market holiday (0 = the last one before it)
+  days_since_holiday()              scheduled sessions since the last market holiday (0 = the first one after it)
+  next_holiday_is("thanksgiving")   the next holiday is Thanksgiving (also christmas, new year, good friday,
+  last_holiday_is("thanksgiving")     memorial, independence, labor, juneteenth, presidents, martin luther king)
+  xrank(x)                          this ticker's percentile (0..1, 1 = highest) of x among the universe's
+                                    members that day, e.g. xrank(ret(20)) <= 0.1 = the bottom decile
+  treasury_2y()  yield_curve()      2-year yield; 10-year minus 2-year (below 0 = inverted), FRED
   dollar_volume                     close * volume
   hl2 hlc3 ohlc4 hlcc4              price averages (hlc3 = typical price)   true_range
   ha_open ha_high ha_low ha_close   Heikin Ashi bars (as TradingView draws them)
@@ -1647,6 +1683,16 @@ def _check_arguments(tree) -> None:
             if len(node.args) != 1 or node.keywords or _kind(node.args[0]) != "str":
                 raise ValueError('sym() takes one ticker in quotes, e.g. sym("SPY").close')
             continue
+        if f in _OPEN_HOLIDAY_CALLS:
+            if len(node.args) != 1 or node.keywords or _kind(node.args[0]) != "str":
+                raise ValueError(f'{f}() takes one holiday name in quotes, e.g. {f}("thanksgiving")')
+            _cal.holiday_key(node.args[0].value)
+            continue
+        if f == "xrank":
+            if len(node.args) != 1 or node.keywords or _kind(node.args[0]) != "series":
+                raise ValueError("xrank() takes one series, e.g. xrank(ret(20)) (this ticker's percentile of its 20-day "
+                                 "return among the universe's members that day)")
+            continue
         if f in _FREE_ARG_FUNCS:
             continue
         for a in list(node.args) + [k.value for k in node.keywords]:
@@ -1814,11 +1860,44 @@ def _compile_expr(text: str):
         if isinstance(node, ast.Name) and node.id.startswith("_"):
             raise ValueError("private names are not allowed")
     tree = _Timeframes().visit(tree)
+    tree = _XRankSource().visit(tree)
     tree = ast.fix_missing_locations(_Vectorize().visit(tree))
     return compile(tree, "<rule>", "eval")
 
 
+class _XRankSource(ast.NodeTransformer):
+    """xrank(x) -> xrank(x, "x"): the namespace reads the percentile the engine computed for that argument."""
+
+    def visit_Call(self, n):
+        self.generic_visit(n)
+        if isinstance(n.func, ast.Name) and n.func.id == "xrank" and len(n.args) == 1:
+            n.args = [n.args[0], ast.Constant(ast.unparse(n.args[0]))]
+        return n
+
+
 POSITION_VARS = {"bars_held", "entry_price", "pnl"}
+
+# ---- cross-sectional rank: xrank(x) is this ticker's percentile (0..1] of x among the universe's members that day
+# (1 = the highest; ties share their average rank; tickers without a value that day are left out). The signal engine
+# computes it for a universe strategy (engine._xrank_extras) and the rule reads it as a precomputed series; each
+# day's value uses only the members' values that day, so it is as causal as x itself.
+XRANK_NEEDS_UNIVERSE = ("xrank() ranks a value across the members of a universe on each day: use it in a strategy over "
+                        "several tickers (e.g. the Nasdaq 100), in its entry, exit or ranking rule.")
+
+
+def xrank_calls(rule) -> list[str]:
+    """The argument of every xrank(...) call in a text rule, spelled as the compiled rule passes it to xrank (the key
+    of the engine's percentile table), in order and without repeats."""
+    if not isinstance(rule, str) or "xrank" not in rule:
+        return []
+    tree = _Timeframes().visit(ast.parse(pine_to_rule(rule).strip(), mode="eval"))
+    out: list[str] = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "xrank" and len(n.args) == 1:
+            src = ast.unparse(n.args[0])
+            if src not in out:
+                out.append(src)
+    return out
 
 
 def names_in(text) -> set[str]:
@@ -1905,11 +1984,13 @@ def first_defined(rule, ns, never=None) -> pd.Timestamp | None:
 _OPEN_SERIES_FUNCS = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "stdev", "zscore", "ret", "roc", "rsi",
                       "tret", "pct_rank", "max_drawdown", "ma_return", "stdev_return", "drawdown", "diff", "hma",
                       "linreg", "alma", "kama"}
-_OPEN_ONE_SERIES = {"cummax", "cummin", "down_streak", "up_streak", "quoted"}   # quoted(x): x on the quoted basis
+_OPEN_ONE_SERIES = {"cummax", "cummin", "down_streak", "up_streak", "quoted", "xrank"}   # quoted(x): x on the quoted basis
 _OPEN_ELEMENTWISE = _VALUE_FUNCS | {"crossover", "crossunder", "cross", "nz", "na"}
 # zero-argument calendar functions computed from the published NYSE schedule (backtester/calendar.py), not from
 # prices: known before the open (an unscheduled closure is never in the schedule, so none of them ever uses one)
-_OPEN_CALENDAR_CALLS = {"is_week_end", "is_month_end", "is_quarter_end", "is_year_end"}
+_OPEN_CALENDAR_CALLS = {"is_week_end", "is_month_end", "is_quarter_end", "is_year_end", "days_to_holiday",
+                        "days_since_holiday"}
+_OPEN_HOLIDAY_CALLS = {"next_holiday_is", "last_holiday_is"}      # one holiday name in quotes
 # monthly valuation data used months after the fact (data.CAPE_LAG_MONTHS): known before any open
 _OPEN_LAGGED_CALLS = {"cape", "earnings_yield", "cape_pct"}
 
@@ -2031,6 +2112,8 @@ def open_safe(rule) -> bool:
                 return bool(args) and all(ok(a) for a in args)
             if f in _OPEN_CALENDAR_CALLS:
                 return not args
+            if f in _OPEN_HOLIDAY_CALLS:
+                return len(args) == 1 and _kind(args[0]) == "str"
             if f in _OPEN_LAGGED_CALLS:
                 return all(_literal(a) is not None for a in args)
             return False
@@ -2096,8 +2179,8 @@ def open_time_probe(rule, df: pd.DataFrame, ticker: str | None = None, samples: 
     open (sizes from 0.01% to ~20%, random wicks), for this ticker and every sym() ticker, together and
     separately. A rule knowable at the open gives the same answer on every variant, and the same answer on
     the cut data as on the full data. Returns a description of the first violation, or None."""
-    if df is None or len(df) < 60:
-        return None
+    if df is None or len(df) < 60 or (isinstance(rule, str) and xrank_calls(rule)):
+        return None       # (a cross-sectional rank is checked statically: xrank(x) is open-safe when x is)
     base = evaluate(rule, Namespace(df, ticker=ticker)).reindex(df.index, fill_value=False).to_numpy()
     idx = df.index
     rng = np.random.default_rng(seed)

@@ -152,7 +152,8 @@ class Portfolio:
                                                  # (backtester/margin.py): Reg T at most 2x, portfolio margin 4x
     expense_ratio: float = 0.0                   # annual fee on invested assets, charged daily
     short_rebate_spread: float = 0.0025          # short sale proceeds earn the cash rate minus this (floored at 0)
-    borrow_fee: float = 0.0                      # annual fee on the market value of short positions, charged daily
+    borrow_fee: float | None = None              # annual fee on the market value of short positions, charged daily;
+                                                 # None: margin.default_borrow_fee per ticker; 0: none
     # statistics start once every asset a filter / ranking / weighting measures has its full lookback ("all"),
     # or once enough of them have one to fill the filter's slots ("first")
     warmup: Literal["all", "first"] = "all"
@@ -192,6 +193,7 @@ class Portfolio:
         maint = lev * max_requirement(self.tree, lambda t: _m.maintenance(t, mm) if t else mm)
         gross = max_gross(self.tree) * lev
         worst = max(tickers_in(self.tree, index_universes=False), key=_m.factor, default=None)
+        book = _book_text(self.tree, lev)
         if init > 1 + 1e-9:
             if not (worst and _m.factor(worst) > 1):
                 raise ValueError(f"The portfolio's gross exposure can reach {gross:.3g}x its equity (the sum of the absolute "
@@ -200,11 +202,11 @@ class Portfolio:
                                     "account up to 4x is possible: say 'with portfolio margin' (margin_account "
                                     "'portfolio') and a maintenance margin below 1/leverage, e.g. 'a 15% maintenance margin'."
                                     if acct == "reg_t" else "a portfolio-margin account allows (4x)."))
-            _m.refuse("", init, maint, lev, mm, acct, worst)
+            _m.refuse("", init, maint, lev, mm, acct, worst, book=book, gross=gross)
         borrowing = gross > 1 + 1e-9 or _has_short(self.tree)
-        if borrowing and mm and maint >= 1 - 1e-9:
-            if worst and _m.factor(worst) > 1:
-                _m.refuse("", init, maint, lev, mm, acct, worst)
+        if borrowing and mm and maint > 1 - _m.MARGIN_BUFFER + 1e-12:
+            if maint < 1 or (worst and _m.factor(worst) > 1):
+                _m.refuse("The portfolio is refused: ", init, maint, lev, mm, acct, worst, book=book, gross=gross)
             raise ValueError(f"The portfolio's gross exposure can reach {gross:.3g}x its equity, and the {mm:.0%} "
                              f"maintenance_margin allows less than {1 / mm:.3g}x: every close below the entry would be a "
                              "margin call. Use smaller weights or less leverage, or a lower maintenance_margin (0 turns "
@@ -239,6 +241,10 @@ class Portfolio:
             if int(self.target_vol_lookback) < 5:
                 raise ValueError("target_vol_lookback must be at least 5 days")
         self._check_margin()
+        if "xrank(" in json.dumps(self.tree, default=str):
+            raise ValueError("xrank() is for signal strategies over a universe (buy when a stock is in the bottom decile "
+                             "of its universe...); in a portfolio, rank with a filter instead, e.g. 'the 5 with the "
+                             "lowest 20 day return'.")
         if self.share_classes not in ("company", "separate"):
             raise ValueError("share_classes must be 'company' (one slot per company) or 'separate'")
         if self.benchmark not in (None, ""):
@@ -290,7 +296,7 @@ class Portfolio:
                 raise ValueError(f"{label} cannot be negative (got {f}={v!r}): a negative cost would pay you for "
                                  "trading or holding. Use 0 for none.")
         for f in ("short_rebate_spread", "borrow_fee"):
-            if not 0 <= float(getattr(self, f)) < 1:
+            if getattr(self, f) is not None and not 0 <= float(getattr(self, f)) < 1:
                 raise ValueError(f"{f} is an annual fraction between 0 and 1 (0.01 = 1% a year)")
         if self.start and self.end and pd.Timestamp(self.start) >= pd.Timestamp(self.end):
             raise ValueError(f"The period is reversed or empty: it starts on {self.start} but ends on {self.end}.")
@@ -406,7 +412,9 @@ class Portfolio:
             costs.append(f"margin rate T-bills + {self.margin_rate:.2%} on any borrowing")
         if _has_short(self.tree):
             costs.append(f"short proceeds earn the cash rate less {self.short_rebate_spread:.2%}/yr"
-                         + (f", {self.borrow_fee:.2%}/yr borrow fee on shorts" if self.borrow_fee else ""))
+                         + (f", {self.borrow_fee:.2%}/yr borrow fee on shorts" if self.borrow_fee else
+                            ", assumed borrow fees on shorts (5%/yr leveraged or inverse ETFs, 0.3%/yr others)"
+                            if self.borrow_fee is None else ""))
         if self.leverage > 1 or _has_short(self.tree):
             costs.append(f"{self.maintenance_margin:.0%} maintenance margin (margin calls cut positions at the close)"
                          if self.maintenance_margin else "no margin calls")
@@ -533,6 +541,20 @@ def _has_short(n: dict) -> bool:
     return any(_has_short(k) for k in _kids(n))
 
 
+def _short_tickers(n) -> list[str]:
+    """Tickers a negative weight can short (every ticker under a negatively weighted child)."""
+    out: list[str] = []
+    if not isinstance(n, dict):
+        return out
+    if n.get("weights") == "specified":
+        for w, k in zip(n.get("w") or [], n.get("children") or []):
+            if w < 0:
+                out += tickers_in(k, index_universes=False)
+    for k in _kids(n):
+        out += _short_tickers(k)
+    return list(dict.fromkeys(out))
+
+
 def _has_rules(n) -> bool:
     """Does the tree evaluate indicators (if-nodes, filters, look-back weightings)?"""
     if not isinstance(n, dict):
@@ -609,6 +631,17 @@ def _ndx_by_mcap(n) -> bool:
         if any("market_cap" in str(f.get(k) or "") for k in ("by", "require")) or f.get("weights") == "market_cap":
             return True
     return any(_ndx_by_mcap(k) for k in _kids(n))
+
+
+def _book_text(tree, lev: float = 1.0) -> str | None:
+    """'200% TQQQ, -100% SQQQ' for a tree of fixed weights over several assets (the positions a margin message
+    describes), else None."""
+    if not isinstance(tree, dict) or tree.get("weights") != "specified":
+        return None
+    kids = tree.get("children") or []
+    if len(kids) < 2 or not all(isinstance(k, dict) and "asset" in k for k in kids):
+        return None
+    return ", ".join(f"{float(w) * lev:.0%} {k['asset']}" for w, k in zip(tree.get("w") or [], kids))
 
 
 def max_requirement(n, req) -> float:
@@ -2639,6 +2672,12 @@ def run(p: Portfolio) -> Result:
     depleted = None
     mm = p.maintenance_margin
     mreq = np.array([_margin.maintenance(t, mm) for t in tick]) if N else np.zeros(0)   # per $ held (margin.py)
+    # annual borrow fee per ticker on shorts: the one given, else the assumed default (margin.default_borrow_fee)
+    BF = np.array([_margin.borrow_fee_of(t, p.borrow_fee) for t in tick]) if N else np.zeros(0)
+    if p.borrow_fee is None and _has_short(p.tree):
+        bn = _margin.borrow_note(_short_tickers(p.tree) or tick)
+        if bn not in p.notes:
+            p.notes.append(bn)
     margin_days: list = []
     lev_peak = (0.0, 0.0, None)       # (gross/equity, target gross, date): worst drift above target between rebalances
 
@@ -2762,9 +2801,9 @@ def run(p: Portfolio) -> Result:
             cash += earned
             interest += earned
             inc_int[i] = earned
-            if smv > 0 and p.borrow_fee:
-                for j in np.flatnonzero(short_mv > 0):
-                    fee = float(short_mv[j]) * p.borrow_fee / 252.0
+            if smv > 0 and BF.any():
+                for j in np.flatnonzero((short_mv > 0) & (BF > 0)):
+                    fee = float(short_mv[j]) * BF[j] / 252.0
                     cash -= fee
                     tcash[j] -= fee
                     tcom[j] += fee

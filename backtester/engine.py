@@ -239,6 +239,42 @@ def _union_index(indexes: list[pd.DatetimeIndex]) -> pd.DatetimeIndex | None:
     return cal
 
 
+def _xrank_tables(strat, dfs, tick, cal, member=None, per_trade_exit=False) -> dict:
+    """{ticker: {xrank argument: Series}} for the xrank(...) calls in the rules: each ticker's percentile (0..1],
+    average rank / count, of the argument among the universe's members that day (tickers with a bar and a value that
+    day; on a point-in-time index universe only the members). Each day's value depends only on that day's values."""
+    srcs: list[str] = []
+    for r in (strat.entry, strat.short_entry, strat.exit_when, strat.rank_by):
+        for x in expr.xrank_calls(r):
+            if x not in srcs:
+                srcs.append(x)
+    if not srcs:
+        return {}
+    if per_trade_exit and expr.xrank_calls(strat.exit_when):
+        raise ValueError("xrank() cannot be combined with position variables (bars_held, pnl, entry_price) in the exit "
+                         "rule; use it in the entry or ranking rule, or in an exit rule without them.")
+    if len(tick) < 2:
+        raise ValueError(expr.XRANK_NEEDS_UNIVERSE)
+    elig = np.column_stack([np.asarray(cal.isin(dfs[t].index)) for t in tick])
+    if strat.universe_name == "NDX" and strat.point_in_time:
+        elig &= member if member is not None else data.member_mask(tick, cal)[0]
+    out: dict = {t: {} for t in tick}
+    for src in srcs:
+        M = np.full((len(cal), len(tick)), np.nan)
+        for j, t in enumerate(tick):
+            M[:, j] = expr.evaluate_value(src, _namespace(dfs[t], t)).reindex(cal).to_numpy(dtype=float)
+        M[~elig] = np.nan
+        R = pd.DataFrame(M).rank(axis=1, pct=True).to_numpy()
+        for j, t in enumerate(tick):
+            out[t][src] = pd.Series(R[:, j], index=cal).reindex(dfs[t].index)
+    note = (f"xrank(): each ticker's percentile among the {len(tick)} tickers of the universe with a value that day"
+            + (" (index members only)" if strat.universe_name == "NDX" and strat.point_in_time else "")
+            + "; 1 = the highest, ties share their average rank.")
+    if note not in strat.notes:
+        strat.notes.append(note)
+    return out
+
+
 def _prepare(strat: Strategy):
     """_prepare_bars with Python-function rules streamed only from the run's first day (expr.STREAM_FROM)."""
     tok = expr.STREAM_FROM.set(None)
@@ -382,6 +418,7 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
     if strat.universe_name == "NDX" and strat.point_in_time and any(
             callable(r) for r in (strat.entry, strat.short_entry, strat.rank_by)):
         pre_member, _ = data.member_mask(tick, cal)
+    xtables = _xrank_tables(strat, dfs, tick, cal, pre_member, per_trade_exit)
     for j, t in enumerate(tick):
         df = dfs[t]
         ns = _namespace(df, t)
@@ -417,6 +454,8 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
                      else _namespace(df, t, close_fill=True)) if late_close else ns)
         if late_close:
             namespaces[t + " (close)"] = ns_close
+        if xtables:
+            ns.xrank_table = ns_close.xrank_table = xtables[t]
 
         need_j = cal[pre_member[:, j]] if pre_member is not None else None
 
@@ -557,6 +596,12 @@ def run(strat: Strategy) -> Result:
     strat.validate()
     P = _prepare(strat)
     cal, tick = P["cal"], P["tick"]
+    # annual borrow fee per ticker for shorts: the one given, else the assumed default (margin.default_borrow_fee)
+    BF = np.array([_margin.borrow_fee_of(t, strat.borrow_fee) for t in tick])
+    if strat.borrow_fee is None and strat.side != "long":
+        bn = _margin.borrow_note(tick)
+        if bn not in strat.notes:
+            strat.notes.append(bn)
     O, H, L, C, V, DIV, ATR, VOL = P["O"], P["H"], P["L"], P["C"], P["V"], P["DIV"], P["ATR"], P["VOL"]
     LEVEL, long_sig, short_sig, exit_sig, rank = P["LEVEL"], P["long_sig"], P["short_sig"], P["exit_sig"], P["rank"]
     namespaces = P["namespaces"]
@@ -1271,8 +1316,8 @@ def run(strat: Strategy) -> Result:
             S["interest"] += earned
         for p in positions.values():
             k = p.k
-            if i > 0 and p.sign == -1 and strat.borrow_fee:
-                fee = p.shares * price_or_last(k, C[i - 1]) * strat.borrow_fee / 252.0
+            if i > 0 and p.sign == -1 and BF[k]:
+                fee = p.shares * price_or_last(k, C[i - 1]) * BF[k] / 252.0
                 S["cash"] -= fee
                 for lot in p.lots:
                     lot.income -= fee * lot.shares / p.shares

@@ -182,3 +182,170 @@ def test_fred_yields_lag_a_session_for_close_fills(monkeypatch):
     v = at_close["treasury_10y"]()
     assert v.loc["2024-01-10"] == y.loc["2024-01-09"] and at_open.loc["2024-01-10"] == y.loc["2024-01-10"]
     assert expr.FRED_CLOSE_NOTE in at_close.notes
+
+
+# ------------------------------------------------------------ 10. / 11. margin messages and day-one margin calls
+
+def test_a_book_of_leveraged_etfs_is_described_as_a_book():
+    with pytest.raises(ValueError) as e:
+        parser.parse("hold 200% TQQQ and -100% SQQQ since 2012").validate()
+    msg = str(e.value)
+    assert "200% TQQQ, -100% SQQQ" in msg and "225% of the equity" in msg and "0.444 times this size" in msg
+    assert "1x leverage on it" not in msg
+
+
+def test_leverage_that_would_be_margin_called_at_once_is_refused():
+    from backtester import margin
+    from backtester.portfolio import Portfolio
+    from backtester.strategy import Strategy
+    with pytest.raises(ValueError, match=r"97.5% of the equity.*fall of 7.7%.*at most about 1.2x"):
+        Portfolio(tree={"asset": "TQQQ"}, leverage=1.3).validate()
+    with pytest.raises(ValueError, match="97.5% of the equity"):
+        Strategy(universe=["TQQQ"], entry="True", hold_bars=1, leverage=1.3).validate()
+    Portfolio(tree={"asset": "TQQQ"}, leverage=1.2).validate()           # 90%: the 10% buffer is kept
+    Portfolio(tree={"asset": "TQQQ"}, leverage=1.3, maintenance_margin=0).validate()   # margin calls off
+    assert margin.call_drop(0.975, 1.3, 0.25) == pytest.approx(0.025 / (1.3 * 0.25))
+
+
+# ------------------------------------------------------------ 12. default borrow fees
+
+def test_default_borrow_fees():
+    from backtester import margin
+    assert margin.default_borrow_fee("SQQQ") == 0.05 and margin.default_borrow_fee("UVXY") == 0.05
+    assert margin.default_borrow_fee("SH") == 0.05 and margin.default_borrow_fee("QQQ") == 0.003
+    assert margin.borrow_fee_of("SQQQ", 0.0) == 0.0 and margin.borrow_fee_of("SQQQ", 0.02) == 0.02
+    assert parser.parse("hold 100% SPY and -30% SQQQ, rebalance monthly, no borrow fee").borrow_fee == 0.0
+    assert parser.parse("hold 100% SPY and -30% SQQQ, rebalance monthly").borrow_fee is None
+
+
+@needs_data
+@pytest.mark.skipif(not (data.PRICES / "SQQQ.csv").exists(), reason="no SQQQ data")
+def test_shorting_sqqq_pays_the_assumed_fee_with_a_note():
+    base = "hold 100% SPY and -30% SQQQ, rebalance monthly, from 2020 to 2021"
+    spec = parser.parse(base)
+    dflt = api.backtest(spec)
+    free = api.backtest(parser.parse(base + ", no borrow fee"))
+    set5 = api.backtest(parser.parse(base + ", borrow fee 5%"))
+    assert dflt.equity.iloc[-1] < free.equity.iloc[-1]
+    assert dflt.equity.iloc[-1] == pytest.approx(set5.equity.iloc[-1], rel=1e-9)
+    assert any(n.startswith("Borrow fee (assumed") and "SQQQ 5%" in n for n in spec.notes)
+
+
+# ------------------------------------------------------------ 13. a spin-off booked as a split
+
+def test_split_like_ratios():
+    for r in (2, 3, 1.5, 4 / 3, 1.25, 0.5, 0.1, 1 / 15, 1.05, 1.1, 1.02):
+        assert data._split_like(r), r
+    for r in (2.376, 1.319, 2.0842, 1.758, 1.998):
+        assert not data._split_like(r), r
+
+
+def test_a_spin_off_booked_as_a_split_becomes_a_distribution():
+    idx = pd.bdate_range("2015-07-13", periods=6)
+    close = [26.0, 26.5, 26.7, 27.6, 27.9, 28.57]
+    adj = [c * 0.9 for c in close[:5]] + [27.9 * 0.9 * 1.024]
+    raw = pd.DataFrame({"open": close, "high": close, "low": close, "close": close, "adj_close": adj,
+                        "volume": 1e6, "dividend": 0.0, "split": [0, 0, 0, 0, 0, 2.376]}, index=idx)
+    out, log = data.reconcile_actions("ZZZ", raw)
+    assert out["split"].iloc[-1] == 0 and out["close"].iloc[-2] == pytest.approx(27.9 * 2.376)
+    assert out["volume"].iloc[0] == pytest.approx(1e6 / 2.376)
+    pay = out["dividend"].iloc[-1]
+    assert pay == pytest.approx(27.9 * 2.376 * 1.024 - 28.57)
+    assert (28.57 + pay) / out["close"].iloc[-2] == pytest.approx(1.024)      # the total return is unchanged
+    assert list(log["reading"]) == ["spinoff_as_split"]
+
+
+@needs_data
+@pytest.mark.skipif(not (data.PRICES / "EBAY.csv").exists(), reason="no EBAY data")
+def test_ebay_paypal_spin_off():
+    df = data.load("EBAY")
+    assert df.loc["2015-07-17", "close"] > 60                    # as traded, not divided by 2.376
+    assert df.loc["2015-07-20", "split"] == 1.0 and df.loc["2015-07-20", "dividend"] > 30
+    f = data.as_traded_factor("EBAY", pd.DatetimeIndex(["2015-07-17", "2015-07-21"]), df)
+    assert f[0] == pytest.approx(f[1])                           # no split between them
+    assert pd.Timestamp("2015-07-20") in data.spinoff_days("EBAY")
+
+
+# ------------------------------------------------------------ 14. rule-language additions
+
+def _walks(n=300, k=6, seed=11):
+    rng = np.random.default_rng(seed)
+    idx = pd.bdate_range("2019-01-02", periods=n)
+    out = {}
+    for j in range(k):
+        c = 100 * np.exp(np.cumsum(rng.normal(0.0003 * j, 0.01, n)))
+        out[f"T{j}"] = pd.DataFrame({"open": c, "high": c * 1.01, "low": c * 0.99, "close": c, "adj_close": c,
+                                     "volume": 1e6, "dividend": 0.0, "split": 1.0, "open_ok": True, "quote_close": c},
+                                    index=idx)
+    return out
+
+
+def test_xrank_is_the_cross_sectional_percentile_and_causal(monkeypatch):
+    from backtester import engine, expr
+    from backtester.strategy import Strategy
+    frames = _walks()
+    monkeypatch.setattr(data, "load", lambda t: frames[data.canonical(t)])
+    monkeypatch.setattr(data, "load_many", lambda ts: {data.canonical(t): frames[data.canonical(t)] for t in ts})
+    s = Strategy(universe=list(frames), entry="xrank(ret(20)) <= 0.2", hold_bars=1, cash_rate=None)
+    tables = engine._xrank_tables(s, frames, list(frames), frames["T0"].index)
+    src = expr.xrank_calls(s.entry)[0]
+    day = frames["T0"].index[100]
+    r20 = pd.Series({t: df["close"].iloc[100] / df["close"].iloc[80] - 1 for t, df in frames.items()})
+    want = r20.rank(pct=True)
+    got = pd.Series({t: tables[t][src].loc[day] for t in frames})
+    pd.testing.assert_series_equal(got, want, check_names=False)
+    r = engine.run(s)
+    assert len(r.trades) and set(r.trades["entry_date"].map(pd.Timestamp)) <= set(frames["T0"].index)
+    # truncating the data changes nothing before the cut
+    cut = {t: df.iloc[:200] for t, df in frames.items()}
+    tc = engine._xrank_tables(s, cut, list(cut), cut["T0"].index)
+    for t in frames:
+        pd.testing.assert_series_equal(tc[t][src], tables[t][src].iloc[:200])
+    with pytest.raises(ValueError, match="several tickers"):
+        Strategy(universe=["T0"], entry="xrank(ret(20)) <= 0.2", hold_bars=1).validate()
+    assert expr.open_safe("xrank(ref(ret(20), 1)) < 0.5") and not expr.open_safe("xrank(ret(20)) < 0.5")
+
+
+def test_phrases_for_xrank_yield_curve_and_holidays():
+    s = parser.parse("buy Nasdaq 100 stocks when they are in the bottom decile of 20 day return, hold 5 days")
+    assert "xrank(ret(close, 20)) <= 0.1" in s.entry
+    s = parser.parse("buy Nasdaq 100 stocks when they are in the top quintile of 3 month return, hold 20 days")
+    assert "xrank(ret(close, 63)) > 0.8" in s.entry
+    assert "yield_curve() < 0" in parser.parse("buy SPY when the yield curve is inverted, hold 20 days").entry
+    s = parser.parse("buy SPY at the close when it is the day before Thanksgiving, hold 1 day")
+    assert 'days_to_holiday() == 0 and next_holiday_is("thanksgiving")' in s.entry
+    assert "days_to_holiday() == 0" in parser.parse(
+        "buy SPY at the close on the last trading day before a holiday, hold 1 day").entry
+    assert "days_since_holiday() == 0" in parser.parse(
+        "buy SPY at the open when it is the first trading day after a holiday, hold 1 day").entry
+
+
+def test_holiday_functions_are_scheduled_and_open_safe():
+    from backtester import expr
+    idx = pd.bdate_range("2024-11-18", "2024-12-31")
+    from backtester import calendar as cal
+    idx = idx[[cal.is_session(d) for d in idx]]
+    c = pd.Series(100.0, index=idx)
+    df = pd.DataFrame({"open": c, "high": c, "low": c, "close": c, "volume": 1e6})
+    ns = expr.Namespace(df, ticker="X")
+    before = expr.evaluate('days_to_holiday() == 0 and next_holiday_is("thanksgiving")', ns)
+    assert list(before[before].index) == [pd.Timestamp("2024-11-27")]
+    after = expr.evaluate('days_since_holiday() == 0 and last_holiday_is("Thanksgiving Day")', ns)
+    assert list(after[after].index) == [pd.Timestamp("2024-11-29")]
+    xmas = expr.evaluate("days_to_holiday() == 0", ns)
+    assert pd.Timestamp("2024-12-24") in xmas[xmas].index
+    assert expr.open_safe('days_to_holiday() == 0 and next_holiday_is("christmas")')
+    with pytest.raises(ValueError, match="unknown market holiday"):
+        expr.evaluate('next_holiday_is("easter monday")', ns)
+
+
+@needs_data
+@pytest.mark.skipif(not (data.ROOT / "data" / "macro" / "DGS2.csv").exists(), reason="no FRED data")
+def test_yield_curve_matches_dgs10_minus_dgs2():
+    yc = data.yield_curve()
+    a, b = data.treasury_10y(), data.treasury_2y()
+    d = yc.index[-100]
+    if (data.DATA / "macro" / "T10Y2Y.csv").exists():
+        assert abs(yc.loc[d] - (a.loc[d] - b.loc[d])) < 0.0003
+    else:
+        assert yc.loc[d] == pytest.approx(a.loc[d] - b.loc[d])

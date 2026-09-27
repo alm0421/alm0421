@@ -212,7 +212,7 @@ def test_short_squeeze_margin_call_covers_the_short(fake):
     fake["L"] = frame([100] * 8)
     fake["S"] = frame([100, 100, 100, 200, 200, 200, 200, 200])
     tree = {"weights": "specified", "w": [1.5, -0.5], "children": [{"asset": "L"}, {"asset": "S"}]}
-    p = pf.Portfolio(tree=tree, rebalance="none", cash_rate=None)
+    p = pf.Portfolio(tree=tree, rebalance="none", cash_rate=None, borrow_fee=0)
     r = pf.run(p)
     mc = r.orders[r.orders.reason == "margin call"]
     assert set(mc.side) == {"sell", "buy"}     # sell some of the long, buy back some of the short

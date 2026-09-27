@@ -132,14 +132,14 @@ def test_margin_calls_de_risk_with_a_cushion_in_both_engines(fake):
     px = [100.0] * 30 + [90.0] * 30          # a 10% drop at 4x
     fake["X"] = frame(px)
     d = fake["X"].index[30]
-    want = 1 / (margin.MARGIN_CALL_CUSHION * 0.24)          # 3.33x, not straight back to 4x
+    want = 1 / (margin.MARGIN_CALL_CUSHION * 0.22)          # 3.64x, not straight back to 4x (88% requirement: within the 10% buffer)
     p = pf.Portfolio(tree={"asset": "X"}, rebalance="none", leverage=4, cash_rate=None, margin_account="portfolio",
-                     maintenance_margin=0.24)
+                     maintenance_margin=0.22)
     r = pf.run(p)
     assert (r.orders.reason == "margin call").sum() == 1
     assert r.exposure[d] == pytest.approx(want, rel=1e-6)
     s = Strategy(universe=["X"], entry="True", hold_bars=200, leverage=4, position_size=4.0, cash_rate=None,
-                 margin_account="portfolio", maintenance_margin=0.24)
+                 margin_account="portfolio", maintenance_margin=0.22)
     rs = engine.run(s)
     assert (rs.trades["exit_reason"] == "margin call").any()
     assert rs.exposure[d] == pytest.approx(want, rel=1e-6)

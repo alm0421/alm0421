@@ -1071,6 +1071,63 @@ def _whole_ratio(r: float) -> bool:
     return False
 
 
+def _split_like(r: float) -> bool:
+    """A ratio a company actually splits (or pays a stock dividend) by: p/q with q <= 4 (2, 3, 3/2, 4/3, 5/4, 5/2...)
+    or its inverse (reverse splits), or 1 + k% for a whole k up to 25 (stock dividends), within 0.1%. Not a ratio
+    like EBAY's 2.376 on 2015-07-20 (19/8): Yahoo books some spin-offs as a "split" of the pre-event price over the
+    ex-date reference price (PayPal from eBay)."""
+    if not r or r <= 0 or abs(r - 1) < 1e-9:
+        return True
+    for x in (r, 1.0 / r):
+        for q in range(1, 5):
+            p = round(x * q)
+            if p >= 1 and abs(p / q - x) <= 1e-3 * x:
+                return True
+    k = round((r - 1) * 100)
+    return 1 <= k <= 25 and abs(1 + k / 100 - r) <= 1e-3 * r
+
+
+def _spinoffs_booked_as_splits(raw: pd.DataFrame, days) -> tuple[pd.DataFrame, list]:
+    """Re-read a 'split' with a ratio no company splits by and no payout (see _split_like) as the spin-off it is:
+    the bars before the day go back to the prices as traded (x the ratio, volume / the ratio: EBAY closed $66.29, not
+    $27.90, on 2015-07-17), the split is dropped, and the day pays the distribution's value in cash (the total return
+    kept equal to the adjusted close's: EBAY 2015-07-20 pays $39.30 per share, PayPal's value), so share counts before
+    the day are the real ones rather than inflated by the ratio. Returns (bars, log rows as in reconcile_actions)."""
+    raw = raw.copy()
+    for k in ("open", "high", "low", "close", "adj_close", "volume", "dividend", "split"):
+        if k in raw:
+            raw[k] = pd.to_numeric(raw[k], errors="coerce").astype(float)
+    raw["dividend"] = raw["dividend"].fillna(0.0)
+    raw["split"] = raw["split"].fillna(0.0)
+    log = []
+    mkt = _market_day_returns()
+    for day in days:
+        i = raw.index.get_loc(day)
+        if i == 0:
+            continue
+        r = float(raw["split"].iloc[i])
+        pc, cc = float(raw["close"].iloc[i - 1]), float(raw["close"].iloc[i])
+        a_prev, a_now = float(raw["adj_close"].iloc[i - 1]), float(raw["adj_close"].iloc[i])
+        if not (np.isfinite(a_prev) and a_prev > 0 and np.isfinite(a_now) and pc > 0):
+            continue
+        tr = a_now / a_prev                       # the day's total return by the adjusted close
+        pay = tr * pc * r - cc                    # per share, on the as-traded basis before the day
+        if not (0 < pay < pc * r):
+            continue
+        before = raw.index < day
+        for k in ("open", "high", "low", "close"):
+            if k in raw:
+                raw.loc[before, k] = raw.loc[before, k] * r
+        raw.loc[before, "dividend"] = raw.loc[before, "dividend"] * r
+        if "volume" in raw:
+            raw.loc[before, "volume"] = raw.loc[before, "volume"] / r
+        raw.iloc[i, raw.columns.get_loc("split")] = 0.0
+        raw.iloc[i, raw.columns.get_loc("dividend")] = pay
+        m = float(mkt.get(day, np.nan)) if len(mkt) else np.nan
+        log.append((day, "spinoff_as_split", r, 1.0, 0.0, pay, cc / pc - 1, tr - 1, tr - 1, m))
+    return raw, log
+
+
 @lru_cache(maxsize=1)
 def _market_day_returns() -> pd.Series:
     """SPY close-to-close returns (the reference market move for reconcile_actions), read from the file directly."""
@@ -1099,9 +1156,24 @@ def reconcile_actions(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
     eng = (c + d) / c.shift(1)
     adj = a / a.shift(1)
     cand_days = raw.index[((sp > 0) & ((sp - 1).abs() > 1e-9) & (d > 0) & ((eng - adj).abs() > CA_TOLERANCE)).to_numpy()]
-    if not len(cand_days):
+    spin_days = raw.index[((sp > 1 + 1e-9) & (d <= 0)).to_numpy() & np.array([not _split_like(x) for x in sp])]
+    if not len(cand_days) and not len(spin_days):
         CA_FIXES[t] = empty
         return raw, empty
+    if len(spin_days):
+        raw, spun = _spinoffs_booked_as_splits(raw, spin_days)
+        if not len(cand_days):
+            out = pd.DataFrame(spun, columns=cols)
+            CA_FIXES[t] = out
+            return raw, out
+        c = raw["close"].astype(float)
+        d = pd.to_numeric(raw["dividend"], errors="coerce").fillna(0.0)
+        sp = pd.to_numeric(raw["split"], errors="coerce").fillna(0.0)
+        a = pd.to_numeric(raw["adj_close"], errors="coerce")
+        eng = (c + d) / c.shift(1)
+        adj = a / a.shift(1)
+    else:
+        spun = []
     raw = raw.copy()
     for k in ("open", "high", "low", "close", "adj_close", "volume", "dividend", "split"):
         if k in raw:
@@ -1109,7 +1181,7 @@ def reconcile_actions(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
     raw["dividend"] = raw["dividend"].fillna(0.0)
     raw["split"] = raw["split"].fillna(0.0)
     mkt = _market_day_returns() if t != "SPY" else pd.Series(dtype=float)
-    log = []
+    log = list(spun)
     for day in cand_days:
         i = raw.index.get_loc(day)
         if i == 0:
