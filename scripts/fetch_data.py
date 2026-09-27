@@ -1,4 +1,12 @@
-"""Download daily OHLCV history for the Nasdaq-100 constituents plus QQQ and SPY.
+"""Download daily OHLCV history: the Nasdaq-100 (current and former members), the core ETF / stock / index lists,
+and - in rotating batches, so every run stays inside the Action's time limit and polite to Yahoo - the broad fund
+lists (backtester/fund_lists.py, data/mutual_funds.txt), the S&P 500/400/600 and the rest of the US listing (every ETF
+and ETN, and every stock of LISTED_MIN_MARKET_CAP or more; see backtester/coverage.py). Symbols queued in
+data/requested_tickers.txt (by the site or the CLI) are downloaded first.
+
+Order of a run: the queue, the core lists (every run), then the rotating batches (funds, S&P members, the listing),
+each missing files first. Histories go back as far as Yahoo has them (period="max": up to 99 years; stocks from 1962,
+mutual funds from 1980-01-02 at the earliest - Yahoo's limit, e.g. VFINX launched 1976-08-31).
 
 Writes one CSV per ticker to data/prices/<TICKER>.csv with columns:
     date, open, high, low, close, adj_close, volume, dividend, split
@@ -29,6 +37,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from backtester import sources  # noqa: E402  (factor-file parsers shared with the tests)
 from backtester import fund_lists  # noqa: E402  (the broad ETF / mutual fund universe)
+from backtester import coverage  # noqa: E402  (the US listing, the request queue)
 
 PRICES = ROOT / "data" / "prices"
 UA = {
@@ -281,17 +290,221 @@ def broad_batch(broad: list[str], info: dict, failed: dict, today: str, budget: 
                 on_disk=None) -> list[str]:
     """The broad-universe symbols to download this run: at most `budget`, skipping symbols that failed
     within BROAD_RETRY_DAYS, missing files first, then the oldest last update (`info`: {ticker: {"last": date}},
-    the previous run's universe.json). Ties keep the list order."""
+    the previous run's universe.json). Ties keep the list order. A failure is a date or {"date": ...}."""
     on_disk = on_disk if on_disk is not None else (lambda t: (PRICES / f"{t}.csv").exists())
     now = pd.Timestamp(today)
     cand = []
     for i, t in enumerate(broad):
         f = failed.get(t)
+        f = f.get("date") if isinstance(f, dict) else f
         if f and (now - pd.Timestamp(f)).days < BROAD_RETRY_DAYS:
             continue
         last = (info.get(t) or {}).get("last") if on_disk(t) else None
         cand.append((last or "0000-00-00", i, t))
     return [t for *_, t in sorted(cand)[:max(0, budget)]]
+
+
+def failures(raw: dict | None, keep=None) -> dict:
+    """The failure records of a previous run worth keeping: {"date", "why"} entries (for symbols in `keep`, when
+    given). A bare date is from before rate limits were told apart from unknown symbols (on 2026-09-27 Yahoo rate
+    limited the end of the run and 415 S&P members such as F were parked for 30 days): those are retried at once."""
+    out = {}
+    for t, f in (raw or {}).items():
+        if isinstance(f, dict) and f.get("date") and (keep is None or t in keep):
+            out[t] = f
+    return out
+
+
+# ------------------------------------------------------------------ Yahoo rate limits
+# Yahoo answers 429 (yfinance raises YFRateLimitError) once an IP asks too much. A rate-limited symbol is not a
+# failure (it is simply tried again next run): every worker pauses RATE_PAUSES[i] seconds after the i-th limit of the
+# run, and after the last pause the rotating batches stop for this run. ROTATION_DEADLINE_MIN caps how long the
+# rotating batches may run (the Action's timeout is 240 minutes; former members, statistics and the commit follow).
+RATE_PAUSES = (60, 180, 420)
+ROTATION_DEADLINE_MIN = 120
+WORKERS = 6
+RATE = {"pauses": 0, "until": 0.0, "stop": False, "limited": 0, "t0": time.time()}
+SLEEP = time.sleep            # (tests replace it)
+import threading as _threading  # noqa: E402
+_RATE_LOCK = _threading.Lock()
+
+
+def _rate_wait() -> None:
+    left = RATE["until"] - time.time()
+    if left > 0:
+        SLEEP(left)
+
+
+def _rate_hit() -> None:
+    with _RATE_LOCK:
+        RATE["limited"] += 1
+        if time.time() < RATE["until"] or RATE["stop"]:
+            return                      # another worker already started the pause
+        if RATE["pauses"] >= len(RATE_PAUSES):
+            RATE["stop"] = True
+            print(f"Yahoo rate limit: {RATE['pauses']} pauses this run; stopping the rotating batches (the rest waits "
+                  "for the next run)", file=sys.stderr, flush=True)
+            return
+        wait = RATE_PAUSES[RATE["pauses"]]
+        RATE["pauses"] += 1
+        RATE["until"] = time.time() + wait
+        print(f"Yahoo rate limit: pausing {wait}s (pause {RATE['pauses']} of {len(RATE_PAUSES)})", file=sys.stderr,
+              flush=True)
+
+
+def past_deadline() -> bool:
+    return RATE["stop"] or (time.time() - RATE["t0"]) / 60 > ROTATION_DEADLINE_MIN
+
+
+def fetch_one(t: str, tries: int = 3, rotating: bool = False) -> tuple[pd.DataFrame | None, str]:
+    """(history, why): why is "ok", "no data" (Yahoo returned nothing: an unknown or delisted symbol), "rate limited"
+    (try again next run - never recorded as a failure) or "deadline" (a rotating batch out of time)."""
+    limited = False
+    for attempt in range(tries):
+        if rotating and past_deadline():
+            return None, "rate limited" if RATE["stop"] else "deadline"
+        _rate_wait()
+        try:
+            return fetch(t), "ok"
+        except Exception as e:  # noqa: BLE001
+            if rate_limited(e):
+                limited = True
+                _rate_hit()
+                continue
+            limited = False
+            print(f"{t}: attempt {attempt + 1} failed: {e}", file=sys.stderr)
+            SLEEP(1.5 * (attempt + 1))
+    return None, "rate limited" if limited else "no data"
+
+
+def rotate(label: str, batch: list[str], failed: dict, today: str, save) -> dict:
+    """Download a rotating batch: {ticker: file info} of what worked; symbols Yahoo has no data for go into `failed`
+    ({"date", "why"}; retried after BROAD_RETRY_DAYS); rate-limited or out-of-time symbols are left for the next
+    run."""
+    got, skipped = {}, 0
+    t0 = time.time()
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        for t, (df, why) in zip(batch, pool.map(lambda x: fetch_one(x, tries=2, rotating=True), batch)):
+            if df is None:
+                if why == "no data":
+                    failed[t] = {"date": today, "why": why}
+                else:
+                    skipped += 1
+                continue
+            failed.pop(t, None)
+            got[t] = save(t, df)
+    print(f"{label}: {len(got)} of {len(batch)} downloaded in {time.time() - t0:.0f}s ({skipped} left for the next "
+          f"run: rate limit or time budget)", flush=True)
+    return got
+
+
+# ------------------------------------------------------------------ the whole US listing
+# NASDAQ Trader's symbol directory lists every security on the US exchanges (Nasdaq in nasdaqlisted.txt; NYSE, NYSE
+# American, NYSE Arca, Cboe BZX and IEX in otherlisted.txt), flagging ETFs and test issues. backtester/coverage.py
+# keeps the common stocks, ETFs and ETNs; Nasdaq's stock screener adds each stock's market cap (the priority, and the
+# LISTED_MIN_MARKET_CAP cut-off); the SEC's mutual fund symbol list lets the site recognise a valid fund symbol.
+NASDAQ_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
+OTHER_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
+NASDAQ_SCREENER_URL = "https://api.nasdaq.com/api/screener/stocks?tableonly=true&download=true"
+SEC_MF_URL = "https://www.sec.gov/files/company_tickers_mf.json"
+# Each run downloads at most LISTED_PER_RUN listing symbols no other list covers (missing files first, largest first,
+# then the oldest), on top of BROAD_PER_RUN funds and STOCKS_PER_RUN S&P members. About 5,100 ETFs / ETNs and 1,800
+# stocks of $250M or more are not in the other lists (September 2026): ~9 weekday runs to cover them, then each is
+# refreshed about every 9 runs.
+LISTED_PER_RUN = 800
+LISTED_MIN_MARKET_CAP = coverage.LISTED_MIN_MARKET_CAP
+
+
+def refresh_listing(path: Path | None = None, download=None, today: str | None = None) -> dict:
+    """data/listed_symbols.json rebuilt from the symbol directory, the screener's market caps and the SEC's mutual fund
+    list; a part that fails keeps the saved copy (coverage.build_listing)."""
+    path = path or (ROOT / "data" / "listed_symbols.json")
+    today = today or str(pd.Timestamp.today().date())
+
+    def get(url, headers):
+        r = requests.get(url, headers=headers, timeout=60)
+        r.raise_for_status()
+        return r.text
+    download = download or get
+    try:
+        old = json.loads(path.read_text())
+    except (OSError, ValueError):
+        old = {}
+    parts = {}
+    for key, url, headers in (("nasdaq", NASDAQ_LISTED_URL, UA), ("other", OTHER_LISTED_URL, UA),
+                              ("screener", NASDAQ_SCREENER_URL, UA), ("sec", SEC_MF_URL, SEC_UA)):
+        try:
+            parts[key] = download(url, headers)
+        except Exception as e:  # noqa: BLE001 - keep the saved part
+            print(f"listing: {key} download failed: {e}", file=sys.stderr)
+            parts[key] = None
+    caps, mf = None, None
+    try:
+        caps = coverage.parse_screener_caps(json.loads(parts["screener"])) if parts["screener"] else None
+    except ValueError as e:
+        print(f"listing: screener unreadable: {e}", file=sys.stderr)
+    try:
+        mf = coverage.parse_sec_mutual_funds(json.loads(parts["sec"])) if parts["sec"] else None
+    except ValueError as e:
+        print(f"listing: SEC fund list unreadable: {e}", file=sys.stderr)
+    doc = coverage.build_listing(parts["nasdaq"] or "", parts["other"] or "", caps, mf, old, today)
+    path.write_text(coverage.dumps_listing(doc))
+    print(f"listing: {doc['counts']} (symbols as of {doc.get('updated')}, caps {doc.get('caps_updated')})")
+    return doc
+
+
+def fund_net_assets(path: Path | None = None) -> dict[str, float]:
+    """{fund: net assets in USD} from data/funds_meta.json (the ETF priority in the listing batch)."""
+    try:
+        doc = json.loads((path or (ROOT / "data" / "funds_meta.json")).read_text())
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for t, m in (doc.get("funds") or {}).items():
+        try:
+            out[t] = float(m.get("net_assets") or 0)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def process_queue(queue: list[str], attempts: dict, today: str, save, fetcher=None) -> dict:
+    """Download the request queue (data/requested_tickers.txt) first. Returns {"ok": {t: info}, "waiting": [...],
+    "attempts": {t: n}, "dropped": {t: date}}: a symbol that works leaves the queue; one Yahoo has no data for stays
+    until it has failed in coverage.QUEUE_MAX_ATTEMPTS runs, then is dropped; a rate-limited one just waits."""
+    fetcher = fetcher or (lambda x: fetch_one(x, tries=3))
+    out = {"ok": {}, "waiting": [], "attempts": {}, "dropped": {}}
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        for t, (df, why) in zip(queue, pool.map(fetcher, queue)):
+            if df is not None:
+                out["ok"][t] = save(t, df)
+                continue
+            n = int(attempts.get(t, 0)) + (why == "no data")
+            if n >= coverage.QUEUE_MAX_ATTEMPTS:
+                out["dropped"][t] = today
+                continue
+            out["waiting"].append(t)
+            if n:
+                out["attempts"][t] = n
+    print(f"request queue: {len(out['ok'])} of {len(queue)} downloaded, {len(out['waiting'])} waiting, "
+          f"{len(out['dropped'])} dropped (no data after {coverage.QUEUE_MAX_ATTEMPTS} runs)", flush=True)
+    return out
+
+
+def graduate(downloaded: list[str], refreshed: set[str], path: Path | None = None) -> list[str]:
+    """Queue symbols that downloaded but that no list refreshes (not a listing / fund / index symbol): appended to
+    data/extra_tickers.txt, which every run refreshes. Returns the symbols added."""
+    path = path or EXTRA_TICKERS_FILE
+    have = set(requested_tickers(path)) if path.exists() else set()
+    new = [t for t in downloaded if t not in refreshed and t not in have]
+    if new:
+        text = path.read_text() if path.exists() else ""
+        with path.open("a") as f:
+            f.write(("" if not text or text.endswith("\n") else "\n")
+                    + "".join(f"{t}  # from data/requested_tickers.txt\n" for t in new))
+    return new
 
 # Symbol changes: membership lists use the old symbol, Yahoo keeps history under the new one.
 # Only renames where Yahoo's history for the new symbol genuinely continues the same company.
@@ -521,13 +734,8 @@ def save_prices(t: str, df: pd.DataFrame, precision: str = "%.6g") -> dict:
 
 
 def fetch_with_retry(t: str, tries: int = 3) -> pd.DataFrame | None:
-    for attempt in range(tries):
-        try:
-            return fetch(t)
-        except Exception as e:  # noqa: BLE001
-            print(f"{t}: attempt {attempt + 1} failed: {e}", file=sys.stderr)
-            time.sleep(1.5 * (attempt + 1))
-    return None
+    """The history, or None (see fetch_one: a rate limit pauses every worker instead of burning the retries)."""
+    return fetch_one(t, tries)[0]
 
 
 # ------------------------------------------------------------------ point-in-time membership
@@ -2754,6 +2962,7 @@ def main() -> None:
     ok, failed = {}, []
     delisted = load_delisted()
     merge_log: list[str] = []
+    RATE["t0"] = time.time()
 
     def save_merged(t: str, df: pd.DataFrame) -> dict:
         """Save a download without ever losing the history already on disk (see merge_history)."""
@@ -2763,10 +2972,24 @@ def main() -> None:
             print(f"{t}: {how}", flush=True)
         return save_prices(t, out)
 
+    try:
+        prev = json.loads((ROOT / "data" / "universe.json").read_text())
+    except Exception:  # noqa: BLE001
+        prev = {}
+    today = str(pd.Timestamp.today().date())
+
+    # 1. the request queue (data/requested_tickers.txt: symbols the site or the CLI was asked for), first
+    queue = coverage.read_queue(ROOT / "data" / "requested_tickers.txt")
+    queued = process_queue(queue, prev.get("queue_attempts") or {}, today, save_merged) if queue else \
+        {"ok": {}, "waiting": [], "attempts": {}, "dropped": {}}
+    ok.update(queued["ok"])
+
+    # 2. the Nasdaq-100 and the core lists, every run
     t0 = time.time()
+    todo = [t for t in tickers if t not in ok]
     from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        for t, df in zip(tickers, pool.map(fetch_with_retry, tickers)):
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        for t, df in zip(todo, pool.map(fetch_with_retry, todo)):
             if df is None:
                 failed.append(t)
                 continue
@@ -2774,46 +2997,43 @@ def main() -> None:
             print(f"{t:6s} {ok[t]}", flush=True)
     print(f"prices: {len(ok)} ok, {len(failed)} failed in {time.time() - t0:.0f}s", flush=True)
 
-    # the broad ETF / mutual fund universe, a rotating batch per run (see broad_batch)
-    try:
-        prev = json.loads((ROOT / "data" / "universe.json").read_text())
-    except Exception:  # noqa: BLE001
-        prev = {}
-    broad_failed = {t: d for t, d in (prev.get("broad_failed") or {}).items() if t in set(BROAD)}
-    today = str(pd.Timestamp.today().date())
+    # 3. the broad ETF / mutual fund universe, a rotating batch per run (see broad_batch)
+    broad_failed = failures(prev.get("broad_failed"), set(BROAD))
     batch = broad_batch([t for t in BROAD if t not in ok], prev.get("tickers") or {}, broad_failed, today)
-    broad_ok = {}
-    t1 = time.time()
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        for t, df in zip(batch, pool.map(lambda x: fetch_with_retry(x, tries=2), batch)):
-            if df is None:
-                broad_failed.setdefault(t, today)
-                continue
-            broad_failed.pop(t, None)
-            broad_ok[t] = save_merged(t, df)
-    print(f"broad universe: {len(broad_ok)} of {len(batch)} downloaded in {time.time() - t1:.0f}s "
-          f"({len(BROAD)} symbols in all; {len(broad_failed)} waiting to be retried)", flush=True)
+    broad_ok = rotate(f"broad universe ({len(BROAD)} funds)", batch, broad_failed, today, save_merged)
 
-    # S&P 500/400/600 members and the largest other US-listed stocks, a rotating batch per run (STOCKS_PER_RUN)
+    # 4. S&P 500/400/600 members and the largest other US-listed stocks, a rotating batch per run (STOCKS_PER_RUN)
     try:
         idx_doc = index_constituents()
     except Exception as e:  # noqa: BLE001 - the saved lists stay
         print(f"index constituents failed: {e}", file=sys.stderr)
         idx_doc = {}
     stock_list = broad_stock_list(idx_doc, exclude=set(tickers) | set(BROAD) | set(former))
-    stocks_failed = {t: d for t, d in (prev.get("stocks_failed") or {}).items() if t in set(stock_list)}
-    sbatch = broad_batch(stock_list, prev.get("tickers") or {}, stocks_failed, today, STOCKS_PER_RUN)
-    stock_ok = {}
-    t2 = time.time()
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        for t, df in zip(sbatch, pool.map(lambda x: fetch_with_retry(x, tries=2), sbatch)):
-            if df is None:
-                stocks_failed.setdefault(t, today)
-                continue
-            stocks_failed.pop(t, None)
-            stock_ok[t] = save_merged(t, df)
-    print(f"broad stocks: {len(stock_ok)} of {len(sbatch)} downloaded in {time.time() - t2:.0f}s "
-          f"({len(stock_list)} symbols in all; {len(stocks_failed)} waiting to be retried)", flush=True)
+    stocks_failed = failures(prev.get("stocks_failed"), set(stock_list))
+    sbatch = broad_batch([t for t in stock_list if t not in ok], prev.get("tickers") or {}, stocks_failed, today,
+                         STOCKS_PER_RUN)
+    stock_ok = rotate(f"broad stocks ({len(stock_list)} symbols)", sbatch, stocks_failed, today, save_merged)
+
+    # 5. the rest of the US listing: every ETF / ETN and every stock of LISTED_MIN_MARKET_CAP or more (LISTED_PER_RUN)
+    try:
+        listing = refresh_listing()
+    except Exception as e:  # noqa: BLE001 - the saved listing stays
+        print(f"listing failed: {e}", file=sys.stderr)
+        listing = coverage.listing()
+    listed = coverage.listed_tier(listing, fund_net_assets(), set(tickers) | set(BROAD) | set(stock_list) | set(former),
+                                  LISTED_MIN_MARKET_CAP)
+    listed_failed = failures(prev.get("listed_failed"), set(listed))
+    lbatch = broad_batch([t for t in listed if t not in ok], prev.get("tickers") or {}, listed_failed, today,
+                         LISTED_PER_RUN)
+    listed_ok = rotate(f"US listing ({len(listed)} symbols beyond the other lists)", lbatch, listed_failed, today,
+                       save_merged)
+
+    # queue symbols that downloaded: the rotating lists refresh theirs, the others join data/extra_tickers.txt
+    refreshed = set(tickers) | set(BROAD) | set(stock_list) | set(listed) | set(former)
+    graduated = graduate(list(queued["ok"]), refreshed)
+    coverage.write_queue(queued["waiting"], {t: f"no data yet ({n} run{'s' if n > 1 else ''})"
+                                             for t, n in queued["attempts"].items()},
+                         ROOT / "data" / "requested_tickers.txt")
 
     def file_info(t: str) -> dict | None:
         df = read_prices(t)
@@ -2948,11 +3168,21 @@ def main() -> None:
             info = (prev.get("tickers") or {}).get(t) or file_info(t)
             if info:
                 broad_info[t] = info
+    listed_info = {}
+    for t in listed:
+        if t in listed_ok:
+            listed_info[t] = listed_ok[t]
+        elif (PRICES / f"{t}.csv").exists():
+            info = (prev.get("tickers") or {}).get(t) or file_info(t)
+            if info:
+                listed_info[t] = info
+    lsyms = listing.get("symbols") or {}
+    listed_funds = [t for t in listed if t in listed_info and (lsyms.get(t) or {}).get("type") in ("ETF", "ETN")]
     meta = {
         "updated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "constituent_source": source,
         "nasdaq100": ndx,
-        "etfs": [t for t in ETFS if t in ok or t in kept] + [t for t in BROAD_ETFS if t in broad_info],
+        "etfs": [t for t in ETFS if t in ok or t in kept] + [t for t in BROAD_ETFS if t in broad_info] + listed_funds,
         "funds": [t for t in BROAD_FUNDS if t in broad_info],               # mutual funds (backtester/fund_lists.py)
         "broad_failed": dict(sorted(broad_failed.items())),
         "stocks": [t for t in STOCKS if t in ok or t in kept],
@@ -2963,12 +3193,22 @@ def main() -> None:
         "sp600": sorted(idx_doc.get("sp600") or {}),
         "indexes": [t for t in INDEXES if t in ok or t in kept],
         "requested": [t for t in REQUESTED if t in ok or t in kept],            # from data/extra_tickers.txt
-        "requested_failed": [t for t in REQUESTED if t not in ok and t not in kept],
+        "requested_failed": [t for t in REQUESTED if t not in ok and t not in kept] + sorted(queued["dropped"]),
+        # the rest of the US listing (data/listed_symbols.json): ETFs / ETNs above under "etfs", stocks here
+        "listed_stocks": [t for t in listed if t in listed_info and t not in set(listed_funds)],
+        "listed_failed": dict(sorted(listed_failed.items())),
+        "listed_policy": {"min_market_cap": LISTED_MIN_MARKET_CAP, "per_run": LISTED_PER_RUN,
+                          "in_scope": len(listed), "with_data": len(listed_info)},
+        # the request queue (data/requested_tickers.txt), downloaded first
+        "queue": {"downloaded": sorted(queued["ok"]), "waiting": queued["waiting"],
+                  "dropped": dict(sorted(queued["dropped"].items())), "to_extra_tickers": graduated},
+        "queue_attempts": queued["attempts"],
+        "rate_limit": {"pauses": RATE["pauses"], "limited": RATE["limited"], "stopped": RATE["stop"]},
         "benchmarks": ["SPY", "QQQ"],
         "sims": sims,
         "former_members": sorted(former_ok),
         "former_members_missing_data": sorted(former_missing),
-        "tickers": {**broad_info, **kept, **ok, **former_ok},
+        "tickers": {**listed_info, **broad_info, **kept, **ok, **former_ok},
         "failed": failed,
         "kept_after_failed_refresh": sorted(kept),
         "dropped_stale": stale,

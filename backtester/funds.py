@@ -545,10 +545,20 @@ def detail(t: str) -> dict:
 
 # ---------------------------------------------------------------- the ticker directory
 
+def _directory_key() -> tuple:
+    from . import coverage
+    return tuple(_mtime(p) for p in (META_FILE, REFERENCE_FILE, INFO_FILE, data.DATA / "index_constituents.json",
+                                     data.UNIVERSE_FILE, data.PRICES, coverage.LISTED_FILE))
+
+
 def _directory_entries() -> list[dict]:
-    key = tuple(_mtime(p) for p in (META_FILE, REFERENCE_FILE, INFO_FILE, data.DATA / "index_constituents.json",
-                                    data.UNIVERSE_FILE, data.PRICES))
-    return list(_directory(key))
+    return list(_directory(_directory_key()))
+
+
+@lru_cache(maxsize=2)
+def _coverage(_key) -> dict:
+    from . import coverage
+    return coverage.counts(set(data.available_tickers()))
 
 
 @lru_cache(maxsize=2)
@@ -574,6 +584,13 @@ def _directory(_key) -> tuple:
     for t, n in ((idx.get("other_large") or {}).get("names") or {}).items():
         names.setdefault(t, n)
         kinds.setdefault(t, "Stock")
+    # every US-listed stock, ETF and ETN (data/listed_symbols.json), with or without price data yet
+    from . import coverage
+    listed = coverage.listing().get("symbols") or {}
+    for t, r in listed.items():
+        if r.get("name"):
+            names.setdefault(t, r["name"])
+        kinds.setdefault(t, "ETF" if r.get("type") in ("ETF", "ETN") else "Stock")
     for t in um.get("nasdaq100", []):
         kinds.setdefault(t, "Stock")
         member.setdefault(t, []).insert(0, "Nasdaq-100")
@@ -602,7 +619,7 @@ def _directory(_key) -> tuple:
         names.setdefault(t, about)
         kinds[t] = "Simulated"
     out = []
-    for t in sorted(have | set(names) | set(fund_lists.ALL_FUNDS) | set(member)):
+    for t in sorted(have | set(names) | set(fund_lists.ALL_FUNDS) | set(member) | set(listed)):
         if t.startswith("."):
             continue
         kind = kinds.get(t) or ("Index" if t.startswith("^") else "Simulated" if t.endswith("SIM") else
@@ -636,8 +653,13 @@ def directory(q: str = "", kind: str | None = None, limit: int = 100, has_data: 
     counts: dict = {}
     for r in rows:
         counts[r["type"]] = counts.get(r["type"], 0) + 1
-    return {"q": q, "total": len(hits), "results": [r for _, r in hits[:max(1, int(limit))]], "counts": counts,
-            "size": len(rows), "with_data": sum(1 for r in rows if r["has_data"])}
+    from . import coverage
+    queued = set(coverage.read_queue())
+    results = [dict(r, queued=True) if r["ticker"] in queued and not r["has_data"] else r
+               for _, r in hits[:max(1, int(limit))]]
+    return {"q": q, "total": len(hits), "results": results, "counts": counts,
+            "size": len(rows), "with_data": sum(1 for r in rows if r["has_data"]),
+            "coverage": _coverage(_directory_key() + (_mtime(coverage.queue_file()),))}
 
 
 # ---------------------------------------------------------------- comparison

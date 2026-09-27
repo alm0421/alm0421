@@ -119,12 +119,21 @@ def suggest(ticker: str, n: int = 5) -> list[str]:
 
 
 def unknown_ticker_message(ticker: str) -> str:
+    """Why `ticker` has no data and what happens next. A valid symbol (in the US listing or the fund lists,
+    backtester/coverage.py) is queued in data/requested_tickers.txt, which the next data refresh downloads first."""
     t = canonical(ticker)
+    try:
+        from . import coverage
+        known = coverage.missing_message(t, offline())
+    except Exception:  # noqa: BLE001 - the plain message below still helps
+        known = None
+    if known:
+        return known
     s = suggest(t)
     return (f"No price data for {t}." + (f" Did you mean {', '.join(s)}?" if s else "")
-            + f" To add {t}, put it on its own line in data/extra_tickers.txt and run the 'Fetch price data' workflow "
-            "(GitHub Actions; pushing the file also starts it), then pull the new data. (The Data page lists every "
-            "ticker; on your own computer new tickers are downloaded automatically.)")
+            + f" It isn't a US-listed or known fund symbol. If it is right, add it to data/requested_tickers.txt (or "
+            "data/extra_tickers.txt) and run the 'Fetch price data' workflow (pushing the file starts it), then pull. "
+            "(On your own computer new tickers are downloaded automatically.)")
 
 
 @lru_cache(maxsize=1)
@@ -1763,9 +1772,9 @@ def fetch_on_demand(ticker: str, download=None) -> bool:
     """Download a missing ticker's full daily history from Yahoo (yfinance) and save it to data/prices, so a backtest,
     grid, Monte Carlo run, optimiser, factor or correlation analysis or fund comparison that names it just works.
     Needs internet: off when BACKTESTER_OFFLINE is set (the cloud sandbox, tests), where the caller queues the symbol
-    in data/extra_tickers.txt for the data job instead. The file then passes the same price-integrity gate as every
+    in data/requested_tickers.txt for the data job instead. The file then passes the same price-integrity gate as every
     other file (data.load: missed splits, bad ticks); a download too short to use is not saved. The symbol is also
-    added to data/extra_tickers.txt so the daily data job keeps it up to date. Returns True when the file exists."""
+    queued in data/requested_tickers.txt so the daily data job keeps it up to date. Returns True when the file exists."""
     import re
     import time as _time
     t = canonical(ticker)
@@ -1806,7 +1815,7 @@ def fetch_on_demand(ticker: str, download=None) -> bool:
     try:
         how = request_ticker(t)
         if how == "added":
-            queued = " and added to data/extra_tickers.txt so the data job keeps it updated"
+            queued = " and queued in data/requested_tickers.txt so the data job adds it to its refresh"
     except Exception:  # noqa: BLE001 - queuing is a convenience
         pass
     ON_DEMAND[t] = (f"{t} was not in the data files: downloaded from Yahoo Finance just now ({len(df)} daily bars, "
@@ -1842,22 +1851,17 @@ def requested_tickers() -> list[str]:
 
 
 def request_ticker(ticker: str) -> str:
-    """Queue a symbol for the data job: append it to data/extra_tickers.txt (which the 'Fetch price data'
-    workflow reads). Returns 'added', 'already requested' or 'in the built-in list' (the broad fund list in
-    backtester/fund_lists.py, downloaded in rotating batches: it arrives with one of the next data runs)."""
+    """Queue a symbol for the data job: append it to data/requested_tickers.txt, which the 'Fetch price data' workflow
+    downloads FIRST and then moves into its regular refresh (backtester/coverage.py). Returns 'added' or 'already
+    requested' (queued, or listed in data/extra_tickers.txt)."""
     import re
+    from . import coverage
     t = canonical(ticker)
     if not re.fullmatch(TICKER_SYMBOL_RE, t):
         raise DataError(f"{ticker!r} is not a ticker symbol.")
-    if t in builtin_symbols():
-        return "in the built-in list"
     if t in requested_tickers():
         return "already requested"
-    EXTRA_TICKERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    text = EXTRA_TICKERS_FILE.read_text() if EXTRA_TICKERS_FILE.exists() else ""
-    with EXTRA_TICKERS_FILE.open("a") as f:
-        f.write(("" if not text or text.endswith("\n") else "\n") + t + "\n")
-    return "added"
+    return coverage.enqueue(t, "requested from the site / CLI")
 
 
 def index_constituents() -> dict:

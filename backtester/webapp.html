@@ -429,11 +429,12 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 <section id="p-data" class="hide">
   <div class="card"><h2>Data</h2><div id="dataStatus"></div>
     <h3>Ticker directory</h3>
-    <p class="note">Every ticker with price data or fund facts: stocks (Nasdaq-100, S&amp;P 500/400/600 and large ADRs), ETFs, mutual funds, indexes and simulated series. Search by ticker, name, category, fund family or index (e.g. "vanguard small value", "S&amp;P 400 bank", "bond index admiral"). A ticker marked "not downloaded" is in the data job's lists and arrives with one of its next runs; on your own computer, Download fetches it now.</p>
+    <p class="note">Every US-listed stock, ETF and ETN (the exchanges' symbol directory), plus mutual funds, indexes and simulated series. Search by ticker, name, category, fund family or index (e.g. "ford", "vanguard small value", "S&amp;P 400 bank", "bond index admiral"). A ticker marked "not downloaded" arrives with one of the data job's next runs (it downloads the listing in rotating batches); Download fetches it now on your own computer, or queues it (data/requested_tickers.txt) so the next run fetches it first.</p>
     <div class="row"><input id="tkSearch" placeholder="ticker, name, category, family or index" style="flex:1 1 260px" aria-label="search the ticker directory">
       <select id="tkKind" aria-label="type"><option value="">All types</option><option>Stock</option><option>ETF</option><option>Mutual fund</option><option>Index</option><option>Simulated</option></select>
       <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="tkHas"> with data only</label></div>
     <p class="note" id="tkCount" role="status"></p>
+    <p class="note" id="tkCoverage"></p>
     <div class="xscroll"><table id="tkList" class="ftbl"></table></div>
     <h3>Add a ticker</h3><div class="row"><input id="tkAdd" placeholder="e.g. IBM, BRK-B, ^VIX3M"><button class="btn" id="tkAddBtn">Download history</button><span class="note" id="tkAddStatus"></span></div>
     <p class="note">Works on your own computer (it downloads from Yahoo Finance). Any ticker you mention in a strategy is also fetched automatically.</p>
@@ -1893,13 +1894,18 @@ window.addEventListener('blur', unpress);
     try {
       const D = await api('/api/directory?' + qs.toString()); if (my !== dirSeq) return;
       $('tkCount').textContent = `${D.total.toLocaleString()} match${D.total === 1 ? '' : 'es'}${D.total > D.results.length ? ` (showing the first ${D.results.length})` : ''} · ${D.size.toLocaleString()} tickers in the directory, ${D.with_data.toLocaleString()} with price data`;
+      const C = D.coverage;
+      if (C && C.stocks) {
+        const n = x => (x || 0).toLocaleString();
+        $('tkCoverage').textContent = `Coverage: ${n(C.stocks.with_data)} of ${n(C.stocks.listed)} US-listed stocks (${n(C.stocks.in_scope_with_data)} of the ${n(C.stocks.in_scope)} worth $${Math.round(C.min_market_cap / 1e6)}M or more, which the data job downloads by itself) · ${n(C.etfs.with_data)} of ${n(C.etfs.listed)} ETFs/ETNs · ${n(C.mutual_funds.with_data)} of ${n(C.mutual_funds.curated)} curated mutual funds` + (C.listing_date ? ` · listing of ${C.listing_date}` : '') + (C.queued ? ` · ${n(C.queued)} queued for the next run` : '');
+      }
       const tb = $('tkList'); tb.replaceChildren();
       const hr = el('tr'); ['Ticker', 'Name', 'Type', 'Category / family', 'Index', 'Price data'].forEach(h => hr.append(el('th', {}, h))); tb.append(hr);
       D.results.forEach(r => {
         const tr = el('tr');
         tr.append(el('td', {}, r.ticker)); const nm = el('td', { class: 'fname' }, r.name || '—'); nm.title = r.name || ''; tr.append(nm);
         tr.append(el('td', {}, r.type), el('td', {}, [r.category, r.family].filter(Boolean).join(' · ') || '—'), el('td', {}, (r.indexes || []).join(', ') || '—'));
-        const dc = el('td', {}, r.has_data ? 'yes' : 'not downloaded ');
+        const dc = el('td', {}, r.has_data ? 'yes' : r.queued ? 'queued for the next run ' : 'not downloaded ');
         if (!r.has_data) {
           const b = el('button', { class: 'btn small', type: 'button' }, 'Download');
           b.onclick = async () => { b.disabled = true; b.textContent = '…';

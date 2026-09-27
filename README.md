@@ -3,8 +3,10 @@
 Describe a trading strategy or a portfolio in a sentence and get a full, verifiable backtest on
 daily data. The data covers the Nasdaq-100 (today's members and former members, with point-in-time
 index membership since 2004), QQQ, SPY, about 60 ETFs (leveraged, bond, gold, sector, VIX) and major
-indexes. History goes as far back as each ticker's: AAPL from 1980, MSFT from 1986, the Nasdaq-100
-index from 1985.
+indexes, and - filled in by the daily data job in rotating batches - the S&P 1500, every US-listed ETF and
+ETN, every US stock worth $250M or more and about 1,100 mutual funds (see [Data](#data); any other symbol is
+one request away). History goes as far back as each ticker's: AAPL from 1980, MSFT from 1986, the Nasdaq-100
+index from 1985, mutual funds from 1980 at the earliest (Yahoo's limit).
 
 ```bash
 pip install -r requirements.txt
@@ -1038,12 +1040,21 @@ DELL before 2016 or MNST before 2012 - the report adds an "Identity:" note.
 list of about 650 US-listed ETFs across asset classes (total market, style, size, Avantis, Dimensional,
 factor, dividend, sector and industry, regional and country, Treasuries, corporates, high yield, munis, TIPS,
 international and EM bonds, REITs, commodities, alternatives, currencies, crypto, and the leveraged / inverse
-funds used in Composer symphonies) and about 530 mutual funds: every retail Vanguard fund, every Dimensional,
+funds used in Composer symphonies) and about 1,100 mutual funds: every retail Vanguard fund, every Dimensional,
 Schwab, American Funds (class A) and Dodge & Cox fund on the issuers' own lists (checked 2026-09-27), plus
-Fidelity, PIMCO, T. Rowe Price and other popular funds, listed in `backtester/fund_lists.py`. Yahoo serves a
+Fidelity, PIMCO, T. Rowe Price and other popular funds, listed in `backtester/fund_lists.py`, and the ~800
+well-known funds of `data/mutual_funds.txt` (Vanguard institutional and target-date classes, ~130 Fidelity
+funds, T. Rowe Price, American Funds R6 / F-2, PIMCO, Longleaf - LLPFX, LLSCX, LLINX, LLGFX - Oakmark,
+Parnassus, Baron, Janus Henderson, JPMorgan, BlackRock, Franklin Templeton, MFS, TIAA-CREF, DoubleLine,
+Artisan, AQR, American Century, First Eagle, Royce, Matthews, FPA, Jensen, Primecap Odyssey and about 40 other
+families; one `## Family` heading per family, each symbol checked against the SEC's mutual fund symbol list and
+its registrant). Add a fund by appending it under its family; pushing the file starts the job. Yahoo serves a
 mutual fund as a daily NAV with its distributions, so its file is a total-return history (flat bars, no
-volume), from January 1980 at the earliest (Yahoo has nothing older, even for funds from 1929; the SIM series
-cover earlier years) or the fund's launch. They are refreshed in rotating batches of up to 600 a run
+volume), from January 1980 at the earliest or the fund's launch. **1980 is Yahoo's limit, not the download's:**
+the job asks for `period="max"` (yfinance goes 99 years back; ^GSPC arrives from 1927 and stocks such as IBM,
+KO and GE from 1962), but every mutual fund older than 1980 in `data/prices` starts on exactly 1980-01-02 -
+VFINX (launched 1976-08-31), VWELX (1929), FMAGX, DODGX - because Yahoo's chart API has nothing earlier for
+funds; the SIM series cover earlier years. They are refreshed in rotating batches of up to 600 a run
 (missing files first, then the ones updated longest ago), so each run stays short and polite to Yahoo and a
 fund's last bar may be a day older than the ETFs'. A symbol Yahoo doesn't know is retried after 30 days
 (`broad_failed` in `data/universe.json`). None of them is ever read as a Nasdaq-100 member. A price file is
@@ -1061,20 +1072,53 @@ backtest over an S&P list has survivorship bias. Size: about 60 bytes a day per 
 stocks add roughly 700 MB and the new mutual funds about 125 MB, taking `data/` from about 430 MB to about
 1.25 GB.
 
-**Ticker directory.** The Data page searches every ticker with price data or facts (about 3,100: stocks with
-their S&P / Nasdaq-100 membership, ETFs, mutual funds, indexes, SIM series) by ticker, name, category, fund
-family or index (`GET /api/directory?q=vanguard small value&kind=Mutual fund`); one still to be downloaded has a
-Download button.
+**The whole US listing.** Each run the job also reads the exchanges' own symbol directory (NASDAQ Trader's
+`nasdaqlisted.txt` for Nasdaq and `otherlisted.txt` for NYSE, NYSE American, NYSE Arca, Cboe BZX and IEX),
+keeps the common stocks, ETFs and ETNs (test issues, SPAC units, warrants, rights, preferred shares and
+exchange-listed debt are left out; `BRK.B` is written `BRK-B` as Yahoo does), adds each stock's market cap from
+Nasdaq's stock screener and saves the result, with the SEC's list of mutual fund share-class symbols, in
+`data/listed_symbols.json` (`backtester/coverage.py`; a part that fails to download keeps the saved copy). On
+2026-09-25 that was 5,949 stocks, 5,736 ETFs, 16 ETNs and 28,477 mutual fund symbols. **Coverage policy:** the
+job downloads by itself every ETF and ETN and every stock with a market cap of **$250 million or more**
+(`LISTED_MIN_MARKET_CAP`; 3,621 stocks), on top of the S&P 1500, every current or former Nasdaq-100 member and
+the fund lists. That is about 5,100 ETFs / ETNs and 1,800 stocks no other list covers, fetched in a rotating
+batch of up to 800 a run (`LISTED_PER_RUN`; largest first - stocks by market cap, ETFs by net assets once
+Yahoo's fund metadata has them - missing files first, then the oldest), so the listing is covered after about
+nine weekday runs (two weeks) and each file is then refreshed about every nine runs. The ~2,300 smaller stocks
+(micro-caps, most SPACs and closed-end funds without a screener cap) are not downloaded by themselves: they
+are one request away (below). Size: the listing adds roughly 1 GB of CSV to `data/prices` (young ETFs are
+small files; about 55 bytes a day), and the new mutual funds and the S&P members still missing about 0.6 GB,
+taking `data/` from about 0.6 GB to about 2.2 GB; git stores CSV about 3.6 times compressed, so the
+repository grows by roughly 0.5 GB plus the daily updates (appended rows pack as small deltas; a new dividend
+re-bases a fund's whole adjusted-close column once).
 
-**Adding tickers.** The job also downloads every ticker in `data/extra_tickers.txt` (one or more per line,
-`#` for comments). Add a symbol there and run the **Fetch price data** workflow (Actions → Fetch price data →
-Run workflow; pushing a change to the file also starts it), then pull. With internet access (not
-`BACKTESTER_OFFLINE`), any ticker without a file - in a sentence, the grid, Monte Carlo, the optimiser,
+**Rate limits.** Yahoo answers "429 Too Many Requests" when an IP asks too much. A rate-limited symbol is never
+recorded as a failure (it is simply tried next run): every worker pauses 60, 180 and then 420 seconds, after
+which the rotating batches stop for the run, and they also stop after 120 minutes so the job ends inside the
+Action's 240-minute limit. (Before this, a rate-limited run on 2026-09-27 parked 415 S&P members - Ford among
+them - for 30 days as "failed"; failures recorded that way are retried at once.) Only a symbol Yahoo returns
+no data for waits 30 days (`broad_failed`, `stocks_failed`, `listed_failed` in `data/universe.json`).
+
+**Ticker directory.** The Data page searches every US-listed stock, ETF and ETN, every mutual fund, index and
+SIM series with price data or facts (about 12,900) by ticker, name, category, fund family or index
+(`GET /api/directory?q=ford&kind=Stock`), and shows the coverage: how many of the listed stocks (and of those
+above the market-cap cut-off), ETFs / ETNs and curated mutual funds have price data, the listing's date and
+how many symbols are queued. One still to be downloaded has a Download button (or says it is queued).
+
+**Adding tickers.** Any symbol the site or the CLI is asked for but has no file for goes into the **request
+queue**, `data/requested_tickers.txt`, which the job downloads **first** on its next run; a symbol that works
+then joins its regular refresh (the rotating list it belongs to, else `data/extra_tickers.txt`), and one Yahoo
+has no data for is dropped after three runs (`requested_failed` in `data/universe.json`). With internet access
+(not `BACKTESTER_OFFLINE`), a ticker without a file - in a sentence, the grid, Monte Carlo, the optimiser,
 factors, correlations or a fund comparison - is downloaded from Yahoo on the fly (`data.fetch_on_demand`):
-saved to `data/prices`, checked by the same price-integrity gate as every file, added to
-`data/extra_tickers.txt` so the job keeps it updated, and named in the run's notes. Offline (the cloud
-sandbox), the site's **Add ticker** appends the symbol to `data/extra_tickers.txt` for you and says to push
-the file, and a sentence or tree that names a ticker without data says so and points to this file.
+saved to `data/prices`, checked by the same price-integrity gate as every file, queued so the job keeps it
+updated, and named in the run's notes. Offline (the cloud sandbox), a sentence that names a valid symbol that
+isn't downloaded yet (anything in the US listing or the fund lists) says so plainly - "F (Ford Motor Company,
+stock, NYSE) is a valid symbol not downloaded yet ... queued in data/requested_tickers.txt, which the next data
+refresh downloads first" - and queues it; the Data page's **Add ticker** / Download does the same for any
+symbol. Push the queue file to start the workflow at once (Actions → Fetch price data → Run workflow also
+works), then pull. The job also downloads every ticker in `data/extra_tickers.txt` (one or more per line, `#`
+for comments) on every run: put a symbol there to keep it refreshed daily.
 
 **Your own series.** Import a daily or monthly return or price series (a CSV of `date,value` rows; returns in
 % or as decimals) as a named ticker, usable anywhere a ticker is (portfolios, benchmarks, Monte Carlo, the

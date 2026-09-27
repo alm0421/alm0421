@@ -60,27 +60,33 @@ def test_broad_lists_exclude_the_core_lists(fd):
     assert "SQM" in fd.STOCKS
 
 
-def test_request_ticker_appends_to_extra_tickers(tmp_path, monkeypatch):
-    f = tmp_path / "extra_tickers.txt"
+def test_request_ticker_appends_to_the_queue(tmp_path, monkeypatch):
+    f = tmp_path / "requested_tickers.txt"
     f.write_text("# comment\nABCD")
-    monkeypatch.setattr(data, "EXTRA_TICKERS_FILE", f)
+    monkeypatch.setenv("BACKTESTER_QUEUE_FILE", str(f))
+    monkeypatch.setattr(data, "EXTRA_TICKERS_FILE", tmp_path / "extra_tickers.txt")
+    (tmp_path / "extra_tickers.txt").write_text("EFGH\n")
     assert data.request_ticker("wxyz") == "added"
     assert data.request_ticker("WXYZ") == "already requested"
     assert data.request_ticker("ABCD") == "already requested"
-    assert data.request_ticker("VWELX") == "in the built-in list"
-    assert f.read_text() == "# comment\nABCD\nWXYZ\n"
+    assert data.request_ticker("EFGH") == "already requested"          # refreshed every run already
+    assert data.request_ticker("VWELX") == "added"                     # a listed fund jumps the rotation
+    assert f.read_text().splitlines() == ["# comment", "ABCD", "WXYZ  # requested from the site / CLI",
+                                          "VWELX  # requested from the site / CLI"]
     with pytest.raises(data.DataError):
         data.request_ticker("not a ticker!")
 
 
 def test_site_add_ticker_queues_when_offline(tmp_path, monkeypatch):
     from backtester import web
-    f = tmp_path / "extra_tickers.txt"
-    monkeypatch.setattr(data, "EXTRA_TICKERS_FILE", f)
+    f = tmp_path / "requested_tickers.txt"
+    monkeypatch.setenv("BACKTESTER_QUEUE_FILE", str(f))
     monkeypatch.setattr(data, "fetch_on_demand", lambda t: False)
     out = web.api_fetch({"ticker": "QZQZ"})
-    assert out["queued"] == "added" and "push" in out["status"]
+    assert out["queued"] == "added" and "push" in out["status"] and "not in the US listing" in out["status"]
     assert "QZQZ" in f.read_text()
+    out = web.api_fetch({"ticker": "LLPFX"} if not (data.PRICES / "LLPFX.csv").exists() else {"ticker": "QZQZ"})
+    assert "requested_tickers.txt" in out["status"]
 
 
 # ------------------------------------------------------------------ SIM building blocks
