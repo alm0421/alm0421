@@ -62,6 +62,7 @@ td.n { text-align:right; }
 .node .hd { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 .node .lab { font-size:12px; color:var(--text-3); }
 .node.bad { border-left-color:var(--bad); }
+input.bad-in { border-color:var(--bad); outline:1px solid var(--bad); }
 .node .tools { margin-left:auto; display:inline-flex; gap:4px; }
 .node .handle { cursor:grab; color:var(--text-3); padding:0 2px; user-select:none; font-size:16px; line-height:1; }
 .node.dragging { opacity:.45; }
@@ -808,6 +809,14 @@ window.addEventListener('blur', unpress);
     { k: 'rsi', label: 'RSI', fn: 'rsi', ser: 'close', def: 14 },
     { k: 'sma', label: 'SMA of price', fn: 'sma', ser: 'close', def: 200 },
     { k: 'ema', label: 'EMA of price', fn: 'ema', ser: 'close', def: 50 },
+    { k: 'stdev', label: 'standard deviation of price', fn: 'stdev', ser: 'close', def: 20 },
+    // several parameters, written fn(p1, p2[, p3][, series]) as in the rule language (see --help-expr)
+    { k: 'macd', label: 'MACD', fn: 'macd', ser: 'close', ps: [['fast', 12], ['slow', 26]] },
+    { k: 'macd_signal', label: 'MACD signal', fn: 'macd_signal', ser: 'close', ps: [['fast', 12], ['slow', 26], ['signal', 9]] },
+    { k: 'ppo', label: 'PPO (%)', fn: 'ppo', ser: 'close', ps: [['fast', 12], ['slow', 26]] },
+    { k: 'ppo_signal', label: 'PPO signal (%)', fn: 'ppo_signal', ser: 'close', ps: [['fast', 12], ['slow', 26], ['signal', 9]] },
+    { k: 'bb_upper', label: 'Bollinger upper band', fn: 'bb_upper', ser: 'close', ps: [['window', 20], ['std devs', 2, 'k']] },
+    { k: 'bb_lower', label: 'Bollinger lower band', fn: 'bb_lower', ser: 'close', ps: [['window', 20], ['std devs', 2, 'k']] },
     { k: 'close', label: 'price', ser: 'close', nowin: true },
     { k: 'market_cap', label: 'market cap', nowin: true, own: true },
   ];
@@ -820,18 +829,47 @@ window.addEventListener('blur', unpress);
     const d = INDK[x.k]; if (!d) return '';
     if (d.k === 'market_cap') return 'market_cap';
     const ser = x.t && own && x.t !== own ? `sym("${x.t}").${d.ser}` : d.ser;
-    return d.nowin ? ser : `${d.fn}(${ser}, ${Math.max(1, Math.round(+x.n || d.def))})`;
+    // the window is written as entered (never rounded or replaced): a bad one is marked red and refused (winErrors)
+    const num = v => (v === '' || v == null || !isFinite(+v)) ? '0' : fmtN(v);
+    if (d.ps) return `${d.fn}(${d.ps.map((p, i) => num((x.p || [])[i] ?? p[1])).join(', ')}${ser === d.ser ? '' : ', ' + ser})`;
+    return d.nowin ? ser : `${d.fn}(${ser}, ${num(x.n ?? d.def)})`;
   }
+  const NUMRX = '(-?\\d+(?:\\.\\d+)?)';
   function parseInd(s, own) {
     s = s.trim();
     const SER = ser => `(${ser}|sym\\("([^"]+)"\\)\\.${ser})`;
     for (const d of IND) {
       if (d.k === 'market_cap') { if (s === 'market_cap') return { k: d.k, t: own }; continue; }
       if (d.nowin) { const m = s.match(new RegExp(`^${SER(d.ser)}$`)); if (m) return { k: d.k, t: m[2] || own }; continue; }
-      const m = s.match(new RegExp(`^${d.fn}\\((?:${SER(d.ser)}\\s*,\\s*)?(\\d+)\\)$`));
+      if (d.ps) {
+        const m = s.match(new RegExp(`^${d.fn}\\(${d.ps.map(() => '\\s*' + NUMRX + '\\s*').join(',')}(?:,\\s*${SER(d.ser)}\\s*)?\\)$`));
+        if (m) { const n = d.ps.length; return { k: d.k, p: m.slice(1, n + 1).map(Number), t: m[n + 2] || own }; }
+        continue;
+      }
+      const m = s.match(new RegExp(`^${d.fn}\\((?:${SER(d.ser)}\\s*,\\s*)?${NUMRX}\\)$`));
       if (m) return { k: d.k, n: +m[3], t: m[2] || own };
     }
     return null;
+  }
+  // windows are whole numbers of days, at least 1 (the server refuses anything else too: expr.check_windows);
+  // Bollinger bands' second number is a multiplier (> 0)
+  const WINDOW_FNS = new Set(['sma', 'ema', 'rma', 'wma', 'highest', 'lowest', 'stdev', 'zscore', 'ret', 'rsi', 'tret', 'tbill_ret', 'max_drawdown',
+    'ma_return', 'stdev_return', 'pct_rank', 'drawdown', 'atr', 'natr', 'volatility', 'macd', 'macd_signal', 'macd_hist', 'ppo', 'ppo_signal',
+    'stoch_k', 'stoch_d', 'plus_di', 'minus_di', 'adx', 'cci', 'willr', 'mfi', 'vwap', 'donchian_upper', 'donchian_lower', 'hma', 'vwma',
+    'aroon_up', 'aroon_down', 'aroon_osc', 'cmf', 'count']);
+  const FIRST_WINDOW_FNS = new Set(['bb_upper', 'bb_lower', 'keltner_upper', 'keltner_lower', 'supertrend', 'supertrend_dir']);
+  const badWindow = v => !(Number.isInteger(+v) && +v >= 1) || v === '' || v == null;
+  function winErrors(rule) {
+    const out = [];
+    for (const m of (rule || '').matchAll(/\b([a-z_]+)\(((?:[^()]|\([^()]*\))*)\)/g)) {
+      const f = m[1]; if (!WINDOW_FNS.has(f) && !FIRST_WINDOW_FNS.has(f)) continue;
+      let nums = []; let d = 0, cur = '';
+      for (const ch of m[2] + ',') { if (ch === '(') d++; if (ch === ')') d--; if (ch === ',' && !d) { if (NUM.test(cur.trim())) nums.push(cur.trim()); cur = ''; } else cur += ch; }
+      if (FIRST_WINDOW_FNS.has(f)) nums = nums.slice(0, 1);
+      nums.filter(badWindow).forEach(v => out.push(`${m[0]}: the window ${v} is not allowed — a window must be a positive whole number of days (1 or more).`));
+      if (FIRST_WINDOW_FNS.has(f)) { const k = m[2].split(',')[1]; if (k && NUM.test(k.trim()) && !(+k > 0)) out.push(`${m[0]}: the number of standard deviations must be above 0.`); }
+    }
+    return out;
   }
   const NUM = /^-?\d+(\.\d+)?(e-?\d+)?$/i;
   // brackets: "(a > 1)" -> "a > 1"; compound rules split at top-level and/or (one kind per rule)
@@ -856,7 +894,7 @@ window.addEventListener('blur', unpress);
   // quoted(x): the server reads a price level compared with a fixed number on quoted prices (it adds quoted() itself)
   const unquote = s => { const m = (s || '').trim().match(/^quoted\((.*)\)$/); return m && balanced(m[1]) ? m[1] : s; };
   function parseCond(s, own) {
-    const m = stripParens(s).match(/^([^<>=]+?)\s*(>=|<=|>|<)\s*([^<>=]+)$/);
+    const m = stripParens(s).match(/^([^<>=]+?)\s*(>=|<=|==|>|<)\s*([^<>=]+)$/);
     if (!m) return null;
     const lhs = parseInd(unquote(m[1]), own); if (!lhs) return null;
     const r = unquote(m[3]).trim();
@@ -869,11 +907,22 @@ window.addEventListener('blur', unpress);
   }
   // an indicator picker: [indicator][window][of TICKER]
   function indPicker(x, onChange, withTicker) {
-    const box = el('span', { class: 'row', style: 'gap:4px;display:inline-flex' });
-    const s = sel(IND.map(d => [d.k, d.label]), x.k, v => { x.k = v; if (INDK[v].def) x.n = INDK[v].def; onChange(true); });
+    const box = el('span', { class: 'row', style: 'gap:4px;display:inline-flex;flex-wrap:wrap' });
+    const s = sel(IND.map(d => [d.k, d.label]), x.k, v => { x.k = v; delete x.p; if (INDK[v].def) x.n = INDK[v].def; if (INDK[v].ps) x.p = INDK[v].ps.map(p => p[1]); onChange(true); });
     box.append(s);
-    if (!INDK[x.k].nowin) box.append(inp(x.n ?? INDK[x.k].def, v => { x.n = +v; onChange(); }, { type: 'number', min: 1, style: 'width:64px', title: 'window (trading days)' }), el('span', { class: 'lab' }, 'days'));
-    if (withTicker && !INDK[x.k].own) box.append(el('span', { class: 'lab' }, 'of'), inp(x.t || '', v => { x.t = v.toUpperCase().trim(); onChange(true); }, { list: 'tickerList', style: 'width:84px', placeholder: 'ticker' }));
+    // a window field: kept as typed; red with a message when it is not a whole number of days >= 1 (never replaced)
+    const winInput = (val, set, title, mult) => {
+      const i = inp(val, v => { set(v === '' ? '' : +v); onChange(); }, { type: 'number', min: mult ? 0 : 1, step: mult ? 'any' : 1, style: 'width:60px', title, class: 'win' });
+      const mark = () => { const v = i.value, bad = mult ? !(+v > 0) || v === '' : badWindow(v);
+        i.classList.toggle('bad-in', bad); i.title = bad ? (mult ? 'Enter a number above 0.' : 'Enter a positive whole number of days (1 or more).') : title; };
+      i.addEventListener('input', mark); mark();
+      return i;
+    };
+    const d = INDK[x.k];
+    if (d.ps) d.ps.forEach((p, j) => { x.p = x.p || d.ps.map(q => q[1]);
+      box.append(el('span', { class: 'lab' }, p[0]), winInput(x.p[j] ?? p[1], v => { x.p[j] = v; }, p[0] + (p[2] ? '' : ' (trading days)'), !!p[2])); });
+    else if (!d.nowin) box.append(winInput(x.n ?? d.def, v => { x.n = v; }, 'window (trading days)'), el('span', { class: 'lab' }, 'days'));
+    if (withTicker && !d.own) box.append(el('span', { class: 'lab' }, 'of'), inp(x.t || '', v => { x.t = v.toUpperCase().trim(); onChange(true); }, { list: 'tickerList', style: 'width:84px', placeholder: 'ticker' }));
     return box;
   }
   const CUSTOM = new WeakMap();   // nodes whose rule is edited as text
@@ -911,7 +960,7 @@ window.addEventListener('blur', unpress);
         if (UNIT[st.lhs.k] === 'osc' && st.rhsMode === 'ind' && UNIT[st.rhs.k] !== 'osc') { st.rhsMode = 'num'; st.num = st.op.startsWith('<') ? 30 : 70; redraw = true; }
         commit(redraw);
       }, withTicker));
-      cl.append(sel([['>', 'is greater than'], ['<', 'is less than'], ['>=', 'is at least'], ['<=', 'is at most']], st.op, v => { st.op = v; commit(); }));
+      cl.append(sel([['>', 'is greater than'], ['<', 'is less than'], ['>=', 'is at least'], ['<=', 'is at most'], ['==', 'is equal to']], st.op, v => { st.op = v; commit(); }));
       cl.append(sel([['num', 'a number'], ['ind', 'an indicator']], st.rhsMode, v => { st.rhsMode = v; if (v === 'ind') st.rhs = { k: st.lhs.k === 'close' ? 'sma' : st.lhs.k, n: INDK[st.lhs.k].def || 200, t: st.lhs.t || own }; commit(true); }));
       if (st.rhsMode === 'num') { cl.append(inp(fmtN(st.num), v => { st.num = +v; commit(); }, { type: 'number', step: 'any', style: 'width:84px' })); if (INDK[st.lhs.k].pct) cl.append(el('span', { class: 'lab' }, '%')); }
       else cl.append(indPicker(st.rhs, commit, withTicker));
@@ -956,7 +1005,7 @@ window.addEventListener('blur', unpress);
     box.append(el('span', { class: 'lab' }, 'weight'), sel(WEIGHTS.filter(w => allowSpecified || w[0] !== 'specified'), host[key] || 'equal', v => {
       host[key] = v; if (LOOKBACK[v]) host[lbKey] = host[lbKey] || LOOKBACK[v]; else delete host[lbKey];
       if (onSpecified) onSpecified(v); draw(); }));
-    if (LOOKBACK[host[key]]) box.append(inp(host[lbKey] || LOOKBACK[host[key]], v => { host[lbKey] = Math.round(+v); revalidate(); }, { type: 'number', min: 2, style: 'width:64px', title: 'lookback (trading days)' }), el('span', { class: 'lab' }, 'day lookback'));
+    if (LOOKBACK[host[key]]) box.append(inp(host[lbKey] || LOOKBACK[host[key]], v => { host[lbKey] = v === '' ? '' : +v; revalidate(); }, { type: 'number', min: 2, style: 'width:64px', title: 'lookback (trading days)' }), el('span', { class: 'lab' }, 'day lookback'));
     return box;
   }
 
@@ -964,7 +1013,7 @@ window.addEventListener('blur', unpress);
   const kidsOf = n => { const t = typeOf(n); return t === 'weights' || t === 'filter' ? (n.children || []) : t === 'if' ? [n.then, n.else] : []; };
   const assetsIn = n => typeOf(n) === 'asset' ? [n] : kidsOf(n).flatMap(assetsIn).concat(n.fallback ? assetsIn(n.fallback) : []);
   const contains = (n, x) => !!x && (n === x || kidsOf(n).some(k => contains(k, x)) || (!!n.fallback && contains(n.fallback, x)));
-  const getAt = L => L.kind === 'list' ? L.owner.children[L.i] : L.owner ? L.owner[L.key] : tree;
+  const getAt = L => L.kind === 'list' ? L.owner.children[L.i] : L.owner ? (L.owner[L.key] || (L.key === 'fallback' ? { cash: true } : undefined)) : tree;
   function setAt(L, v) { if (L.kind === 'list') L.owner.children[L.i] = v; else if (L.owner) L.owner[L.key] = v; else tree = v; }
   function convert(n, t) {
     const from = typeOf(n); if (from === t) return n;
@@ -1099,20 +1148,38 @@ window.addEventListener('blur', unpress);
   }
   function checkRuleTickers(rule, out) { for (const m of (rule || '').matchAll(/sym\("([^"]+)"\)/g)) if (!known(m[1].toUpperCase())) out.push(tickerMsg(m[1].toUpperCase())); }
   // what an indicator measures, to catch comparisons that can hardly mean anything (RSI against a price average)
-  const UNIT = { tret: 'pct', ret: 'pct', ma_return: 'pct', max_drawdown: 'pct', stdev_return: 'pct', volatility: 'pct', rsi: 'osc', sma: 'price', ema: 'price', close: 'price', market_cap: 'usd' };
-  const UNIT_TXT = { pct: 'a percentage', osc: 'an oscillator from 0 to 100', price: 'a price', usd: 'a dollar amount' };
-  function unitWarnings(rule, own) {
-    const cc = parseCompound(rule || '', own); if (!cc) return [];
-    const out = [];
+  const UNIT = { tret: 'pct', ret: 'pct', ma_return: 'pct', max_drawdown: 'pct', stdev_return: 'pct', volatility: 'pct', rsi: 'osc', sma: 'price', ema: 'price', close: 'price', market_cap: 'usd',
+    stdev: 'pxsd', macd: 'macd', macd_signal: 'macd', ppo: 'ppo', ppo_signal: 'ppo', bb_upper: 'price', bb_lower: 'price' };
+  const UNIT_TXT = { pct: 'a percentage', osc: 'an oscillator from 0 to 100', price: 'a price', usd: 'a dollar amount', pxsd: 'a price spread in dollars',
+    macd: 'a difference of two price averages (MACD)', ppo: 'a percentage of price (PPO)' };
+  // The same unit and range checks as the English parser and the server (expr.check_rule): an oscillator outside
+  // 0-100, a max drawdown beyond 100% or a return below -100% can never (or always) hold and are refused; a
+  // negative max drawdown is the same size written as a loss, and is read that way with a note (the server rewrites
+  // it); different units on the two sides earn a warning.
+  function unitChecks(rule, own) {
+    const cc = parseCompound(rule || '', own); if (!cc) return { e: [], w: [] };
+    const e = [], w = [];
     cc.clauses.forEach(c => {
-      if (c.rhs.num !== undefined && UNIT[c.lhs.k] === 'price' && $('p_price_basis').value === 'adjusted')
-        out.push(`${INDK[c.lhs.k].label} is compared with the fixed price ${c.rhs.num}: it is read on quoted prices (quoted(...)), since the total-return prices the other indicators use sit above the quote for a dividend payer.`);
-      if (c.rhs.num !== undefined) { if (UNIT[c.lhs.k] === 'osc' && (c.rhs.num < 0 || c.rhs.num > 100)) out.push(`${INDK[c.lhs.k].label} is between 0 and 100, so comparing it with ${c.rhs.num} is always true or always false.`); return; }
+      const L = INDK[c.lhs.k].label, v = c.rhs.num;
+      if (v !== undefined && UNIT[c.lhs.k] === 'price' && $('p_price_basis').value === 'adjusted')
+        w.push(`${L} is compared with the fixed price ${v}: it is read on quoted prices (quoted(...)), since the total-return prices the other indicators use sit above the quote for a dividend payer.`);
+      if (v !== undefined) {
+        if (UNIT[c.lhs.k] === 'osc' && (v < 0 || v > 100)) e.push(`${L} runs from 0 to 100, so comparing it with ${v} is always true or always false. Use a threshold between 0 and 100.`);
+        else if (UNIT[c.lhs.k] === 'osc' && v !== 0 && Math.abs(v) < 1) e.push(`${L} runs from 0 to 100, so ${v} looks like a fraction — did you mean ${+(v * 100).toPrecision(6)}?`);
+        if (c.lhs.k === 'max_drawdown' && Math.abs(v) > 100) e.push(`The max drawdown is a fall between 0 and 100%, so comparing it with ${v}% is always true or always false.`);
+        else if (c.lhs.k === 'max_drawdown' && v < 0 && c.op !== '==') {
+          const flip = { '>': '<', '>=': '<=', '<': '>', '<=': '>=' }[c.op];
+          w.push(`The max drawdown is measured as a positive size (10 = a 10% fall), so ${v}% is read as a fall ${c.op[0] === '<' ? 'deeper' : 'shallower'} than ${-v}%: ${indExpr(c.lhs, own)} ${flip} ${fmtN(-v / 100)}.`);
+        }
+        if (['tret', 'ret'].includes(c.lhs.k) && v <= -100 && c.op !== '==') e.push(`A return cannot fall below -100%, so comparing it with ${v}% is always true or always false.`);
+        if (c.op === '==') w.push(`${L} is equal to ${v}: exact equality rarely holds for a value computed from prices, so the condition may almost never be true.`);
+        return;
+      }
       const a = UNIT[c.lhs.k], b = UNIT[c.rhs.k];
-      if (a && b && a !== b) out.push(`Different units: ${INDK[c.lhs.k].label} is ${UNIT_TXT[a]}, ${INDK[c.rhs.k].label} is ${UNIT_TXT[b]}; the condition compares numbers on different scales (e.g. RSI 70 vs a $400 average is always below).`);
-      else if (a === 'price' && b === 'price' && (c.lhs.t || own) && (c.rhs.t || own) && (c.lhs.t || own) !== (c.rhs.t || own)) out.push(`Compares the price level of ${c.lhs.t || own} with that of ${c.rhs.t || own}: prices of different tickers are not comparable (compare returns instead).`);
+      if (a && b && a !== b) w.push(`Different units: ${L} is ${UNIT_TXT[a]}, ${INDK[c.rhs.k].label} is ${UNIT_TXT[b]}; the condition compares numbers on different scales (e.g. RSI 70 vs a $400 average is always below).`);
+      else if (a === 'price' && b === 'price' && (c.lhs.t || own) && (c.rhs.t || own) && (c.lhs.t || own) !== (c.rhs.t || own)) w.push(`Compares the price level of ${c.lhs.t || own} with that of ${c.rhs.t || own}: prices of different tickers are not comparable (compare returns instead).`);
     });
-    return out;
+    return { e, w };
   }
   function validateNode(n, errs) {
     const e = [], w = [], t = typeOf(n);
@@ -1124,21 +1191,23 @@ window.addEventListener('blur', unpress);
         const tot = (n.w || []).reduce((a, b) => a + (+b || 0), 0) * 100;
         if (Math.abs(tot - 100) > 0.01) e.push(`Weights add up to ${+tot.toFixed(2)}% — they must total 100% (negative weights are allowed for shorts).`);
       }
-      if (LOOKBACK[n.weights] && n.lookback != null && !(n.lookback >= 2)) e.push('The lookback must be at least 2 days.');
+      if (LOOKBACK[n.weights] && n.lookback != null && !(Number.isInteger(+n.lookback) && n.lookback >= 2)) e.push('The lookback must be a whole number of days, at least 2.');
     }
-    if (t === 'if') { if (!(n.if || '').trim()) e.push('Enter a condition.'); const on = (n.on || 'SPY').toUpperCase(); if (!known(on)) e.push(tickerMsg(on)); checkRuleTickers(n.if, e); unitWarnings(n.if, on).forEach(m => w.push(m)); }
+    if (t === 'if') { if (!(n.if || '').trim()) e.push('Enter a condition.'); const on = (n.on || 'SPY').toUpperCase(); if (!known(on)) e.push(tickerMsg(on)); checkRuleTickers(n.if, e);
+      e.push(...winErrors(n.if)); const u = unitChecks(n.if, on); e.push(...u.e); w.push(...u.w); }
     if (t === 'filter') {
       const f = n.filter;
       if (!(f.by || '').trim()) e.push('Choose what to rank by.');
-      if (!(f.n >= 1)) e.push('Pick at least 1.');
-      checkRuleTickers(f.by, e); checkRuleTickers(f.require, e); if (f.require) unitWarnings(f.require, null).forEach(m => w.push(m));
+      if (!(Number.isInteger(+f.n) && +f.n >= 1)) e.push('Pick a whole number, at least 1.');
+      checkRuleTickers(f.by, e); checkRuleTickers(f.require, e); e.push(...winErrors(f.by), ...winErrors(f.require));
+      if (f.require) { const u = unitChecks(f.require, null); e.push(...u.e); w.push(...u.w); }
       if (n.universe !== 'NDX') {
         const k = n.children || [];
         if (!k.length) e.push('Empty list: add assets to choose from.');
         if (k.some(c => typeOf(c) !== 'asset')) w.push('Groups in this list are ranked by their own simulated value (as if each were a fund).');
         if (k.length && f.n >= k.length) w.push(`Top ${f.n} of ${k.length} always holds all of them.`);
       }
-      if (LOOKBACK[f.weights] && f.lookback != null && !(f.lookback >= 2)) e.push('The lookback must be at least 2 days.');
+      if (LOOKBACK[f.weights] && f.lookback != null && !(Number.isInteger(+f.lookback) && f.lookback >= 2)) e.push('The lookback must be a whole number of days, at least 2.');
     }
     errs.set(n, { e, w });
     kidsOf(n).forEach(c => validateNode(c, errs));
@@ -1190,7 +1259,7 @@ window.addEventListener('blur', unpress);
     }
     if (t === 'filter') {
       const f = n.filter;
-      hd.append(sel([['top', 'top'], ['bottom', 'bottom']], f.select, v => f.select = v), inp(f.n, v => { f.n = Math.round(+v); revalidate(); }, { type: 'number', min: 1, style: 'width:60px' }),
+      hd.append(sel([['top', 'top'], ['bottom', 'bottom']], f.select, v => f.select = v), inp(f.n, v => { f.n = v === '' ? '' : +v; revalidate(); }, { type: 'number', min: 1, style: 'width:60px' }),
         el('span', { class: 'lab' }, 'by'), rankEditor(f), weightPicker(f, 'weights', 'lookback', false),
         el('span', { class: 'lab' }, 'from'), sel([['children', 'the list below'], ['NDX', 'Nasdaq-100 (point-in-time)']], n.universe === 'NDX' ? 'NDX' : 'children', v => { n.universe = v; if (v === 'NDX') delete n.children; else n.children = n.children || [{ asset: 'QQQ' }, { asset: 'SPY' }]; draw(); }));
       const req = el('label', { class: 'lab', style: 'display:inline-flex;gap:4px;align-items:center' }); const cb = el('input', { type: 'checkbox' }); cb.checked = !!f.require;
@@ -1226,7 +1295,9 @@ window.addEventListener('blur', unpress);
       kids.append(el('div', { class: 'lab' }, 'then'), renderNode(n.then, { kind: 'slot', owner: n, key: 'then' }));
       kids.append(el('div', { class: 'lab' }, 'otherwise'), renderNode(n.else, { kind: 'slot', owner: n, key: 'else' }));
     }
-    if (t === 'filter') { if (!n.fallback) n.fallback = { cash: true }; kids.append(el('div', { class: 'lab' }, 'fallback (when nothing qualifies)'), renderNode(n.fallback, { kind: 'slot', owner: n, key: 'fallback' })); }
+    // no fallback = cash (as the simulator reads it): shown as a cash block, written only when changed here, so a
+    // loaded strategy runs unchanged ("Edit as blocks" then Run)
+    if (t === 'filter') kids.append(el('div', { class: 'lab' }, 'fallback (when nothing qualifies)'), renderNode(n.fallback || { cash: true }, { kind: 'slot', owner: n, key: 'fallback' }));
     box.append(kids);
     return box;
   }
@@ -1373,7 +1444,8 @@ window.addEventListener('blur', unpress);
       if (GUARD_IGNORE.has(k) || ed.has(k) || (adv && (advKeys.has(k) || !(buildMode === 'portfolio' ? P_FIELDS : S_FIELDS).includes(k)))) return;
       if (k === 'universe' && (o.universe_name === 'NDX' || ed.has('universe'))) return;
       if (k === 'universe_name' && ed.has('universe')) return;
-      const nv = v => (k === 'cash_rate' && (v == null || v === 0) ? 0 : v);
+      // inert defaults compare equal: a look-back weighting's default window, a filter's cash fallback (= none)
+      const nv = v => (k === 'cash_rate' && (v == null || v === 0) ? 0 : k === 'tree' && v && typeof v === 'object' ? inertDefaults(v) : v);
       if (!sameVal(nv(o[k]), nv(run[k]))) out.push(k);
     });
     return out;
@@ -1393,6 +1465,15 @@ window.addEventListener('blur', unpress);
     if (n.weights && LOOKBACK[n.weights] && n.lookback == null) n.lookback = LOOKBACK[n.weights];
     if (n.filter && LOOKBACK[n.filter.weights] && n.filter.lookback == null) n.filter.lookback = LOOKBACK[n.filter.weights];
     (n.children || []).forEach(withDefaults); ['then', 'else', 'fallback'].forEach(k => withDefaults(n[k]));
+    return n;
+  }
+  function inertDefaults(t) {
+    const n = withDefaults(JSON.parse(JSON.stringify(t)));
+    (function strip(x) {
+      if (!x || typeof x !== 'object') return;
+      if (x.filter && x.fallback && x.fallback.cash === true && Object.keys(x.fallback).length === 1) delete x.fallback;
+      (x.children || []).forEach(strip); ['then', 'else', 'fallback'].forEach(k => strip(x[k]));
+    })(n);
     return n;
   }
   $('p_price_basis').addEventListener('change', () => { if (buildMode === 'portfolio') revalidate(); });

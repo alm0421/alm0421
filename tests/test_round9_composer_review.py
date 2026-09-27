@@ -340,7 +340,10 @@ def test_and_or_conditions_round_trip_as_condition_blocks(text):
     p = port(text)
     sym, _ = ce.export(p)
     ic = _ic(sym)
-    assert ic["step"] == "if-child" and "condition" in ic and "lhs-fn" not in ic
+    assert ic["step"] == "if-child" and "condition" in ic
+    # round 10: beside the block, the single-comparison fields repeat its last comparison, as in Composer's own exports
+    # (tests/fixtures/composer_frontrunner_2026.json; see test_round10_composer_review)
+    assert ic["lhs-fn"] and ic["comparator"] and "rhs-val" in ic
     assert len(sym["children"][0]["children"]) == 2              # one if-child and the else: no nested ifs
     back = Portfolio.from_dict(ci.convert(json.dumps(sym)))
     a, b = back.tree, p.tree
