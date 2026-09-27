@@ -517,7 +517,7 @@ def test_unbackticked_pine_calls(text, entry, exit_):
 @needs_data
 def test_pine_var_state_matches_a_pandas_count():
     s = parser.parse((PINE / "var_streak.pine").read_text())
-    assert s.entry == "pv_upDays >= 3" and s.exit_when == "pv_upDays == 0"
+    assert s.entry == "pv_upDays >= 3" and s.exit_when == "pv_upDays == 0 or close < ref(pv_peak, 1)"
     df = data.load("SPY")
     from backtester import expr
     st = pine_import.state_series(s.state_vars, expr.Namespace(df, ticker="SPY"))
@@ -667,3 +667,61 @@ def test_report_chart_draws_the_levels_the_engine_moved(fake, tmp_path):
         pg.wait_for_function("+document.querySelector('#pxChart canvas').dataset.lvPaths > 0")
         b.close()
     assert not errs
+
+
+# ------------------------------------------------------------ the site's form carries R-multiple scale-outs
+
+@pytest.fixture(scope="module")
+def site(tmp_path_factory):
+    import shutil
+    import subprocess
+    import threading
+    import time
+    from backtester import web
+    old = web.RUNS
+    web.RUNS = tmp_path_factory.mktemp("runs10")
+    port = 8860
+    try:
+        srv = web.ThreadingHTTPServer(("127.0.0.1", port), web.Handler)
+    except OSError:
+        if shutil.which("fuser"):
+            subprocess.run(["fuser", "-k", f"{port}/tcp"], capture_output=True)
+            time.sleep(1.0)
+        srv = web.ThreadingHTTPServer(("127.0.0.1", port), web.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{port}"
+    srv.shutdown()
+    srv.server_close()
+    web.RUNS = old
+
+
+@needs_data
+@pytest.mark.skipif(_chromium() is None, reason="headless Chromium not available")
+def test_build_form_round_trips_an_r_multiple_scale_out(site):
+    import json
+    import time
+    from playwright.sync_api import sync_playwright
+    text = "buy SPY when RSI(2) is below 10, stop at the low of the entry bar, sell a third at 1R, target 3R, since 2018"
+    errs = []
+    with sync_playwright() as p:
+        b = p.chromium.launch(executable_path=_chromium())
+        pg = b.new_page(viewport={"width": 1280, "height": 900})
+        pg.on("pageerror", lambda e: errs.append(str(e)))
+        pg.set_default_timeout(180_000)
+        pg.goto(site + "/#backtest")
+        pg.fill("#text", text)
+        pg.wait_for_function("document.querySelector('#interp').textContent.includes('1R') && "
+                             "document.querySelector('#interp').textContent.includes('2018')")
+        time.sleep(1.0)
+        pg.click("#toBuild")
+        pg.wait_for_selector("#bSignal:not(.hide)")
+        time.sleep(1.0)
+        assert pg.input_value("#s_scale_out") == "33.3333333333@1R"
+        with pg.expect_request(lambda r: "/api/run" in r.url) as rq:
+            pg.click("#buildRun")
+        body = json.loads(rq.value.post_data)
+        so = body["spec"]["scale_out"]
+        assert so[0]["r"] == 1 and abs(so[0]["fraction"] - 1 / 3) < 1e-9
+        pg.wait_for_function("document.querySelector('#buildStatus').textContent.includes('CAGR')")
+        b.close()
+    assert not errs, errs

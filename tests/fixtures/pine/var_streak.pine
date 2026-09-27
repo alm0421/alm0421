@@ -16,7 +16,7 @@ peak := upDays == 0 ? close : math.max(nz(peak, close), close)
 
 if upDays >= 3 and strategy.position_size == 0
     strategy.entry("L", strategy.long)
-if upDays == 0
+if upDays == 0 or close < peak[1]
     strategy.close("L")
 
 plot(peak)

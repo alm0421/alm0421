@@ -1355,6 +1355,25 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
 
     # ---- the spec
     notes += [n for n in ctx.notes if n not in notes]     # notes the stop / target translation added
+    if kw.get("state_vars"):
+        # vars nothing reads (only plotted, say) are dropped: the backtest need not compute them
+        texts = [x for x in (long_rule, short_rule, exit_rule, ex.get("stop_level"), ex.get("target_level"),
+                             kw.get("entry_level")) if isinstance(x, str)]
+        read = set().union(*(expr_names(t) for t in texts)) if texts else set()
+        keep, changed = {v["name"] for v in kw["state_vars"] if v["name"] in read}, True
+        while changed:
+            changed = False
+            for v in kw["state_vars"]:
+                if v["name"] in keep:
+                    for t in [v.get("init")] + [u["value"] for u in v["updates"]] + [w[1] for u in v["updates"] for w in u["when"]]:
+                        if isinstance(t, str):
+                            new_ = {n_ for n_ in expr_names(t) if n_.startswith("pv_")} - keep
+                            if new_:
+                                keep |= new_
+                                changed = True
+        kw["state_vars"] = [v for v in kw["state_vars"] if v["name"] in keep]
+        if not kw["state_vars"]:
+            del kw["state_vars"]
     if not (exit_rule or ex or side == "both"):
         exit_rule = "False"
         notes.append("The script never exits (no strategy.close / strategy.exit): the position is held to the end, as in "

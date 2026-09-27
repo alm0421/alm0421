@@ -45,7 +45,7 @@ def _fractional_market(t) -> bool:
     return isinstance(t, str) and bool(re.search(r"-(?:USD|USDT|EUR|BTC)$|=X$", t.upper()))
 
 
-TV_NOTE = "TradingView-compatible mode: entries and rule exits with no timing stated fill at the next bar's open (TradingView's default, process_orders_on_close = false), and when a stop and a target are both touched on one bar, the one TradingView's broker emulator reaches first is filled (open -> high -> low -> close if the open is nearer the high, else open -> low -> high -> close)."
+TV_NOTE = "TradingView-compatible mode: entries and rule exits with no timing stated fill at the next bar's open (TradingView's default, process_orders_on_close = false), and when a stop and a target are both touched on one bar, the one TradingView's broker emulator reaches first is filled (open -> high -> low -> close if the open is nearer the high, else open -> low -> high -> close); a trailing stop ratchets along that path inside the bar, a chandelier stop follows the current ATR, and quantities and the trade list are in the chart's split-adjusted units."
 
 
 
