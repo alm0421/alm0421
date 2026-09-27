@@ -663,6 +663,21 @@ overlap) and logs every candidate's score in `data/sims_log.txt`. The old large-
 big / high B/M alone) is too deep-value: tracking error 8.3% a year against VTV with 20% volatility against
 14.5%; 1/3 big-high + 2/3 big-neutral B/M tracks VTV with 3.6% and 16.5% volatility.
 
+**Fee and cost haircut.** The models are gross: index and Fama-French portfolio returns pay no expense
+ratio, trading costs, cash drag or tax leakage, and on their overlap they beat the funds by about 1-2% a year
+(VOTSIM 11.69% vs VOT 9.88%, VXUSSIM 7.36% vs VGTSX 5.95%, EFVSIM 7.69% vs EFV 6.03%). So before splicing,
+the data job takes a constant annual drag off each model segment (never off the real fund after it):
+`drag = max(expense ratio, min(3%, gap))`, where `gap` is how much the model's CAGR beat the fund that takes
+over from it on their overlap (full months, geometric: (1 + model) / (1 + fund) - 1, 0 when the fund did
+better) and the expense ratio is that fund's current one (a table in `scripts/fetch_data.py`, from the
+issuers' fund pages as of 2025; older, higher fees show up in the gap). The drag is taken daily in
+proportion to calendar time, so monthly-stepped models pay the same per year. With it, a model's CAGR on the
+overlap equals the fund's (unless the fund did better or the gap hit the 3% cap, which flags model error
+rather than costs). `data/sims_log.txt` logs each series' drag, its basis and the check; `data/sims_drag.json`
+holds the figures; SIM descriptions on the site and backtests that hold a SIM during its model period state
+it ("model periods are net of an estimated X%/yr fee/cost drag"). Series with no model (TIPSIM, HYGSIM,
+MUBSIM, EMBSIM: real funds only) are untouched.
+
 **Fund-exact series.** VTISIM, VXUSSIM, VWOSIM, VNQSIM, BNDSIM, VBSIM, VBRSIM, VBKSIM, VTVSIM and VUGSIM
 become the named fund as soon as it or its Vanguard mutual-fund twin (same index, same manager) exists, so a
 named portfolio run from 1972 holds, for example, the US market model until April 1992, VTSMX until

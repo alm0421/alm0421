@@ -863,6 +863,144 @@ def _splice(sim_ret: pd.Series, *reals: str) -> pd.Series:
     return 100 * (1 + _splice_returns(sim_ret, *reals)).cumprod()
 
 
+# ---- fee / cost haircut of the MODEL segment of each SIM
+#
+# The models (Fama-French portfolios, index returns, par bonds priced off yields) are gross: no expense ratio,
+# no trading costs, no cash drag, no securities-lending or tax leakage. On their overlap with the real funds
+# they beat them by about 1-2% a year (data/sims_log.txt). Before splicing, each model's returns are cut by a
+# constant annual drag: the geometric CAGR gap between the model and the fund that takes over from it, on their
+# overlap (full months), floored at that fund's expense ratio and capped at SIM_DRAG_CAP. The real fund segment is
+# never touched (it is already net of every cost).
+#
+# Expense ratios (annual, as fractions) of the funds a model hands over to, and of the ETFs after them. Sources:
+# each issuer's fund page / latest prospectus (Vanguard, iShares, SPDR, Invesco, PIMCO, Fidelity), as of 2025,
+# rounded to 0.01%. These are CURRENT figures: most were higher decades ago (VTSMX charged 0.25% in the 1990s),
+# which the overlap calibration picks up as part of the measured gap. Only used as the floor of the drag.
+SIM_EXPENSE_RATIOS = {
+    "SPY": 0.000945, "BIL": 0.001356, "VTSMX": 0.0014, "VTI": 0.0003, "TLT": 0.0015, "IEF": 0.0015, "SHY": 0.0015,
+    "IEI": 0.0015, "VIVAX": 0.0017, "VTV": 0.0004, "VIGRX": 0.0017, "VUG": 0.0004, "VISVX": 0.0019, "VBR": 0.0007,
+    "VISGX": 0.0019, "VBK": 0.0007, "NAESX": 0.0017, "VB": 0.0005, "VOE": 0.0007, "VOT": 0.0007, "MDY": 0.0023,
+    "IJH": 0.0005, "EFA": 0.0035, "VGK": 0.0006, "SCZ": 0.0040, "AVDV": 0.0036, "EFV": 0.0033, "LQD": 0.0014,
+    "VBMFX": 0.0015, "BND": 0.0003, "PFORX": 0.0050, "BNDX": 0.0007, "EEM": 0.0070, "VEIEX": 0.0029, "VWO": 0.0007,
+    "VGTSX": 0.0017, "VXUS": 0.0005, "VGSIX": 0.0027, "VNQ": 0.0013, "GLD": 0.0040, "DBC": 0.0085, "PCRIX": 0.0074,
+    "VWESX": 0.0021, "VCLT": 0.0004, "EWJ": 0.0050, "EWU": 0.0050, "EWG": 0.0050, "EWC": 0.0050, "EWA": 0.0050,
+    "EWQ": 0.0050, "EWL": 0.0050, "EWH": 0.0050,
+}
+SIM_DRAG_CAP = 0.03          # a larger gap is model error, not costs: never haircut more than 3% a year
+SIM_DRAG: dict[str, dict] = {}   # ticker -> the drag applied this run (written to data/sims_drag.json)
+SIM_DRAG_FILE = ROOT / "data" / "sims_drag.json"
+
+
+def overlap_cagrs(model: pd.Series, fund: pd.Series) -> tuple[float, float, int, str, str] | None:
+    """(model CAGR, fund CAGR, months, first month, last month) of two daily return series on their overlap,
+    in full calendar months (the partial first and last months are dropped), or None under 12 months."""
+    s, r = model.dropna(), fund.dropna()
+    if s.empty or r.empty:
+        return None
+    lo, hi = max(s.index[0], r.index[0]), min(s.index[-1], r.index[-1])
+    if lo >= hi:
+        return None
+    both = pd.concat({"m": s, "e": r}, axis=1).loc[lo:hi].fillna(0.0)
+    mo = ((1 + both).groupby(both.index.to_period("M")).prod() - 1).iloc[1:-1]
+    if len(mo) < 12:
+        return None
+    yrs = len(mo) / 12
+    cm = float((1 + mo["m"]).prod() ** (1 / yrs) - 1)
+    ce = float((1 + mo["e"]).prod() ** (1 / yrs) - 1)
+    return cm, ce, len(mo), str(mo.index[0]), str(mo.index[-1])
+
+
+def calibrate_drag(model: pd.Series, fund: pd.Series, expense_ratio: float, cap: float = SIM_DRAG_CAP) -> dict:
+    """The annual drag for a model that hands over to `fund`: the geometric CAGR gap (1 + model) / (1 + fund) - 1
+    on their overlap (0 when the fund did better), at least `expense_ratio`, at most `cap` (and never below the
+    expense ratio even when that exceeds the cap). Without 12 overlapping months: the expense ratio alone."""
+    out = {"expense_ratio": float(expense_ratio), "gap": None, "months": 0, "overlap": None,
+           "model_cagr": None, "fund_cagr": None}
+    ov = overlap_cagrs(model, fund)
+    if ov is None:
+        out["drag"] = float(expense_ratio)
+        out["basis"] = "expense ratio (no overlap to calibrate on)"
+        return out
+    cm, ce, n, a, b = ov
+    gap = max(0.0, (1 + cm) / (1 + ce) - 1)
+    drag = max(float(expense_ratio), min(cap, gap))
+    out.update(gap=gap, months=n, overlap=f"{a}..{b}", model_cagr=cm, fund_cagr=ce, drag=drag,
+               basis=("expense ratio (the model did not beat the fund)" if gap <= expense_ratio else
+                      f"overlap gap capped at {cap:.0%}" if gap > cap else "overlap gap"))
+    return out
+
+
+def apply_drag(ret: pd.Series, drag: float, before=None) -> pd.Series:
+    """Daily returns with a constant annual `drag` taken out: each row's growth is divided by (1 + drag) ** years,
+    years = the calendar days since the previous row / 365.25 (1/252 for the first row), so a monthly-stepped
+    series pays the same drag per year as a daily one. Only rows before `before` (a date) are changed."""
+    ret = ret.dropna().sort_index()
+    if not drag or ret.empty:
+        return ret
+    idx = pd.DatetimeIndex(ret.index)
+    days = np.array(pd.Series(idx, index=idx).diff().dt.days, dtype=float)
+    days[0] = 365.25 / 252
+    f = (1 + float(drag)) ** (-days / 365.25)
+    if before is not None:
+        f = np.where(idx < pd.Timestamp(before), f, 1.0)
+    return pd.Series((1 + ret.to_numpy()) * f - 1, index=ret.index)
+
+
+def _handover(reals: tuple[str, ...]) -> tuple[str, pd.Series]:
+    """The first real fund of a splice that has data (the one that takes over from the model) and its returns
+    from its '@since' date on; ("", empty) when none has data."""
+    for real in reals:
+        t, _, since = real.partition("@")
+        r = _real_returns(t)
+        if since:
+            r = r[r.index >= pd.Timestamp(since)]
+        if len(r):
+            return t, r
+    return "", pd.Series(dtype=float)
+
+
+def haircut_model(t: str, sim_ret: pd.Series, reals: tuple[str, ...]) -> pd.Series:
+    """The model's daily returns net of its fee/cost drag (calibrate_drag against the fund it hands over to),
+    logged to SIM_NOTES and recorded in SIM_DRAG. Only the model rows before the hand-over date change; the
+    splice then replaces everything from that date with the fund itself."""
+    fund, r = _handover(reals)
+    etf = reals[-1].partition("@")[0] if reals else ""
+    er = SIM_EXPENSE_RATIOS.get(fund, SIM_EXPENSE_RATIOS.get(etf, 0.0))
+    if fund and fund not in SIM_EXPENSE_RATIOS:
+        _simnote(f"drag {t}: no expense ratio on file for {fund}; using {etf}'s ({er:.2%})")
+    cal = calibrate_drag(sim_ret, r, er) if fund else {"expense_ratio": er, "drag": er, "gap": None, "months": 0,
+                                                       "overlap": None, "basis": "expense ratio (no fund data)"}
+    until = r.index[0] if len(r) else None
+    net = apply_drag(sim_ret, cal["drag"], before=until)
+    # the check: the whole model with the same drag, against the fund on their overlap (after the hand-over date,
+    # where the spliced series is the fund itself)
+    after = overlap_cagrs(apply_drag(sim_ret, cal["drag"]), r) if len(r) else None
+    SIM_DRAG[t] = {"drag": cal["drag"], "expense_ratio": cal["expense_ratio"], "fund": fund or etf,
+                   "gap": cal["gap"], "overlap": cal["overlap"],
+                   "months": cal["months"], "basis": cal["basis"],
+                   "model_until": None if until is None else str(pd.Timestamp(until).date())}
+    _simnote(f"drag {t}: {cal['drag']:.2%}/yr taken off the model before {SIM_DRAG[t]['model_until'] or 'the end'} "
+             f"(hands over to {fund or 'no fund'}; expense ratio {er:.2%}; "
+             + (f"model beat the fund by {cal['gap']:.2%}/yr on {cal['overlap']} ({cal['months']} months)"
+                if cal["gap"] is not None else "no overlap to calibrate on")
+             + f"; basis: {cal['basis']})"
+             + (f"; with the drag the model returns {after[0]:.2%}/yr vs the fund's {after[1]:.2%} on the overlap" if after else ""))
+    return net
+
+
+def write_sim_drag(path: Path = SIM_DRAG_FILE) -> None:
+    """Merge this run's drags into data/sims_drag.json (a series that failed this run keeps its old entry, as
+    its price file is kept too)."""
+    try:
+        old = json.loads(path.read_text()).get("series", {}) if path.exists() else {}
+    except Exception:  # noqa: BLE001
+        old = {}
+    old.update(SIM_DRAG)
+    path.write_text(json.dumps({"cap": SIM_DRAG_CAP, "method": "max(expense ratio, min(cap, model/fund CAGR gap on "
+                                "their overlap)), taken daily off the model segment before the fund's first day",
+                                "series": dict(sorted(old.items()))}, indent=1))
+
+
 SIM_LOG: list[str] = []     # failures (with a traceback)
 SIM_NOTES: list[str] = []   # validation of each model against the real fund on their overlap
 
@@ -1076,12 +1214,17 @@ def build_sims() -> list[str]:
     source is logged in data/sims_log.txt and never stops the others."""
     made: list[str] = []
 
-    def build(t: str, sim_ret: pd.Series, reals: tuple[str, ...], note: str, validate: str | None = None) -> None:
+    def build(t: str, sim_ret: pd.Series, reals: tuple[str, ...], note: str, validate: str | None = None,
+              model: bool = True) -> None:
+        """`model=False`: sim_ret is itself a real fund's return (net of its costs), so no fee/cost drag."""
         sim_ret = sim_ret.dropna()
         if sim_ret.empty:
             raise RuntimeError("empty model series")
         if validate:
-            _validate(t, sim_ret, validate)
+            _validate(t, sim_ret, validate)   # the gross model: the gap it shows calibrates the drag
+        if model:
+            sim_ret = haircut_model(t, sim_ret, reals)
+            note += f" (model period net of an estimated {SIM_DRAG[t]['drag']:.2%}/yr fee/cost drag)"
         level = _splice(sim_ret, *reals)
         for a, b, n in internal_gaps(level):
             # a data-quality failure, logged as one (the series is still written; the loader notes the hole)
@@ -1255,14 +1398,16 @@ def build_sims() -> list[str]:
         # TIPS were first issued in 1997: the Vanguard Inflation-Protected Securities fund (VIPSX, June
         # 2000) is the longest real history; no model before it
         r = _real_returns("VIPSX")
-        build("TIPSIM", r, ("TIP",), "US TIPS: Vanguard Inflation-Protected Securities fund (VIPSX) from 2000, then TIP")
+        build("TIPSIM", r, ("TIP",), "US TIPS: Vanguard Inflation-Protected Securities fund (VIPSX) from 2000, then TIP",
+              model=False)
     attempt("TIPSIM", tips)
 
     def high_yield():
         # FRED's ICE BofA high-yield total-return index only covers the last three years; the Vanguard
         # High-Yield Corporate fund (VWEHX, Yahoo history from 1985) is the longest free record
         r = _real_returns("VWEHX")
-        build("HYGSIM", r, ("HYG",), "US high-yield bonds: Vanguard High-Yield Corporate fund (VWEHX) from 1985, then HYG")
+        build("HYGSIM", r, ("HYG",), "US high-yield bonds: Vanguard High-Yield Corporate fund (VWEHX) from 1985, then HYG",
+              model=False)
     attempt("HYGSIM", high_yield)
 
     def intl_bonds():
@@ -1377,7 +1522,7 @@ def build_sims() -> list[str]:
         r = _real_returns("VWITX")
         _validate("MUBSIM (VWITX)", r, "MUB")
         build("MUBSIM", r, ("MUB",), "US municipal bonds: Vanguard Intermediate-Term Tax-Exempt fund (VWITX) from "
-              "its Yahoo history, then MUB from 2007 (no model before)")
+              "its Yahoo history, then MUB from 2007 (no model before)", model=False)
     attempt("MUBSIM", munis)
 
     def em_bonds():
@@ -1385,7 +1530,7 @@ def build_sims() -> list[str]:
         r = _real_returns("FNMIX")
         _validate("EMBSIM (FNMIX)", r, "EMB")
         build("EMBSIM", r, ("EMB",), "emerging-market USD bonds: Fidelity New Markets Income fund (FNMIX) from 1993, "
-              "then EMB (no model before)")
+              "then EMB (no model before)", model=False)
     attempt("EMBSIM", em_bonds)
 
     # single countries: Fama-French country indexes (USD, value-weighted, dividends; monthly from 1975),
@@ -1958,6 +2103,7 @@ def main() -> None:
     }
     (ROOT / "data" / "universe.json").write_text(json.dumps(meta, indent=1))
     KEYED_FILE.write_text(json.dumps(sorted(KEYED_OK), indent=1))
+    write_sim_drag()
     (ROOT / "data" / "sims_log.txt").write_text(
         ("\n".join(SIM_LOG) if SIM_LOG else "all simulated series built") + "\n\n"
         + "Model vs fund on their overlap:\n" + "\n".join(SIM_NOTES) + "\n")

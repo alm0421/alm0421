@@ -56,6 +56,10 @@ def _corporate_action_note(spec: Spec, res: Result) -> None:
         n = data.corporate_action_note(held, eq.index[0], eq.index[-1])
         if n and n not in spec.notes:
             spec.notes.append(n)
+        # SIM series held during their model period: that period is net of an estimated fee/cost drag
+        n = data.sim_drag_note([t for t in held if data.is_sim(t)], eq.index[0], eq.index[-1])
+        if n and n not in spec.notes:
+            spec.notes.append(n)
     except Exception:  # noqa: BLE001 - a note must never break a backtest
         pass
 

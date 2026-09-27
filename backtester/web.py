@@ -804,7 +804,7 @@ def api_status(_body=None):
     st = data.data_status()
     st["last_bar"] = last_bar_date()
     return report._clean({"data": st, "examples": EXAMPLES, "nasdaq100": data.nasdaq100(),
-                          "sims": [{"ticker": t, "about": data.SIMS.get(t, "simulated long history")} for t in data.sims()],
+                          "sims": [{"ticker": t, "about": data.sim_about(t)} for t in data.sims()],
                           "etfs": data.etfs(), "funds": data.funds(), "indexes": m.get("indexes", []),
                           "former": m.get("former_members", []), "help": expr.HELP,
                           "tickers": data.available_tickers(), "factor_models": _factor_models()})
