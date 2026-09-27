@@ -89,7 +89,10 @@ def asset_stats(ticker: str, start, end, rf="tbill", first_date=None, basis: str
 
 def analyze(tickers: list[str], freq: str = "monthly", window: int | None = None, start=None, end=None,
             pair: list[str] | None = None, rf="tbill") -> dict:
-    tickers = list(dict.fromkeys(data.canonical(t) for t in tickers if str(t).strip()))
+    from .parser import resolve_asset_list
+    tickers, name_notes = resolve_asset_list(tickers)       # asset-class names -> their series, as in the parser
+    if pair:
+        pair = resolve_asset_list(pair)[0]
     if len(tickers) < 2:
         raise ValueError("Give at least two tickers.")
     if len(tickers) > MAX_ASSETS:
@@ -98,7 +101,7 @@ def analyze(tickers: list[str], freq: str = "monthly", window: int | None = None
         raise ValueError("freq must be daily or monthly")
     if start and end and pd.Timestamp(start) >= pd.Timestamp(end):
         raise ValueError(f"The start {start} is not before the end {end}.")
-    notes = []
+    notes = list(name_notes)
     if freq == "daily":
         # a series that moves in monthly steps (a monthly source spread over daily sessions) has no daily
         # co-movement to measure: use monthly returns

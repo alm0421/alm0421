@@ -127,6 +127,7 @@ class Settings:
     glide_years: int | None = None                # years to reach the end mix (default: the horizon)
     glide: str = "linear"                         # "linear", "target_date", or ignored when glide_points is given
     glide_points: list[tuple[float, float]] | None = None   # explicit schedule: (year, fraction of the way 0..1)
+    input_notes: list[str] = field(default_factory=list)    # how the inputs were read (asset-class names -> series)
 
 
 # ------------------------------------------------------------------ history
@@ -465,6 +466,7 @@ def run(s: Settings) -> dict:
     S_full = None
     if s.horizon not in ("fixed", "mortality", None, ""):
         raise ValueError("horizon must be 'fixed' or 'mortality'")
+    notes.extend(n for n in (s.input_notes or []) if n not in notes)
     if s.horizon == "mortality":
         from . import lifetable
         S_full, who = mortality_curve(s)
@@ -884,8 +886,14 @@ def historical_withdrawal_rates(monthly: pd.Series, start: float = 1.0, every: i
     return out
 
 
-def parse_weights(text: str) -> dict[str, float]:
-    """'SPY 60 TLT 40', 'SPY:60,TLT:40', '60% SPY, 40% TLT' or 'SPY TLT' (equal) -> {ticker: weight}."""
+def parse_weights(text: str, notes: list | None = None) -> dict[str, float]:
+    """'SPY 60 TLT 40', 'SPY:60,TLT:40', '60% SPY, 40% TLT' or 'SPY TLT' (equal) -> {ticker: weight}. Asset-class
+    names ('US Stock Market 60, Total Bond Market 40') are read as their series, as in the parser; `notes`, if
+    given, receives a note for each."""
+    from .parser import resolve_asset_names
+    text, got = resolve_asset_names(text)
+    if notes is not None:
+        notes.extend(n for n in got if n not in notes)
     toks = [t for t in text.replace(",", " ").replace(":", " ").replace("=", " ").split() if t]
     out: dict[str, float] = {}
     pending_w, last_t = None, None

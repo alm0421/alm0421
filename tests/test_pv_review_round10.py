@@ -116,3 +116,180 @@ def test_qqq_withdrawals_cagr_until_depleted():
                                   "$1,000,000, since 2000"))
     A = report.analyze(res, sensitivity=False, mc=False)
     assert A["stats"]["cagr"] == pytest.approx(-0.2054, abs=0.002)
+
+
+# ------------------------------------------------------------ 2. asset-class names in the analysis tools
+
+AC = {"VTISIM", "BNDSIM", "GLDSIM", "VBRSIM", "SPY", "TLT"}
+needs_ac = pytest.mark.skipif(not AC <= set(data.available_tickers()), reason="long-history series not downloaded")
+
+
+@needs_ac
+def test_asset_class_names_resolve_like_the_parser():
+    from backtester import parser
+    out, notes = parser.resolve_asset_names("US Stock Market 60, Total Bond Market 40")
+    assert out == "VTISIM 60, BNDSIM 40" and len(notes) == 2 and "VTISIM" in notes[0]
+    assert parser.resolve_asset_names("SPY 60 TLT 40") == ("SPY 60 TLT 40", [])
+    assert parser.resolve_asset_names("VTI, Gold")[0] == "VTI, GLDSIM"
+    assert parser.resolve_asset_list(["US", "Stock", "Market", "TLT"])[0] == ["VTISIM", "TLT"]     # unquoted CLI words
+    assert parser.resolve_asset_list(["US Stock Market", "Gold"])[0] == ["VTISIM", "GLDSIM"]
+    from backtester.montecarlo import parse_weights
+    nn = []
+    assert parse_weights("US Stock Market 60, Total Bond Market 40", nn) == {"VTISIM": 60.0, "BNDSIM": 40.0} and len(nn) == 2
+
+
+@needs_ac
+def test_asset_class_names_in_correlation_factors_style_optimiser_and_monte_carlo():
+    from backtester import correlation, factors, research, style, web
+    R = correlation.analyze(["US Stock Market, Total Bond Market, Gold"], pair=["US Stock Market", "Gold"])
+    assert R["tickers"] == ["VTISIM", "BNDSIM", "GLDSIM"] and R["rolling"]["pair"] == ["VTISIM", "GLDSIM"]
+    assert any("read as VTISIM" in n for n in R["notes"])
+    r, name = factors.returns_for("US Small Cap Value")
+    assert name == "VBRSIM" and r.attrs["input_notes"]
+    F = factors.analyze(r, "ff3", "monthly", "2000-01-01")
+    assert any("read as VBRSIM" in n for n in F["notes"])
+    r2, name2 = factors.returns_for({"US Stock Market": 60, "Total Bond Market": 40})
+    assert name2 == "60% VTISIM / 40% BNDSIM"
+    S = style.analyze(data.load("SPY")["adj_close"].pct_change().dropna(), "US Stock Market, Total Bond Market, Gold",
+                      start="2005-01-01")
+    assert set(S["weights"]) == {"VTISIM", "BNDSIM", "GLDSIM"} and any("read as BNDSIM" in n for n in S["notes"])
+    O = research.optimize(["US Stock Market, Total Bond Market, Gold"], start="2000-01-01", methods=["max_sharpe"],
+                          constraints=["Gold <= 20%"])
+    w = O["portfolios"]["Max Sharpe"]["weights"]
+    assert set(w) == {"VTISIM", "BNDSIM", "GLDSIM"} and w["GLDSIM"] <= 0.2 + 1e-6
+    assert any("read as GLDSIM" in n for n in O["notes"])
+    M = web.api_montecarlo({"weights": "US Stock Market 60, Total Bond Market 40", "years": 5, "sims": 200})
+    assert M["settings"]["weights"] == {"VTISIM": 0.6, "BNDSIM": 0.4}
+    assert any("read as VTISIM" in n for n in M["notes"])
+
+
+# ------------------------------------------------------------ 3. custom series: benchmarks, and ending early
+
+@pytest.fixture
+def custom(tmp_path, monkeypatch):
+    monkeypatch.setattr(data, "CUSTOM", tmp_path / "custom")
+    data.clear_caches()
+    yield tmp_path / "custom"
+    data.clear_caches()
+
+
+def _import_spy_monthly(name, start="1995-01", end="2019-12"):
+    from backtester import custom_series as cs
+    a = data.load("SPY")["adj_close"]
+    me = a.groupby(a.index.to_period("M")).last()
+    r = me.pct_change().dropna().loc[start:end]
+    cs.import_series(name, "date,return\n" + "\n".join(f"{p.end_time.date()},{v * 100:.8f}%" for p, v in r.items()))
+
+
+@pytest.mark.skipif(not {"SPY", "VBMFX"} <= set(data.available_tickers()), reason="price data not downloaded")
+def test_custom_series_as_benchmark_and_ending_early(custom):
+    from backtester import parser, runner
+    _import_spy_monthly("MYFUNDX")
+    p = parser.parse("hold 50% MYFUNDX and 50% VBMFX, rebalance yearly, since 1995, vs MYFUNDX")
+    assert p.benchmark == "MYFUNDX"
+    res = runner.run(p)
+    # the custom series ends in 2019: the backtest ends there (not held in cash to today), with a Warning
+    assert res.equity.index[-1] == pd.Timestamp("2019-12-31")
+    assert any(n.startswith("Warning: the data of MYFUNDX (2019-12-31, custom series)") for n in p.notes)
+    assert not (res.orders["reason"] == "delisted").any()
+    A = report.analyze(res, sensitivity=False, mc=False, detail=False)
+    assert A["primary_benchmark"] == "MYFUNDX buy & hold"
+    p2 = parser.parse("hold 50% SPY and 50% VBMFX, rebalance yearly, since 1995, vs 60% MYFUNDX 40% VBMFX")
+    assert p2.benchmark == "60% MYFUNDX / 40% VBMFX"
+    assert runner.run(p2).equity.index[-1] == pd.Timestamp("2019-12-31")     # the benchmark ends there too
+    # a plain ticker blend without separators is read too
+    assert parser.parse("hold 50% SPY and 50% VBMFX, since 1995, vs 60% SPY 40% VBMFX").benchmark == "60% SPY / 40% VBMFX"
+
+
+def test_series_ending_early_ends_the_run_but_a_delisting_does_not(fake, monkeypatch):
+    fake["A"] = frame(walk(1))
+    fake["B"] = frame(walk(2))[:400]
+    tree = {"weights": "equal", "children": [{"asset": "A"}, {"asset": "B"}]}
+    monkeypatch.setattr(data, "delisted", lambda: {})
+    monkeypatch.setattr(data, "nasdaq100_ever", lambda: [])
+    p = pf.Portfolio(tree=tree, rebalance="monthly", cash_rate=None)
+    r = pf.run(p)
+    assert r.equity.index[-1] == fake["B"].index[-1] and p.notes[0].startswith("Warning: the data of B")
+    monkeypatch.setattr(data, "delisted", lambda: {"B": {"last_date": str(fake["B"].index[-1].date())}})
+    p2 = pf.Portfolio(tree=tree, rebalance="monthly", cash_rate=None)
+    r2 = pf.run(p2)
+    assert r2.equity.index[-1] == fake["A"].index[-1]
+    assert any(n.startswith("Delisted: B") for n in p2.notes)
+
+
+# ------------------------------------------------------------ 4. benchmark partial first years
+
+@pytest.mark.skipif(not {"SPY", "QQQ", "SPYSIM", "TLTSIM"} <= set(data.available_tickers()), reason="data not downloaded")
+def test_benchmark_partial_first_year_is_labelled():
+    from backtester import parser, runner
+    res = runner.run(parser.parse("hold 60% SPYSIM and 40% TLTSIM, rebalance yearly, since 1990"))
+    A = report.analyze(res, sensitivity=False, mc=False)
+    assert A["benchmark_partial"]["SPY buy & hold"] == {"year": 1993, "from": "1993-01-29"}
+    assert A["benchmark_partial"]["QQQ buy & hold"]["year"] == 1999
+    txt = report.console_summary(A)
+    assert "*" in next(x for x in txt.splitlines() if x.startswith("1993 "))
+    assert "SPY 1993 (from Jan 29)" in txt and "QQQ 1999 (from Mar 10)" in txt
+    tpl = (report.Path(report.__file__).with_name("report_template.html")).read_text()
+    assert "benchmark_partial" in tpl
+
+
+# ------------------------------------------------------------ 5. grid report labels, frontier ticks
+
+def test_head_to_head_uses_the_real_starting_amount(fake):
+    fake["A"] = frame(walk(4))
+    fake["SPY"] = fake["QQQ"] = frame(walk(9))
+    p = pf.Portfolio(tree={"asset": "A"}, rebalance="none", cash_rate=None, capital=100_000, withdrawal=3_000,
+                     withdrawal_freq="yearly")
+    res = pf.run(p)
+    A = report.analyze(res, sensitivity=False, mc=False, detail=False)
+    A["benchmarks"] = {}
+    A["benchmarks_with_flows"] = {}
+    C = report.common_window_stats([A])
+    assert C["initial"] == 100_000 and C["has_flows"]
+    col = C["columns"]["Strategy"]
+    px = fake["A"]["close"]
+    assert col["end_equity"] == pytest.approx(100_000 * px.iloc[-1] / px.iloc[0], rel=1e-9)
+    assert col["final_balance"] == pytest.approx(float(res.equity.iloc[-1]))
+    tpl = (report.Path(report.__file__).with_name("report_template.html")).read_text()
+    assert "Final value of $10,000" not in tpl and "Growth of ${usd(C.initial" in tpl
+    assert "Details for ${R().name}" in tpl
+    rt = (report.Path(report.__file__).with_name("research_template.html")).read_text()
+    assert "niceStep" in rt and "pct(vv, 0)" not in rt
+
+
+# ------------------------------------------------------------ 6. proxies before inception (opt-in)
+
+def test_splice_proxy_joins_on_the_first_day():
+    a = frame(walk(7, n=300), start="2010-01-01")
+    b = frame(walk(8, n=100), start="2010-10-01")
+    b["close"] *= 3
+    out = pf.splice_proxy(b, a)
+    assert out.index[0] == a.index[0] and out.index[-1] == b.index[-1]
+    r = out["close"].pct_change()
+    ra = a["close"].pct_change()
+    t0 = b.index[0]
+    assert r[t0] == pytest.approx(ra[t0], rel=1e-12)                       # the join day has the proxy's return
+    pre = out.index < t0
+    np.testing.assert_allclose(r[pre].iloc[1:].to_numpy(), ra[a.index < t0].iloc[1:].to_numpy(), rtol=1e-9, atol=1e-15)
+    assert (out.loc[out.index >= t0, "close"] == b["close"]).all()
+
+
+@pytest.mark.skipif(not {"TIPSIM", "IEFSIM", "EEMSIM", "EFASIM", "VTISIM", "VNQSIM"} <= set(data.available_tickers()),
+                    reason="long-history series not downloaded")
+def test_named_portfolio_can_start_earlier_with_stated_proxies():
+    from backtester import parser, runner
+    p = parser.parse("Swensen portfolio, rebalance yearly, since 1980")
+    assert not p.proxies
+    runner.run(p)
+    w = next(n for n in p.notes if n.startswith("Warning: You asked to start on 1980"))
+    assert "with proxies before inception" in w and "IEFSIM for TIPSIM" in w
+    q = parser.parse("Swensen portfolio, rebalance yearly, since 1980, with proxies before inception")
+    assert q.proxies == {"EEMSIM": "EFASIM", "TIPSIM": "IEFSIM"}
+    assert "Before inception (opt-in proxies)" in q.summary()
+    res = runner.run(q)
+    assert res.equity.index[1] < pd.Timestamp("1980-01-10")
+    assert any(n.startswith("Proxy before inception (opt-in): IEFSIM (intermediate Treasuries) stands in for TIPSIM")
+               for n in q.notes)
+    assert res.holdings["TIPSIM"].loc["1985"].mean() > 0.1
+    from backtester import runner as rn
+    assert rn.from_dict(rn.to_dict(q)).proxies == q.proxies

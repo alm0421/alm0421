@@ -310,6 +310,17 @@ def benchmark_coverage(benches: dict[str, pd.Series], first_bar) -> dict[str, st
     return {k: str(b.index[0].date()) for k, b in benches.items() if len(b) and b.index[0] > lim}
 
 
+def benchmark_partial_years(benches: dict[str, pd.Series], first_bar) -> dict[str, dict]:
+    """{benchmark: {"year", "from"}} for a benchmark that starts after the strategy's first bar partway through a
+    year (SPY from 1993-01-29, QQQ from 1999-03-10): its first yearly return is for part of that year only."""
+    out = {}
+    for k, d in benchmark_coverage(benches, first_bar).items():
+        f = pd.Timestamp(d)
+        if f.month > 1 or f.day > 7:
+            out[k] = {"year": int(f.year), "from": str(f.date())}
+    return out
+
+
 def benchmarks_with_flows(benches: dict[str, pd.Series], flows: pd.Series | None,
                           equity: pd.Series | None = None, with_paid: bool = False):
     """The benchmarks' dollar values when they receive the portfolio's own contributions and
@@ -492,6 +503,21 @@ def stepped_holdings(res: Result, min_weight: float = 0.05) -> dict[str, list]:
                     keep.append((ra, rb))
             if keep:
                 out[t] = keep
+        # an opted-in proxy before a holding's inception (Portfolio.proxies): its monthly steps are that holding's
+        for t, px in (getattr(res.strategy, "proxies", None) or {}).items():
+            if t not in hw.columns:
+                continue
+            try:
+                t0 = data.load(t).index[0]
+            except (FileNotFoundError, data.DataError, KeyError, IndexError):
+                continue
+            for ra, rb in data.stepped_in([px], a, min(b, t0)).get(px, []):
+                rb = min(rb, t0)
+                w = hw[t][(hw.index >= ra) & (hw.index <= rb)].abs()
+                if len(w) and float(w.mean()) >= min_weight:
+                    out.setdefault(t, []).append((ra, rb))
+            if t in out:
+                out[t] = sorted(out[t])
     else:
         tr = res.trades
         if tr is None or tr.empty:
@@ -1170,6 +1196,7 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
         "stats": stats, "cash": metrics.cashflow_stats(res.equity, flows if has_flows else None),
         "trade_stats": tstats, "exposure": expo, "relative": rel, "primary_benchmark": pname,
         "benchmarks": benches, "benchmark_from": benchmark_coverage(benches, first_bar),
+        "benchmark_partial": benchmark_partial_years(benches, first_bar),
         "yearly": yearly, "monthly": monthly, "depleted": dep.date() if dep is not None else None,
         "return_basis": basis,
         "stepped": {t: [[str(a.date()), str(b.date())] for a, b in r] for t, r in stepped.items()},
@@ -1255,14 +1282,21 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
     return A
 
 
-def _window_stats(series: dict, start, end, fb, rf, blank, monthly=()) -> dict:
+def _window_stats(series: dict, start, end, fb, rf, blank, monthly=(), base: float = 10_000,
+                  balances: dict | None = None) -> dict:
+    """Stats of each series over start..end as the growth of `base` (the runs' starting amount). `balances`:
+    {name: dollar account value with the cash flows}, whose value at the end is added as "final_balance"."""
     out = {}
     for k, s in series.items():
         seg = s[(s.index >= start) & (s.index <= end)]
         seg = seg[seg.index >= seg[seg > 0].index[0]] if (seg > 0).any() else seg.iloc[:0]
         if len(seg) < 30:
             continue
-        st = metrics.equity_stats(seg / seg.iloc[0] * 10_000, rf, first_bar=fb)
+        st = metrics.equity_stats(seg / seg.iloc[0] * base, rf, first_bar=fb)
+        if balances and k in balances and len(balances[k]):
+            b = balances[k][balances[k].index <= seg.index[-1]]
+            if len(b):
+                st["final_balance"] = float(b.iloc[-1])
         if k in monthly:   # holds a series that moves in monthly steps: as in its own report
             st = metrics.monthly_basis(st, seg, rf)
         out[k] = metrics.suppress_degenerate(st) if k in blank else st
@@ -1276,25 +1310,38 @@ def common_window_stats(analyses: list[dict], rf="tbill") -> dict:
     default benchmark such as QQQ neither cuts the runs' period short nor sits under the common-period heading with
     other dates. Also over the whole test period where each exists ("full"; later starters in "full_from")."""
     series, blank, runs, monthly = {}, set(), [], set()
+    # growth of the runs' own starting amount (not a fixed $10,000); with cash flows the growth is time-weighted
+    # (the flows left out) and each account's real final balance is given as well
+    base = float(analyses[0]["nav"].iloc[0]) if len(analyses[0]["nav"]) and analyses[0]["nav"].iloc[0] > 0 else 10_000.0
+    balances: dict = {}
+    has_flows = False
     for i, A in enumerate(analyses):
         name = _run_name(A["result"], i) if len(analyses) > 1 else "Strategy"
         series[name] = A["nav"]
         runs.append(name)
+        fl = A["result"].extras.get("flows")
+        if fl is not None and float(fl.abs().sum()) > 0:
+            has_flows = True
+            balances[name] = A["result"].equity
         if A.get("no_trades"):
             blank.add(name)
         if A.get("return_basis") == "monthly":
             monthly.add(name)
     for k, v in analyses[0]["benchmarks"].items():
         series[k] = v
+    if has_flows:
+        balances.update(analyses[0].get("benchmarks_with_flows") or {})
     start = max(series[k].index[0] for k in runs)
     end = min(series[k].index[-1] for k in runs)
     fb = next((A.get("first_bar") for A in analyses if A.get("first_bar") is not None and A["result"].equity.index[0] == start), None)
-    out = {"start": metrics.display_date(start, fb).date(), "end": end.date(), "columns": {}}
+    out = {"start": metrics.display_date(start, fb).date(), "end": end.date(), "columns": {}, "initial": base,
+           "has_flows": has_flows}
     clim = (pd.Timestamp(fb) if fb is not None else start) + pd.Timedelta(days=LATE_DAYS)
     late = [k for k in series if k not in runs and len(series[k]) and series[k].index[0] > clim]
-    out["columns"] = _window_stats({k: v for k, v in series.items() if k not in late}, start, end, fb, rf, blank, monthly)
+    out["columns"] = _window_stats({k: v for k, v in series.items() if k not in late}, start, end, fb, rf, blank, monthly,
+                                   base, balances)
     out["columns_from"] = {}   # kept for older readers: nothing in "columns" starts later any more
-    own = _window_stats({k: series[k] for k in late}, start, end, fb, rf, blank)
+    own = _window_stats({k: series[k] for k in late}, start, end, fb, rf, blank, base=base, balances=balances)
     out["benchmarks_own"] = own
     out["benchmarks_own_from"] = {k: str(metrics.display_date(series[k].index[0], fb).date()) for k in own}
     out["benchmarks_own_to"] = {k: str(min(series[k].index[-1], end).date()) for k in own}
@@ -1302,7 +1349,7 @@ def common_window_stats(analyses: list[dict], rf="tbill") -> dict:
     fstart = min(A["nav"].index[0] for A in analyses)
     fend = max(A["nav"].index[-1] for A in analyses)
     ffb = next((A.get("first_bar") for A in analyses if A["nav"].index[0] == fstart), None)
-    out["full"] = _window_stats(series, fstart, fend, ffb, rf, blank, monthly)
+    out["full"] = _window_stats(series, fstart, fend, ffb, rf, blank, monthly, base, balances)
     out["full_start"] = metrics.display_date(fstart, ffb).date()
     out["full_end"] = fend.date()
     lim = (pd.Timestamp(ffb) if ffb is not None else fstart) + pd.Timedelta(days=LATE_DAYS)
@@ -1508,17 +1555,25 @@ def console_summary(A: dict) -> str:
                  + head)
     else:
         L.append(f"{'Year':8s} {'Strategy':>9s} {'MaxDD':>8s} {'Trades':>6s} " + head)
+    bpart = A.get("benchmark_partial") or {}
     for yr, row in y.iterrows():
         lab = f"{yr}{'*' if row.get('partial') else ''}"   # the footnote names the dates
-        tail = " ".join(_fit(pct(row[c], 1) if pd.notna(row[c]) else '', w, right=True) for c, w in zip(cols, widths))
+        # a benchmark's own partial first year (it starts later in that year) is starred too
+        tail = " ".join(_fit((pct(row[c], 1) + ("*" if (bpart.get(c) or {}).get("year") == int(yr) else ""))
+                             if pd.notna(row[c]) else '', w, right=True) for c, w in zip(cols, widths))
         if alloc:
             L.append(f"{lab:8s} {pct(row['return'], 1):>8s} {pct(row.get('real_return'), 1):>7s} {pct(row.get('inflation'), 1):>6s} "
                      f"{row.get('start_balance', np.nan):>13,.0f} {row.get('contributions', 0):>11,.0f} {row.get('withdrawals', 0):>11,.0f} "
                      f"{row.get('end_balance', np.nan):>13,.0f} " + tail)
         else:
             L.append(f"{lab:8s} {pct(row['return'], 1):>9s} {pct(row['max_drawdown'], 1):>8s} {int(row['trades']):>6d} " + tail)
-    if y["partial"].any():
-        L.append("* partial year: " + ", ".join(_partial_text(yr, row) for yr, row in y[y["partial"].astype(bool)].iterrows()))
+    years_shown = {int(x) for x in y.index}
+    bparts = [f"{short_label(c.replace(' blend', ''))} {_partial_text(v['year'], {'from': v['from']})}"
+              for c, v in bpart.items() if c in cols and v["year"] in years_shown]
+    if y["partial"].any() or bparts:
+        own = ", ".join(_partial_text(yr, row) for yr, row in y[y["partial"].astype(bool)].iterrows())
+        L.append("* partial year: " + "; ".join(([own] if own else [])
+                                                + ([", ".join(bparts) + ", each benchmark from its first day of data"] if bparts else [])))
     if alloc and "inflation" in y:
         L.append("Infl. = CPI inflation over the calendar year (December to December; a partial year to the latest month "
                  "published). Real = the return after that inflation.")
@@ -1688,6 +1743,7 @@ def build_payload(analyses: list[dict], out_dir: Path | None = None) -> dict:
         "benchmark_yearly": {n: {int(y): float(v) for y, v in metrics.yearly_returns({n: b})[n].items()} for n, b in benches.items()},
         "common": common_window_stats(analyses, analyses[0]["rf"]),
         "benchmark_from": first.get("benchmark_from") or {},
+        "benchmark_partial": first.get("benchmark_partial") or {},
         # CPI relative to the first date (divide a dollar series by it for dollars of the start date)
         "deflator": _deflator(idx),
         "rf": analyses[0]["rf"],

@@ -151,7 +151,14 @@ code { background:var(--surface-2); padding:2px 6px; border-radius:6px; font-siz
     const vx = pts.map(p => p[0]), vy = pts.map(p => p[1]); const x0 = 0, x1 = Math.max(...vx) * 1.1, y0 = Math.min(0, ...vy), y1 = Math.max(...vy) * 1.1;
     const X = v => m.l + (v - x0) / (x1 - x0) * iw, Y = v => m.t + (1 - (v - y0) / (y1 - y0)) * ih;
     const svg = S('svg', { viewBox: `0 0 ${W} ${H}`, height: H });
-    for (let k = 0; k <= 4; k++) { const v = y0 + (y1 - y0) * k / 4; svg.append(S('line', { x1: m.l, x2: m.l + iw, y1: Y(v), y2: Y(v), stroke: css('--grid') })); const tx = S('text', { x: m.l - 6, y: Y(v) + 4, 'text-anchor': 'end' }); tx.textContent = pct(v, 0); svg.append(tx); const vv = x0 + (x1 - x0) * k / 4, tx2 = S('text', { x: X(vv), y: H - 8, 'text-anchor': 'middle' }); tx2.textContent = pct(vv, 0); svg.append(tx2); }
+    // round tick steps (1, 2 or 5 x 10^n) with as many decimals as the step needs (0.5% steps print 0.5%, 1.0%, ...);
+    // the volatility axis leaves out its 0% label next to the return axis's own 0%
+    const niceStep = span => { const raw = (span || 1e-4) / 4, p10 = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p10; return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p10; };
+    const tickDec = step => Math.max(0, Math.min(3, Math.ceil(-Math.log10(step * 100) - 1e-9)));
+    const ticks = (a, b) => { const st = niceStep(b - a), out = []; for (let v = Math.ceil(a / st - 1e-9) * st; v <= b + 1e-12; v += st) out.push(Math.abs(v) < st * 1e-6 ? 0 : v); return [out, tickDec(st)]; };
+    const [yt, yd] = ticks(y0, y1), [xt, xd] = ticks(x0, x1);
+    yt.forEach(v => { svg.append(S('line', { x1: m.l, x2: m.l + iw, y1: Y(v), y2: Y(v), stroke: css('--grid') })); const tx = S('text', { x: m.l - 6, y: Y(v) + 4, 'text-anchor': 'end' }); tx.textContent = pct(v, yd); svg.append(tx); });
+    xt.forEach(v => { if (v === 0 && yt.length && Math.abs(Y(yt[0]) - (m.t + ih)) < 12) return; const tx2 = S('text', { x: X(v), y: H - 8, 'text-anchor': 'middle' }); tx2.textContent = pct(v, xd); svg.append(tx2); });
     const lab = S('text', { x: m.l + iw, y: m.t + ih - 6, 'text-anchor': 'end' }); lab.textContent = 'volatility →'; svg.append(lab);
     const lab2 = S('text', { x: m.l + 4, y: m.t + 10 }); lab2.textContent = '↑ expected return'; svg.append(lab2);
     if (D.frontier.length) svg.append(S('path', { d: 'M' + D.frontier.map(p => X(p.vol).toFixed(1) + ',' + Y(p.return).toFixed(1)).join('L'), fill: 'none', stroke: col(0), 'stroke-width': 2 }));

@@ -383,7 +383,8 @@ def cmd_optimize(argv: list[str]) -> int:
 def _load_target(a):
     """(weights or None, spec or None) from --weights / --spec / --run / a sentence."""
     if getattr(a, "weights", None):
-        return parse_weights(a.weights), None
+        a.input_notes = getattr(a, "input_notes", None) or []
+        return parse_weights(a.weights, a.input_notes), None
     if getattr(a, "spec", None):
         return None, runner.load(a.spec)
     if getattr(a, "run", None):
@@ -469,7 +470,8 @@ def cmd_montecarlo(argv: list[str]) -> int:
     else:
         s.weights, s.series_name = mc.settings_from_spec(spec, s)
     if a.glide_to:
-        s.glide_to, s.glide_years, s.glide = parse_weights(a.glide_to), a.glide_years, a.glide
+        a.input_notes = getattr(a, "input_notes", None) or []
+        s.glide_to, s.glide_years, s.glide = parse_weights(a.glide_to, a.input_notes), a.glide_years, a.glide
         if a.glide_points:
             s.glide_points = mc.parse_glide_points(a.glide_points)
     elif a.glide_years or a.glide_points:
@@ -477,6 +479,7 @@ def cmd_montecarlo(argv: list[str]) -> int:
     if not flows and spec is not None and hasattr(spec, "contribution"):
         flows = mc.flows_from_portfolio(spec)
     s.flows = flows
+    s.input_notes = list(getattr(a, "input_notes", None) or [])
     R = mc.run(s)
     if a.json:
         print(json.dumps(report._clean(R), indent=2))
@@ -502,12 +505,13 @@ def cmd_factors(argv: list[str]) -> int:
     p.add_argument("--end")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
-    if a.text and not a.weights and " " not in a.text.strip():
-        target = a.text.strip()
+    if a.text and not a.weights and not a.spec and not a.run:
+        target = a.text.strip()          # a ticker, an asset-class name ("US Small Cap Value") or a sentence
     else:
         w, spec = _load_target(a)
         target = w if w is not None else spec
     r, name = F.returns_for(target)
+    r.attrs["input_notes"] = list(getattr(a, "input_notes", None) or []) + list(r.attrs.get("input_notes") or [])
     R = F.analyze(r, a.model, a.freq, a.start, a.end, a.rolling, name=name)
     print(json.dumps(report._clean(R), indent=2) if a.json else F.console(R))
     return 0
@@ -523,19 +527,21 @@ def cmd_style(argv: list[str]) -> int:
     p.add_argument("--weights", help="portfolio, e.g. 'SPY 60 TLT 40' (rebalanced monthly)")
     p.add_argument("--spec")
     p.add_argument("--run", help="id of a saved run from the site")
-    p.add_argument("--assets", help="asset-class tickers to use instead of the defaults, e.g. 'SPY EFA AGG BIL'")
+    p.add_argument("--assets", help="asset-class tickers or names to use instead of the defaults, e.g. 'SPY EFA AGG BIL' "
+                                    "or 'US Stock Market, International Stocks, Total Bond Market, T-Bills'")
     p.add_argument("--window", type=int, default=36, help="rolling window in months (default 36)")
     p.add_argument("--start")
     p.add_argument("--end")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
-    if a.text and not a.weights and " " not in a.text.strip():
-        target = a.text.strip()
+    if a.text and not a.weights and not a.spec and not a.run:
+        target = a.text.strip()          # a ticker, an asset-class name ("US Small Cap Value") or a sentence
     else:
         w, spec = _load_target(a)
         target = w if w is not None else spec
     r, name = F.returns_for(target)
-    assets = a.assets.replace(",", " ").split() if a.assets else None
+    r.attrs["input_notes"] = list(getattr(a, "input_notes", None) or []) + list(r.attrs.get("input_notes") or [])
+    assets = a.assets or None            # tickers or asset-class names ("SPY, Total Bond Market, Gold")
     R = ST.analyze(r, assets, a.start, a.end, a.window, name=name)
     print(json.dumps(report._clean(R), indent=2) if a.json else ST.console(R))
     return 0
@@ -554,9 +560,8 @@ def cmd_correlation(argv: list[str]) -> int:
     p.add_argument("--end")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
-    tickers = [t for x in a.tickers for t in x.replace(",", " ").split()]
-    pair = a.pair.replace(",", " ").split() if a.pair else None
-    R = K.analyze(tickers, a.freq, a.window, a.start, a.end, pair)
+    pair = a.pair if a.pair else None     # tickers or asset-class names, read by correlation.analyze
+    R = K.analyze(a.tickers, a.freq, a.window, a.start, a.end, pair)
     print(json.dumps(report._clean(R), indent=2) if a.json else K.console(R))
     return 0
 

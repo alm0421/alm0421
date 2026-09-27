@@ -151,6 +151,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   <div class="interp" id="interp"></div>
   <div id="notes"></div>
 
+  <h2 class="hide" id="detailsFor" style="margin:14px 0 8px"></h2>
   <div class="tiles" id="tiles"></div>
 
   <div class="card">
@@ -645,7 +646,11 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const cols = Object.keys(data);
     const lab = c => short(c) + (from[c] ? ` (from ${from[c]})` : '');
     const rows = [
-      ['Final value of $10,000', s => usd(s.end_equity)], ['CAGR', s => pct(s.cagr)], ['Real CAGR (after inflation)', s => pct(s.real_cagr)],
+      // the growth of the runs' own starting amount; with cash flows that growth is time-weighted (flows left out),
+      // and the account's real final balance follows
+      [C.has_flows ? `Growth of ${usd(C.initial || 10000)} (time-weighted, without the cash flows)` : `Final value of ${usd(C.initial || 10000)}`, s => usd(s.end_equity)],
+      ...(C.has_flows ? [['Final balance (with the cash flows)', s => s.final_balance != null ? usd(s.final_balance) : '—']] : []),
+      ['CAGR', s => pct(s.cagr)], ['Real CAGR (after inflation)', s => pct(s.real_cagr)],
       ['Volatility', s => pct(s.volatility, 1)], ['Sharpe', s => num(s.sharpe)], ['Sortino', s => num(s.sortino)],
       ['Sharpe (monthly)', s => num(s.sharpe_monthly)], ['Calmar', s => num(s.calmar)], ['Max drawdown (daily)', s => pct(s.max_drawdown, 1)],
       ['Max drawdown (month-end)', s => pct(s.max_drawdown_monthly, 1)],
@@ -1482,6 +1487,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     if (t && (t[0] < 12 || t[1] < 24)) bits.push('to ' + MON[t[0] - 1] + ' ' + t[1]);
     return String(y.year) + (bits.length ? ' (' + bits.join(', ') + ')' : '*');
   }
+  const BPART = D.benchmark_partial || {};
   function drawYearly() {
     const years = [...new Set(D.runs.flatMap(r => r.yearly.map(y => y.year)))].sort();
     const ser = D.runs.map((r, i) => ({ name: multi ? r.name : 'Strategy', color: runColor(i), values: years.map(y => { const f = r.yearly.find(x => x.year === y); return f ? f.return : null; }) }))
@@ -1501,9 +1507,13 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       : [yrLabel(y), { t: pct(y.return, 1), c: signCls(y.return) }, pct(y.max_drawdown, 1), y.trades, y.trades ? pct(y.win_rate, 0) : '—', usd(y.pnl), pct(y.exposure, 0), usd(y.end_equity)];
     table($('yrTbl'), head, r.yearly.map(y => ownCells(y)
       .concat(D.runs.filter((_, i) => i !== sel).map(o => { const f = o.yearly.find(x => x.year === y.year); return f ? { t: pct(f.return, 1), c: signCls(f.return) } : '—'; }))
-      .concat(bn.map(n => { const v = D.benchmark_yearly[n][y.year]; return { t: pct(v, 1), c: signCls(v) }; }))));
+      .concat(bn.map(n => { const v = D.benchmark_yearly[n][y.year], bp = BPART[n];
+        // a benchmark's own partial first year (it starts later in that year: SPY 1993 from Jan 29) is starred
+        return bp && bp.year === y.year && isNum(v) ? { t: pct(v, 1) + '*', c: signCls(v), title: `${short(n)} starts ${bp.from}: its ${bp.year} return is from that day` } : { t: pct(v, 1), c: signCls(v) }; }))));
     const parts = r.yearly.filter(y => y.partial);
+    const bparts = bn.filter(n => BPART[n] && r.yearly.some(y => y.year === BPART[n].year)).map(n => `${short(n)} ${yrLabel({ year: BPART[n].year, partial: true, from: BPART[n].from })}`);
     $('partialNote').textContent = (parts.length ? 'Partial year' + (parts.length > 1 ? 's' : '') + ': ' + parts.map(y => `${y.year} (${y.from || ''} → ${y.to || ''})`).join(', ') + ' (not annualised). ' : '')
+      + (bparts.length ? '* Benchmark partial first year' + (bparts.length > 1 ? 's' : '') + ': ' + bparts.join(', ') + ', each from its first day of data. ' : '')
       + (alloc ? 'Return is time-weighted (cash flows removed); balances are the account itself.' : 'Closed trades, win rate and P&L count trades by the year they closed.');
   }
 
@@ -1745,7 +1755,10 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   $('tradeFilter').addEventListener('input', e => { tradeFilter = e.target.value; drawTrades(); });
   $('orderFilter').addEventListener('input', () => drawTrades());
 
-  function drawRun() { header(); tiles(); drawRiskTables(); drawTrailing(); drawAssets(); drawAssetYears(); drawPrice(); drawAlloc(); drawRiskContrib(); drawAttribution(); drawYearly(); drawHeat(); drawRolling(); drawMisc(); drawTradeCharts(); drawTrades(); }
+  // with several runs, the per-run sections below the comparison say whose details they are (also in the PDF, where
+  // the "Details for" picker is not printed)
+  function detailsFor() { const e = $('detailsFor'); e.classList.toggle('hide', !multi); if (multi) e.textContent = `Details for ${R().name}: ${R().title}`; }
+  function drawRun() { detailsFor(); header(); tiles(); drawRiskTables(); drawTrailing(); drawAssets(); drawAssetYears(); drawPrice(); drawAlloc(); drawRiskContrib(); drawAttribution(); drawYearly(); drawHeat(); drawRolling(); drawMisc(); drawTradeCharts(); drawTrades(); }
   function drawAll() { drawEquity(); drawCompare(); drawRun(); }
 
   const ds = D.data || {};

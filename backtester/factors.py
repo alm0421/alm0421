@@ -490,13 +490,22 @@ def ols(y: np.ndarray, X: np.ndarray) -> dict:
 def returns_for(target) -> tuple[pd.Series, str]:
     """Daily total returns for a ticker, a {ticker: weight} dict (rebalanced monthly), or a spec."""
     from . import parser, portfolio, runner
-    if isinstance(target, str) and target.strip() and " " not in target.strip():
-        t = data.canonical(target)
-        r = data.load(t)["adj_close"].pct_change().dropna()
-        r.attrs["tickers"] = [t]
-        return r, t
+    from .parser import resolve_asset_names
+    if isinstance(target, str) and target.strip():
+        # a ticker, or an asset-class name ("US Small Cap Value") read as its series, as in the parser
+        rt, nn = resolve_asset_names(target.strip())
+        if " " not in rt.strip() and (nn or " " not in target.strip()):
+            t = data.canonical(rt.strip())
+            r = data.load(t)["adj_close"].pct_change().dropna()
+            r.attrs["tickers"] = [t]
+            r.attrs["input_notes"] = nn
+            return r, t
     if isinstance(target, dict):
-        w = {data.canonical(k): float(v) for k, v in target.items()}
+        w, nn = {}, []
+        for k, v in target.items():
+            rk, kn = resolve_asset_names(str(k))
+            w[data.canonical(rk.strip())] = w.get(data.canonical(rk.strip()), 0.0) + float(v)
+            nn += [n for n in kn if n not in nn]
         s = sum(w.values())
         if s <= 0:
             raise ValueError("Weights must add up to more than zero.")
@@ -505,6 +514,7 @@ def returns_for(target) -> tuple[pd.Series, str]:
         res = portfolio.run(p)
         r = metrics.nav(res.equity, res.extras.get("flows")).pct_change().dropna().iloc[1:]
         r.attrs["tickers"] = list(w)
+        r.attrs["input_notes"] = nn
         return r, " / ".join(f"{v / s:.0%} {k}" for k, v in w.items())
     spec = parser.parse(target) if isinstance(target, str) else target
     res = runner.run(spec)
@@ -518,7 +528,7 @@ def analyze(returns: pd.Series, model: str = "ff3", freq: str = "monthly", start
             rolling_months: int = 36, name: str = "") -> dict:
     if freq not in ("daily", "monthly"):
         raise ValueError("freq must be daily or monthly")
-    notes: list[str] = []
+    notes: list[str] = list(returns.attrs.get("input_notes") or [])
     if freq == "daily":
         # a holding that moves in monthly steps (a monthly source spread over daily sessions) has no daily returns
         # to regress: use months

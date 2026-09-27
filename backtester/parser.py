@@ -16,6 +16,8 @@ import re
 import threading
 from dataclasses import dataclass
 
+import pandas as pd
+
 from . import data
 from .portfolio import Portfolio
 from .portfolio import short_name as _pf_short_name
@@ -244,6 +246,36 @@ SIM_FOR = {
 }
 
 
+def _proxies_before_inception(tree: dict, start, notes: list[str]) -> dict:
+    """'with proxies before inception': {holding: proxy} for each fixed holding whose history begins after the
+    requested start and that has a stated proxy (portfolio.PROXIES_BEFORE_INCEPTION), with a note per sleeve.
+    Opt-in only: by default a backtest starts when every holding has data."""
+    from .portfolio import fixed_tickers, proxy_before
+    if not start:
+        notes.append("'With proxies before inception' needs a start date before a holding's history begins (e.g. "
+                     "'since 1972'); without one the backtest starts when every holding has data, so no proxy is used.")
+        return {}
+    s0 = pd.Timestamp(start)
+    out, missing = {}, []
+    for t in fixed_tickers(tree):
+        try:
+            first = data.load(t).index[0]
+        except Exception:  # noqa: BLE001 - reported when the portfolio runs
+            continue
+        if first <= s0 + pd.Timedelta(days=7):
+            continue
+        px = proxy_before(t, s0)
+        if px is None:
+            missing.append(f"{t} (from {first.date()})")
+            continue
+        out[t] = px              # the run notes each one, with its dates
+    if missing:
+        notes.append("No stated proxy for " + ", ".join(missing) + ": the backtest starts once it has data.")
+    if not out and not missing:
+        notes.append("'With proxies before inception': every holding has data from the start, so no proxy is used.")
+    return out
+
+
 def _model_portfolio(text: str, notes: list[str]) -> dict | None:
     """'golden butterfly' -> its weights node; with a start date before an ETF existed, the long-history
     series (SPYSIM, TLTSIM, ...) are used for the funds that have one, with a note."""
@@ -368,6 +400,59 @@ def _asset_class_ticker(phrase: str) -> tuple[str, str] | None:
                                + (f" ({t} stands in until the data job builds {opts[0]})" if t != opts[0] else "") + ".")
             return None
     return None
+
+
+def _custom_names_rx() -> str:
+    """A regex alternative of the imported (custom) series' names that a plain ticker pattern (1-5 letters) does
+    not cover ('myfundx', 'fund2'), longest first; '' when there are none."""
+    try:
+        names = [p.stem for p in data.CUSTOM.glob("*.csv")] if data.CUSTOM.exists() else []
+    except OSError:
+        names = []
+    names = sorted((n.lower() for n in names if len(n) > 5 or not n.isalpha()), key=len, reverse=True)
+    return "|".join(re.escape(n) for n in names)
+
+
+def resolve_asset_names(text: str) -> tuple[str, list[str]]:
+    """Asset-class names in a list of tickers or tickers with weights ('US Stock Market 60, Total Bond Market 40',
+    'VTI, Gold, TLT') -> their series, as the parser and the Backtest grid read them ('VTISIM 60, BNDSIM 40');
+    plus one note per name. A single word in capitals that is a ticker with data stays that ticker ('GOLD' is
+    Barrick Gold, 'Gold' the asset class); tickers and numbers are left alone."""
+    text = str(text or "")
+    if not re.search(r"[A-Za-z]{2}", text):
+        return text, []
+    known = _known()
+    notes: list[str] = []
+
+    def fix(m):
+        name = m.group(0)
+        if " " not in name and name == name.upper() and data.canonical(name) in known:
+            return name
+        hit = _asset_class_ticker(name)
+        if not hit:
+            return name
+        if hit[1] not in notes:
+            notes.append(hit[1])
+        return hit[0]
+    out = re.sub(rf"(?i)(?<![\w.$^-])(?:{ASSET_CLASS_RX})(?![\w-])", fix, text)
+    return out, notes
+
+
+def resolve_asset_list(items) -> tuple[list[str], list[str]]:
+    """A list of tickers and asset-class names (['US Stock Market', 'TLT'], or one string 'US Stock Market, TLT')
+    -> (canonical tickers, notes). Items that hold spaces are separate names; otherwise the words are read
+    together, so an unquoted 'US Stock Market TLT' on the command line works too."""
+    if isinstance(items, str):
+        items = [items]
+    items = [str(x) for x in (items or []) if str(x).strip()]
+    joined = ", ".join(items) if any(" " in x.strip() for x in items) else " ".join(items)
+    out, notes = resolve_asset_names(joined)
+    ticks: list[str] = []
+    for t in out.replace(",", " ").split():
+        c = data.canonical(t)
+        if c not in ticks:
+            ticks.append(c)
+    return ticks, notes
 
 
 def _asset_class_names(text: str) -> str:
@@ -2520,11 +2605,13 @@ def common_options(T: Text, notes: list[str]) -> dict:
     if "cash_rate" not in kw and T.find(r"(?:(?:with|and|plus) )?(?:t-?bill )?interest on (?:idle |uninvested )?cash|(?:with|plus) (?:t-?bill |cash )?interest\b"
                                         r"|(?:idle )?cash earns (?:the )?(?:3[- ]month )?(?:t-?bills?|treasury bills?|interest)(?: rate)?"):
         kw["cash_rate"] = "tbill"
-    # benchmark: a blend ("vs 60/40 SPY/AGG", "benchmark 60% SPY and 40% AGG"), or one ticker
-    BT = r"[\^$]?[a-z]{1,5}(?:sim)?(?:-usd)?"
+    # benchmark: a blend ("vs 60/40 SPY/AGG", "benchmark 60% SPY and 40% AGG"), or one ticker; imported (custom)
+    # series by name too ("vs MYFUNDX", "vs 60% MYFUNDX 40% VBMFX"), whatever their length
+    CT = _custom_names_rx()
+    BT = (rf"(?:{CT}|" if CT else "(?:") + r"[\^$]?[a-z]{1,5}(?:sim)?(?:-usd)?)"
     m = T.find(r"\b(?:compared? (?:it )?(?:to|with|against)|benchmark(?:ed)?(?: it)?(?: (?:to|against|with))?|versus|vs\.?|against) "
                r"(?:an? |the )?(?:(?P<ws>\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)+) (?P<ts>" + BT + r"(?:/" + BT + r")+)"
-               r"|(?P<list>\d+(?:\.\d+)?% " + BT + r"(?:(?:,? and |, ?| ?/ ?| plus )\d+(?:\.\d+)?% " + BT + r")+))"
+               r"|(?P<list>\d+(?:\.\d+)?% " + BT + r"(?:(?:,? and |, ?| ?/ ?| plus | )\d+(?:\.\d+)?% " + BT + r")+))"
                r"(?: blend| mix| portfolio)?(?![\w-])")
     if m:
         if m.group("ws"):
@@ -2543,7 +2630,7 @@ def common_options(T: Text, notes: list[str]) -> dict:
         kw["benchmark"] = " ".join(f"{w:g} {t}" for t, w in pairs)
         notes.append(f"Benchmark: a blend of {' / '.join(f'{w:g}% {t}' for t, w in pairs)}, total returns, rebalanced monthly.")
     m = None if "benchmark" in kw else T.find(r"\b(?:compared? (?:it )?(?:to|with|against)|benchmark(?:ed)?(?: it)?(?: (?:to|against))?|versus|vs\.?|against) "
-               r"(?!(?:t-?bills?|cash|treasury bills|the risk[- ]free rate)\b)([\^$]?[a-z]{1,5}(?:sim)?(?:-usd)?)(?![\w-])")
+               r"(?!(?:t-?bills?|cash|treasury bills|the risk[- ]free rate)\b)(" + BT + r")(?![\w-])")
     if m:
         b = data.canonical(m.group(1))
         if b not in _known():
@@ -2580,7 +2667,7 @@ SIGNAL_HINT = re.compile(
 
 BLEND_BENCH_RX = (r"(?i),?\s*\b(?:compared? (?:it )?(?:to|with|against)|benchmark(?:ed)?(?: it)?(?: (?:to|against|with))?|"
                   r"versus|vs\.?|against) (?:an? |the )?(?:\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)+ \S+|"
-                  r"\d+(?:\.\d+)?% \S+(?:(?:,? and |, ?| ?/ ?| plus )\d+(?:\.\d+)?% [\w^$-]+)+)(?: blend| mix| portfolio)?")
+                  r"\d+(?:\.\d+)?% \S+(?:(?:,? and |, ?| ?/ ?| plus | )\d+(?:\.\d+)?% [\w^$-]+)+)(?: blend| mix| portfolio)?")
 
 
 def looks_like_allocation(text: str) -> bool:
@@ -4949,6 +5036,9 @@ def parse_allocation(text: str) -> Portfolio:
     if T.find(r",? ?(?:and )?(?:(?:using|with|on|measured (?:on|over|with)) )?(?:(?:the )?calendar months?(?: returns?| lookbacks?)?"
               r"|(?:the )?month[- ]end (?:prices|closes|values)|month[- ]end to month[- ]end(?: returns?)?)"):
         tv["month_lookbacks"] = "calendar"
+    # opt-in: a stated proxy for a holding before its history begins ("with proxies before inception")
+    want_proxies = bool(T.find(r",? ?(?:and )?(?:with|using|use) (?:stated )?proxies(?: for (?:the )?(?:missing |late )?(?:sleeves?|holdings?|funds?))?"
+                               r" (?:before|until|prior to) (?:(?:the|their|its|each (?:fund|sleeve|holding)'s) )?(?:inception|launch)s?"))
     broker = _broker_costs(T, notes, sep=",? ?")
     kw = common_options(T, notes)
     kw.update(broker)
@@ -5188,6 +5278,8 @@ def parse_allocation(text: str) -> Portfolio:
     if any(re.search(r"\btret\(", r) for r in _rules(tree)):
         notes.append("Returns in the conditions are total returns (dividends reinvested, from adjusted prices).")
     p.benchmark = benchmark
+    if want_proxies:
+        p.proxies = _proxies_before_inception(tree, pk.get("start"), notes) or None
     if _has(tree, "filter", universe="NDX") and p.point_in_time:
         notes.append("Universe: Nasdaq-100 with point-in-time membership (stocks only selected while in the index; "
                      "former members included where price history exists).")

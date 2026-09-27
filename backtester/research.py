@@ -1070,7 +1070,18 @@ def optimize(tickers: list[str], start: str | None = None, end: str | None = Non
     hold the weights for the next N months; the stitched out-of-sample curve is compared with the
     static (full-period, hindsight) weights over the same months.
     """
-    tickers = list(dict.fromkeys(data.canonical(t) for t in tickers))
+    # asset-class names ("US Stock Market", "Gold") -> their series, as in the parser; also in the texts naming them
+    from .parser import resolve_asset_list, resolve_asset_names
+    tickers, name_notes = resolve_asset_list(tickers)
+
+    def _names(v):
+        if isinstance(v, str):
+            return resolve_asset_names(v)[0]
+        if isinstance(v, (list, tuple)):
+            return [resolve_asset_names(x)[0] if isinstance(x, str) else x for x in v]
+        return v
+    constraints, expected_returns, expected_vols, correlations, views, prior, benchmark = (
+        _names(v) for v in (constraints, expected_returns, expected_vols, correlations, views, prior, benchmark))
     if len(tickers) < 2:
         raise ValueError("Give at least two tickers.")
     bw = _bench_weights(benchmark) if benchmark not in (None, "", {}) else None
@@ -1103,7 +1114,7 @@ def optimize(tickers: list[str], start: str | None = None, end: str | None = Non
     opt = _Opt(inp["R"], tickers, rf, bounds, groups, min_weight, max_weight, omega_threshold,
                bench=inp["bench"], wb=wb, te_target=te_target)
     ports = {}
-    notes = list(inp["notes"])
+    notes = name_notes + list(inp["notes"])
     infeasible = {}
     meths = _methods(target_return, target_vol, methods, bench=bw is not None)
     targets = {"target_return": target_return, "target_vol": target_vol}

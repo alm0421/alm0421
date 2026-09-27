@@ -112,11 +112,15 @@ def analyze(returns: pd.Series, assets: dict[str, str] | list[str] | None = None
             window: int = 36, name: str = "") -> dict:
     """Style analysis of daily returns `returns` on monthly asset-class returns. `assets` is {label: ticker},
     a list of tickers, or None for the default asset classes."""
-    notes: list[str] = []
+    notes: list[str] = list(returns.attrs.get("input_notes") or [])
     if assets is None:
-        assets, notes = default_assets()
-    elif isinstance(assets, (list, tuple)):
-        assets = {data.canonical(t): data.canonical(t) for t in assets}
+        assets, dn = default_assets()
+        notes += dn
+    elif isinstance(assets, (list, tuple, str)):
+        from .parser import resolve_asset_list
+        ticks, an = resolve_asset_list(assets)          # asset-class names -> their series, as in the parser
+        notes += [n for n in an if n not in notes]
+        assets = {t: t for t in ticks}
     if len(assets) < 2:
         raise ValueError("Style analysis needs at least two asset classes with data.")
     y = monthly_returns(returns)

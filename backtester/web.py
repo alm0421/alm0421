@@ -1035,11 +1035,13 @@ def api_research(body, kind):
         research_report.write_walk(R, body["text"], out)
         label = "Walk-forward: " + body["text"]
     else:
-        tickers = [t for t in (body.get("tickers") or "").replace(",", " ").split() if t]
+        # tickers or asset-class names ("US Stock Market, Total Bond Market, Gold"), read as the parser reads them
+        raw = body.get("tickers") or ""
+        tickers, _ = parser.resolve_asset_list(raw)
         if len(tickers) < 2:
-            raise ClientError("Give at least two tickers.")
+            raise ClientError("Give at least two tickers or asset classes.")
         num = lambda k: float(body[k]) if body.get(k) not in (None, "") else None  # noqa: E731
-        R = research.optimize(tickers, body.get("start") or None, body.get("end") or None,
+        R = research.optimize(raw if isinstance(raw, list) else [raw], body.get("start") or None, body.get("end") or None,
                               float(body.get("max_weight") or 1), float(body.get("min_weight") or 0),
                               body.get("test_start") or None, constraints=body.get("constraints") or None,
                               target_return=num("target_return"), target_vol=num("target_vol"),
@@ -1080,14 +1082,25 @@ def _target_spec(body):
     return None
 
 
-def _weights(body) -> dict | None:
+def _weights(body, notes: list | None = None) -> dict | None:
+    """Tickers with weights ('SPY 60, TLT 40', or {ticker: weight}); asset-class names ('US Stock Market 60,
+    Total Bond Market 40') are read as their series, as in the parser, with a note each in `notes`."""
     w = body.get("weights")
     if not w:
         return None
     if isinstance(w, dict):
-        return {data.canonical(k): float(v) for k, v in w.items()}
+        out: dict = {}
+        for k, v in w.items():
+            rk, kn = parser.resolve_asset_names(str(k))
+            if notes is not None:
+                notes.extend(n for n in kn if n not in notes)
+            out[data.canonical(rk.strip())] = out.get(data.canonical(rk.strip()), 0.0) + float(v)
+        return out
     from .montecarlo import parse_weights
-    return parse_weights(str(w))
+    try:
+        return parse_weights(str(w), notes)
+    except ValueError as e:
+        raise ClientError(str(e))
 
 
 def api_montecarlo(body):
@@ -1125,13 +1138,14 @@ def api_montecarlo(body):
     s.start, s.end = body.get("start") or None, body.get("end") or None
     for t, v in (body.get("forecast") or {}).items():
         if v and v.get("ret") not in (None, "") and v.get("vol") not in (None, ""):
-            s.forecast[data.canonical(t)] = (float(v["ret"]), float(v["vol"]))
-    w = _weights(body)
+            s.forecast[data.canonical(parser.resolve_asset_names(str(t))[0].strip())] = (float(v["ret"]), float(v["vol"]))
+    in_notes: list = []
+    w = _weights(body, in_notes)
     spec = None if w else _target_spec(body)
     if body.get("glide_to"):
         if not w:
             raise ClientError("A glide path needs tickers with weights (the start mix), not a sentence or a saved run.")
-        s.glide_to = _weights({"weights": body["glide_to"]})
+        s.glide_to = _weights({"weights": body["glide_to"]}, in_notes)
         s.glide = str(body.get("glide") or "linear")
         if s.glide not in mc.GLIDES:
             raise ClientError(f"glide must be one of {', '.join(mc.GLIDES)}")
@@ -1171,12 +1185,13 @@ def api_montecarlo(body):
     if not flows and not body.get("flows") and spec is not None and hasattr(spec, "contribution"):
         flows = mc.flows_from_portfolio(spec)
     s.flows = flows
+    s.input_notes = in_notes
     R = mc.run(s)
     return report._clean(R)
 
 
-def _factor_target(body):
-    w = _weights(body)
+def _factor_target(body, notes: list | None = None):
+    w = _weights(body, notes)
     if w:
         return w
     if (body.get("ticker") or "").strip():
@@ -1189,7 +1204,9 @@ def _factor_target(body):
 
 def api_factors(body):
     from . import factors as F
-    r, name = F.returns_for(_factor_target(body))
+    in_notes: list = []
+    r, name = F.returns_for(_factor_target(body, in_notes))
+    r.attrs["input_notes"] = in_notes + list(r.attrs.get("input_notes") or [])
     model = (body.get("model") or "ff3").strip()
     addons = "".join(ch for ch in str(body.get("addons") or "").replace(" ", "+").replace(",", "+") if ch.isalnum() or ch in "+_")
     if addons.strip("+") and model != "auto":
@@ -1204,9 +1221,12 @@ def api_factors(body):
 def api_style(body):
     from . import factors as F
     from . import style as ST
-    r, name = F.returns_for(_factor_target(body))
+    in_notes: list = []
+    r, name = F.returns_for(_factor_target(body, in_notes))
+    r.attrs["input_notes"] = in_notes + list(r.attrs.get("input_notes") or [])
     raw = body.get("assets") or ""
-    assets = [t for t in (raw if isinstance(raw, list) else str(raw).replace(",", " ").split()) if str(t).strip()] or None
+    # a list, or one text of tickers / asset-class names ("SPY, Total Bond Market, Gold"): read by style.analyze
+    assets = ([str(t) for t in raw if str(t).strip()] if isinstance(raw, list) else str(raw).strip()) or None
     R = ST.analyze(r, assets, body.get("start") or None, body.get("end") or None,
                    int(body.get("window") or body.get("rolling_months") or 36), name=name)
     return report._clean(R)
@@ -1262,10 +1282,10 @@ def _factor_models() -> list[dict]:
 def api_correlation(body):
     from . import correlation
     raw = body.get("tickers") or ""
-    tickers = [t for t in (raw if isinstance(raw, list) else str(raw).replace(",", " ").split()) if str(t).strip()]
+    # a list, or one text of tickers / asset-class names ("US Stock Market, Total Bond Market, Gold"): read by
+    # correlation.analyze as the parser reads them
+    tickers = [str(t) for t in raw if str(t).strip()] if isinstance(raw, list) else [str(raw)]
     pair = body.get("pair")
-    if isinstance(pair, str):
-        pair = pair.replace(",", " ").split()
     try:
         window = int(body["window"]) if body.get("window") not in (None, "") else None
     except (TypeError, ValueError):

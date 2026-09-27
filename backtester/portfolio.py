@@ -163,6 +163,10 @@ class Portfolio:
     # "N month" lookbacks (ret / tret / tbill_ret over a multiple of 21 sessions): "trading" = that many sessions
     # (12 months = 252), "calendar" = month-end to month-end over N calendar months (Portfolio Visualizer, Antonacci)
     month_lookbacks: Literal["trading", "calendar"] = "trading"
+    # opt-in ("with proxies before inception"): {ticker: proxy}; before the ticker's first date the proxy's total return
+    # stands in for it (e.g. {"TIPSIM": "IEFSIM"}: intermediate Treasuries before TIPS exist), so a mix can start
+    # before one sleeve's history does. Default None: the backtest starts when every holding has data.
+    proxies: dict | None = None
     benchmark: str | dict | None = None          # comparison ticker for alpha/beta (default SPY), or a blend:
                                                  # "60 SPY 40 AGG" / {"SPY": 0.6, "AGG": 0.4} (rebalanced monthly)
     name: str = ""
@@ -210,6 +214,14 @@ class Portfolio:
         if self.benchmark not in (None, ""):
             from . import metrics
             self.benchmark = metrics.benchmark_label(self.benchmark)
+        if self.proxies not in (None, {}):
+            if not isinstance(self.proxies, dict) or not all(isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip()
+                                                             for k, v in self.proxies.items()):
+                raise ValueError("proxies is {ticker: proxy ticker}, e.g. {\"TIPSIM\": \"IEFSIM\"}")
+            self.proxies = {data.canonical(k): data.canonical(v) for k, v in self.proxies.items()}
+            for k, v in self.proxies.items():
+                if k == v:
+                    raise ValueError(f"proxies: {k} cannot stand in for itself")
         for f in ("contribution_freq", "withdrawal_freq"):
             if getattr(self, f) not in FLOW_FREQS:
                 raise ValueError(f"{f} must be one of {FLOW_FREQS}")
@@ -386,6 +398,10 @@ class Portfolio:
         cr = self.cash_rate
         lines.append("Cash: " + ("earns the 3-month T-bill rate" if cr == "tbill" else
                                  f"earns {float(cr):.2%}/yr" if cr else "earns nothing"))
+        if self.proxies:
+            lines.append("Before inception (opt-in proxies): " + "; ".join(
+                f"{v} stands in for {k} until {k}'s data begins" + (f" ({PROXY_LABELS.get(v)})" if PROXY_LABELS.get(v) else "")
+                for k, v in self.proxies.items()))
         if self.start or self.end:
             lines.append(f"Period: {self.start or 'start of data'} to {self.end or 'latest'}")
         return "\n".join(lines)
@@ -2046,17 +2062,187 @@ def _short_history_warning(p: Portfolio, dfs: dict, first: pd.Timestamp) -> None
     else:
         why = "the rules' indicators or the data only allowed it then (see the notes below)"
     span = f"{lost:.1f} years" if lost >= 1 else f"{lost * 12:.0f} months"
+    # a sleeve with a stated proxy can start earlier on request (opt-in, never by default)
+    prox = {t: proxy_before(t, asked) for t, _ in late[:6]} if late and not p.proxies else {}
+    prox = {t: x for t, x in prox.items() if x}
     msg = (f"Warning: You asked to start on {asked.date()}, but the backtest starts on {first.date()}: {why}. "
            f"{span} of the requested period are missing"
-           + (f"; drop or replace {', '.join(t for t, _ in late[:3])} to test the whole period" if late else "") + ".")
+           + (f"; drop or replace {', '.join(t for t, _ in late[:3])} to test the whole period" if late else "")
+           + (", or add 'with proxies before inception' to let a stated proxy stand in until it exists ("
+              + ", ".join(f"{x} for {t}" + (f", {PROXY_LABELS[x]}" if x in PROXY_LABELS else "") for t, x in prox.items()) + ")"
+              if prox else "") + ".")
     if msg not in p.notes:
         p.notes.insert(0, msg)
+
+
+# Stated proxies for a sleeve before its own history begins, used only on request ("with proxies before
+# inception", Portfolio.proxies): {series: [candidate proxies, first with data wins]}. Keys are the series a
+# portfolio holds (the long-history series and the funds they stand for); the proxy's total return is spliced in
+# before the series' first date. The first candidate that has data from the requested start (else the one with the
+# longest history) is used, so longer simulated histories added later are picked up without changes here.
+PROXIES_BEFORE_INCEPTION = {
+    # TIPS -> intermediate Treasuries (similar duration, no inflation indexing)
+    **{t: ["IEFSIM", "IEF"] for t in ("TIPSIM", "TIP", "SCHP", "VTIP", "STIP")},
+    # international small caps / small value / value -> developed ex-US value, then developed ex-US
+    **{t: ["EFASIM", "EFA"] for t in ("SCZSIM", "SCZ", "VSS")},
+    **{t: ["EFVSIM", "EFASIM", "EFV", "EFA"] for t in ("AVDVSIM", "AVDV", "DLS", "DISV")},
+    **{t: ["EFASIM", "EFA"] for t in ("EFVSIM", "EFV")},
+    # emerging markets -> developed ex-US
+    **{t: ["EFASIM", "EFA"] for t in ("EEMSIM", "VWOSIM", "EEM", "VWO", "IEMG")},
+    # developed ex-US / Europe / Japan / all-world ex-US before 1975 -> US stocks
+    **{t: ["SPYSIM", "SPY"] for t in ("EFASIM", "VXUSSIM", "VGKSIM", "EWJSIM", "EFA", "VEA", "VXUS", "VEU", "VGK", "EWJ")},
+    # credit -> investment-grade corporates, then intermediate Treasuries
+    **{t: ["LQDSIM", "IEFSIM"] for t in ("HYGSIM", "HYG", "JNK", "EMBSIM", "EMB")},
+    **{t: ["IEFSIM", "IEF"] for t in ("MUBSIM", "MUB", "BNDXSIM", "BNDX", "BNDSIM", "BND", "AGG")},
+    # REITs before 1972 -> US stocks
+    **{t: ["SPYSIM", "SPY"] for t in ("VNQSIM", "VNQ")},
+}
+PROXY_LABELS = {"IEFSIM": "intermediate Treasuries", "IEF": "intermediate Treasuries",
+                "EFASIM": "developed ex-US stocks", "EFA": "developed ex-US stocks",
+                "EFVSIM": "developed ex-US value stocks", "EFV": "developed ex-US value stocks",
+                "SPYSIM": "US stocks", "SPY": "US stocks", "LQDSIM": "investment-grade corporate bonds"}
+
+
+def proxy_before(ticker: str, start) -> str | None:
+    """The stated proxy for `ticker` before its history begins (PROXIES_BEFORE_INCEPTION): the first candidate
+    with data from `start`, else the one whose history starts earliest; None if there is none with data."""
+    have = set(data.available_tickers())
+    best = None
+    for c in PROXIES_BEFORE_INCEPTION.get(data.canonical(ticker), []):
+        if c not in have:
+            continue
+        try:
+            f = data.load(c).index[0]
+        except (FileNotFoundError, data.DataError, KeyError, IndexError):
+            continue
+        if start is not None and f <= pd.Timestamp(start) + pd.Timedelta(days=7):
+            return c
+        if best is None or f < best[1]:
+            best = (c, f)
+    return best[0] if best else None
+
+
+def splice_proxy(df: pd.DataFrame, proxy: pd.DataFrame) -> pd.DataFrame:
+    """`df` with the proxy's total return before df's first date: the proxy's adjusted close, scaled to join df
+    on its first day (so that day's return is the proxy's), as the price (no separate dividends before it)."""
+    if not len(df) or not len(proxy):
+        return df
+    t0 = df.index[0]
+    pa = (proxy["adj_close"] if "adj_close" in proxy else proxy["close"]).dropna()
+    at = pa[pa.index <= t0]
+    if not len(at) or at.index[0] >= t0:
+        return df
+    base = float(at.iloc[-1])
+    pre_idx = pa.index[pa.index < t0]
+    pre = pd.DataFrame(index=pre_idx)
+    for c in df.columns:
+        if c in ("open", "high", "low", "close", "quote_close"):
+            pre[c] = pa[pre_idx] / base * float(df[c].iloc[0]) if pd.notna(df[c].iloc[0]) else pa[pre_idx] / base * float(df["close"].iloc[0])
+        elif c == "adj_close":
+            pre[c] = pa[pre_idx] / base * float(df["adj_close"].iloc[0])
+        elif c == "volume":
+            pre[c] = proxy["volume"].reindex(pre_idx).fillna(0.0) if "volume" in proxy else 0.0
+        elif c == "open_ok":
+            pre[c] = False
+        elif df[c].dtype == bool:
+            pre[c] = False
+        else:
+            pre[c] = 0.0 if pd.api.types.is_numeric_dtype(df[c]) else None
+    out = pd.concat([pre, df])
+    out.attrs = dict(getattr(df, "attrs", {}) or {})
+    return out
+
+
+def _apply_proxies(p: "Portfolio", dfs: dict) -> None:
+    """Splice each opted-in proxy (Portfolio.proxies) in before its ticker's history, with a note per sleeve."""
+    for t, px in (p.proxies or {}).items():
+        t, px = data.canonical(t), data.canonical(px)
+        if t not in dfs or not len(dfs[t]):
+            continue
+        try:
+            pdf = data.load(px)
+        except (FileNotFoundError, data.DataError, KeyError):
+            raise ValueError(f"The proxy {px} for {t} has no price data.")
+        if not len(pdf) or pdf.index[0] >= dfs[t].index[0]:
+            continue
+        first = dfs[t].index[0]
+        dfs[t] = splice_proxy(dfs[t], pdf)
+        lab = PROXY_LABELS.get(px)
+        msg = (f"Proxy before inception (opt-in): {px}{f' ({lab})' if lab else ''} stands in for {t} from "
+               f"{dfs[t].index[0].date()} until {t}'s data begins on {first.date()}; the returns before that are the "
+               f"proxy's, not {t}'s.")
+        if msg not in p.notes:
+            p.notes.append(msg)
+
+
+def _ends_early(t: str, last: pd.Timestamp, cal: pd.DatetimeIndex, delisted: dict, ndx) -> bool:
+    """Does the series stop well before the run ends without being a delisting? A stock that was delisted or
+    acquired has a record (data/delisted.json) or is a former Nasdaq-100 member; an imported (custom) series, or a
+    fund or simulated series whose file simply ends, is not a delisting. `ndx`: a callable giving the members."""
+    if last >= cal[-1] - pd.Timedelta(days=DELIST_GAP_DAYS) or last < cal[0]:
+        return False
+    if data.is_custom(t):
+        return True
+    return t not in delisted and t not in ndx()
+
+
+def _end_at_series_end(p: "Portfolio", dfs: dict, cal: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """End the backtest on the last date every holding (and the benchmark) has data, with a Warning, when one of
+    them is a series that ends early without being delisted (a custom series that stops in 2019, a fund file
+    that ends), as Portfolio Visualizer does. A delisted or acquired stock is sold at its last price instead and
+    the run continues (see gone_bar)."""
+    if len(cal) < 2:
+        return cal
+    delisted = data.delisted()
+    members: list = []
+
+    def ndx() -> set:
+        if not members:
+            try:
+                members.append(set(data.nasdaq100_ever()))
+            except Exception:  # noqa: BLE001 - no membership data: nothing counts as a former member
+                members.append(set())
+        return members[0]
+    ends = {t: dfs[t].index[-1] for t in tickers_in(p.tree, index_universes=False) if t in dfs and len(dfs[t])}
+    if p.benchmark:
+        from .metrics import parse_blend
+        try:
+            parts = parse_blend(p.benchmark) or [(str(p.benchmark), 1.0)]
+        except ValueError:
+            parts = []
+        for t, _ in parts:
+            t = data.canonical(t)
+            try:
+                df = data.load(t)
+            except (FileNotFoundError, data.DataError, KeyError):
+                continue
+            if len(df):
+                ends.setdefault(t, df.index[-1])
+    early = {t: e for t, e in ends.items() if _ends_early(t, e, cal, delisted, ndx)}
+    if not early:
+        return cal
+    last = min(early.values())
+    out = cal[cal <= last]
+    if len(out) < 2:
+        return cal
+    who = ", ".join(f"{t} ({e.date()}{', custom series' if data.is_custom(t) else ''})"
+                    for t, e in sorted(early.items(), key=lambda kv: kv[1]))
+    msg = (f"Warning: the data of {who} ends before the end of the period ({cal[-1].date()}), so the backtest ends on "
+           f"{out[-1].date()}, the last date every holding{' and the benchmark' if p.benchmark else ''} has data (as "
+           "Portfolio Visualizer does). A stock that was delisted or acquired (data/delisted.json, former Nasdaq-100 "
+           "members) is instead sold at its last price and the run continues with that slice in cash.")
+    if msg not in p.notes:
+        p.notes.insert(0, msg)
+    return out
 
 
 def run(p: Portfolio) -> Result:
     p.validate()
     names = tickers_in(p.tree)
     dfs = data.load_many(names)
+    if p.proxies:
+        dfs = dict(dfs)
+        _apply_proxies(p, dfs)
     must = fixed_tickers(p.tree)
     cal = _union_index([df.index for df in dfs.values()])
     cal_all = cal
@@ -2080,6 +2266,7 @@ def run(p: Portfolio) -> Result:
     cal = cal[cal >= start]
     if p.end:
         cal = cal[cal <= pd.Timestamp(p.end)]
+    cal = _end_at_series_end(p, dfs, cal)
     if len(cal) and _mcap_used(p.tree):
         named = [t for t in tickers_in(p.tree, index_universes=False) if t in dfs]
         msgs, fund_list = data.mcap_notes(named, cal[0], cal[-1])

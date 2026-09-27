@@ -364,7 +364,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     </div>
     <div id="r_opt" class="hide">
       <div class="grid">
-        <label style="grid-column:1/-1">Tickers<input id="o_tickers" class="w" value="SPY QQQ TLT GLD"></label>
+        <label style="grid-column:1/-1" title="Tickers or asset-class names, e.g. US Stock Market, Total Bond Market, Gold (read as their long-history series)">Tickers or asset classes<input id="o_tickers" class="w" value="SPY QQQ TLT GLD"></label>
         <label>Max weight (%)<input id="o_max" type="number" value="100"></label>
         <label>Min weight (%)<input id="o_min" type="number" value="0"></label>
         <label>From<input id="o_from" type="date"></label><label>To<input id="o_to" type="date"></label>
@@ -444,7 +444,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   <div class="card"><h2>Monte Carlo simulation</h2>
     <p class="note">Simulate thousands of possible futures for a portfolio: the range of balances over time, the chance the money lasts, and the highest safe withdrawal rate.</p>
     <div class="tabs2" id="mcSrc"><button data-v="weights" class="on">Tickers &amp; weights</button><button data-v="text">Sentence</button><button data-v="run">Saved run</button></div>
-    <div id="mcSrcWeights"><label class="f">Tickers and weights<input id="mc_weights" class="w" value="SPY 60, TLT 40"></label>
+    <div id="mcSrcWeights"><label class="f" title="Tickers or asset-class names with weights, e.g. US Stock Market 60, Total Bond Market 40">Tickers (or asset classes) and weights<input id="mc_weights" class="w" value="SPY 60, TLT 40"></label>
       <div class="note" id="mcSims" style="margin-top:4px"></div>
       <details id="mcGlide" style="margin-top:8px"><summary>Glide path (shift the mix over time)</summary>
         <p class="note">The weights above are the start mix; the target moves once a year to the end mix and the portfolio is rebalanced to it every year (e.g. 90/10 → 40/60 over 30 years holds 40/60 in year 30).</p>
@@ -515,7 +515,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     </div>
     <div class="row" style="margin-top:12px"><button class="btn primary" id="fxRun">Run regression</button><button class="btn" id="stRun">Style analysis</button><span class="note" id="fxStatus"></span></div>
     <details style="margin-top:8px"><summary>Style analysis asset classes</summary>
-      <label class="f">Tickers (blank = US large/small value/growth, developed ex US, emerging, Treasuries, corporates, T-bills)<input id="st_assets" class="w" placeholder="e.g. SPY EFA EEM IEF BIL"></label></details>
+      <label class="f">Tickers or asset classes (blank = US large/small value/growth, developed ex US, emerging, Treasuries, corporates, T-bills)<input id="st_assets" class="w" placeholder="e.g. SPY EFA EEM IEF BIL, or US Stock Market, Total Bond Market, Gold"></label></details>
   </div>
   <div id="stOut" class="hide">
     <div class="card"><h2 id="stTitle">Returns-based style analysis</h2><div class="tiles" id="stTiles"></div><p class="note" id="stMeta"></p><div id="stNotes"></div>
@@ -535,7 +535,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   <div class="card"><h2>Asset correlations</h2>
     <p class="note">The correlation of total returns (dividends reinvested) over the period the assets have in common, a rolling correlation for one pair, and each asset's statistics, like Portfolio Visualizer's asset correlations and asset analysis. Long-history series (SPYSIM, TLTSIM, EFASIM…) reach back further.</p>
     <div class="grid">
-      <label style="grid-column:1/-1">Tickers<input id="k_tickers" class="w" list="tickerList" data-tk="multi" value="SPY TLT GLD EFASIM"></label>
+      <label style="grid-column:1/-1" title="Tickers or asset-class names, e.g. US Stock Market, Total Bond Market, Gold">Tickers or asset classes<input id="k_tickers" class="w" list="tickerList" data-tk="multi" value="SPY TLT GLD EFASIM"></label>
       <label>Returns<select id="k_freq"><option value="monthly">monthly</option><option value="daily">daily</option></select></label>
       <label>Rolling window (periods)<input id="k_window" type="number" min="3" placeholder="36 mo / 63 d"></label>
       <label>Rolling pair: first<select id="k_a"></select></label><label>second<select id="k_b"></select></label>
@@ -1883,7 +1883,12 @@ window.addEventListener('blur', unpress);
   const mcHorizonUi = () => { const life = $('mc_horizon').value === 'mortality'; $('mc_until_age').disabled = life; $('mc_years').disabled = life; $('mc_sex').disabled = !life; $('mc_age2').disabled = !life || $('mc_sex').value !== 'joint'; $('mcHorizonNote').classList.toggle('hide', !life); };
   $('mc_horizon').addEventListener('change', mcHorizonUi); $('mc_sex').addEventListener('change', mcHorizonUi); mcHorizonUi();
   $('mc_infl').addEventListener('change', () => { $('mc_infl_rate').disabled = $('mc_infl').value !== 'fixed'; }); $('mc_infl_rate').disabled = true;
-  function mcTickers() { return $('mc_weights').value.replace(/[,:=%]/g, ' ').split(/\s+/).filter(t => t && isNaN(+t)).map(t => t.toUpperCase()); }
+  // the tickers and asset-class names of the weights box ('SPY 60, TLT 40', 'US Stock Market 60, Total Bond Market 40'):
+  // a chunk of several words with lower-case letters is one asset-class name (the server reads it as its series)
+  function mcTickers() {
+    return $('mc_weights').value.replace(/[:=%]/g, ' ').split(/,|(?:^|\s)[-+]?\d+(?:\.\d+)?(?=[\s,]|$)/).map(x => x.trim()).filter(x => x && isNaN(+x))
+      .flatMap(x => /[a-z]/.test(x) ? [x.replace(/\s+/g, ' ')] : x.split(/\s+/));
+  }
   function drawForecast() {
     const on = $('mc_model').value === 'forecast'; $('mcForecast').classList.toggle('hide', !on); $('mc_block').disabled = $('mc_model').value !== 'historical';
     if (!on) return;
@@ -2070,7 +2075,9 @@ window.addEventListener('blur', unpress);
   }
 
   // ---------------------------------------------------------------- Correlations
-  const kTickers = () => $('k_tickers').value.replace(/[,;]/g, ' ').split(/\s+/).filter(Boolean).map(t => t.toUpperCase());
+  // tickers, or asset-class names between commas ('US Stock Market, Total Bond Market, Gold'): the server reads a name as its series
+  const kTickers = () => $('k_tickers').value.split(/[,;]/).map(x => x.trim().replace(/\s+/g, ' ')).filter(Boolean)
+    .flatMap(x => /[a-z]/.test(x) && /[,;]/.test($('k_tickers').value) ? [x] : x.split(' ').map(t => /[a-z]/.test(t) ? t : t.toUpperCase()));
   function kPairOptions() {
     const tk = kTickers(), a0 = $('k_a').value, b0 = $('k_b').value;
     [['k_a', a0 || tk[0]], ['k_b', b0 || tk[1]]].forEach(([id, v]) => { $(id).replaceChildren(...tk.map(t => el('option', { value: t }, t))); if (tk.includes(v)) $(id).value = v; });

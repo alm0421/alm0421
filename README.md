@@ -109,7 +109,18 @@ combo", "Frank Armstrong ideal index", "Bogleheads four-fund", "second grader's 
 and bonds 70/30 since 1950": US total market and total bond market) (the notes list the holdings, the
 source and any proxy fund, e.g. VSS for developed ex-US small caps, and long-history SIM series stand in
 before the funds existed). A bare asset-class name holds 100% of it ("long-term corporate bonds since
-1955", "US small cap value"). An "N month return" is 21 trading days a month by default (12 months = 252
+1955", "US small cap value"). When one sleeve's history starts later than the requested start (Swensen and
+7Twelve are held back to 2000 by TIPS, Larry to 1989-90 by emerging and international small caps), the
+backtest starts when it has data and the Warning says which sleeve. Add **"with proxies before inception"**
+to let a stated proxy stand in for that sleeve until its own series exists (opt-in, never by default): TIPS →
+intermediate Treasuries (IEFSIM); international small caps, emerging markets → developed ex-US (EFASIM);
+international small value → developed ex-US value (EFVSIM); developed ex-US / Europe / Japan before 1975 and
+REITs before 1972 → US stocks (SPYSIM); high yield / EM bonds → corporates (LQDSIM); munis, international and
+total bonds → IEFSIM. The interpretation lists each proxy and the notes give each sleeve's dates ("IEFSIM
+(intermediate Treasuries) stands in for TIPSIM from 1972-01-03 until TIPSIM's data begins on 2000-06-30"); in
+a JSON spec it is `"proxies": {"TIPSIM": "IEFSIM"}`. The proxy's total return is spliced in before the sleeve's
+first date, so the numbers before it are the proxy's, not the asset class's; whatever long-history series
+exist are used first, and a proxy only fills the gap before them. An "N month return" is 21 trading days a month by default (12 months = 252
 sessions); add "using calendar months" (or "using month-end prices", or `"month_lookbacks": "calendar"` in a
 JSON spec) to measure N-month returns month-end to month-end from the last completed month-end, as Portfolio
 Visualizer and Antonacci do. The interpretation says which one a portfolio uses. With calendar months, "12 month
@@ -201,7 +212,10 @@ never quietly drops them or swaps in a different ticker.
 - Headline tiles, an equity curve against SPY, QQQ and the stock's own buy-and-hold, and drawdowns.
 - A head-to-head table: every strategy and benchmark over the same period, with CAGR, real CAGR,
   volatility, Sharpe/Sortino (daily and monthly), Calmar, max drawdown (daily and from month-end values, as Portfolio Visualizer), time underwater, Ulcer index,
-  best/worst year and VaR/CVaR.
+  best/worst year and VaR/CVaR. Its first row is the growth of the runs' own starting amount ("Final value of
+  $100,000"); with contributions or withdrawals it is labelled time-weighted (the flows left out) and each
+  account's real final balance with the flows follows. With several runs, "Details for ..." names the run the
+  sections below it describe (also in the PDF).
 - Risk and return against T-bills. Versus the benchmark: beta, alpha, R², up/down capture, tracking
   error, information ratio and Treynor.
 - Trades: win rate, payoff, profit factor, expectancy, MAE/MFE, streaks, t-stat, and a long/short
@@ -234,7 +248,7 @@ never quietly drops them or swaps in a different ticker.
   holding each completed period's value, as the engine reads them. The legend shows every value on the bar
   under the crosshair. Candles or a line, horizontal and trend lines (kept in your browser), and bar
   replay (step or play through time, revealing bars and trades one at a time).
-- Returns by year (partial years flagged) and a monthly heatmap.
+- Returns by year (partial years flagged, including a benchmark's own partial first year, e.g. SPY 1993 from Jan 29) and a monthly heatmap.
 - Rolling 12-month and 3-year return, Sharpe, beta and volatility, plus rolling-period best/worst.
 - The deepest drawdowns, and how the strategy did in 12 historical crises.
 - Fama-French 5-factor + momentum regression, and a correlation matrix.
@@ -745,7 +759,13 @@ files to keep them. Daily values sit on NYSE sessions (a value dated on a weeken
 gaps of more than 40 days are refused); monthly values step on the last NYSE session of each month (every
 month must be present), so the reports treat the series as stepped (monthly statistics). Dates must be in
 order without repeats, and implausible values (a daily return above 75%, a monthly one above 300%, a price at
-or below 0) are refused. Names are 1-10 capital letters or digits and cannot be an existing ticker.
+or below 0) are refused. Names are 1-10 capital letters or digits and cannot be an existing ticker. A custom
+name works as a benchmark in a sentence too, alone or in a blend ("..., vs MYFUNDX", "vs 60% MYFUNDX 40% VBMFX").
+A series that ends before the period does (a custom series that stops in 2019, or any fund or simulated series
+whose file simply ends, with no record in `data/delisted.json`) is not a delisting: the backtest ends on the last
+date every holding and the benchmark has data, with a Warning, as Portfolio Visualizer does. A stock that was
+delisted or acquired (`data/delisted.json`, former Nasdaq-100 members) is still sold at its last price and the
+run continues with that slice in cash.
 
 **Delisted former members.** `data/delisted.json` marks a symbol whose saved history is too short to use
 (`"history": "history unavailable - needs TIINGO_API_KEY"`): EA was taken private in August 2026 and Yahoo
@@ -859,7 +879,13 @@ bond / bonds / aggregate bonds; short, intermediate and long term Treasuries; TI
 long-term corporate bonds; high yield; municipal bonds; international bonds; emerging market bonds;
 T-bills. Name a fund (VTI, BND, ...) to use the fund alone; "cash" stays cash earning the T-bill rate. Next
 to real tickers, names that always meant a fund keep it ("60% SPY and 40% gold" holds GLD), so such a mix
-compares fund with fund.
+compares fund with fund. The same names work wherever tickers are entered in the analysis tools, on the site and
+on the command line, and resolve to the same series with a note: the Monte Carlo weights ("US Stock Market 60,
+Total Bond Market 40", `montecarlo --weights`), the optimiser's tickers ("US Stock Market, Total Bond Market,
+Gold", also inside its constraints and forecast inputs), correlations (`correlation "US Stock Market" Gold`),
+factor regressions (`factors "US Small Cap Value"`, or tickers with weights) and style analysis (`--assets`).
+Separate names with commas when they are typed in one box; a word in capitals that is a ticker with data stays
+that ticker ("GOLD" is Barrick Gold, "Gold" the asset class).
 
 They are total-return indexes: `close` = `adj_close`, no dividends, `volume` 0 and
 open = high = low = close. Use them in the optimiser, Monte Carlo and factor pages (and in JSON
