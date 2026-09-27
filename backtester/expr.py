@@ -342,6 +342,11 @@ def calendar_month_return(x: pd.Series, months: int, skip: int = 0) -> pd.Series
     return pd.Series(out, index=x.index)
 
 
+DAILY_MACRO_FNS = {"treasury_10y", "treasury_2y", "yield_curve", "tbill_ret"}
+FRED_CLOSE_NOTE = ("Treasury yields and T-bill rates (FRED) for a day are published after that day's close: a rule acted "
+                   "on at the close reads the previous session's value (at the next open, that day's value is known).")
+
+
 class Namespace(dict):
     """Evaluation namespace for one ticker; derived variables are lazy."""
 
@@ -571,21 +576,44 @@ class Namespace(dict):
             r = data.tbill_rate()
             if r.empty:
                 return pd.Series(0.0, index=c.index)
-            rr = r.reindex(c.index.union(r.index)).ffill().reindex(c.index).fillna(0.0)
+            rr = _known(r, "tbill", daily=True)
+            stale = rr.isna().to_numpy() & np.asarray(c.index > r.index[0])     # stale (or the day-one lag)
+            rr = rr.fillna(0.0)
+            rr[stale & np.asarray(c.index > r.index[-1])] = np.nan
             idx = (1 + rr / 252).cumprod()
             if cal_months and int(n) % MONTH_BARS == 0:
                 return cal_ret(idx, int(n) // MONTH_BARS)
             return idx / idx.shift(int(n)) - 1
 
-        def _known(s: pd.Series) -> pd.Series:
-            """A macro series dated by when it became known, held forward onto this ticker's bars (NaN before)."""
+        def _stale_mask(s: pd.Series, name: str) -> np.ndarray:
+            frm = data.stale_from(name, s)
+            if frm is None:
+                return np.zeros(len(c), bool)
+            m = np.asarray(c.index >= frm)
+            if m.any():
+                note = data.stale_note(name, s)
+                if note not in self.notes:
+                    self.notes.append(note)
+            return m
+
+        def _known(s: pd.Series, name: str | None = None, daily: bool = False) -> pd.Series:
+            """A macro series dated by when it became known, held forward onto this ticker's bars (NaN before, and
+            NaN once its last value is older than data.MACRO_STALE_DAYS allows). A daily FRED yield is published
+            after the close: a rule acted on at this bar's own close reads the previous session's value."""
             if s is None or s.empty:
                 return pd.Series(np.nan, index=c.index)
-            return s.reindex(c.index.union(s.index)).ffill().reindex(c.index)
+            out = s.reindex(c.index.union(s.index)).ffill().reindex(c.index)
+            if daily and self.close_fill:
+                out = out.shift(1)
+                if FRED_CLOSE_NOTE not in self.notes:
+                    self.notes.append(FRED_CLOSE_NOTE)
+            if name:
+                out = out.where(~_stale_mask(s, name))
+            return out
 
         def cape():
             """Shiller's cyclically adjusted P/E (P/E10), lagged data.CAPE_LAG_MONTHS months to be point in time."""
-            return _known(data.shiller_known("cape"))
+            return _known(data.shiller_known("cape"), "cape")
 
         def earnings_yield():
             """The cyclically adjusted earnings yield 1 / CAPE (0.04 = 4%), point in time like cape()."""
@@ -593,11 +621,19 @@ class Namespace(dict):
 
         def cape_pct(years=0):
             """CAPE percentile (0..1) among the values known so far: all history (years=0) or the last N years."""
-            return _known(data.cape_percentile(int(years)))
+            return _known(data.cape_percentile(int(years)), "cape_pct")
 
         def treasury_10y():
             """The 10-year Treasury yield (decimal) as of each day's close (FRED DGS10; monthly GS10 before 1962)."""
-            return _known(data.treasury_10y())
+            return _known(data.treasury_10y(), "treasury_10y", daily=True)
+
+        def treasury_2y():
+            """The 2-year Treasury yield (decimal) as of each day's close (FRED DGS2, from 1976)."""
+            return _known(data.treasury_2y(), "treasury_2y", daily=True)
+
+        def yield_curve():
+            """10-year minus 2-year Treasury yield (decimal; below 0 = inverted), FRED T10Y2Y or DGS10 - DGS2."""
+            return _known(data.yield_curve(), "yield_curve", daily=True)
 
         def max_drawdown(*a):
             """Largest peak-to-trough fall within the last n bars, as a positive fraction."""
@@ -1166,6 +1202,7 @@ class Namespace(dict):
             "stdev": stdev, "zscore": zscore, "ref": ref, "ret": ret, "roc": ret,
             "rsi": rsi, "tret": tret, "tbill_ret": tbill_ret, "max_drawdown": max_drawdown,
             "cape": cape, "earnings_yield": earnings_yield, "cape_pct": cape_pct, "treasury_10y": treasury_10y,
+            "treasury_2y": treasury_2y, "yield_curve": yield_curve,
             "ma_return": ma_return, "stdev_return": stdev_return, "atr": atr, "natr": natr, "volatility": volatility, "drawdown": drawdown,
             "bb_upper": bb_upper, "bb_lower": bb_lower, "pct_rank": pct_rank,
             "macd": macd, "macd_signal": macd_signal, "macd_hist": macd_hist, "ppo": ppo, "ppo_signal": ppo_signal,

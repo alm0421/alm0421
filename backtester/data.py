@@ -1632,6 +1632,65 @@ def treasury_10y() -> pd.Series:
     return s[~s.index.duplicated(keep="last")]
 
 
+def _fred_daily(sid: str) -> pd.Series:
+    f = DATA / "macro" / f"{sid}.csv"
+    if not f.exists():
+        return pd.Series(dtype=float)
+    d = pd.read_csv(f, parse_dates=["date"], index_col="date")["value"]
+    s = pd.to_numeric(d, errors="coerce").dropna() / 100
+    return s[~s.index.duplicated(keep="last")].sort_index()
+
+
+def treasury_2y() -> pd.Series:
+    """2-year Treasury yield (decimal) by day: FRED DGS2 (from 1976)."""
+    return _fred_daily("DGS2")
+
+
+def yield_curve() -> pd.Series:
+    """The 10-year minus 2-year Treasury yield (decimal; negative = inverted) by day: FRED T10Y2Y when downloaded,
+    else DGS10 - DGS2 on the days both are published (from 1976)."""
+    s = _fred_daily("T10Y2Y")
+    if not s.empty:
+        return s
+    a, b = _fred_daily("DGS10"), _fred_daily("DGS2")
+    if a.empty or b.empty:
+        return pd.Series(dtype=float)
+    return (a - b).dropna()
+
+
+# A macro series is only as current as its last published value. Held forward onto later bars for at most this many
+# calendar days after the date its last value became known; after that a rule reads it as unknown (NaN: comparisons
+# on it are false) instead of the last value repeated indefinitely (data/macro/shiller.csv once stopped at 2023-09
+# and cape() stayed frozen for years). Monthly series get their publishing rhythm plus slack, daily ones a week or so.
+MACRO_STALE_DAYS = {"cape": 62, "cape_pct": 62, "earnings_yield": 62, "treasury_10y": 10, "treasury_2y": 10,
+                    "yield_curve": 10, "tbill": 10, "cpi": 50, "factors": 70}
+MACRO_LABELS = {"cape": "Shiller CAPE", "cape_pct": "Shiller CAPE", "earnings_yield": "Shiller CAPE",
+                "treasury_10y": "the 10-year Treasury yield (FRED DGS10)", "treasury_2y": "the 2-year Treasury yield (FRED DGS2)",
+                "yield_curve": "the yield curve (FRED DGS10 - DGS2)", "tbill": "the 3-month T-bill rate (FRED DTB3)",
+                "cpi": "CPI (FRED CPIAUCNS)", "factors": "the Fama-French factors"}
+
+
+def stale_from(name: str, s: pd.Series) -> pd.Timestamp | None:
+    """The first day `s` (indexed by the day each value became known) counts as stale, or None."""
+    lim = MACRO_STALE_DAYS.get(name)
+    if lim is None or s is None or s.empty:
+        return None
+    return pd.Timestamp(s.index[-1]) + pd.Timedelta(days=lim)
+
+
+def stale_note(name: str, s: pd.Series) -> str:
+    last = pd.Timestamp(s.index[-1])
+    what = MACRO_LABELS.get(name, name)
+    if name in ("cape", "cape_pct", "earnings_yield"):
+        month = (last.to_period("M") - 1 - CAPE_LAG_MONTHS)
+        when = f"its last value describes {month} (known from {last.date()} after the {CAPE_LAG_MONTHS}-month reporting lag)"
+    else:
+        when = f"its last value is dated {last.date()}"
+    return (f"Stale data: {what} - {when}. From {stale_from(name, s).date()} on it is treated as unknown (NaN, so a "
+            "condition on it is false) instead of repeating that value; refresh the data (the 'Fetch price data' "
+            "workflow) to use it later.")
+
+
 @lru_cache(maxsize=1)
 def factors() -> pd.DataFrame:
     """Daily Fama-French 5 factors + momentum (decimal returns), if downloaded."""

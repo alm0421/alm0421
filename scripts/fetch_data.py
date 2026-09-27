@@ -677,7 +677,7 @@ TIPS_IDS = ["REAINTRATREARAT10Y", "EXPINF10YR"]
 
 def fetch_macro() -> None:
     MACRO.mkdir(parents=True, exist_ok=True)
-    for sid in ["CPIAUCSL", "DTB3", "DGS10", "DGS20", "DGS30", "DGS5", "DGS2", "DGS1", "GS10", "TB3MS",
+    for sid in ["CPIAUCSL", "DTB3", "DGS10", "DGS20", "DGS30", "DGS5", "DGS2", "DGS1", "T10Y2Y", "GS10", "TB3MS",
                 "DAAA", "DBAA", "AAA", "BAA", "CPIAUCNS"] + intl_bond_ids() + TIPS_IDS + fx_ids():
         try:
             txt = requests.get(f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={sid}", headers=UA, timeout=60).text
@@ -758,6 +758,19 @@ def parse_shiller(raw: pd.DataFrame) -> pd.DataFrame:
     return df[["month"] + [c for c in ("price", "dividend", "earnings", "cpi", "gs10", "cape", "tr_cape") if c in df]]
 
 
+def shiller_link(page: str) -> str | None:
+    """The ie_data.xls download link on shillerdata.com. The site (a GoDaddy builder page) serves its links inside
+    a JSON blob, with the slashes escaped (https:\\/\\/img1.wsimg.com\\/...\\/ie_data.xls?ver=...) or as \\u002F, so the
+    page is unescaped first; without this the job silently fell back to the old Yale file, which stops at 2023-09."""
+    text = (page.replace("\\u002F", "/").replace("\\u002f", "/").replace("\\/", "/")
+            .replace("&amp;", "&").replace("\\u0026", "&"))
+    m = re.search(r'(?:https?:)?//[^"\'\s<>\\]+ie_data\.xls[^"\'\s<>\\]*', text)
+    if not m:
+        return None
+    url = m.group(0)
+    return "https:" + url if url.startswith("//") else url
+
+
 def fetch_shiller() -> None:
     """data/macro/shiller.csv from ie_data.xls (the link on shillerdata.com changes with every update, so it is
     read off the page; the old Yale address is the fallback). A failure keeps the previous file."""
@@ -765,15 +778,28 @@ def fetch_shiller() -> None:
         url = SHILLER_FALLBACK
         try:
             page = requests.get(SHILLER_PAGE, headers=UA, timeout=60).text
-            m = re.search(r'https?://[^"\'\s>]+ie_data\.xls[^"\'\s>]*', page)
-            if m:
-                url = m.group(0).replace("&amp;", "&")
+            found = shiller_link(page)
+            if found:
+                url = found
+            else:
+                print(f"shiller: no ie_data.xls link on {SHILLER_PAGE}; trying {url} (stale since 2023-09)",
+                      file=sys.stderr)
         except Exception as e:  # noqa: BLE001
             print(f"shiller page failed ({e}); trying {url}", file=sys.stderr)
         content = requests.get(url, headers=UA, timeout=120).content
         book = pd.ExcelFile(io.BytesIO(content))
         sheet = "Data" if "Data" in book.sheet_names else book.sheet_names[0]
         df = parse_shiller(book.parse(sheet, header=None))
+        old = MACRO / "shiller.csv"
+        if old.exists():
+            try:
+                prev_last = pd.read_csv(old)["month"].iloc[-1]
+                if str(prev_last) > str(df["month"].iloc[-1]):
+                    raise RuntimeError(f"{url} ends {df['month'].iloc[-1]}, before the file we have ({prev_last}): kept")
+            except (KeyError, IndexError, ValueError):
+                pass
+        if pd.Period(df["month"].iloc[-1], "M") < pd.Timestamp.today().to_period("M") - 9:
+            SIM_LOG.append(f"Shiller CAPE data from {url} ends {df['month'].iloc[-1]}: stale")
         MACRO.mkdir(parents=True, exist_ok=True)
         df.to_csv(MACRO / "shiller.csv", index=False)
         print(f"shiller: {len(df)} months {df['month'].iloc[0]} .. {df['month'].iloc[-1]} from {url}")

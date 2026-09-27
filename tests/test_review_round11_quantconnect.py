@@ -120,3 +120,65 @@ def test_indexes_stay_usable_in_conditions():
 def test_not_investable():
     assert data.not_investable("SPY") is None and data.not_investable("vix")      # the alias VIX is ^VIX
     assert "QQQ" in data.not_investable("^NDX")
+
+
+# ------------------------------------------------------------ 9. stale macro series are unknown, not frozen
+
+def _bars(start, end):
+    idx = pd.bdate_range(start, end)
+    c = np.linspace(100, 120, len(idx))
+    return pd.DataFrame({"open": c, "high": c, "low": c, "close": c, "volume": 1e6, "dividend": 0.0, "adj_close": c,
+                         "split": 1.0, "open_ok": True, "quote_close": c}, index=idx)
+
+
+def test_a_stale_cape_is_nan_with_a_note(monkeypatch):
+    from backtester import expr
+    known = pd.Series([25.0, 26.0, 27.0], index=pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01"]))
+    monkeypatch.setattr(data, "shiller_known", lambda col, lag_months=None: known)
+    ns = expr.Namespace(_bars("2024-01-02", "2024-12-31"), ticker="X")
+    v = ns["cape"]()
+    assert v.loc["2024-04-30"] == 27.0                       # within the allowed lag
+    assert v.loc["2024-05-03":].isna().all()                 # 62 days after the last value: unknown
+    assert not expr.evaluate("cape() < 100", ns).loc["2024-05-03":].any()
+    assert any(n.startswith("Stale data: Shiller CAPE") and "2023-10" in n and "2024-05-02" in n for n in ns.notes)
+
+
+def test_a_stale_yield_is_nan_and_tbill_return_stops(monkeypatch):
+    from backtester import expr
+    y = pd.Series(0.04, index=pd.bdate_range("2023-01-02", "2024-03-01"))
+    monkeypatch.setattr(data, "treasury_10y", lambda: y)
+    monkeypatch.setattr(data, "tbill_rate", lambda: y)
+    ns = expr.Namespace(_bars("2023-06-01", "2024-06-28"), ticker="X")
+    t10 = ns["treasury_10y"]()
+    assert t10.loc["2024-03-08"] == 0.04 and t10.loc["2024-03-11":].isna().all()   # 10 days after 03-01
+    tb = ns["tbill_ret"](21)
+    assert tb.loc["2024-03-11":].isna().all() and tb.loc["2024-02-01"] > 0
+
+
+def test_the_shiller_link_is_found_in_an_escaped_page():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fd", data.ROOT / "scripts" / "fetch_data.py")
+    fd = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(fd)
+    except ImportError:
+        pytest.skip("fetch dependencies missing")
+    url = "https://img1.wsimg.com/blobby/go/e5e/downloads/70fec4f5/ie_data.xls?ver=1788371540009"
+    for page in (f'<a href="{url}">', '{"href":"' + url.replace("/", "\\/") + '"}',
+                 '{"href":"' + url.replace("/", "\\u002F") + '"}'):
+        assert fd.shiller_link(page) == url
+
+
+# ------------------------------------------------------------ 13. same-day yields at a close fill
+
+def test_fred_yields_lag_a_session_for_close_fills(monkeypatch):
+    from backtester import expr
+    idx = pd.bdate_range("2024-01-02", "2024-02-29")
+    y = pd.Series(np.arange(len(idx)) / 1000.0, index=idx)
+    monkeypatch.setattr(data, "treasury_10y", lambda: y)
+    bars = _bars("2024-01-02", "2024-02-29")
+    at_open = expr.Namespace(bars, ticker="X")["treasury_10y"]()
+    at_close = expr.Namespace(bars, ticker="X", close_fill=True)
+    v = at_close["treasury_10y"]()
+    assert v.loc["2024-01-10"] == y.loc["2024-01-09"] and at_open.loc["2024-01-10"] == y.loc["2024-01-10"]
+    assert expr.FRED_CLOSE_NOTE in at_close.notes

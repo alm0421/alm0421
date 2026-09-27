@@ -326,7 +326,8 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
     _rules = [r for r in (strat.entry, strat.short_entry, strat.exit_when, strat.rank_by) if r]
     late_close = any(callable(r) for r in _rules) or any(
         expr.is_late_close(data.canonical(x)) for r in _rules if isinstance(r, str)
-        for x in re.findall(r"""sym\(\s*["']([^"']+)["']\s*\)""", r))
+        for x in re.findall(r"""sym\(\s*["']([^"']+)["']\s*\)""", r)) or any(
+        isinstance(r, str) and bool(expr.DAILY_MACRO_FNS & expr.names_in(r)) for r in _rules)
     # the static open-time check (Strategy.validate) is backed by an empirical one on the longest history
     t0 = max(tick, key=lambda t: len(dfs[t]))
     # Python-function rules: only the run's days are read, so they are streamed from its first day on
@@ -457,7 +458,7 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
     # notes the rule evaluation earned (Python-function rules: bar-by-bar evaluation and its timing; crypto lag)
     for ns_ in namespaces.values():
         for n_ in ns_.notes:
-            if (n_.startswith(("Python rule", "Warning: Python rule")) or n_ == expr.CRYPTO_LAG_NOTE or "closes at 4:15pm" in n_) \
+            if (n_.startswith(("Python rule", "Warning: Python rule", "Stale data:")) or n_ == expr.FRED_CLOSE_NOTE or n_ == expr.CRYPTO_LAG_NOTE or "closes at 4:15pm" in n_) \
                     and not any(x.split(":")[0] == n_.split(":")[0] for x in strat.notes):
                 strat.notes.append(n_)
     valid = ~np.isnan(C)

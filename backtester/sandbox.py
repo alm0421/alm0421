@@ -479,6 +479,10 @@ def _cut(v, cut):
     return v
 
 
+# data helpers that read no files (usable as they are inside the sealed process)
+PURE_DATA_FUNCTIONS = {"canonical", "stale_from", "stale_note", "not_investable"}
+
+
 def _answer_rpc(msg, cut):
     """A child's data request, answered on the backtester's data cut at `cut`."""
     from . import data, expr
@@ -807,7 +811,7 @@ def _harden():
         raise expr.CallableIOError("a Python rule may not read the backtester's data files directly")
     for name, v in list(vars(data).items()):
         if callable(v) and getattr(v, "__module__", None) == data.__name__ and name not in DATA_FUNCTIONS \
-                and name not in ("canonical", "is_fund", "unknown_ticker_message") and not isinstance(v, type):
+                and name not in PURE_DATA_FUNCTIONS and not isinstance(v, type):
             setattr(data, name, refuse_data)
     expr._SYM_OVERRIDE = _OverrideProxy()
 
