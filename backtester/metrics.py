@@ -12,6 +12,31 @@ import pandas as pd
 from . import data
 
 TRADING_DAYS = 252
+
+
+def periods_per_year(index) -> float:
+    """Bars per year of the calendar a series actually uses, for annualising its statistics: 252 for a stock-market
+    calendar (weekdays less holidays), 365 for a seven-day calendar (crypto, or a portfolio that holds a crypto asset:
+    it has weekend bars), 52 for weekly bars, 12 for monthly bars; otherwise the observed count of bars per year.
+    A daily calendar is told apart by its share of weekend bars (a stock calendar has none), so a short or gappy
+    series is not mistaken for another frequency."""
+    idx = pd.DatetimeIndex(index) if not isinstance(index, pd.DatetimeIndex) else index
+    if len(idx) < 3:
+        return TRADING_DAYS
+    ns = idx.as_unit("ns").asi8 if hasattr(idx, "as_unit") else idx.asi8
+    gaps = np.diff(ns) / 86_400_000_000_000
+    med = float(np.median(gaps)) if len(gaps) else 1.0
+    if med <= 4:
+        weekend = float((idx.dayofweek >= 5).mean())
+        return 365 if weekend > 0.2 else TRADING_DAYS
+    if med <= 10:
+        return 52
+    if 25 <= med <= 35:
+        return 12
+    if 85 <= med <= 95:
+        return 4
+    days = (ns[-1] - ns[0]) / 86_400_000_000_000
+    return (len(idx) - 1) / (days / 365.25) if days > 0 else TRADING_DAYS
 NO_DRAWDOWN = 5e-5   # a drawdown smaller than 0.005% is reported as none
 
 # S&P 500 peak-to-trough dates (closing prices). The pre-1987 events show only for long-history runs (the SIM series,
@@ -84,24 +109,25 @@ def floor_at_zero(nav_: pd.Series) -> pd.Series:
 _RF_MEMO: dict = {}     # the T-bill rate on a set of dates: a report asks for the same dates many times
 
 
-def rf_daily(index: pd.DatetimeIndex, rf) -> pd.Series:
+def rf_daily(index: pd.DatetimeIndex, rf, ppy: float = TRADING_DAYS) -> pd.Series:
+    """The risk-free return per bar: the annual rate over `ppy` bars a year (252 trading days by default)."""
     if rf == "tbill":
         s = data.tbill_rate()
         if s.empty:
             return pd.Series(0.0, index=index)
         key = None
         if isinstance(index, pd.DatetimeIndex) and index.tz is None:
-            key = (len(index), hash(index.to_numpy(dtype="datetime64[ns]").tobytes()))
+            key = (len(index), hash(index.to_numpy(dtype="datetime64[ns]").tobytes()), ppy)
             hit = _RF_MEMO.get(key)
             if hit is not None and hit[0] is s and hit[1].index.equals(index):
                 return pd.Series(hit[1].to_numpy(copy=True), index=index, name=hit[1].name)
-        out = (s.reindex(index.union(s.index)).ffill().reindex(index).fillna(0.0) / TRADING_DAYS)
+        out = (s.reindex(index.union(s.index)).ffill().reindex(index).fillna(0.0) / ppy)
         if key is not None:
             if len(_RF_MEMO) > 256:
                 _RF_MEMO.clear()
             _RF_MEMO[key] = (s, out.copy())
         return out
-    return pd.Series(float(rf or 0.0) / TRADING_DAYS, index=index)
+    return pd.Series(float(rf or 0.0) / ppy, index=index)
 
 
 def _anchor_year(series: pd.Series):
@@ -413,13 +439,14 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, 
     years = (nv.index[-1] - t0).days / 365.25
     total = nv.iloc[-1] / nv.iloc[0] - 1
     cagr = annualise(nv.iloc[-1] / nv.iloc[0], years) if years > 0 else np.nan
-    rfd = rf_daily(r.index, rf)
+    ppy = periods_per_year(nv.index)      # bars a year of the calendar used (365 with weekend bars)
+    rfd = rf_daily(r.index, rf, ppy)
     ex = r - rfd
     sd = r.std()
-    vol = sd * np.sqrt(TRADING_DAYS)
-    sharpe = ex.mean() / sd * np.sqrt(TRADING_DAYS) if sd > 0 else np.nan
-    downside = np.sqrt((np.minimum(ex, 0) ** 2).mean()) * np.sqrt(TRADING_DAYS)
-    sortino = ex.mean() * TRADING_DAYS / downside if downside > 0 else np.nan
+    vol = sd * np.sqrt(ppy)
+    sharpe = ex.mean() / sd * np.sqrt(ppy) if sd > 0 else np.nan
+    downside = np.sqrt((np.minimum(ex, 0) ** 2).mean()) * np.sqrt(ppy)
+    sortino = ex.mean() * ppy / downside if downside > 0 else np.nan
     mr = monthly_returns(nv)
     rfm = rf_daily(mr.index, rf) * 21
     mex = mr - rfm
@@ -455,7 +482,7 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, 
     mcvar95 = -mr[mr <= np.percentile(mr, 5)].mean() if len(mr) > 12 else np.nan
     gains, losses = r[r > 0].sum(), -r[r < 0].sum()
     # days in the market: moving by more than interest could (4x a T-bill day covers a long weekend; >= 0.001%)
-    active = (r.abs() > np.maximum(4 * rf_daily(r.index, "tbill").abs().to_numpy(), 1e-5)) if len(r) else r.astype(bool)
+    active = (r.abs() > np.maximum(4 * rf_daily(r.index, "tbill", ppy).abs().to_numpy(), 1e-5)) if len(r) else r.astype(bool)
     real = np.nan
     c = data.cpi()
     if not c.empty and years > 0:
@@ -488,7 +515,8 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, 
         "longest_underwater_days": longest,
         "calmar": cagr / abs(mdd) if mdd < 0 else np.nan,
         "ulcer_index": ulcer,
-        "ulcer_performance": (cagr - float(rfd.mean() * TRADING_DAYS)) / (ulcer / 100) if ulcer > 0 else np.nan,
+        "ulcer_performance": (cagr - float(rfd.mean() * ppy)) / (ulcer / 100) if ulcer > 0 else np.nan,
+        "periods_per_year": ppy,
         "best_day": r.max() if len(r) else np.nan,
         "worst_day": r.min() if len(r) else np.nan,
         "best_month": mr.max() if len(mr) else np.nan,
@@ -635,7 +663,8 @@ def relative_stats(nav_: pd.Series, bench: pd.Series | None, rf="tbill", freq: s
     if len(df) < 30:
         return {}
     daily = df
-    k = TRADING_DAYS
+    ppy = periods_per_year(df.index)
+    k = ppy
     if freq == "monthly":
         both = pd.concat([nav_, bench], axis=1, join="inner").dropna()
         df = monthly_returns_frame(both).dropna()
@@ -644,7 +673,7 @@ def relative_stats(nav_: pd.Series, bench: pd.Series | None, rf="tbill", freq: s
         k = 12
         rfd = rf_daily(df.index, rf) * 21
     else:
-        rfd = rf_daily(df.index, rf)
+        rfd = rf_daily(df.index, rf, ppy)
     s, b = df.iloc[:, 0] - rfd, df.iloc[:, 1] - rfd
     beta = np.cov(s, b)[0, 1] / b.var()
     alpha = (s.mean() - beta * b.mean()) * k
@@ -653,7 +682,7 @@ def relative_stats(nav_: pd.Series, bench: pd.Series | None, rf="tbill", freq: s
     ir = active.mean() * k / te if te > 0 else np.nan
     corr = s.corr(b)
     df = daily
-    rfd = rf_daily(df.index, rf)
+    rfd = rf_daily(df.index, rf, ppy)
     # capture ratios on monthly returns
     m = pd.concat([monthly_returns((1 + df.iloc[:, 0]).cumprod()), monthly_returns((1 + df.iloc[:, 1]).cumprod())], axis=1).dropna()
     up, dn = m[m.iloc[:, 1] > 0], m[m.iloc[:, 1] < 0]
@@ -662,8 +691,8 @@ def relative_stats(nav_: pd.Series, bench: pd.Series | None, rf="tbill", freq: s
         return (1 + x).prod() ** (1 / len(x)) - 1 if len(x) else np.nan
     upc = geo(up.iloc[:, 0]) / geo(up.iloc[:, 1]) if len(up) else np.nan
     dnc = geo(dn.iloc[:, 0]) / geo(dn.iloc[:, 1]) if len(dn) else np.nan
-    ann = (1 + df.iloc[:, 0]).prod() ** (TRADING_DAYS / len(df)) - 1
-    rf_ann = float(rfd.mean() * TRADING_DAYS)
+    ann = (1 + df.iloc[:, 0]).prod() ** (ppy / len(df)) - 1
+    rf_ann = float(rfd.mean() * ppy)
     return {"beta": beta, "alpha_annual": alpha, "correlation": corr, "r_squared": corr ** 2,
             "tracking_error": te, "information_ratio": ir,
             "treynor": (ann - rf_ann) / beta if beta else np.nan,
@@ -671,24 +700,29 @@ def relative_stats(nav_: pd.Series, bench: pd.Series | None, rf="tbill", freq: s
 
 
 def rolling_series(nav_: pd.Series, bench: pd.Series | None, rf="tbill") -> dict:
+    """Rolling 12-month and 36-month returns, 6-month Sharpe and beta, 3-month volatility. The windows and the
+    annualisation use the series' own bars a year (periods_per_year: 252, or 365 on a seven-day calendar)."""
     r = nav_.pct_change()
+    ppy = periods_per_year(nav_.index)
+    y1, h6, q3 = int(round(ppy)), int(round(ppy / 2)), int(round(ppy / 4))
     out = {}
-    out["return_12m"] = nav_ / nav_.shift(TRADING_DAYS) - 1
-    out["return_36m_ann"] = annualise(nav_ / nav_.shift(3 * TRADING_DAYS), 3)
-    ex = r - rf_daily(r.index, rf)
-    out["sharpe_6m"] = ex.rolling(126).mean() / r.rolling(126).std() * np.sqrt(TRADING_DAYS)
-    out["vol_3m"] = r.rolling(63).std() * np.sqrt(TRADING_DAYS)
+    out["return_12m"] = nav_ / nav_.shift(y1) - 1
+    out["return_36m_ann"] = annualise(nav_ / nav_.shift(3 * y1), 3)
+    ex = r - rf_daily(r.index, rf, ppy)
+    out["sharpe_6m"] = ex.rolling(h6).mean() / r.rolling(h6).std() * np.sqrt(ppy)
+    out["vol_3m"] = r.rolling(q3).std() * np.sqrt(ppy)
     if bench is not None:
         b = bench.reindex(nav_.index).pct_change()
-        out["beta_6m"] = r.rolling(126).cov(b) / b.rolling(126).var()
+        out["beta_6m"] = r.rolling(h6).cov(b) / b.rolling(h6).var()
     return out
 
 
 def rolling_summary(nav_: pd.Series) -> dict:
     """Best / worst / average rolling-period annualised returns (Portfolio Visualizer style)."""
     out = {}
+    ppy = periods_per_year(nav_.index)
     for yrs in (1, 3, 5, 10):
-        n = yrs * TRADING_DAYS
+        n = int(round(yrs * ppy))
         if len(nav_) <= n + 5:
             continue
         rr = annualise(nav_ / nav_.shift(n), yrs)
@@ -735,11 +769,17 @@ def factor_regression(nav_: pd.Series, rf="tbill", freq: str = "daily") -> dict:
             return {}
         k = 12
     else:
-        r = nav_.pct_change().dropna()
+        nv_ = nav_
+        if periods_per_year(nav_.index) != TRADING_DAYS and len(nav_):
+            # a seven-day series (weekend bars): measured on the factors' own trading days, so Monday's return
+            # includes the weekend's move rather than dropping it
+            fi = f.index[(f.index >= nav_.index[0]) & (f.index <= nav_.index[-1])]
+            nv_ = nav_.reindex(nav_.index.union(fi)).ffill().reindex(fi)
+        r = nv_.pct_change().dropna()
         df = pd.concat([r.rename("r"), f], axis=1, join="inner").dropna()
         if len(df) < 120 or "RF" not in df:
             return {}
-        k = TRADING_DAYS
+        k = TRADING_DAYS       # the factors' own (stock-market) calendar
     y = df["r"] - df["RF"]
     cols = [c for c in ("Mkt-RF", "SMB", "HML", "RMW", "CMA", "Mom") if c in df]
     X = np.column_stack([np.ones(len(df))] + [df[c].to_numpy() for c in cols])
@@ -990,7 +1030,7 @@ def monte_carlo(equity: pd.Series, flows: pd.Series | None = None, sims: int = 1
         return {}
     rng = np.random.default_rng(seed)
     nb = int(np.ceil(n / block))
-    years = n / TRADING_DAYS
+    years = n / periods_per_year(equity.index)
     cagr, mdd, final = np.empty(sims), np.empty(sims), np.empty(sims)
     sched = schedule if schedule is not None else flows
     fl = sched.reindex(equity.index).fillna(0.0).to_numpy()[1:] if sched is not None else np.zeros(n)
@@ -1000,34 +1040,67 @@ def monte_carlo(equity: pd.Series, flows: pd.Series | None = None, sims: int = 1
     S = np.array([rng.integers(0, m - block, nb) for _ in range(sims)]).reshape(sims, nb)
     e0 = float(equity.iloc[0])
     blocks = np.lib.stride_tricks.sliding_window_view(1 + r, block)   # blocks[a] = 1 + r[a:a + block]
-    for c0 in range(0, sims, 64):          # 64 paths at a time: each row is one path, as computed alone
+    def chunk(c0: int) -> tuple:
         c1 = min(c0 + 64, sims)
         G = np.ascontiguousarray(blocks[S[c0:c1]].reshape(c1 - c0, -1)[:, :n])      # 1 + each path's returns
         np.cumprod(G, axis=1, out=G)
         M = np.maximum.accumulate(G, axis=1)
         np.divide(G, M, out=M)
         # min(x - 1) is min(x) - 1 (subtracting 1 is monotonic, also after rounding)
-        dd = M.min(axis=1) - 1
+        return c0, c1, G[:, -1].copy(), M.min(axis=1) - 1
+    # 64 paths at a time (each row is one path, as computed alone), the chunks on a few threads: numpy releases the
+    # GIL for these large array operations, and every chunk writes only its own paths
+    starts = list(range(0, sims, 64))
+    if len(starts) > 2 and n * 64 > 200_000:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(4, len(starts))) as pool:
+            parts = list(pool.map(chunk, starts))
+    else:
+        parts = [chunk(c0) for c0 in starts]
+    for c0, c1, g_last, dd in parts:
         for j, s in enumerate(range(c0, c1)):
-            g_end = G[j, -1]
+            g_end = g_last[j]
             cagr[s] = g_end ** (1 / years) - 1 if g_end > 0 else -1.0
             mdd[s] = dd[j]
             if not has_flows:
                 final[s] = e0 * g_end
     if has_flows:
         # the flow schedule replayed on every path at once, day by day (the same arithmetic as one path at a time):
-        # a balance that reaches zero is ruined and stays at 0
+        # a balance that reaches zero is ruined and stays at 0. Between two flow days nothing can ruin a path (its
+        # daily growth factors are positive), so such a stretch is one cumulative product per path - the same
+        # sequence of multiplications as the day-by-day loop, so the same numbers - and only flow days (and any day
+        # with a non-positive growth factor) are stepped one at a time
         v = np.full(sims, float(equity.iloc[0]))
         alive = np.ones(sims, dtype=bool)
-        for t in range(n):
-            nxt = v * (1 + r[S[:, t // block] + t % block]) + fl[t]      # flows at the close, as in the backtest
-            v = np.where(alive, nxt, v)
-            dead = alive & (v <= 0)
-            if dead.any():
-                v[dead] = 0.0
-                alive &= ~dead
-                if not alive.any():
-                    break
+        fdays = np.flatnonzero(fl != 0)
+        WIN = block * max(1, 2048 // block)       # a window of whole blocks: gathered block by block (fast)
+        t0 = 0
+        while t0 < n and alive.any():
+            L = min(WIN, n - t0)
+            b0 = t0 // block
+            Wx = np.empty((sims, L + 1))           # column 0 (and each spent column) holds the balance a stretch starts from
+            # day t0 + k of each path: 1 + r[S[path, (t0 + k) // block] + (t0 + k) % block], as the day-by-day loop reads it
+            Wx[:, 1:] = blocks[S[:, b0:b0 + -(-L // block)]].reshape(sims, -1)[:, :L]
+            k = 0
+            while k < L:
+                j = int(np.searchsorted(fdays, t0 + k))
+                stop = min(int(fdays[j]) - t0 if j < len(fdays) else L, L)     # the next flow day (window-local)
+                if stop > k:
+                    if (Wx[:, k + 1:stop + 1] > 0).all():
+                        Wx[:, k] = v
+                        v = np.cumprod(np.ascontiguousarray(Wx[:, k:stop + 1]), axis=1)[:, -1].copy()
+                        k = stop
+                    else:
+                        stop += 1 if stop < L else 0     # step the whole stretch (and the flow day) one day at a time
+                while k < min(stop + (1 if stop < L and k == stop else 0), L):
+                    nxt = v * Wx[:, k + 1] + fl[t0 + k]      # flows at the close, as in the backtest
+                    v = np.where(alive, nxt, v)
+                    dead = alive & (v <= 0)
+                    if dead.any():
+                        v[dead] = 0.0
+                        alive &= ~dead
+                    k += 1
+            t0 += L
         final[:] = v
         ruined = int((~alive).sum())
     q = lambda a, p: float(np.percentile(a, p))  # noqa: E731

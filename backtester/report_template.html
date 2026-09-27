@@ -262,6 +262,11 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     <div class="chart" id="allocChart"></div>
     <h3 id="holdTitle">Current holdings</h3>
     <div class="xscroll"><table id="holdTbl"></table></div>
+    <div id="glideBox" class="hide">
+      <h3>Glide path: target weights over time</h3>
+      <p class="note" id="glideNote"></p>
+      <div class="scroll" style="max-height:360px"><table id="glideTbl"></table></div>
+    </div>
   </div>
 
   <div class="card hide" id="riskCard">
@@ -410,7 +415,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const t = [
       ['Final value', Math.abs(st.end_equity) >= 1e6 ? '$' + compact(st.end_equity) : usd(st.end_equity), r.cash && r.cash.total_contributions ? `incl. ${usd(r.cash.total_contributions)} added` : r.warmup_start ? `from ${usd(st.start_equity)} on ${st.start}, after warm-up` : `from ${usd(st.start_equity)}`],
       noTrades ? ['Result', 'No trades', `the entry rule never triggered · cash interest alone ${pct(st.total_return, 1)}`]
-        : ['Total return', bigRet ? (1 + st.total_return).toLocaleString(undefined, { maximumFractionDigits: 0 }) + '×' : pct(st.total_return, 1), r.cash && r.cash.starting_balance ? 'time-weighted' : ''],
+        : [r.cash ? 'Time-weighted return' : 'Total return', bigRet ? (1 + st.total_return).toLocaleString(undefined, { maximumFractionDigits: 0 }) + '×' : pct(st.total_return, 1), r.cash ? `cash flows removed · money-weighted (IRR) ${pct(r.cash.money_weighted_return)}/yr` : ''],
       noTrades ? ['CAGR', '—', `interest only: ${pct(st.cagr)}/yr`]
         : ['CAGR', pct(st.cagr), st.wiped_out ? 'wiped out: everything was lost' : isNum(st.real_cagr) ? `after inflation ${pct(st.real_cagr)}` : `vol ${pct(st.volatility, 1)}`],
       ['Sharpe', num(st.sharpe), `Sortino ${num(st.sortino)}`],
@@ -692,10 +697,10 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   function drawRiskTables() {
     const r = R(), st = r.stats, rel = r.relative || {}, ts = r.trade_stats, ex = r.exposure;
     const rows = [
-      { sect: 'Return' }, ['Total return', pct(st.total_return, 1)], ['CAGR', pct(st.cagr)], ['Real CAGR (after inflation)', pct(st.real_cagr)],
+      { sect: 'Return' }, [r.cash ? 'Total return (time-weighted)' : 'Total return', pct(st.total_return, 1)], ['CAGR', pct(st.cagr)], ['Real CAGR (after inflation)', pct(st.real_cagr)],
       ['Best / worst year', pct(st.best_year, 1) + ' / ' + pct(st.worst_year, 1)], ['Best / worst month', pct(st.best_month, 1) + ' / ' + pct(st.worst_month, 1)],
       ['Best / worst day', pct(st.best_day) + ' / ' + pct(st.worst_day)], ['Positive days (in market) / months', pct(st.pct_positive_days, 0) + ' / ' + pct(st.pct_positive_months, 0)],
-      { sect: 'Risk' }, ['Volatility (annualised)', pct(st.volatility, 1)], ['Max drawdown (daily)', pct(st.max_drawdown, 1)],
+      { sect: 'Risk' }, [st.periods_per_year && st.periods_per_year !== 252 ? { t: 'Volatility (annualised)', title: `annualised on ${st.periods_per_year} bars a year, this calendar's own frequency` } : 'Volatility (annualised)', pct(st.volatility, 1) + (st.periods_per_year && st.periods_per_year !== 252 ? ` (${st.periods_per_year} bars/yr)` : '')], ['Max drawdown (daily)', pct(st.max_drawdown, 1)],
       [{ t: 'Max drawdown (month-end)', title: 'from month-end values only, as Portfolio Visualizer reports it' }, pct(st.max_drawdown_monthly, 1)],
       ['Max drawdown dates', st.max_dd_peak ? `${st.max_dd_peak} → ${st.max_dd_trough} → ${st.max_dd_recovery || 'not recovered'}` : 'no drawdown'],
       ['Longest time underwater', st.longest_underwater_days + ' days'], ['Ulcer index', num(st.ulcer_index)],
@@ -1687,6 +1692,13 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     hit.addEventListener('pointerleave', () => { tip.hide(); cross.setAttribute('visibility', 'hidden'); });
     $('holdTitle').textContent = 'Holdings at ' + Hd.as_of;
     table($('holdTbl'), ['Holding', 'Weight'], Hd.current.map(h => [h.ticker, pct(h.weight, 1)]));
+    // a glide path (dynamic allocation): the target mix at the first rebalance of each year
+    const Gp = r.glide || {};
+    $('glideBox').classList.toggle('hide', !(Gp.dates && Gp.dates.length));
+    if (Gp.dates && Gp.dates.length) {
+      $('glideNote').textContent = (Gp.text || '') + '. The target at the first rebalance of each year (and the last one); the chart above shows the actual weights, which drift between rebalances.';
+      table($('glideTbl'), ['Date'].concat(Gp.columns), Gp.dates.map((d, i) => [d].concat(Gp.columns.map(c => pct(Gp.values[c][i], 1)))));
+    }
   }
 
   // ---------- yearly

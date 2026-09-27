@@ -3739,6 +3739,8 @@ def _parse(text: str, **overrides):
         obj = pine_import.translate(text, ticker=overrides.get("ticker"))
         return _finish(obj, overrides)
     original = text
+    from . import pv_phrases
+    text, pv_post = pv_phrases.rewrite(text)     # "100% SPY", "25% each of ...", glide paths, dual momentum hurdles
     _TL.class_subs, _TL.class_done, _TL.mixed = {}, set(), False
     text = _lowercase_tickers(text)
     text = _asset_class_names(text)
@@ -3758,6 +3760,7 @@ def _parse(text: str, **overrides):
         _TL.tv = False
         _TL.class_subs, _TL.class_done, _TL.mixed = {}, set(), False
         _TL.opp = None
+    pv_phrases.apply(obj, pv_post)
     obj.description = original
     return _finish(obj, overrides)
 

@@ -51,14 +51,28 @@ def not_investable(ticker: str) -> str | None:
             + f"It stays usable in conditions, e.g. `sym(\"{t}\").close > sma(sym(\"{t}\").close, 50)`.")
 
 
+_STEMS: dict = {}     # folder -> (its mtime, the stems): a listing is reused until a file is added or removed
+
+
 def _csv_stems(folder: Path) -> set[str]:
-    """{p.stem for p in folder.glob("*.csv")}, from one directory listing (glob builds a Path per file: ~50 ms)."""
+    """{p.stem for p in folder.glob("*.csv")}, from one directory listing (glob builds a Path per file: ~50 ms). The
+    listing is kept while the folder's modification time is unchanged (adding, removing or renaming a file changes
+    it), so a report that asks many times lists the folder once."""
     import os
+    try:
+        mt = os.stat(folder).st_mtime_ns
+    except OSError:
+        return set()
+    hit = _STEMS.get(str(folder))
+    if hit is not None and hit[0] == mt:
+        return set(hit[1])
     try:
         names = os.listdir(folder)
     except OSError:
         return set()
-    return {n[:-4] for n in names if n.endswith(".csv") and not n.startswith(".")}
+    out = {n[:-4] for n in names if n.endswith(".csv") and not n.startswith(".")}
+    _STEMS[str(folder)] = (mt, frozenset(out))
+    return out
 
 
 def available_tickers() -> list[str]:

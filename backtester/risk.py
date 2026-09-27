@@ -49,7 +49,9 @@ def risk_contributions(res, nav: pd.Series | None = None, limit: int = 60) -> di
     if len(rp) < 20 or rp.var() <= 0:
         return {}
     wbar = w.mean().to_numpy()
-    sig_d, mcr_d, rc_d = _euler(wbar, r.cov().to_numpy() * TRADING_DAYS)
+    from .metrics import periods_per_year
+    ppy = periods_per_year(w.index)       # 252, or 365 on a seven-day calendar (weekend bars)
+    sig_d, mcr_d, rc_d = _euler(wbar, r.cov().to_numpy() * ppy)
     me = px.groupby(px.index.to_period("M")).last()
     rm = me.pct_change(fill_method=None).dropna(how="all").fillna(0.0)
     if len(rm) >= 6:
@@ -72,7 +74,7 @@ def risk_contributions(res, nav: pd.Series | None = None, limit: int = 60) -> di
         dd_out = {"peak": peak.date(), "trough": trough.date(), "depth": float(dd.min()), "asset_return": total,
                   "by_asset": {t: float(contrib[t]) for t in cols}}
     rows = []
-    vols = r.std().to_numpy() * np.sqrt(TRADING_DAYS)
+    vols = r.std().to_numpy() * np.sqrt(ppy)
     for j, t in enumerate(cols):
         row = {"ticker": t, "avg_weight": float(wbar[j]), "vol": float(vols[j]),
                "mcr": float(mcr_d[j]), "contribution": float(rc_d[j]), "share": float(rc_d[j] / sig_d) if sig_d > 0 else np.nan,
@@ -84,7 +86,7 @@ def risk_contributions(res, nav: pd.Series | None = None, limit: int = 60) -> di
         rows.append(row)
     rows.sort(key=lambda x: -abs(x["share"]) if np.isfinite(x["share"]) else 0)
     out = {"rows": rows[:limit], "n_assets": len(rows), "vol_daily": sig_d, "vol_monthly": float(sig_m),
-           "vol_realised": float(rp.std() * np.sqrt(TRADING_DAYS)), "start": w.index[0].date(), "end": w.index[-1].date()}
+           "vol_realised": float(rp.std() * np.sqrt(ppy)), "start": w.index[0].date(), "end": w.index[-1].date()}
     if dd_out:
         out["drawdown"] = {k: v for k, v in dd_out.items() if k != "by_asset"}
     return out

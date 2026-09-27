@@ -136,6 +136,7 @@ class Settings:
     glide: str = "linear"                         # "linear", "target_date", or ignored when glide_points is given
     glide_points: list[tuple[float, float]] | None = None   # explicit schedule: (year, fraction of the way 0..1)
     input_notes: list[str] = field(default_factory=list)    # how the inputs were read (asset-class names -> series)
+    keep_paths: bool = False                      # also return the simulated returns and inflation (for goals.py)
 
 
 # ------------------------------------------------------------------ history
@@ -273,11 +274,14 @@ def parse_glide_points(text: str) -> list[tuple[float, float]]:
     return out
 
 
-def simulate(P: np.ndarray, cum_infl: np.ndarray, start: float, flows: list[CashFlow]) -> dict:
+def simulate(P: np.ndarray, cum_infl: np.ndarray, start: float, flows: list[CashFlow], by_flow: bool = False) -> dict:
     """Balances (sims, months + 1) given portfolio returns P (sims, months) and the cumulative inflation
     index at the start of each month cum_infl (sims, months + 1), plus what was actually withdrawn.
     A withdrawal is capped at the balance available (contributions of the same period count first), so a
-    balance never goes below zero; the unpaid part is the shortfall."""
+    balance never goes below zero; the unpaid part is the shortfall. by_flow: also, per flow (in the order
+    given), what it asked for and was paid on each path (a period's shortfall is shared by its withdrawals in
+    proportion to their amounts) and whether any of its payments fell short ("flow_requested", "flow_paid",
+    "flow_short": (flows, sims)); the balances are the same."""
     sims, months = P.shape
     B = np.empty((sims, months + 1))
     B[:, 0] = start
@@ -285,11 +289,15 @@ def simulate(P: np.ndarray, cum_infl: np.ndarray, start: float, flows: list[Cash
     paid = np.zeros(sims)
     paid_real = np.zeros(sims)
     asked = np.zeros(sims)
+    if by_flow:
+        f_req, f_paid = np.zeros((len(flows), sims)), np.zeros((len(flows), sims))
+        f_short = np.zeros((len(flows), sims), bool)
     for m in range(months):
         add = np.zeros(sims)
         take = np.zeros(sims)
         year = m // 12 + 1
-        for cf in flows:
+        takes = []
+        for j_cf, cf in enumerate(flows):
             step = STEPS.get(cf.freq, 12) or 12
             if m % step or year < cf.start_year or (cf.end_year and year > cf.end_year):
                 continue
@@ -305,15 +313,27 @@ def simulate(P: np.ndarray, cum_infl: np.ndarray, start: float, flows: list[Cash
                 v = v + cf.pct * step / 12 * np.maximum(b, 0)
             add += np.maximum(v, 0.0)
             take += np.maximum(-v, 0.0)
+            if by_flow:
+                takes.append((j_cf, np.maximum(-v, 0.0)))
         avail = np.maximum(b, 0.0) + add
         got = np.minimum(take, avail)            # never withdraw more than there is
+        if by_flow and takes:
+            with np.errstate(divide="ignore", invalid="ignore"):
+                frac = np.where(take > 0, got / take, 1.0)
+            for j_cf, tk in takes:
+                f_req[j_cf] += tk
+                f_paid[j_cf] += tk * frac
+                f_short[j_cf] |= (tk > 0) & (frac < 1 - 1e-9)
         paid += got
         paid_real += got / cum_infl[:, m]
         asked += take
         b = (avail - got) * (1 + P[:, m])
         b = np.where(b > 1e-9, b, 0.0)
         B[:, m + 1] = b
-    return {"B": B, "withdrawn": paid, "withdrawn_real": paid_real, "requested": asked}
+    out = {"B": B, "withdrawn": paid, "withdrawn_real": paid_real, "requested": asked}
+    if by_flow:
+        out.update(flow_requested=f_req, flow_paid=f_paid, flow_short=f_short)
+    return out
 
 
 def simulate_balances(P: np.ndarray, cum_infl: np.ndarray, start: float, flows: list[CashFlow]) -> np.ndarray:
@@ -358,15 +378,43 @@ def _alive_to_end(P: np.ndarray, cum_infl: np.ndarray, start: float, rate: float
     return alive, b / cum_infl[:, months]
 
 
+def _withdrawal_thresholds(P: np.ndarray, cum_infl: np.ndarray, m0: int = 0, every: int = 12,
+                           scale: float = 1.0) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """One pass over the months for the constant inflation-adjusted withdrawal of `rate` x the starting balance a
+    year (x `scale` per instalment), paid at month m0 and every `every` months after, in dollars of month m0.
+    While the money lasts the balance (per $1 of start) right after the instalment at month m_j is
+    A_j - rate * scale * S_j, with A_j the growth from m0 to m_j and S_j = sum over the instalments so far of their
+    inflation factor grown to m_j: it is linear in the rate. So a path survives every instalment exactly when
+    rate < x = min_j A_j / (scale S_j), and its final balance is A_end - rate * scale * S_end while it survives, 0
+    after. Returns (x, A_end, S_end, inflation from m0 to the end) per path; the bisections below read these
+    instead of re-simulating every path for every trial rate."""
+    sims, months = P.shape
+    A = np.ones(sims)
+    S = np.zeros(sims)
+    x = np.full(sims, np.inf)
+    c0 = cum_infl[:, m0]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        for m in range(m0, months):
+            if (m - m0) % every == 0:
+                S = S + cum_infl[:, m] / c0
+                x = np.minimum(x, np.where(S > 0, A / (scale * S), np.where(A > 0, np.inf, -np.inf)))
+            g = 1 + P[:, m]
+            A = A * g
+            S = S * g
+    return x, A, S, cum_infl[:, months] / c0
+
+
 def safe_withdrawal_rate(P, cum_infl, start, success=0.95, every: int = 12) -> float:
     """Highest constant inflation-adjusted withdrawal (share of the starting balance, per year,
-    taken at the start of each year) that leaves money at the end in at least `success` of paths."""
+    taken at the start of each year) that leaves money at the end in at least `success` of paths.
+    The same bisection as simulating each trial rate (_alive_to_end), on each path's exact survival threshold."""
+    x = _withdrawal_thresholds(P, cum_infl, 0, every, every / 12)[0]
     lo, hi = 0.0, 1.0
-    if _alive_to_end(P, cum_infl, start, lo, every)[0].mean() < success:
+    if (lo < x).mean() < success:
         return 0.0
     for _ in range(40):
         mid = (lo + hi) / 2
-        if _alive_to_end(P, cum_infl, start, mid, every)[0].mean() >= success:
+        if (mid < x).mean() >= success:
             lo = mid
         else:
             hi = mid
@@ -375,11 +423,13 @@ def safe_withdrawal_rate(P, cum_infl, start, success=0.95, every: int = 12) -> f
 
 def perpetual_withdrawal_rate(P, cum_infl, start, every: int = 12) -> float:
     """Highest constant inflation-adjusted withdrawal that keeps the median final real balance at or
-    above the starting balance."""
+    above the starting balance (the same bisection as simulating each trial rate, on the closed form)."""
+    e = every / 12
+    x, A, S, ce = _withdrawal_thresholds(P, cum_infl, 0, every, e)
     lo, hi = -1.0, 1.0
     for _ in range(40):
         mid = (lo + hi) / 2
-        _, real = _alive_to_end(P, cum_infl, start, mid, every)
+        real = np.where(mid < x, np.maximum(float(start) * (A - mid * e * S), 0.0), 0.0) / ce
         if np.median(real) >= start:
             lo = mid
         else:
@@ -411,13 +461,20 @@ def withdrawal_rates_by_path(P: np.ndarray, cum_infl: np.ndarray, base, m0: int 
     base = np.broadcast_to(np.asarray(base, float), (sims,)).copy()
     ok = base > 0
     base_ = np.where(ok, base, 1.0)
+    # each path's survival threshold and final balance in closed form (_withdrawal_thresholds): the bisection
+    # decides every trial rate as simulating it would (_rate_paths), without a pass over the months per trial
+    x, A, S, ce = _withdrawal_thresholds(P, cum_infl, m0, 12, 1.0)
     out = []
     for kind in ("safe", "perpetual"):
         lo, hi = np.zeros(sims), np.ones(sims)
         for _ in range(iters):
             mid = (lo + hi) / 2
-            alive, real = _rate_paths(P, cum_infl, base_, mid, m0)
-            good = alive if kind == "safe" else real >= base_ * (1 - 1e-12)
+            alive = mid < x
+            if kind == "safe":
+                good = alive
+            else:
+                real = np.where(alive, np.maximum(base_ * (A - mid * S), 0.0), 0.0) / ce
+                good = real >= base_ * (1 - 1e-12)
             lo, hi = np.where(good, mid, lo), np.where(good, hi, mid)
         out.append(np.where(ok, lo, 0.0))
     return out[0], out[1]
@@ -794,6 +851,25 @@ def run(s: Settings) -> dict:
                          f"stress sequence ({stress['from']:%Y-%m} to {stress['to']:%Y-%m}) is milder than what the model "
                          "draws on average, so it is no stress. Use a longer history (long-history series such as "
                          "SPYSIM / TLTSIM, or an earlier --start), a longer --stress-years, or --stress shock.")
+    if stress is not None:
+        # every path starts with the same stressed months, so their own drawdown is the same on every path; when it is
+        # the deepest one the whole-path percentiles all show it. Report it on its own, and the drawdowns that do
+        # vary by path: after the stress (from the end of the stressed months) and on the same draws without it
+        k_s = int(stress["months"])
+        stress["max_drawdown"] = float(np.median(_max_drawdown(P[:, :k_s])))
+        stress["deepest_share"] = float((mdd >= stress["max_drawdown"] - 1e-12).mean())
+        if k_s < months:
+            out["max_drawdown_after_stress"] = q(_max_drawdown(P[:, k_s:]))
+        if P_unstressed is not None:
+            out["max_drawdown_unstressed"] = q(_max_drawdown(P_unstressed))
+        notes.append(f"Max drawdown under the stress test: the stressed first {k_s} months fall "
+                     f"{-stress['max_drawdown']:.1%} peak to trough on every path; that is the deepest drawdown of "
+                     f"{stress['deepest_share']:.0%} of the paths, so the whole-path percentiles "
+                     + ("all show it" if stress["deepest_share"] > 0.9 else "cluster at it")
+                     + ". The drawdown after the stress (from the end of the stressed months) and without the stress "
+                     "(the same draws) vary by path and are shown separately.")
+    if s.keep_paths:
+        out["_paths"] = {"P": P, "cum_infl": cum_infl}     # not for output: goals.py replays its flows on them
     if S_full is not None:
         from . import lifetable
         S = S_full[: s.years + 1]
@@ -922,6 +998,13 @@ def console(R: dict) -> str:
     L.append(f"{'Annual return (nominal)':>28s} " + " ".join(f"{pc(v):>13s}" for v in R["annual_return"].values()))
     L.append(f"{'Annual return (real)':>28s} " + " ".join(f"{pc(v):>13s}" for v in R["annual_return_real"].values()))
     L.append(f"{'Max drawdown':>28s} " + " ".join(f"{pc(v):>13s}" for v in R["max_drawdown"].values()))
+    if (R.get("stress") or {}).get("max_drawdown") is not None:
+        L.append(f"{'  of the stressed months':>28s} " + f"{pc(R['stress']['max_drawdown']):>13s}"
+                 + "  (the same on every path)")
+    if R.get("max_drawdown_after_stress"):
+        L.append(f"{'  after the stress':>28s} " + " ".join(f"{pc(v):>13s}" for v in R["max_drawdown_after_stress"].values()))
+    if R.get("max_drawdown_unstressed"):
+        L.append(f"{'  without the stress':>28s} " + " ".join(f"{pc(v):>13s}" for v in R["max_drawdown_unstressed"].values()))
     if R.get("mortality"):
         M = R["mortality"]
         L.append(f"Chance the money lasts a lifetime (weighted by survival, SSA {M['table_year']} life table): {R['prob_success']:.1%}"
