@@ -66,6 +66,30 @@ def test_membership_changes_are_explained_or_flagged():
     assert not new, sorted(new)
 
 
+def test_reused_symbols_hold_the_former_company_before_the_cut(tmp_path, monkeypatch):
+    idx = pd.date_range("2012-01-01", periods=4, freq="MS")
+    mem = pd.DataFrame({"DELL": [True] * 4, "AAPL": [True] * 4}, index=idx)
+    monkeypatch.setattr(data, "FORMER_LISTINGS", {"DELL": ("DELL-2013", "2012-03-01")})
+    monkeypatch.setattr(data, "PRICES", tmp_path)
+    assert data._former_listings(mem).equals(mem)             # no alias file: nothing moves
+    assert data.former_listing("DELL", "2012-01-15") == "DELL"
+    (tmp_path / "DELL-2013.csv").write_text("date,close\n")
+    out = data._former_listings(mem)
+    assert list(out["DELL-2013"]) == [True, True, False, False]
+    assert list(out["DELL"]) == [False, False, True, True]
+    assert out["AAPL"].all()
+    assert data.former_listing("DELL", "2012-02-28") == "DELL-2013"
+    assert data.former_listing("DELL", "2012-03-01") == "DELL"
+
+
+@needs
+def test_former_members_under_reused_symbols_are_in_the_universe():
+    mem = data.membership()
+    assert mem.loc["2012-06-01", "DELL-2013"] and not mem.loc["2012-06-01", "DELL"]
+    assert mem.loc["2005-06-01", "MEDI-2007"] and mem.loc["2005-06-01", "ERTS"]  # EA before 2012 (a copy of EA.csv)
+    assert data.load("DELL-2013").index[-1] <= pd.Timestamp("2013-10-30")
+
+
 def test_wiki_parser_reads_piped_link_tickers():
     spec = importlib.util.spec_from_file_location("fetch_data", pathlib.Path(__file__).parents[1] / "scripts" / "fetch_data.py")
     fd = importlib.util.module_from_spec(spec)

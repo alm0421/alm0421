@@ -1,10 +1,613 @@
 {
+ "ALTR": {
+  "last_date": "2015-12-24",
+  "first_date": "1988-04-04",
+  "rows": 6991,
+  "member_months": "2004-03..2015-10",
+  "source": "intrader_old"
+ },
+ "ALXN": {
+  "last_date": "2021-07-28",
+  "first_date": "1996-02-28",
+  "rows": 6397,
+  "member_months": "2011-05..2021-07",
+  "source": "bdi+intrader"
+ },
+ "AMLN": {
+  "last_date": "2006-12-29",
+  "first_date": "2001-01-02",
+  "rows": 1502,
+  "member_months": "2006-02..2008-12",
+  "source": "cmu"
+ },
+ "ANSS": {
+  "last_date": "2025-07-16",
+  "first_date": "1996-06-20",
+  "rows": 7314,
+  "member_months": "2020-01..2025-07",
+  "source": "intrader+jamwevan+bdi"
+ },
+ "APCC": {
+  "last_date": "2006-12-29",
+  "first_date": "2001-01-02",
+  "rows": 1503,
+  "member_months": "2004-03..2007-02",
+  "source": "cmu"
+ },
+ "APOL": {
+  "last_date": "2017-02-01",
+  "first_date": "1995-01-04",
+  "rows": 5560,
+  "member_months": "2004-03..2012-12",
+  "source": "bdi+intrader"
+ },
+ "ATVI": {
+  "last_date": "2023-10-12",
+  "first_date": "1993-10-25",
+  "rows": 7546,
+  "member_months": "2006-01..2023-07",
+  "source": "intrader"
+ },
+ "BBBY-2023": {
+  "last_date": "2023-05-02",
+  "first_date": "1992-06-05",
+  "rows": 7784,
+  "member_months": "2004-03..2016-12",
+  "reason": "the former company listed as BBBY until 2023-05-03 (the symbol was later reused)",
+  "source": "bdi+intrader"
+ },
+ "BEAS": {
+  "last_date": "2006-12-29",
+  "first_date": "2001-01-02",
+  "rows": 1504,
+  "member_months": "2004-03..2008-04",
+  "source": "cmu"
+ },
+ "BMC": {
+  "last_date": "2013-09-10",
+  "first_date": "1997-12-31",
+  "rows": 3948,
+  "member_months": "2010-01..2013-09",
+  "source": "bdi"
+ },
+ "BMET": {
+  "last_date": "2006-12-29",
+  "first_date": "2001-01-02",
+  "rows": 1491,
+  "member_months": "2004-03..2007-07",
+  "source": "cmu"
+ },
+ "BRCM": {
+  "last_date": "2016-01-29",
+  "first_date": "1998-04-17",
+  "rows": 4476,
+  "member_months": "2004-03..2015-12",
+  "source": "bdi"
+ },
+ "CA": {
+  "last_date": "2018-11-05",
+  "first_date": "1984-09-07",
+  "rows": 8614,
+  "member_months": "2008-06..2018-11",
+  "source": "bdi+intrader"
+ },
+ "CDWC": {
+  "last_date": "2006-12-29",
+  "first_date": "2001-01-02",
+  "rows": 1503,
+  "member_months": "2004-03..2007-10",
+  "source": "cmu"
+ },
+ "CECO-2019": {
+  "last_date": "2018-03-29",
+  "first_date": "1998-01-29",
+  "rows": 5040,
+  "member_months": "2004-03..2005-12",
+  "reason": "the former company listed as CECO until 2020-01-01 (the symbol was later reused)",
+  "source": "kaggle_stooq+stooq_2018"
+ },
+ "CELG": {
+  "last_date": "2019-11-22",
+  "first_date": "1990-03-26",
+  "rows": 7476,
+  "member_months": "2005-11..2019-11",
+  "source": "bdi+intrader"
+ },
+ "CEPH": {
+  "last_date": "2011-10-13",
+  "first_date": "1997-12-31",
+  "rows": 3470,
+  "member_months": "2004-03..2011-07",
+  "source": "bdi"
+ },
+ "CERN": {
+  "last_date": "2022-08-09",
+  "first_date": "1986-12-05",
+  "rows": 8922,
+  "member_months": "2009-10..2021-12",
+  "source": "bdi+intrader"
+ },
+ "CHIR": {
+  "last_date": "2005-12-30",
+  "first_date": "2001-01-02",
+  "rows": 1250,
+  "member_months": "2004-03..2006-10",
+  "source": "cmu"
+ },
+ "CKFR": {
+  "last_date": "2006-12-29",
+  "first_date": "2001-01-02",
+  "rows": 1504,
+  "member_months": "2006-01..2007-12",
+  "source": "cmu"
+ },
+ "CMCSK": {
+  "last_date": "2015-12-11",
+  "first_date": "1990-03-26",
+  "rows": 6482,
+  "member_months": "2015-01..2015-12",
+  "source": "bdi+intrader"
+ },
+ "CMVT": {
+  "last_date": "2006-12-29",
+  "first_date": "2001-01-02",
+  "rows": 1499,
+  "member_months": "2004-03..2007-01",
+  "source": "cmu"
+ },
+ "CPWR-2014": {
+  "last_date": "2014-12-15",
+  "first_date": "1992-12-16",
+  "rows": 5535,
+  "member_months": "2004-03..2005-10",
+  "reason": "the former company listed as CPWR until 2014-12-16 (the symbol was later reused)",
+  "source": "qstk+intrader"
+ },
+ "CTRX": {
+  "last_date": "2015-07-23",
+  "first_date": "2006-07-03",
+  "rows": 2280,
+  "member_months": "2013-01..2015-07",
+  "source": "intrader"
+ },
+ "CTXS": {
+  "last_date": "2022-09-29",
+  "first_date": "1995-12-08",
+  "rows": 6749,
+  "member_months": "2004-03..2020-12",
+  "source": "bdi"
+ },
+ "DELL-2013": {
+  "last_date": "2012-09-12",
+  "first_date": "2000-02-01",
+  "rows": 3175,
+  "member_months": "2004-03..2013-10",
+  "reason": "the former company listed as DELL until 2013-10-30 (the symbol was later reused)",
+  "source": "qstk"
+ },
+ "DISCK": {
+  "last_date": "2022-08-09",
+  "first_date": "2008-09-18",
+  "rows": 3497,
+  "member_months": "2014-12..2017-12",
+  "source": "bdi+intrader"
+ },
+ "DISH": {
+  "last_date": "2024-01-09",
+  "first_date": "1995-06-21",
+  "rows": 7188,
+  "member_months": "2004-03..2018-07",
+  "source": "bdi+stonks+intrader"
+ },
+ "DTV": {
+  "last_date": "2015-07-24",
+  "first_date": "2003-12-23",
+  "rows": 2916,
+  "member_months": "2008-05..2015-07",
+  "source": "intrader_old"
+ },
  "EA": {
   "last_date": "2026-08-04",
-  "first_date": "2026-08-04",
-  "rows": 1,
+  "first_date": "1989-09-20",
+  "rows": 9284,
   "reason": "taken private: acquired for $210 a share in cash by a PIF / Silver Lake / Affinity Partners group",
   "member_months": "2012-01..2026-08",
-  "history": "history unavailable - needs TIINGO_API_KEY (see README: delisted former members)"
+  "source": "intrader+stell0+bdi"
+ },
+ "ENDP": {
+  "last_date": "2022-10-27",
+  "first_date": "1996-09-26",
+  "rows": 6564,
+  "member_months": "2016-01..2016-11",
+  "source": "bdi"
+ },
+ "ERTS": {
+  "last_date": "2026-08-04",
+  "first_date": "1989-09-20",
+  "rows": 9284,
+  "member_months": "2004-03..2011-12",
+  "source": "intrader+stell0+bdi"
+ },
+ "ESRX": {
+  "last_date": "2018-12-20",
+  "first_date": "1992-06-09",
+  "rows": 6685,
+  "member_months": "2004-03..2018-12",
+  "source": "bdi+intrader"
+ },
+ "FLIR": {
+  "last_date": "2021-05-14",
+  "first_date": "1993-06-22",
+  "rows": 7023,
+  "member_months": "2008-10..2011-12",
+  "source": "bdi+intrader"
+ },
+ "FOX-2019": {
+  "last_date": "2019-03-12",
+  "first_date": "1987-12-30",
+  "rows": 7862,
+  "member_months": "2015-01..2019-03",
+  "reason": "the former company listed as FOX until 2019-03-12 (the symbol was later reused)",
+  "source": "intrader"
+ },
+ "FOXA-2019": {
+  "last_date": "2019-03-11",
+  "first_date": "1996-03-11",
+  "rows": 5789,
+  "member_months": "2013-08..2019-03",
+  "reason": "the former company listed as FOXA until 2019-03-12 (the symbol was later reused)",
+  "source": "intrader"
+ },
+ "FWLT": {
+  "last_date": "2014-12-03",
+  "first_date": "1990-01-02",
+  "rows": 6282,
+  "member_months": "2007-08..2010-12",
+  "source": "intrader"
+ },
+ "GENZ-2011": {
+  "last_date": "2011-04-08",
+  "first_date": "2001-07-02",
+  "rows": 2457,
+  "member_months": "2004-03..2011-04",
+  "reason": "the former company listed as GENZ until 2011-04-11 (the symbol was later reused)",
+  "source": "qstk"
+ },
+ "GMCR": {
+  "last_date": "2016-03-02",
+  "first_date": "1993-09-27",
+  "rows": 5649,
+  "member_months": "2011-06..2015-12",
+  "source": "bdi+intrader"
+ },
+ "GOLD-2019": {
+  "last_date": "2014-03-14",
+  "first_date": "2002-07-30",
+  "rows": 2927,
+  "member_months": "2012-01..2013-12",
+  "reason": "the former company listed as GOLD until 2019-01-02 (the symbol was later reused)",
+  "source": "intrader_old"
+ },
+ "HOLX": {
+  "last_date": "2024-09-27",
+  "first_date": "1990-03-01",
+  "rows": 8707,
+  "member_months": "2008-01..2018-12",
+  "source": "bdi+stonks+intrader"
+ },
+ "IACI": {
+  "last_date": "2008-08-19",
+  "first_date": "1993-01-19",
+  "rows": 3927,
+  "member_months": "2004-03..2009-12",
+  "source": "qstk+intrader"
+ },
+ "ISIL": {
+  "last_date": "2017-02-23",
+  "first_date": "2000-02-25",
+  "rows": 4276,
+  "member_months": "2004-03..2005-12",
+  "source": "intrader"
+ },
+ "IVGN": {
+  "last_date": "2006-12-29",
+  "first_date": "2001-01-02",
+  "rows": 1503,
+  "member_months": "2004-03..2005-12",
+  "source": "cmu"
+ },
+ "JAVA-2010": {
+  "last_date": "2010-01-26",
+  "first_date": "2005-01-03",
+  "rows": 1275,
+  "member_months": "2007-09..2009-09",
+  "reason": "the former company listed as JAVA until 2010-01-27 (the symbol was later reused)",
+  "source": "qstk"
+ },
+ "JNPR": {
+  "last_date": "2024-09-27",
+  "first_date": "1999-06-25",
+  "rows": 6356,
+  "member_months": "2004-03..2009-10",
+  "source": "bdi+stonks+intrader"
+ },
+ "KRFT": {
+  "last_date": "2015-07-02",
+  "first_date": "2012-09-17",
+  "rows": 702,
+  "member_months": "2013-05..2015-07",
+  "source": "bdi"
+ },
+ "LIFE-2014": {
+  "last_date": "2012-09-11",
+  "first_date": "2000-02-01",
+  "rows": 3167,
+  "member_months": "2009-01..2013-09",
+  "reason": "the former company listed as LIFE until 2014-02-04 (the symbol was later reused)",
+  "source": "qstk"
+ },
+ "LINTA": {
+  "last_date": "2024-09-27",
+  "first_date": "2006-05-10",
+  "rows": 4628,
+  "member_months": "2006-11..2014-11",
+  "source": "intrader"
+ },
+ "LLTC": {
+  "last_date": "2017-03-10",
+  "first_date": "1990-03-26",
+  "rows": 6794,
+  "member_months": "2004-03..2016-11",
+  "source": "bdi+intrader"
+ },
+ "LNCR": {
+  "last_date": "2006-12-29",
+  "first_date": "2001-01-02",
+  "rows": 1504,
+  "member_months": "2004-03..2006-12",
+  "source": "cmu"
+ },
+ "LVLT": {
+  "last_date": "2017-10-31",
+  "first_date": "1998-03-31",
+  "rows": 4931,
+  "member_months": "2004-03..2008-12",
+  "source": "bdi"
+ },
+ "LVNTA": {
+  "last_date": "2018-03-09",
+  "first_date": "2012-08-10",
+  "rows": 1403,
+  "member_months": "2014-12..2018-04",
+  "source": "intrader"
+ },
+ "MEDI-2007": {
+  "last_date": "2006-12-29",
+  "first_date": "2001-01-02",
+  "rows": 1502,
+  "member_months": "2004-03..2007-05",
+  "reason": "the former company listed as MEDI until 2007-06-19 (the symbol was later reused)",
+  "source": "cmu"
+ },
+ "MLNM": {
+  "last_date": "2006-12-29",
+  "first_date": "2001-01-02",
+  "rows": 1504,
+  "member_months": "2004-03..2005-12",
+  "source": "cmu"
+ },
+ "MOLX": {
+  "last_date": "2013-12-06",
+  "first_date": "1997-12-31",
+  "rows": 4010,
+  "member_months": "2004-03..2005-12",
+  "source": "bdi"
+ },
+ "MXIM": {
+  "last_date": "2021-08-26",
+  "first_date": "1988-02-29",
+  "rows": 8430,
+  "member_months": "2004-03..2021-08",
+  "source": "bdi+intrader"
+ },
+ "NIHD": {
+  "last_date": "2006-12-29",
+  "first_date": "2002-11-22",
+  "rows": 1030,
+  "member_months": "2006-01..2011-12",
+  "source": "cmu"
+ },
+ "NTLI": {
+  "last_date": "2006-12-29",
+  "first_date": "2004-07-19",
+  "rows": 618,
+  "member_months": "2005-11..2007-08",
+  "source": "cmu"
+ },
+ "NUAN": {
+  "last_date": "2022-03-03",
+  "first_date": "2000-01-03",
+  "rows": 5578,
+  "member_months": "2012-01..2013-12",
+  "source": "intrader"
+ },
+ "NVLS": {
+  "last_date": "2012-06-04",
+  "first_date": "2000-02-01",
+  "rows": 3099,
+  "member_months": "2004-03..2005-12",
+  "source": "qstk"
+ },
+ "NWSA-2013": {
+  "last_date": "2013-06-18",
+  "first_date": "1996-03-11",
+  "rows": 4348,
+  "member_months": "2009-02..2013-06",
+  "reason": "the former company listed as NWSA until 2013-06-19 (the symbol was later reused)",
+  "source": "intrader_old"
+ },
+ "PDCO": {
+  "last_date": "2024-09-27",
+  "first_date": "1992-10-28",
+  "rows": 8037,
+  "member_months": "2004-03..2010-12",
+  "source": "bdi+stonks+intrader"
+ },
+ "PETM": {
+  "last_date": "2015-03-11",
+  "first_date": "1993-07-23",
+  "rows": 5448,
+  "member_months": "2004-03..2008-12",
+  "source": "bdi+intrader"
+ },
+ "QLGC": {
+  "last_date": "2016-08-16",
+  "first_date": "1994-02-28",
+  "rows": 5658,
+  "member_months": "2004-03..2005-12",
+  "source": "qstk+intrader"
+ },
+ "QRTEA": {
+  "last_date": "2024-09-27",
+  "first_date": "2006-05-10",
+  "rows": 4628,
+  "member_months": "2018-05..2018-12",
+  "source": "intrader"
+ },
+ "QVCA": {
+  "last_date": "2018-02-23",
+  "first_date": "2006-05-04",
+  "rows": 2973,
+  "member_months": "2014-12..2018-04",
+  "source": "intrader+kaggle_stooq"
+ },
+ "SEPR": {
+  "last_date": "2006-12-29",
+  "first_date": "2001-01-02",
+  "rows": 1503,
+  "member_months": "2005-09..2007-12",
+  "source": "cmu"
+ },
+ "SGEN": {
+  "last_date": "2024-01-09",
+  "first_date": "2001-03-09",
+  "rows": 5745,
+  "member_months": "2020-01..2023-12",
+  "source": "intrader"
+ },
+ "SHLD-2018": {
+  "last_date": "2018-03-29",
+  "first_date": "2003-04-28",
+  "rows": 3757,
+  "member_months": "2005-11..2013-12",
+  "reason": "the former company listed as SHLD until 2018-10-16 (the symbol was later reused)",
+  "source": "kaggle_stooq+stooq_2018+qstk+cmu"
+ },
+ "SHPG": {
+  "last_date": "2019-01-07",
+  "first_date": "1998-03-25",
+  "rows": 5231,
+  "member_months": "2016-12..2018-12",
+  "source": "intrader"
+ },
+ "SIAL": {
+  "last_date": "2015-11-18",
+  "first_date": "1990-03-26",
+  "rows": 6466,
+  "member_months": "2004-03..2015-08",
+  "source": "bdi+intrader"
+ },
+ "SNDK-2016": {
+  "last_date": "2016-05-11",
+  "first_date": "1995-11-08",
+  "rows": 5162,
+  "member_months": "2004-03..2016-03",
+  "reason": "the former company listed as SNDK until 2016-05-12 (the symbol was later reused)",
+  "source": "bdi+intrader"
+ },
+ "SPLK": {
+  "last_date": "2024-09-04",
+  "first_date": "2012-04-19",
+  "rows": 3114,
+  "member_months": "2020-01..2024-03",
+  "source": "intrader"
+ },
+ "SPLS-2017": {
+  "last_date": "2017-09-12",
+  "first_date": "1990-03-26",
+  "rows": 6922,
+  "member_months": "2004-03..2015-12",
+  "reason": "the former company listed as SPLS until 2017-09-13 (the symbol was later reused)",
+  "source": "bdi+intrader"
+ },
+ "SRCL": {
+  "last_date": "2024-09-27",
+  "first_date": "1996-08-23",
+  "rows": 7057,
+  "member_months": "2008-01..2016-12",
+  "source": "bdi+stonks+intrader"
+ },
+ "SUNW": {
+  "last_date": "2010-01-26",
+  "first_date": "2001-01-02",
+  "rows": 2277,
+  "member_months": "2004-03..2007-08",
+  "source": "qstk+cmu"
+ },
+ "TLAB": {
+  "last_date": "2013-12-03",
+  "first_date": "1997-12-31",
+  "rows": 4007,
+  "member_months": "2004-03..2008-05",
+  "source": "bdi"
+ },
+ "VIAB": {
+  "last_date": "2019-12-04",
+  "first_date": "2005-12-05",
+  "rows": 3524,
+  "member_months": "2012-06..2017-12",
+  "source": "bdi"
+ },
+ "WBA": {
+  "last_date": "2025-08-27",
+  "first_date": "1984-11-05",
+  "rows": 10282,
+  "member_months": "2015-04..2024-07",
+  "source": "intrader+jamwevan+bdi"
+ },
+ "WFM": {
+  "last_date": "2017-08-28",
+  "first_date": "1992-01-23",
+  "rows": 6449,
+  "member_months": "2011-06..2016-12",
+  "source": "bdi+intrader"
+ },
+ "WFMI": {
+  "last_date": "2017-08-28",
+  "first_date": "1992-01-23",
+  "rows": 6449,
+  "member_months": "2004-03..2011-05",
+  "source": "bdi+intrader"
+ },
+ "XLNX": {
+  "last_date": "2022-02-11",
+  "first_date": "1990-06-12",
+  "rows": 7981,
+  "member_months": "2004-03..2022-02",
+  "source": "bdi"
+ },
+ "XMSR": {
+  "last_date": "2006-12-29",
+  "first_date": "2001-01-02",
+  "rows": 1499,
+  "member_months": "2005-11..2007-12",
+  "source": "cmu"
+ },
+ "YHOO": {
+  "last_date": "2017-06-16",
+  "first_date": "1997-12-31",
+  "rows": 4897,
+  "member_months": "2004-03..2017-06",
+  "source": "bdi"
  }
 }

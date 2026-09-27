@@ -668,10 +668,12 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   - "using today's members only" trades the CURRENT member list (the latest snapshot plus the dated changes
     since) over the whole period with no membership filter: survivorship-biased by construction, and both
     engines add a warning saying so.
-  - About 90 former members (mostly acquired companies) have no free price history, so some bias
-    remains (member-month coverage about 48% in 2004, about 75% over 2004-2026). The report and the
-    console summary put the coverage in the headline ("Survivorship: 75% of member-months have data (48%
-    in 2004) - results are biased upward"). The figures cover the run's own period (its first to last trading
+  - Former members that Yahoo no longer serves (Celgene, Yahoo, Xilinx, Sun, Dell, Genzyme, …) were rebuilt
+    from public archives (see Data, "Delisted former members"). About 20 remain without free price history
+    (PeopleSoft, Siebel, Mercury Interactive, Pixar, Joy Global, …), so some bias remains: member-month
+    coverage is about 97% over 2004-2026 (90% in 2004, the lowest year 88% in 2007; it was 75% and 48%
+    before the archives). The report and the console summary put the coverage in the headline
+    ("Survivorship: 97% of member-months have data (90% in 2004) - results are biased upward"). The figures cover the run's own period (its first to last trading
     day - after a portfolio's day-0 purchase bar) and are computed once, so the note, the report headline and
     the command line quote the same numbers,
     with the biggest missing members by member-months and, as
@@ -872,12 +874,15 @@ close and commits updates, so `git pull` gets fresh data. It downloads:
 - share counts for market-cap weighting: Yahoo (from about late 2015; merged into the saved files, so
   the history grows). **Market caps therefore start around 2015-11 for most stocks** (AAPL: 2015-10-29); a
   `market_cap` rule is false before a stock's first count and a note names the date. ETFs, funds and indexes
-  have no market cap: a signal rule on `market_cap` for one is refused, and so is market-cap weighting, ranking or a market-cap condition over funds in a portfolio ("market cap weighted SPY, QQQ and TLT", JSON trees, a Composer `wt-marketcap` block over ETFs: refused with the block's path), with the suggestion to use equal or inverse-volatility weighting (weighting funds by AUM is not available). SEC EDGAR XBRL company facts would
-  reach back to about 2009 (`data/shares_sec`), but the SEC currently blocks the download from GitHub
-  Actions, so that folder is empty and nothing before Yahoo's counts is available. (Keyless, one
-  count per 10-Q/10-K - the cover-page shares outstanding, else the balance-sheet or weighted-average count -
-  dated by the filing date, so it is only used once public). SEC counts fill the dates before Yahoo's
-  first count and any gap of more than 120 days in Yahoo's.
+  have no market cap: a signal rule on `market_cap` for one is refused, and so is market-cap weighting, ranking or a market-cap condition over funds in a portfolio ("market cap weighted SPY, QQQ and TLT", JSON trees, a Composer `wt-marketcap` block over ETFs: refused with the block's path), with the suggestion to use equal or inverse-volatility weighting (weighting funds by AUM is not available). SEC EDGAR XBRL
+  counts reach back to about 2009 (`data/shares_sec`, 162 companies including former members such as
+  Celgene, Yahoo, Xilinx, Express Scripts and Dell): one count per 10-Q/10-K - the cover-page shares
+  outstanding, else the weighted-average count - dated by the filing date, so it is only used once public.
+  They come from a public mirror of EDGAR's cover-page data and from EDGAR's companyconcept API (the SEC
+  blocks the download from GitHub Actions, so the job does not refresh them). SEC counts fill the dates
+  before Yahoo's first count and any gap of more than 120 days in Yahoo's. With them, share counts cover at
+  least 80% of Nasdaq-100 members from 2011-03 (about 45% in late 2009 and 74% in late 2010), so market-cap
+  rankings of the index start in 2011 rather than late 2015.
 
 **Market cap** is the close as quoted that day times the shares outstanding last reported before that day
 (each count is used from the next session). Yahoo's share counts are in the share units of their date, so
@@ -970,15 +975,27 @@ date every holding and the benchmark has data, with a Warning, as Portfolio Visu
 delisted or acquired (`data/delisted.json`, former Nasdaq-100 members) is still sold at its last price and the
 run continues with that slice in cash.
 
-**Delisted former members.** `data/delisted.json` marks a symbol whose saved history is too short to use
-(`"history": "history unavailable - needs TIINGO_API_KEY"`): EA was taken private in August 2026 and Yahoo
-now serves a single bar, and its full history was never saved. Yahoo drops companies that were acquired or went bankrupt (Celgene,
-Xilinx, Activision, Yahoo, …), which is the main survivorship gap: about 90 former members have no free
-history, and member-month coverage is about 48% in 2004-05 and about 75% over 2004-2026. No keyless source
-reachable from a GitHub Action carries them (checked in September 2026: Yahoo's chart API and Nasdaq's
-historical API answer "symbol may be delisted" / "Symbol not exists"; Stooq's CSV download needs an API
-key since early 2026; MarketWatch and Macrotrends block automated clients; the public Quandl WIKI mirror and
-the Hugging Face price datasets need an account or cover only surviving symbols). A free API key fills the gap:
+**Delisted former members.** Yahoo drops companies that were acquired or went bankrupt (Celgene, Xilinx,
+Activision, Yahoo, …) and resets a symbol's history when it is taken private (EA, August 2026: a single bar).
+That was the main survivorship gap: 92 of 317 former members had no price data, and member-month coverage was
+about 48% in 2004 and 75% over 2004-2026. 85 histories (EA among them) were rebuilt in September 2026 from
+public archives of daily prices and are saved in `data/prices`: open-licence GitHub mirrors of Yahoo, Tiingo,
+Stooq and Carnegie Mellon's historical archive, joined where they overlap. `data/delisted_sources.json`
+records every source with its licence, how the histories were joined and, per ticker, which source covers
+which dates, the splits and any repairs. Each series had to overlap the membership months as a large Nasdaq
+stock, agree with every other source on overlapping days and show consistent split and dividend events;
+histories from the archive that ends in 2006 are price-return only. Coverage is now about 97% over
+2004-2026 and 90% in 2004. A symbol that was later reused by another company keeps that company's file,
+and the former member's history is stored as `<SYMBOL>-<YEAR>` (DELL-2013, SNDK-2016, BBBY-2023, …;
+`FORMER_LISTINGS` in `backtester/data.py`), which the membership uses up to the day the symbol changed
+hands. The data job lists these tickers as kept and never replaces them with a Yahoo download.
+
+About 20 former members are still missing (PeopleSoft, Siebel, Mercury Interactive, Pixar, Joy Global, Virgin
+Media, Warner Chilcott, Liberty Media, …), and a few only in part. No keyless source reachable from a
+GitHub Action carries them (checked in September 2026: Yahoo's chart API and Nasdaq's historical API answer
+"symbol may be delisted" / "Symbol not exists"; Stooq's CSV download needs an API key since early 2026;
+MarketWatch and Macrotrends block automated clients; the Hugging Face price datasets need an account or cover
+only surviving symbols). A free API key fills the rest:
 
 1. Get a free key at [tiingo.com](https://www.tiingo.com) (sign up, then Account → API → Token). The free
    plan allows 50 requests an hour, 1,000 a day and 500 different symbols a month, and includes delisted US
@@ -986,8 +1003,8 @@ the Hugging Face price datasets need an account or cover only surviving symbols)
 2. In your GitHub repository: Settings → Secrets and variables → Actions → New repository secret. Name
    `TIINGO_API_KEY`, value the token.
 3. Run the **Fetch price data** workflow (Actions → Fetch price data → Run workflow), or wait for the
-   nightly run. Each run fetches up to 45 missing names and keeps them, so the ~90 missing former members
-   are filled in over two or three runs. Then `git pull`.
+   nightly run. Each run fetches up to 45 missing names and keeps them, so the remaining missing former
+   members are filled in by one run. Then `git pull`.
 
 `ALPHAVANTAGE_API_KEY` (alphavantage.co, 25 requests a day on the free plan, 20 used per run) and
 `STOOQ_API_KEY` (a free key from https://stooq.com/q/d/?s=aapl.us&get_apikey, after a CAPTCHA) work the same

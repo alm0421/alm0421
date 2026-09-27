@@ -295,6 +295,49 @@ IDENTITY_FROM = {
 # the same company listed under two symbols in some revisions: keep the second
 DUPLICATES = {"KLA": "KLAC", "WFMI": "WFM", "ERTS": "EA", "NXP": "NXPI", "ANSYS": "ANSS"}   # a company name read as a ticker, or an old symbol
 
+# Symbols whose price file is a LATER company (the symbol was reused), while the index member's own history is
+# kept under "<symbol>-<year its listing ended>" (data/delisted_sources.json records where it came from):
+# symbol -> (that file, the first day the symbol no longer meant the member). The membership and the dated
+# changes before that day are the alias's, so a point-in-time universe holds the right company.
+FORMER_LISTINGS = {
+    "BBBY": ("BBBY-2023", "2023-05-03"),   # Bed Bath & Beyond (bankrupt); the file is a later company
+    "CECO": ("CECO-2019", "2020-01-01"),   # Career Education (renamed Perdoceo); the file is CECO Environmental
+    "CPWR": ("CPWR-2014", "2014-12-16"),   # Compuware (taken private)
+    "DELL": ("DELL-2013", "2013-10-30"),   # Dell Inc. (taken private); the file is Dell Technologies (2016)
+    "FOX": ("FOX-2019", "2019-03-12"),     # Twenty-First Century Fox (to Disney); the file is Fox Corp
+    "FOXA": ("FOXA-2019", "2019-03-12"),
+    "GENZ": ("GENZ-2011", "2011-04-11"),   # Genzyme (to Sanofi)
+    "GOLD": ("GOLD-2019", "2019-01-02"),   # Randgold Resources (merged into Barrick, which took the symbol)
+    "JAVA": ("JAVA-2010", "2010-01-27"),   # Sun Microsystems (to Oracle; SUNW until 2007-08)
+    "LIFE": ("LIFE-2014", "2014-02-04"),   # Life Technologies (to Thermo Fisher)
+    "MEDI": ("MEDI-2007", "2007-06-19"),   # MedImmune (to AstraZeneca)
+    "NWSA": ("NWSA-2013", "2013-06-19"),   # the old News Corp (renamed Twenty-First Century Fox); the file is the new News Corp
+    "SHLD": ("SHLD-2018", "2018-10-16"),   # Sears Holdings (bankrupt)
+    "SNDK": ("SNDK-2016", "2016-05-12"),   # the old SanDisk (to Western Digital); the file is the 2025 spin-off
+    "SPLS": ("SPLS-2017", "2017-09-13"),   # Staples (taken private)
+}
+
+
+def former_listing(ticker: str, date) -> str:
+    """The symbol that stands for `ticker`'s index membership on `date`: its FORMER_LISTINGS alias before the
+    symbol changed hands (when that history is on file), else the ticker itself."""
+    alias = FORMER_LISTINGS.get(ticker)
+    if alias and pd.Timestamp(date) < pd.Timestamp(alias[1]) and (PRICES / f"{alias[0]}.csv").exists():
+        return alias[0]
+    return ticker
+
+
+def _former_listings(mem: pd.DataFrame) -> pd.DataFrame:
+    """Membership before a reused symbol changed hands moved to the former company's file (FORMER_LISTINGS)."""
+    mem = mem.copy()
+    for t, (alias, cut) in FORMER_LISTINGS.items():
+        if t not in mem.columns or not (PRICES / f"{alias}.csv").exists():
+            continue
+        before = mem.index < pd.Timestamp(cut)
+        mem[alias] = mem[t] & before
+        mem.loc[before, t] = False
+    return mem
+
 # a member's series must look like a large Nasdaq stock: this catches recycled tickers (a small
 # company that later took over a former member's symbol) and junk series with no trading
 MIN_DOLLAR_VOLUME = 2_000_000.0
@@ -497,8 +540,8 @@ def coverage_note(start, end) -> str | None:
     start, end = str(pd.Timestamp(start).date()), str(pd.Timestamp(end).date())
     note = (f"Survivorship: {fig['coverage']:.0%} of index member-months in this period have usable price data "
             f"(lowest {fig['worst_coverage']:.0%} in {fig['worst_year']}). The rest are mostly companies that were acquired "
-            f"or went bankrupt; free data sources no longer carry them, so the former members that are included "
-            f"are almost all companies still trading today and results lean optimistic.")
+            f"or went bankrupt and are missing from the free archives used for former members "
+            f"(data/delisted_sources.json), so results lean optimistic.")
     gaps = [g for g in _membership_gaps(membership())
             if pd.Timestamp(g.split(" .. ")[1]) >= pd.Timestamp(start) and pd.Timestamp(g.split(" .. ")[0]) <= pd.Timestamp(end)]
     if gaps:
@@ -650,7 +693,7 @@ def membership() -> pd.DataFrame | None:
     blip = ~v[1:-1] & v[:-2] & v[2:]
     v[1:-1] |= blip
     out, _ = repair_membership(pd.DataFrame(v, index=df.index, columns=df.columns), ndx_changes())
-    return out
+    return _former_listings(out)
 
 
 MEMBERSHIP_GAP_MONTHS = 24
@@ -664,9 +707,10 @@ def membership_unexplained(since: str = "2007-03-01") -> list[tuple[str, str]]:
     if mem is None or ch is None:
         return []
     ren = {**RENAMED, **{v: k for k, v in RENAMED.items()}}
+    listed_as = {alias: t for t, (alias, _) in FORMER_LISTINGS.items()}   # the symbol the lists used
     out, prev = [], None
     for d, row in mem.iterrows():
-        s = set(row.index[row.to_numpy()])
+        s = {listed_as.get(t, t) for t in row.index[row.to_numpy()]}
         if prev is not None and d >= pd.Timestamp(since):
             w = ch[(ch["date"] > d - pd.DateOffset(months=1) - pd.Timedelta(days=45)) & (ch["date"] <= d + pd.Timedelta(days=45))]
             ok = set(w["added"]) | set(w["removed"])
@@ -751,6 +795,7 @@ def change_events(tickers: list[str]) -> dict[str, list[tuple[pd.Timestamp, bool
         return out
     want = set(tickers)
     for d, a, r in zip(ch["date"], ch["added"], ch["removed"]):
+        a, r = (former_listing(a, d) if a else a), (former_listing(r, d) if r else r)
         if a in want:
             out.setdefault(a, []).append((d, True))
         if r in want:
@@ -1892,7 +1937,8 @@ def factors() -> pd.DataFrame:
 # price file is a copy of the new one's, so its share counts can come from the new symbol too.
 RENAMED = {"FB": "META", "PCLN": "BKNG", "DISCA": "WBD", "RIMM": "BB", "MYL": "VTRS", "NLOK": "GEN",
            "SYMC": "GEN", "JDSU": "VIAV", "JDSUD": "VIAV", "HANS": "MNST", "CTRP": "TCOM", "WLTW": "WTW",
-           "UAUA": "UAL", "KFT": "MDLZ", "KLA": "KLAC", "ERICY": "ERIC", "WFMI": "WFM", "LINTA": "QRTEA"}
+           "UAUA": "UAL", "KFT": "MDLZ", "KLA": "KLAC", "ERICY": "ERIC", "WFMI": "WFM", "LINTA": "QRTEA",
+           "ERTS": "EA"}
 
 # Listed share classes of one company. Yahoo reports the whole company's share count for each class,
 # so a class's market cap is approximated as the company's divided by the number of listed classes
@@ -2211,6 +2257,9 @@ def identity_notes(ticker: str, start=None, end=None) -> list[str]:
     f0, f1 = df.index[0], df.index[-1]
     mem = membership()
     months = mem.index[mem[t].to_numpy()] if mem is not None and t in mem else pd.DatetimeIndex([])
+    alias = FORMER_LISTINGS.get(t, ("",))[0]
+    if mem is not None and alias in mem:   # the member's months under its former-company file count as t's here
+        months = months.union(mem.index[mem[alias].to_numpy()])
     if len(months):
         m0, m1 = months[0], months[-1] + pd.offsets.MonthEnd(0)
         span = f"{m0:%Y-%m}..{m1:%Y-%m}"
@@ -2232,6 +2281,8 @@ def identity_notes(ticker: str, start=None, end=None) -> list[str]:
                     out.append(f"Identity: during {t}'s Nasdaq-100 membership ({span}) its price file trades like a tiny, "
                                f"illiquid stock - probably a different company that took over the symbol, or junk data. "
                                f"It is not the index member.")
+    if alias and out and out[-1].startswith("Identity:") and (PRICES / f"{alias}.csv").exists():
+        out[-1] += f" The member's own history is the ticker {alias}."
     win = df[(df.index >= s) & (df.index <= e)]
     # only bars with real trading: stale rows (no volume, or the same close carried forward - e.g. the history a
     # data vendor pads in before a US listing, as for FER) would pull the median to zero

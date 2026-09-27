@@ -44,10 +44,17 @@ def test_market_caps_are_quoted_price_times_point_in_time_shares():
 
 @needs_data
 def test_market_cap_has_no_split_or_dividend_artifacts():
-    for t in ("AAPL", "AMZN", "GOOG", "WMT", "AEP", "MSFT"):
+    # the share-count part of each daily change (market-cap change less price change) never jumps by a
+    # split ratio. Price moves themselves can exceed 20% (AMZN +24% on 2009-10-23 earnings), so they are
+    # taken out. Former members use SEC counts (data/shares_sec); ESRX's one jump is the 2012 Medco merger.
+    real = {("ESRX", "2012-08-08")}
+    for t in ("AAPL", "AMZN", "GOOG", "WMT", "AEP", "MSFT", "CELG", "YHOO", "XLNX", "ESRX", "DELL-2013"):
         mc = data.market_cap(t).dropna()
         assert len(mc) > 500
-        assert (np.log(mc).diff().dropna().abs() < 0.2).all(), t      # no day where it jumps by a split ratio
+        close = data.load(t)["close"].reindex(mc.index)
+        jump = (np.log(mc).diff() - np.log(close).diff()).dropna().abs()
+        bad = [str(d.date()) for d in jump.index[jump >= 0.2] if (t, str(d.date())) not in real]
+        assert not bad, (t, bad)
 
 
 @needs_data
@@ -123,6 +130,29 @@ def test_merge_keeps_old_history_when_download_is_truncated():
     # a full refresh replaces the file
     out, how = fd.merge_history("X", frame(days, np.linspace(100, 200, 300)), old)
     assert how == "new"
+
+
+def test_keyed_file_keeps_provenance(tmp_path):
+    fd = fetch_module()
+    path = tmp_path / "delisted_sources.json"
+    path.write_text(json.dumps(["OLD1", "OLD2"]))                    # the file's former format: a plain list
+    assert fd.load_keyed(path) == {"OLD1": {"source": "keyed"}, "OLD2": {"source": "keyed"}}
+    path.write_text(json.dumps({"_about": "x", "EA": {"source": "intrader+stell0", "rows": 9284}}))
+    fd.save_keyed({"EA", "NEW"}, {"NEW": {"source": "tiingo"}}, path)
+    doc = json.loads(path.read_text())
+    assert list(doc) == ["_about", "EA", "NEW"]
+    assert doc["EA"] == {"source": "intrader+stell0", "rows": 9284} and doc["NEW"] == {"source": "tiingo"}
+
+
+@needs_data
+def test_rebuilt_former_members_are_protected_from_the_data_job():
+    fd = fetch_module()
+    assert {"EA", "CELG", "YHOO", "DELL-2013", "BBBY-2023"} <= fd.KEYED_OK
+    prov = json.loads((data.DATA / "delisted_sources.json").read_text())
+    used = {s["source"].split(":")[0] for k, v in prov.items() if not k.startswith("_") for s in v.get("segments", [])}
+    assert used <= set(prov["_sources"]), used - set(prov["_sources"])     # every source is described
+    for t in ("ERTS", "EA", "CELG", "SUNW", "JAVA-2010"):
+        assert (data.PRICES / f"{t}.csv").exists()
 
 
 def test_fetch_job_never_deletes_price_files():
