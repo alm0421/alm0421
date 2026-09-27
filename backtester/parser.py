@@ -4596,7 +4596,8 @@ def parse_allocation(text: str) -> Portfolio:
     if m:
         rb = "every_2_weeks"
         notes.append("Rebalancing fortnightly: at every 2nd week-end (the last trading day of every other week).")
-    if T.find(r",? ?(?:and )?(?:never re-?balanc\w*|no re-?balancing|without re-?balancing|don't re-?balance|do not re-?balance)"):
+    if T.find(r",? ?(?:and )?(?:never re-?balanc\w*|no re-?balancing|without re-?balancing|don't re-?balance|do not re-?balance"
+              r"|re-?balanc\w*(?: (?:it|the weights|the portfolio|them))? (?:never|none))"):
         rb = "none"
     # a schedule word the phrases above do not know ("rebalance hourly", "rebalance on Tuesdays"): say so, instead of
     # letting the words fall through to the holdings as unknown tickers
@@ -4670,6 +4671,16 @@ def parse_allocation(text: str) -> Portfolio:
     if "maintenance_margin" not in extra and lev > 4:
         raise ParseError(f"{lev:g}x leverage is above what the default 25% maintenance margin allows (4x): every close would be "
                          f"a margin call. Add e.g. 'with a {100 / lev * 0.9:.0f}% maintenance margin', or 'no margin calls'.")
+    # short-selling costs: "1% borrow fee", "borrow fee of 1%", "2% borrowing cost"; the short rebate
+    m = T.find(rf",? ?(?:(?:with|and|paying) )?(?:an? )?{NUM}% (?:annual |yearly )?(?:stock )?borrow(?:ing)? (?:fee|cost|rate)s?"
+               rf"(?: on (?:the )?shorts?)?|,? ?(?:(?:with|and|paying) )?(?:an? )?borrow(?:ing)? (?:fee|cost|rate)s?(?: of|:)? {NUM}%")
+    if m:
+        extra["borrow_fee"] = float(m.group(1) or m.group(2)) / 100
+    m = T.find(rf",? ?(?:(?:with|and) )?(?:a )?short rebate(?: spread)?(?: of)? {NUM}% (?:below|under|less than) (?:the )?(?:t-?bill|cash)(?: rate)?"
+               rf"|,? ?(?:(?:with|and) )?(?:no|full) short rebate(?: haircut)?")
+    if m:
+        extra["short_rebate_spread"] = (float(m.group(1)) / 100 if m.group(1)
+                                        else (0.99 if "no" in m.group(0).lower().split() else 0.0))   # 0.99: above any rate
     m = T.find(rf",? ?(?:(?:with|and) )?(?:an? )?(?:expense ratio|annual fee|management fee|fee) of {NUM}%(?: (?:a|per) year)?|,? ?(?:with |and )?(?:an? )?{NUM}% (?:expense ratio|annual fee|management fee|fee)(?: (?:a|per) year)?")
     if m:
         extra["expense_ratio"] = float(m.group(1) or m.group(2)) / 100

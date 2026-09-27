@@ -217,6 +217,17 @@ CRYPTO_LAG_NOTE = ("A rule reads a crypto pair from a US-market ticker: a crypto
                    "(the latest one complete at the US close).")
 
 
+# Cboe volatility indexes are calculated to 4:15pm New York: their "close" is not known at the 4:00pm stock close
+LATE_CLOSE = {"^VIX", "^VIX3M", "^VIX9D", "^VIX6M", "^VIX1D", "^VVIX", "^VXN", "^VXD", "^RVX", "^OVX", "^GVZ", "^VXEEM",
+              "^SKEW"}
+LATE_CLOSE_NOTE = ("{t} closes at 4:15pm New York, after the 4:00pm close this rule trades at: a same-day close fill "
+                   "uses {t}'s previous close (the latest known at 4:00pm). Fill at the next open to use that day's value.")
+
+
+def is_late_close(ticker: str | None) -> bool:
+    return bool(ticker) and str(ticker).upper() in LATE_CLOSE
+
+
 def adjusted_frame(df: pd.DataFrame) -> pd.DataFrame:
     """The bars on a total-return (dividend-adjusted) basis, built causally.
 
@@ -305,7 +316,7 @@ class Namespace(dict):
     """Evaluation namespace for one ticker; derived variables are lazy."""
 
     def __init__(self, df: pd.DataFrame, extra: dict[str, Any] | None = None, ticker: str | None = None,
-                 price_basis: str = "quoted", month_lookbacks: str = "trading"):
+                 price_basis: str = "quoted", month_lookbacks: str = "trading", close_fill: bool = False):
         """price_basis "quoted": prices as quoted (split-adjusted; TradingView). "adjusted": open/high/low/close on
         a total-return basis (dividends reinvested, see adjusted_frame; Composer, Portfolio Visualizer), for this
         ticker and for sym() of any other. month_lookbacks "calendar": ret / tret / tbill_ret over a whole number of
@@ -323,6 +334,7 @@ class Namespace(dict):
             df = adjusted_frame(df)
         self.df = df
         self.ticker = ticker
+        self.close_fill = close_fill   # rules acted on at this bar's own close: late-closing series (VIX) lag a day
         self.notes: list[str] = []
         c = df["close"]
         self.update({
@@ -1008,7 +1020,7 @@ class Namespace(dict):
             agg.index = pd.DatetimeIndex(known)
             agg = agg[agg.index.notna()]
             agg = agg[~agg.index.duplicated(keep="last")]
-            sub = Namespace(agg, ticker=self.ticker, price_basis=self.price_basis)
+            sub = Namespace(agg, ticker=self.ticker, price_basis=self.price_basis, close_fill=self.close_fill)
             val = evaluate_value(src, sub) if len(agg) else pd.Series(dtype=float)
             self.notes.extend(n for n in sub.notes if n not in self.notes)
             return val.reindex(df.index).ffill()
@@ -1020,7 +1032,8 @@ class Namespace(dict):
                 return evaluate_value(src, self)
             sub = getattr(self, "_quoted_ns", None)
             if sub is None:
-                sub = self._quoted_ns = Namespace(self.quoted_df, ticker=self.ticker, price_basis="quoted")
+                sub = self._quoted_ns = Namespace(self.quoted_df, ticker=self.ticker, price_basis="quoted",
+                                                        close_fill=self.close_fill)
             val = evaluate_value(src, sub)
             self.notes.extend(n for n in sub.notes if n not in self.notes)
             return val
@@ -1033,6 +1046,12 @@ class Namespace(dict):
             lag = is_crypto(data.canonical(ticker)) and not is_crypto(self.ticker)
             if lag and CRYPTO_LAG_NOTE not in self.notes:
                 self.notes.append(CRYPTO_LAG_NOTE)
+            if (not lag and self.close_fill and is_late_close(data.canonical(ticker))
+                    and not is_late_close(self.ticker) and not is_crypto(self.ticker)):
+                lag = True
+                note = LATE_CLOSE_NOTE.format(t=data.canonical(ticker))
+                if note not in self.notes:
+                    self.notes.append(note)
             return Bars(other, df.index, lag=lag)
 
         return {
@@ -2051,7 +2070,7 @@ def _sub_namespace(ns, k: int):
         if isinstance(v, pd.Series):
             extra[key] = v.iloc[:k].copy()
     return Namespace(base, extra or None, ticker=ns.ticker, price_basis=ns.price_basis,
-                     month_lookbacks=ns.month_lookbacks)
+                     month_lookbacks=ns.month_lookbacks, close_fill=getattr(ns, "close_fill", False))
 
 
 _STREAMED: dict = {}      # (fn, ticker, id(bars), basis, months, kind) -> (bars, Series, seconds)
@@ -2082,7 +2101,8 @@ def stream_callable(fn, ns, kind: str = "bool") -> pd.Series:
         return _as_bool(out, idx) if kind == "bool" else _as_value(out, idx)
     positional = any(isinstance(dict.get(ns, k), pd.Series) for k in POSITION_VARS)
     try:
-        key = None if positional else (fn, ns.ticker, id(ns.quoted_df), ns.price_basis, ns.month_lookbacks, kind)
+        key = None if positional else (fn, ns.ticker, id(ns.quoted_df), ns.price_basis, ns.month_lookbacks, kind,
+                                       getattr(ns, "close_fill", False))
         hit = _STREAMED.get(key) if key is not None else None
     except TypeError:          # an unhashable callable object: not cached
         key, hit = None, None
