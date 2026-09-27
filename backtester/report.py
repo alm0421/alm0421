@@ -1319,10 +1319,10 @@ def common_window_stats(analyses: list[dict], rf="tbill") -> dict:
         name = _run_name(A["result"], i) if len(analyses) > 1 else "Strategy"
         series[name] = A["nav"]
         runs.append(name)
-        fl = A["result"].extras.get("flows")
+        fl = (getattr(A["result"], "extras", None) or {}).get("flows")
         if fl is not None and float(fl.abs().sum()) > 0:
             has_flows = True
-            balances[name] = A["result"].equity
+            balances[name] = getattr(A["result"], "equity", A["nav"])
         if A.get("no_trades"):
             blank.add(name)
         if A.get("return_basis") == "monthly":
