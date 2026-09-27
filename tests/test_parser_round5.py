@@ -353,7 +353,8 @@ def test_please_is_accepted_explicitly():
     assert port("please hold 60% SPY and 40% TLT").tree == port("hold 60% SPY and 40% TLT").tree
 
 
-@pytest.mark.parametrize("word", ["kindly", "basically", "maybe", "definitely", "roughly", "never", "sometimes"])
+# ("kindly" left this list in round 13: it is one of the documented politeness fillers, accepted everywhere)
+@pytest.mark.parametrize("word", ["basically", "maybe", "definitely", "roughly", "never", "sometimes"])
 @pytest.mark.parametrize("template", [
     "{w} buy SPY when RSI(2) is below 10, hold 3 days",
     "buy SPY {w} when RSI(2) is below 10, hold 3 days",
@@ -397,7 +398,8 @@ def test_entry_subject_sizing_and_hold(text, fields):
     ("buy SPY on margin when RSI(2) is below 10, hold 3 days", "leverage"),
     ("buy SPY except during recessions when RSI(2) is below 10, hold 3 days", "except during recessions"),
     ("buy SPY aggressively when RSI(2) is below 10, hold 3 days", "aggressively"),
-    ("kindly buy SPY when RSI(2) is below 10, hold 3 days", "kindly"),
+    # (round 13: "kindly" is a documented politeness filler now; "hastily" stands in as an unknown adverb)
+    ("hastily buy SPY when RSI(2) is below 10, hold 3 days", "hastily"),
     ("buy SPY for 3 days when RSI(2) is below 10, hold 5 days", "Two holding periods"),
     ("buy 100 shares of SPY with half my account when RSI(2) is below 10, hold 3 days", "position size is given twice"),
     ("buy SPY with 100 shares and $500 of it when RSI(2) is below 10, hold 3 days", "two position sizes"),

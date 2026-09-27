@@ -3745,6 +3745,7 @@ def _parse(text: str, **overrides):
     _intraday_check(text)
     _negative_costs(text)
     text = _rotation_phrasings(text)
+    text = _review_phrases(text)   # round 13: politeness, schedules, leverage on a ticker, more phrases
     # "buy UVXY and hold" = "buy and hold UVXY" (an allocation that never rebalances)
     mbh = re.fullmatch(r"(?is)\s*buy (?P<who>[^,;`]+?) and hold(?: (?:it|them|forever|onto it|on to it))?(?P<rest>\s*(?:[,;].*)?)", text)
     if mbh and not re.search(r"(?i)\b(?:when|if|while|once|after|at|on)\b", mbh.group("who")) and find_tickers(mbh.group("who")):
@@ -3760,6 +3761,268 @@ def _parse(text: str, **overrides):
         _TL.opp = None
     obj.description = original
     return _finish(obj, overrides)
+
+
+
+# ------------------------------------------------------------------ round 13 (a Composer user's review): phrases
+# and clearer refusals, applied to the whole sentence before it is parsed (_parse). Kept in one place so the shared
+# parsing code stays as it is.
+
+# politeness that carries no meaning: dropped anywhere in a sentence (signals and portfolios alike)
+POLITE = (r"please|pls|plz|kindly|(?:many )?thanks(?: a lot| so much| very much)?|thank you(?: very much| so much)?|thx"
+          r"|cheers")
+# "can you ..." / "could you please ..." at the start of the sentence
+POLITE_LEAD = r"(?:(?:can|could|would|will) you|i'?d like you to|i would like you to)"
+# leveraged and inverse ETFs of an underlying: (underlying, factor) -> fund, for "3x leveraged QQQ ETF"
+LEVERAGED_ETFS = {
+    ("QQQ", 3): "TQQQ", ("QQQ", 2): "QLD", ("QQQ", -3): "SQQQ", ("QQQ", -2): "QID", ("QQQ", -1): "PSQ",
+    ("SPY", 3): "UPRO", ("SPY", 2): "SSO", ("SPY", -3): "SPXU", ("SPY", -2): "SDS", ("SPY", -1): "SH",
+    ("IWM", 3): "TNA", ("IWM", 2): "UWM", ("IWM", -3): "TZA", ("DIA", 3): "UDOW", ("DIA", 2): "DDM",
+    ("TLT", 3): "TMF", ("TLT", 2): "UBT", ("TLT", -3): "TMV", ("SOXX", 3): "SOXL", ("SMH", 3): "SOXL",
+    ("SOXX", -3): "SOXS", ("SMH", -3): "SOXS", ("XLK", 3): "TECL", ("XLF", 3): "FAS", ("XLV", 3): "CURE",
+    ("GLD", 2): "UGL", ("EEM", 3): "EDC", ("FXI", 3): "YINN", ("GDX", 2): "NUGT",
+}
+_FREQ_RX = r"(daily|weekly|monthly|quarterly|annually|yearly|semi-?annually)"
+_REB = r"re-?balanc\w*(?: (?:it|the weights|the portfolio|them))?"
+_WD_RX = r"(mondays?|tuesdays?|wednesdays?|thursdays?|fridays?)"
+_CMP_WORDS = {"below": "<", "under": "<", "less than": "<", "lower than": "<", "above": ">", "over": ">",
+              "greater than": ">", "more than": ">", "higher than": ">", "at least": ">=", "at most": "<="}
+_CMP_RX = r"(below|under|less than|lower than|above|over|greater than|more than|higher than|at least|at most|[<>]=?)"
+
+
+def _freq_word(w: str) -> str:
+    w = w.lower().replace("-", "")
+    return {"annually": "yearly", "annual": "yearly", "semiannually": "semiannual", "semiannual": "semiannual"}.get(w, w)
+
+
+def _pct(x: str) -> str:
+    return f"{float(x) / 100:g}"
+
+
+def _review_phrases(text: str) -> str:
+    """Round 13 phrases (a Composer user's review) -> forms the parser reads, or a clear refusal:
+      politeness ("please", "kindly", "thanks", "can you ...")          dropped everywhere
+      "rebalance daily, rebalance monthly"                              refused: the two schedules conflict
+      "rebalance monthly with Composer timing" / "Composer-style"       rebalance on the first trading day of each month
+      "..., but only on Tuesdays" (an allocation)                       refused: say "rebalance every Tuesday"
+      a sentence ending in "and also" / "and"                           refused: something is missing
+      "3x leveraged QQQ ETF"                                            TQQQ (with a note); "3x QQQ" is refused with
+                                                                        the two ways to say it (the ETF or margin)
+      "VIX > 30"                                                        VIX is above 30
+      "SPY is higher than yesterday"                                    SPY closes up on the day (close > previous close)
+      "SPY has risen for 3 days in a row"                               SPY is up 3 days in a row
+      "SPY's 20 day return exceeds TLT's by more than 2%"               a difference of returns (percentage points)
+      "SPY is down more than 10% this month"                            the month-to-date total return < -10%
+      "the 2 with the smallest drawdown among A, B, C"                  the bottom 2 of A, B, C by drawdown
+      "SPY RSI 10 day greater than 80" (Composer's label order)         SPY 10 day RSI greater than 80
+      "10 day return is less negative than -5%"                         ... is above -5%"""
+    t = text
+    # -- politeness
+    t = _sub_outside(rf"(?i)^\s*{POLITE_LEAD}(?: (?:{POLITE}))?\s+", "", t)
+    t = _sub_outside(rf"(?i)(?:(?<=^)|(?<=[\s,;.!(]))(?:{POLITE})(?![\w'-])[,.!]*", " ", t)
+    t = re.sub(r"\s+([,;.!])", r"\1", t)
+    t = re.sub(r"([,;])\s*(?:[,;]\s*)+", r"\1 ", t)
+    t = re.sub(r"^\s*[,;.!]+\s*|\s*[,;]+\s*$", "", re.sub(r" {2,}", " ", t)).strip()
+    if not t:
+        raise ParseError("Describe a strategy or a portfolio, e.g. 'hold 60% SPY and 40% TLT, rebalance quarterly'.")
+    # -- a dangling conjunction at the end ("... else SPY and also")
+    m = re.search(r"(?i)[,;]?\s*\b((?:and|or|but|plus)(?: also| then| too)?|also|then)\s*[.!]*\s*$", _mask(t, parens=False))
+    if m and not re.search(r"(?i)\bbuy and hold\s*$", t):
+        raise ParseError(f"The sentence ends with '{t[m.start(1):m.end(1)]}': something seems to be missing after it. "
+                         "Finish the phrase, or remove it.")
+    # -- rebalancing schedules: two different ones conflict; Composer's timing
+    sched = rf"(?i)(?:\b{_REB} {_FREQ_RX}\b|\b(daily|weekly|monthly|quarterly|annual|yearly|semi-?annual) re-?balanc\w*|\b(?:never re-?balanc\w*|no re-?balancing|without re-?balancing))"
+    masked = _mask(t, parens=False)
+    found = [(mm.group(0), _freq_word(mm.group(1) or mm.group(2) or "none")) for mm in re.finditer(sched, masked)
+             if not re.search(r"(?i)\b(?:vs\.?|versus|benchmark|compared (?:to|with)|against)\b",
+                              masked[max(masked.rfind(",", 0, mm.start()), masked.rfind(";", 0, mm.start()), 0):mm.start()])]
+    if len({f for _, f in found}) > 1:
+        a, b = found[0][0].strip(), next(x for x, f in found if f != found[0][1]).strip()
+        raise ParseError(f"Two rebalancing schedules conflict: '{a}' and '{b}'. A portfolio has one schedule: keep one of "
+                         "them (a drift band can be added to it: 'rebalance monthly or when any weight drifts 5%').")
+    if len(found) > 1:     # the same schedule twice: once is enough
+        dup = found[1][0]
+        i = t.rfind(dup)
+        t = (t[:i].rstrip(" ,;") + t[i + len(dup):]).strip()
+    ct = re.search(r"(?i),? ?(?:and )?(?:re-?balanc\w* )?(?:(?:with|using|on|in|at) composer(?:'s)? (?:timing|schedule|trading days?|"
+                   r"rebalanc\w*(?: timing| days?| schedule)?)|composer[- ]style(?: timing| rebalanc\w*| schedule)?|"
+                   r"(?:like|as) (?:in )?composer(?: does)?)(?![\w-])", t)
+    if ct:
+        t = (t[:ct.start()] + t[ct.end():]).strip(" ,")
+        fm = re.search(rf"(?i)\b(?:{_REB}|rotat\w*) {_FREQ_RX}\b|\b(weekly|monthly|quarterly|annual|yearly) re-?balanc\w*", t)
+        per = {"weekly": "week", "monthly": "month", "quarterly": "quarter", "yearly": "year"}
+        f = _freq_word(fm.group(1) or fm.group(2)) if fm else None
+        if f in per:
+            t = t[:fm.start()] + f"rebalance on the first trading day of each {per[f]}" + t[fm.end():]
+            _note(f"Composer timing: a {f} symphony trades on the first trading day of each {per[f]}, near the close, as "
+                  "Composer runs it (this parser's own 'rebalance " + f + f"' trades on the last trading day of each {per[f]}).")
+        elif re.search(r"(?i)\b(?:first|last|final|start|beginning|end) (?:trading )?day\b|\bevery (?:mon|tues|wednes|thurs|fri)day", t):
+            raise ParseError("'Composer timing' is the first trading day of each week / month / quarter / year: the sentence "
+                             "already names a rebalance day. Keep one of them.")
+        else:
+            _note("Composer timing: Composer evaluates a symphony's rules at every close unless it is given a weekly, "
+                  "monthly, quarterly or yearly schedule (then on the first trading day of each period); here the rules "
+                  "are checked daily at the close, as Composer's default.")
+    # -- "but only on Tuesdays" on an allocation: the rebalancing day
+    allocation = (re.search(r"(?i)\b(?:hold|holding|allocate|invest|then|else|otherwise)\b", t)
+                  and not re.search(r"(?i)\b(?:buy|sell|short|go long|enter|exit|cover)\b", _mask(t, parens=False)))
+    m = re.search(rf"(?i),? ?(?:but |and )?only (?:on |every |each )?{_WD_RX}(?![\w-])", _mask(t, parens=False))
+    if m and allocation:
+        day = m.group(1).lower().rstrip("s").capitalize()
+        raise ParseError(f"'{t[m.start():m.end()].strip(' ,')}': an allocation is limited to a weekday by its rebalancing "
+                         f"schedule. Say 'rebalance every {day}': the rules are then checked and the portfolio trades each "
+                         f"{day} at the close, and holds what it has on the other days.")
+    # -- leverage written on a ticker: "3x QQQ", "3x leveraged QQQ", "-3x QQQ", "3x inverse QQQ ETF"
+    def lev(mm):
+        k = float(mm.group("k"))
+        inv = bool(mm.group("neg")) or bool(mm.group("inv"))
+        u = mm.group("u").upper()
+        if u in NOT_TICKERS or data.canonical(u) not in _known():
+            return mm.group(0)
+        f = -k if inv else k
+        fund = LEVERAGED_ETFS.get((u, int(f))) if float(f).is_integer() else None
+        said = mm.group(0).strip()
+        if mm.group("etf"):
+            if fund and fund in _known():
+                _note(f"'{said}' was read as {fund}, the {'inverse ' if f < 0 else ''}{abs(f):g}x leveraged {u} ETF: it resets "
+                      f"its leverage daily and carries its fund fees and financing costs"
+                      + (f" (a {f:g}x position in {u} itself is 'hold {u} with {f:g}x leverage')." if f > 0 else "."))
+                return fund
+            raise ParseError(f"'{said}': no {'inverse ' if f < 0 else ''}{abs(f):g}x {u} fund is on file. Name the fund's "
+                             f"ticker, or hold {u} itself with leverage ('hold {u} with {abs(f):g}x leverage').")
+        alt = f"hold {fund} (the {abs(f):g}x {'inverse ' if f < 0 else ''}{u} ETF, which resets daily), or write '{said} ETF'" if fund else \
+            f"name the {abs(f):g}x {u} fund's ticker"
+        raise ParseError(f"'{said}': leverage written on a ticker is ambiguous. For a leveraged fund, {alt}; for a margin "
+                         f"position in {u} itself, say 'hold {u} with {abs(f):g}x leverage' (borrowed at the margin rate "
+                         "and reset to that leverage at each rebalance; 'rebalance daily' resets it daily like the ETF"
+                         "; beyond 2x say 'with portfolio margin').")
+    t = _sub_outside(r"(?<![\w.$-])(?P<neg>-)?(?P<k>\d(?:\.\d+)?) ?(?:x|times) (?:(?:daily )?(?:leveraged|levered|lev) )?"
+                     r"(?P<inv>(?:inverse|short) )?(?P<u>\^?[A-Za-z]{2,5})(?P<etf> (?:etf|fund|etn)s?)?(?![\w.-])"
+                     r"(?! (?:leverage|margin|volume|average|avg|the|its|atr)\b)", lev, t, flags=re.I)
+    # -- "VIX > 30": a ticker compared with a number
+    def level(mm):
+        u = mm.group(2)
+        if u.upper() in NOT_TICKERS or data.canonical(u.upper()) not in _known():
+            return mm.group(0)
+        word = {">": "is above", "<": "is below", ">=": "is at least", "<=": "is at most"}[mm.group(3)]
+        return f"{mm.group(1)}{u} {word} {mm.group(4)}"
+    t = _sub_outside(r"((?:^|\b(?:if|when|whenever|while|unless|and|or|but)\s+|[,(]\s*))(\^?[A-Z][A-Z0-9]{0,4})\s*(>=|<=|>|<)\s*"
+                     r"(-?\d+(?:\.\d+)?)(?![\w%.])", level, t)
+    # (a rule on another ticker than the one traded names it with sym(); an allocation's condition is on its own ticker)
+    def series(who: str, ser: str) -> str:
+        w = re.sub(r"'s?$", "", who or "")
+        if allocation or not w or w.lower() in ("it", "its", "its price", "the"):
+            return ser
+        return f'sym("{data.canonical(w.upper())}").{ser}'
+
+    def subject(who: str) -> str:
+        w = re.sub(r"'s?$", "", who or "")
+        return "" if not w or w.lower() in ("its", "its price", "the") else w + " "
+    # -- against the previous close
+    def prev_close(mm):
+        up = mm.group("d").lower() in ("higher", "up")
+        c = series(mm.group("who"), "close")
+        return f"{subject(mm.group('who'))}`{c} {'>' if up else '<'} ref({c}, 1)`"
+    t = _sub_outside(r"(?i)\b(?:(?P<who>\^?[A-Z][A-Z0-9]{0,4}|it) )?(?:is|was|closed|closes|finished|finishes|ended|ends|trades|"
+                     r"is trading) (?P<d>higher|up|lower|down) (?:than|from|vs\.?|versus|compared (?:to|with)) (?:yesterday(?:'s close)?|"
+                     r"the (?:previous|prior|last) (?:day(?:'s close)?|close|session|trading day)|the day before|its (?:previous|prior|last) "
+                     r"close)(?![\w-])", prev_close, t)
+    # -- streaks: "has risen for 3 days in a row"
+    t = _sub_outside(r"(?i)\b(?:has |have )?(?:risen|rose|gone up|went up|climbed|advanced|gained)"
+                     r" (?:for )?(\d+) (?:straight |consecutive )?(?:days?|sessions?)(?: in a row| straight| running)?(?![\w-])",
+                     r"is up \1 days in a row", t)
+    t = _sub_outside(r"(?i)\b(?:has |have )?(?:fallen|fell|dropped|gone down|went down|declined|lost)"
+                     r" (?:for )?(\d+) (?:straight |consecutive )?(?:days?|sessions?)(?: in a row| straight| running)?(?![\w-])",
+                     r"is down \1 days in a row", t)
+    # -- one return against another's by a margin (percentage points)
+    def spread(mm):
+        g = mm.groupdict()
+        a, b, n = g["a"], g["b"].upper(), int(g["n"])
+        n2 = int(g.get("n2") or n)
+        if data.canonical(b) not in _known() or (a.upper() not in ("ITS",) and data.canonical(a.upper()) not in _known()):
+            return mm.group(0)
+        neg = bool(re.match(r"(?i)trails|lags|underperforms|is below|is lower than|below|lower than|less than", g["dir"]))
+        op = ">=" if (g.get("bound") or "").strip().lower() == "at least" else ">"
+        diff = f'tret({series(a, "tr")}, {n}) - tret(sym("{data.canonical(b)}").tr, {n2})'
+        rule = f"{diff} {op} {_pct(g['k'])}" if not neg else f"{diff} {'<=' if op == '>=' else '<'} -{_pct(g['k'])}"
+        who = "" if a.upper() == "ITS" else a.upper() + " "
+        _note(f"'{mm.group(0).strip()}': read as a difference of returns in percentage points ({who or 'its '}{n} day return "
+              f"minus {b}'s{'' if n2 == n else f' {n2} day'} return {'above' if not neg else 'below'} "
+              f"{'-' if neg else ''}{g['k']}%, `{rule}`), not {g['k']}% of {b}'s return.")
+        return f"{who}`{rule}`"
+    ret = r"(?:total )?(?:return|performance|gain)"
+    t = _sub_outside(rf"(?i)\b(?P<a>\^?[A-Z][A-Z0-9]{{0,4}}|its)(?:'s)? (?P<n>\d+) day {ret} (?P<dir>exceeds|beats|outperforms|tops|"
+                     rf"is above|is higher than|is greater than|trails|lags|underperforms|is below|is lower than) (?P<b>\^?[A-Z][A-Z0-9]{{0,4}})'s?"
+                     rf"(?: (?P<n2>\d+) day {ret})? by (?P<bound>more than |at least |over )?(?P<k>\d+(?:\.\d+)?) ?%", spread, t)
+    t = _sub_outside(rf"(?i)\b(?P<a>\^?[A-Z][A-Z0-9]{{0,4}}|its)(?:'s)? (?P<n>\d+) day {ret} is (?P<bound>more than |at least |over )?"
+                     rf"(?P<k>\d+(?:\.\d+)?) ?% (?P<dir>above|greater than|more than|below|less than) "
+                     rf"(?P<b>\^?[A-Z][A-Z0-9]{{0,4}})'s?(?: (?P<n2>\d+) day {ret})?(?![\w-])", spread, t)
+    # -- month to date
+    def mtd(who: str) -> str:
+        x = series(who, "tr")
+        return f"{x} / valuewhen(trading_day_of_month == 1, ref({x}, 1), 0) - 1"
+    mtd_note = ("Month-to-date return: the total return since the previous month's last close (`tr / valuewhen("
+                "trading_day_of_month == 1, ref(tr, 1), 0) - 1`), known at each close, so no later price is used.")
+
+    def mtd_move(mm):
+        who = mm.group("who") or ""
+        up = mm.group("dir").lower() in ("up", "higher")
+        strict = (mm.group("bound") or "").strip().lower() in ("more than", "over")
+        k = _pct(mm.group("k"))
+        rule = f"{mtd(who)} {'>' if up else '<'}{'' if strict else '='} {'' if up else '-'}{k}"
+        _note(mtd_note)
+        return f"{subject(who)}`{rule}`"
+    t = _sub_outside(r"(?i)\b(?:(?P<who>\^?[A-Z][A-Z0-9]{0,4}|it|its price) )?(?:is |was |has been |has |have )?(?:(?:fallen|dropped|"
+                     r"risen|gained|lost|fell|rose) )?(?P<dir>down|up|lower|higher) (?P<bound>more than |at least |over )?(?P<k>\d+(?:\.\d+)?) ?%"
+                     r" (?:this month|so far this month|month[- ]to[- ]date|mtd)(?![\w-])", mtd_move, t)
+
+    def mtd_cmp(mm):
+        who = mm.group("who") or ""
+        op = _CMP_WORDS.get(mm.group("cmp").lower(), mm.group("cmp"))
+        rule = f"{mtd(who)} {op} {_pct(mm.group('k'))}"
+        _note(mtd_note)
+        return f"{subject(who)}`{rule}`"
+    t = _sub_outside(rf"(?i)\b(?:(?P<who>\^?[A-Z][A-Z0-9]{{0,4}}'s|its|the) )?(?:month[- ]to[- ]date|mtd|this month's) (?:total )?"
+                     rf"(?:return|performance|change) (?:is )?{_CMP_RX.replace('(', '(?P<cmp>', 1)} (?P<k>-?\d+(?:\.\d+)?) ?%", mtd_cmp, t)
+    # -- "the 2 with the smallest drawdown among A, B and C"
+    items = rf"{_TICK_ITEM}(?:(?:,\s*(?:and\s+|&\s*)?|\s+and\s+|\s*&\s*){_TICK_ITEM})*"
+
+    def among(mm):
+        top = mm.group("dir").lower() in ("largest", "highest", "biggest", "greatest", "most")
+        return f"the {'top' if top else 'bottom'} {mm.group('n')} of {mm.group('items')} by {mm.group('metric')}"
+    t = _sub_outside(rf"(?i)\bthe (?P<n>\d+) (?:ones? |assets? |tickers? |funds? )?(?:with|having) the (?P<dir>smallest|lowest|least|"
+                     rf"largest|highest|biggest|greatest|most) (?P<metric>[a-z0-9 ]+?) (?:among|of|from|out of) (?:the )?(?P<items>{items})(?![\w-])",
+                     among, t)
+    # -- Composer's label order: "SPY RSI 10 day", "QQQ cumulative return 20 day"
+    t = _sub_outside(r"\b(\^?[A-Z][A-Z0-9]{0,4}(?:'s)?) ((?i:RSI|relative strength index|cumulative return|return|moving average(?: of price)?|"
+                     r"max(?:imum)? drawdown|standard deviation(?: of (?:price|return))?|volatility|EMA|SMA|"
+                     r"exponential moving average(?: of price)?)) (\d+)[- ]days?\b", r"\1 \3 day \2", t)
+    # -- "less negative than -5%" (above it), "more negative than -5%" (below it)
+    t = _sub_outside(r"(?i)\b(?:is )?less negative than (?=-\d)", "is above ", t)
+    t = _sub_outside(r"(?i)\b(?:is )?more negative than (?=-\d)", "is below ", t)
+    return t
+
+
+def _not_a_word_ticker(it: str) -> None:
+    """A lowercase word in a list of holdings that is no ticker with data ('also'): say it is not understood, instead
+    of an unknown-ticker error for its capitals."""
+    w = it.strip()
+    if re.fullmatch(r"[a-z]{2,6}", w) and data.canonical(w.upper()) not in _known():
+        raise ParseError(f"'{w}' is not understood here: it is not a phrase this parser reads, and as a ticker "
+                         f"({w.upper()}) it has no price data. Remove it, or name a ticker (`python -m backtester tickers` "
+                         "lists all) or 'cash'.")
+
+
+def _calendar_timing_note(rb: str, day_phrase, stated, tree, notes: list[str]) -> None:
+    """A typed weekly / monthly / quarterly / yearly schedule with no rebalance day: say which day it trades (the
+    period's last trading day), and how to get Composer's (the first)."""
+    if not stated or day_phrase or rb not in ("weekly", "monthly", "quarterly", "yearly"):
+        return
+    per = {"weekly": "week", "monthly": "month", "quarterly": "quarter", "yearly": "year"}[rb]
+    rules = _has(tree, "if") or _has(tree, "filter") or _dynamic(tree)
+    notes.append(f"Rebalance timing: '{rb}' {'checks the rules and ' if rules else ''}trades on the last trading day of each "
+                 f"{per}, at its close. Composer runs a {rb} symphony on the first trading day of each {per}: say "
+                 f"'rebalance on the first trading day of each {per}', or add 'with Composer timing', to match it.")
 
 
 def _finish(obj, overrides: dict):
@@ -5687,6 +5950,7 @@ def _asset_list(s: str, choice: bool = False) -> list[dict]:
         if cw:
             out.append({"asset": cw})
             continue
+        _not_a_word_ticker(it)
         probe = it.upper() if re.fullmatch(r"[a-z^$]{1,6}", it) else it
         tk = find_tickers(probe, strict=True)
         if len(tk) > 1 and re.search(r"(?i)\b(?:else|otherwise)\b", it):
@@ -5697,7 +5961,8 @@ def _asset_list(s: str, choice: bool = False) -> list[dict]:
                              "or put a group in brackets with its weights, e.g. '(60% TECL and 40% BIL)'.")
         if not tk:
             words = [w for w in re.findall(r"[A-Za-z%'^$]+|\d+", it) if w.lower() not in STOP]
-            raise ParseError(f"No ticker found in {it!r}" + (f" (not understood: {' '.join(words)!r})" if words else "")
+            raise ParseError(f"No ticker found in {it!r}" + (f" (not understood: {' '.join(words)!r})" if words else
+                                                             " (it is not a phrase this parser reads)")
                              + ". Name a ticker (`python -m backtester tickers` lists all) or 'cash'.")
         rest = re.sub(rf"(?<![\w])[\$^]?{re.escape(tk[0].lstrip('^'))}\b", " ", probe, flags=re.I)
         for name, sym in COMPANIES.items():
@@ -6874,6 +7139,7 @@ def parse_allocation(text: str) -> Portfolio:
             re.search(r"\bmonthly_\w+\(", r) and not re.search(r"\b(?!monthly_)(?:sma|ema|rsi|ret|tret|volatility|drawdown|max_drawdown|"
                                                                 r"stdev_return|ma_return|change|ref)\(", r) for r in _if_rules(tree)):
         tactical = "Monthly moving-average timing (Faber)"
+    rb_stated = rb
     if rb is None and tv.get("target_vol") and not (band or band_rel):
         # the exposure is rescaled at each rebalance: without one the target would be applied once, on the first day
         rb = "monthly"
@@ -6951,6 +7217,7 @@ def parse_allocation(text: str) -> Portfolio:
         w = _band_unreachable(tree, band, band_rel, rb)
         if w:
             notes.append(w)
+    _calendar_timing_note(rb, rb_day_hit, rb_stated, tree, notes)
     if rb_day:
         from .portfolio import rebalance_day_text
         notes.append(f"Rebalanced {rebalance_day_text(rb, rb_day)}, and on the first day"

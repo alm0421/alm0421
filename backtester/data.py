@@ -338,6 +338,15 @@ FORMER_LISTINGS = {
     "SHLD": ("SHLD-2018", "2018-10-16"),   # Sears Holdings (bankrupt)
     "SNDK": ("SNDK-2016", "2016-05-12"),   # the old SanDisk (to Western Digital); the file is the 2025 spin-off
     "SPLS": ("SPLS-2017", "2017-09-13"),   # Staples (taken private)
+    # a fund, not an index member: the original BMO MicroSectors FANG+ Index 3x Leveraged ETN (2018-01-23..2025-05-14,
+    # renamed FNGA in 2025-02 and redeemed); FNGU.csv is the new FANG+ 3x ETN that took the symbol (listed 2025-02-20)
+    "FNGU": ("FNGU-2025", "2025-02-20"),
+}
+# what the former listing of a reused fund symbol was, for the note a backtest before the cut gets (FORMER_LISTINGS)
+FORMER_LISTING_ABOUT = {
+    "FNGU": ("the original MicroSectors FANG+ Index 3x Leveraged ETN (BMO, 2018-01 to 2025-05, renamed FNGA in 2025-02 and "
+             "redeemed on 2025-05-15); its history on file runs 2018-01-23 to 2024-09-27 (the public archive it comes "
+             "from ends there)"),
 }
 
 
@@ -2595,6 +2604,12 @@ def identity_notes(ticker: str, start=None, end=None) -> list[str]:
         if dv < MIN_DOLLAR_VOLUME:
             out.append(f"Liquidity: {t} trades about ${dv:,.0f} a day in this period (median dollar volume) - a very "
                        f"thin series; check it is the company you mean.")
+    fl = FORMER_LISTINGS.get(t)
+    if fl and t in FORMER_LISTING_ABOUT and s < pd.Timestamp(fl[1]) and (PRICES / f"{fl[0]}.csv").exists():
+        # a fund symbol taken over by another product: the earlier product is its own ticker, not spliced in
+        out.append(f"Former listing: {t}'s price file is the product listed under that symbol since {fl[1]} (it starts on "
+                   f"{f0.date()}); before that, {t} was {FORMER_LISTING_ABOUT[t]}. That history is the ticker {fl[0]}: "
+                   f"it is a different security (no continuous series), so it is not joined to {t}.")
     info = delisted().get(t)
     if info and info.get("last_date") and pd.Timestamp(info["last_date"]) < e:
         why = f" ({info['reason']})" if info.get("reason") else ""

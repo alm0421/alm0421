@@ -1988,5 +1988,24 @@
   ],
   "splits": {},
   "stands_for": "MEDI before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "FNGU-2025": {
+  "first": "2018-01-23",
+  "last": "2024-09-27",
+  "rows": 1682,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "2018-01-23",
+    "to": "2024-09-27",
+    "dividends": "none (an ETN pays none)"
+   }
+  ],
+  "splits": {
+   "2021-02-12": 10.0,
+   "2022-10-31": 0.1
+  },
+  "checks": "single source (no second archive carries the ETN): Tiingo split factors 10 (2021-02-12) and 0.1 (2022-10-31) match the adjusted close, which is continuous across both; open/high/low scaled by the same factor; 2 bars whose open lay outside the high-low range (2021-05-05, 2023-06-05) had the range widened to the open; no day moves over 32% (largest: 2022-03-16 +31%, 2020-03-12 -29%, in line with 3x the FANG+ index); the price integrity gate finds nothing to repair. Yahoo serves neither FNGU's (now the new ETN's from 2025-02-20) nor FNGA's old history, so 2024-09-30..2025-05-14 is missing.",
+  "stands_for": "FNGU before its symbol was reused by the new MicroSectors FANG+ 3x ETN (backtester/data.py FORMER_LISTINGS)"
  }
 }
