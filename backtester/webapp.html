@@ -425,7 +425,13 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 <!-- DATA -->
 <section id="p-data" class="hide">
   <div class="card"><h2>Data</h2><div id="dataStatus"></div>
-    <h3>Search tickers</h3><input id="tkSearch" placeholder="type to filter"><div id="tkList" class="chips"></div>
+    <h3>Ticker directory</h3>
+    <p class="note">Every ticker with price data or fund facts: stocks (Nasdaq-100, S&amp;P 500/400/600 and large ADRs), ETFs, mutual funds, indexes and simulated series. Search by ticker, name, category, fund family or index (e.g. "vanguard small value", "S&amp;P 400 bank", "bond index admiral"). A ticker marked "not downloaded" is in the data job's lists and arrives with one of its next runs; on your own computer, Download fetches it now.</p>
+    <div class="row"><input id="tkSearch" placeholder="ticker, name, category, family or index" style="flex:1 1 260px" aria-label="search the ticker directory">
+      <select id="tkKind" aria-label="type"><option value="">All types</option><option>Stock</option><option>ETF</option><option>Mutual fund</option><option>Index</option><option>Simulated</option></select>
+      <label class="note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="tkHas"> with data only</label></div>
+    <p class="note" id="tkCount" role="status"></p>
+    <div class="xscroll"><table id="tkList" class="ftbl"></table></div>
     <h3>Add a ticker</h3><div class="row"><input id="tkAdd" placeholder="e.g. IBM, BRK-B, ^VIX3M"><button class="btn" id="tkAddBtn">Download history</button><span class="note" id="tkAddStatus"></span></div>
     <p class="note">Works on your own computer (it downloads from Yahoo Finance). Any ticker you mention in a strategy is also fetched automatically.</p>
     <h3>Import your own series</h3>
@@ -559,7 +565,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
   <div class="card"><h2>Funds</h2>
     <p class="note">Every ETF and mutual fund with price data: returns and risk from our own total-return prices (dividends reinvested), fund facts (category, expense ratio, assets, inception, holdings) from Yahoo as the data job collects them. Filter to screen, tick up to 6 funds (or type them) to compare.</p>
     <div class="grid">
-      <label>Search<input id="f_q" placeholder="ticker or name"></label>
+      <label>Search<input id="f_q" placeholder="ticker, name, category or family"></label>
       <label>Type<select id="f_kind"><option value="">All</option><option value="ETF">ETF</option><option value="Mutual fund">Mutual fund</option></select></label>
       <label>Category<select id="f_cat"><option value="">All</option></select></label>
       <label>Max expense ratio (%)<input id="f_er" type="number" step="0.01" min="0" placeholder="e.g. 0.2"></label>
@@ -568,7 +574,10 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       <label>Min 5-year return (%/yr)<input id="f_r5" type="number" step="0.1" placeholder="e.g. 6"></label>
       <label>Max volatility, 3y (%)<input id="f_vol" type="number" step="0.1" min="0" placeholder="e.g. 15"></label>
     </div>
-    <div class="row" style="margin-top:12px"><button class="btn" id="fReset">Clear filters</button><span class="note" id="fStatus"></span></div>
+    <label class="note" style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" id="f_unk"> Include funds whose expense ratio or assets aren't known yet (a filter on a missing value otherwise leaves the fund out)</label>
+    <div class="row" style="margin-top:12px"><button class="btn" id="fReset">Clear filters</button><span class="note" id="fStatus" role="status"></span></div>
+    <p class="note" id="fUnknown"></p>
+    <p class="note">Looking for a stock, an index or a fund that isn't here? <a href="#data">Search every ticker in the directory</a> (Data page).</p>
   </div>
   <div class="card"><h2 id="fTitle">Funds</h2>
     <div class="row"><label style="flex:1 1 260px">Compare (2-6 funds)<input id="f_cmp" class="w" list="tickerList" placeholder="e.g. VTI VXUS BND"></label>
@@ -1717,10 +1726,36 @@ window.addEventListener('blur', unpress);
      ['Former members with history', d.former_members_with_data], ['Former members without history', d.former_members_missing],
      ['Point-in-time membership from', d.membership_from], ['T-bill rate / CPI / factors', [d.has_tbill, d.has_cpi, d.has_factors].map(x => x ? 'yes' : 'no').join(' / ')]]
       .forEach(([k, v]) => box.append(el('div', {}, `${k}: ${v ?? '—'}`)));
-    const all = [...STATUS.nasdaq100, ...STATUS.etfs, ...STATUS.indexes, ...STATUS.former];
-    const drawT = () => { const q = $('tkSearch').value.toUpperCase(); $('tkList').replaceChildren(...all.filter(t => !q || t.includes(q)).slice(0, 400).map(t => el('span', { class: 'chip' }, t))); };
-    $('tkSearch').oninput = drawT; drawT();
+    drawDirectory();
   }
+  // the ticker directory (GET /api/directory): every ticker with data or metadata, searched on the server
+  let dirSeq = 0, dirTimer = null;
+  async function drawDirectory() {
+    const my = ++dirSeq, q = $('tkSearch').value.trim();
+    const qs = new URLSearchParams({ q, kind: $('tkKind').value, limit: '200' }); if ($('tkHas').checked) qs.set('has_data', '1');
+    try {
+      const D = await api('/api/directory?' + qs.toString()); if (my !== dirSeq) return;
+      $('tkCount').textContent = `${D.total.toLocaleString()} match${D.total === 1 ? '' : 'es'}${D.total > D.results.length ? ` (showing the first ${D.results.length})` : ''} · ${D.size.toLocaleString()} tickers in the directory, ${D.with_data.toLocaleString()} with price data`;
+      const tb = $('tkList'); tb.replaceChildren();
+      const hr = el('tr'); ['Ticker', 'Name', 'Type', 'Category / family', 'Index', 'Price data'].forEach(h => hr.append(el('th', {}, h))); tb.append(hr);
+      D.results.forEach(r => {
+        const tr = el('tr');
+        tr.append(el('td', {}, r.ticker)); const nm = el('td', { class: 'fname' }, r.name || '—'); nm.title = r.name || ''; tr.append(nm);
+        tr.append(el('td', {}, r.type), el('td', {}, [r.category, r.family].filter(Boolean).join(' · ') || '—'), el('td', {}, (r.indexes || []).join(', ') || '—'));
+        const dc = el('td', {}, r.has_data ? 'yes' : 'not downloaded ');
+        if (!r.has_data) {
+          const b = el('button', { class: 'btn small', type: 'button' }, 'Download');
+          b.onclick = async () => { b.disabled = true; b.textContent = '…';
+            try { const j = await api('/api/fetch', { ticker: r.ticker }); b.replaceWith(el('span', { class: 'note', title: j.note || j.status }, j.status === 'downloaded' ? 'downloaded' : 'queued')); $('tkAddStatus').textContent = `${j.ticker}: ${j.note || j.status}`; STATUS = null; }
+            catch (e) { b.replaceWith(el('span', { class: 'err' }, e.message)); } };
+          dc.append(b);
+        }
+        tr.append(dc); tb.append(tr);
+      });
+    } catch (e) { if (my === dirSeq) $('tkCount').replaceChildren(el('span', { class: 'err' }, e.message)); }
+  }
+  $('tkSearch').addEventListener('input', () => { clearTimeout(dirTimer); dirTimer = setTimeout(drawDirectory, 180); });
+  $('tkKind').addEventListener('change', drawDirectory); $('tkHas').addEventListener('change', drawDirectory);
 
   // ---------- library
   async function loadLibrary() {
@@ -2246,15 +2281,25 @@ window.addEventListener('blur', unpress);
     ['Since', 'first'], ['Assets', 'net_assets'], ['1y', 'r1y'], ['3y', 'r3y'], ['5y', 'r5y'], ['10y', 'r10y'], ['Vol 3y', 'vol3y'], ['Max DD', 'max_dd']];
   const fCmpList = () => $('f_cmp').value.replace(/[,;]/g, ' ').split(/\s+/).filter(Boolean).map(t => t.toUpperCase());
   const fNum = id => { const v = $(id).value.trim(); return v === '' ? null : Number(v); };
+  let fUnknown = { er: 0, aum: 0, stats: 0 };
   function fFiltered() {
     if (!FUNDS) return [];
-    const q = $('f_q').value.trim().toLowerCase(), kind = $('f_kind').value, cat = $('f_cat').value;
+    const q = $('f_q').value.trim().toLowerCase(), kind = $('f_kind').value, cat = $('f_cat').value, inc = $('f_unk').checked;
     const er = fNum('f_er'), yrs = fNum('f_years'), aum = fNum('f_aum'), r5 = fNum('f_r5'), vol = fNum('f_vol');
-    const need = (v, lim, ok) => lim == null || (isNum(v) && ok(v, lim));
-    return FUNDS.funds.filter(r => (!q || r.ticker.toLowerCase().includes(q) || String(r.name || '').toLowerCase().includes(q))
-      && (!kind || r.type === kind) && (!cat || r.category === cat)
-      && need(r.expense_ratio, er, (v, l) => v * 100 <= l) && need(r.years, yrs, (v, l) => v >= l)
-      && need(r.net_assets, aum, (v, l) => v >= l * 1e6) && need(r.r5y, r5, (v, l) => v * 100 >= l) && need(r.vol3y, vol, (v, l) => v * 100 <= l));
+    fUnknown = { er: 0, aum: 0, stats: 0 };
+    // a filter on a value the fund doesn't have yet: counted, and kept only when "include unknown" is ticked
+    const out = [];
+    FUNDS.funds.forEach(r => {
+      if (q && ![r.ticker, r.name, r.category, r.family].some(x => String(x || '').toLowerCase().includes(q))) return;
+      if ((kind && r.type !== kind) || (cat && r.category !== cat)) return;
+      let miss = null;
+      const test = (v, lim, ok, which) => { if (lim == null) return true; if (!isNum(v)) { miss = miss || which; return inc; } return ok(v, lim); };
+      const ok = test(r.expense_ratio, er, (v, l) => v * 100 <= l, 'er') && test(r.net_assets, aum, (v, l) => v >= l * 1e6, 'aum')
+        && test(r.years, yrs, (v, l) => v >= l, 'stats') && test(r.r5y, r5, (v, l) => v * 100 >= l, 'stats') && test(r.vol3y, vol, (v, l) => v * 100 <= l, 'stats');
+      if (miss && (!ok || inc)) fUnknown[miss] += 1;
+      if (ok) out.push(r);
+    });
+    return out;
   }
   function fSorted(rows) {
     const { k, dir } = fSort;
@@ -2274,7 +2319,7 @@ window.addEventListener('blur', unpress);
       if (k) { th.style.cursor = 'pointer'; th.title = 'sort'; th.onclick = () => { fSort = { k, dir: fSort.k === k ? -fSort.dir : (['ticker', 'name', 'type', 'category', 'first', 'max_dd'].includes(k) ? 1 : -1) }; drawFunds(); }; }
       hr.append(th); });
     tbl.append(hr);
-    const ret = v => ({ t: pct(v, 1), c: isNum(v) ? (v >= 0 ? 'pos' : 'neg') : '' });
+    const ret = v => ({ t: pct(v, 1), c: isNum(v) ? (v >= 0 ? 'pos' : 'neg') : '' });   // (a pending fund: '—' until its statistics arrive)
     shown.forEach(r => {
       const tr = el('tr');
       const cb = el('input', { type: 'checkbox', 'aria-label': 'compare ' + r.ticker }); cb.checked = sel.has(r.ticker);
@@ -2285,33 +2330,45 @@ window.addEventListener('blur', unpress);
       const nm = el('td', { class: 'fname' }, r.name || '—'); nm.title = r.name || 'no metadata yet'; tr.append(nm);
       tr.append(el('td', {}, r.type));
       const ct = el('td', {}, r.category || '—'); if (r.category_source) ct.title = 'from the built-in fund list (no Yahoo category yet)'; tr.append(ct);
-      [[isNum(r.expense_ratio) ? pct(r.expense_ratio, 2) : '—'], [r.inception && r.inception < (r.first || '9') ? r.inception.slice(0, 4) + '*' : (r.first || '').slice(0, 4)],
+      [[isNum(r.expense_ratio) ? pct(r.expense_ratio, 2) + (r.er_source ? '†' : '') : (r.pending ? '' : '—')], [r.inception && r.inception < (r.first || '9') ? r.inception.slice(0, 4) + '*' : (r.first || '').slice(0, 4)],
         [bigUsd(r.net_assets)], [ret(r.r1y)], [ret(r.r3y)], [ret(r.r5y)], [ret(r.r10y)], [pct(r.vol3y, 1)], [{ t: pct(r.max_dd, 1), c: 'neg' }]]
         .forEach(([v]) => { const td = el('td', { class: 'n' }); if (v && typeof v === 'object') { td.textContent = v.t; if (v.c) td.className += ' ' + v.c; } else td.textContent = v; tr.append(td); });
       tbl.append(tr);
     });
     $('fMore').classList.toggle('hide', rows.length <= fLimit);
     $('fShown').textContent = rows.length > fLimit ? `showing ${fLimit} of ${rows.length}` : '';
+    const inc = $('f_unk').checked, u = fUnknown, parts = [];
+    if (u.er) parts.push(`${u.er} fund${u.er === 1 ? ' has' : 's have'} no expense ratio yet`);
+    if (u.aum) parts.push(`${u.aum} ha${u.aum === 1 ? 's' : 've'} no assets figure yet`);
+    if (u.stats) parts.push(`${u.stats} ${u.stats === 1 ? 'is' : 'are'} still being computed`);
+    const noEr = FUNDS.funds.filter(r => !isNum(r.expense_ratio)).length;
+    $('fUnknown').textContent = parts.length ? `${parts.join('; ')}: ${inc ? 'shown (included)' : 'left out by your filters - tick "Include funds whose expense ratio or assets aren\'t known yet" to show them'}.`
+      : (noEr ? `${noEr} of ${FUNDS.funds.length} funds have no expense ratio yet (the data job fills them in batches).` : '');
     const ck = FUNDS.checking || {};
-    $('fStatus').textContent = ck.running ? `checking prices for the integrity-repaired statistics: ${ck.done} of ${ck.total}…` : '';
+    $('fStatus').textContent = FUNDS.pending ? `computing statistics: ${(FUNDS.funds.length - FUNDS.pending).toLocaleString()} of ${FUNDS.funds.length.toLocaleString()} funds ready…`
+      : ck.running ? `checking prices for the integrity-repaired statistics: ${ck.done} of ${ck.total}…` : '';
   }
+  let fPoll = null;
   async function loadFunds(force) {
     if ((FUNDS && !force) || fLoading) return drawFunds();
-    fLoading = true; spin($('fStatus'), 'computing statistics for every fund (the first time takes a few seconds)…');
+    fLoading = true; if (!FUNDS) spin($('fStatus'), 'loading the fund list…');
     try {
       FUNDS = await api('/api/funds');
+      // statistics still being computed (no precomputed file for these price files): ask again shortly
+      clearTimeout(fPoll);
+      if (FUNDS.pending) fPoll = setTimeout(() => { if (location.hash.replace('#', '').split('?')[0] === 'funds') loadFunds(true); }, 2000);
       const cur = $('f_cat').value;
       $('f_cat').replaceChildren(el('option', { value: '' }, 'All'), ...FUNDS.categories.map(c => el('option', { value: c }, c)));
       if (FUNDS.categories.includes(cur)) $('f_cat').value = cur;
       $('fNotes').replaceChildren(...(FUNDS.notes || []).map(x => el('p', { class: 'note' }, x)),
-        el('p', { class: 'note' }, 'Returns: total returns to each fund\'s last price (3y, 5y, 10y annualised). Vol 3y: annualised standard deviation of the last 36 monthly returns. Max DD: the deepest fall of the daily total-return index over its whole history. Since: the first price on file (a year with * is the inception date from the fund\'s profile, earlier than our prices).'));
-      $('fStatus').textContent = '';
+        el('p', { class: 'note' }, 'Expense ratios marked † come from the fund company\'s own fund list (as of ' + (FUNDS.reference_as_of || '—') + '), the others from Yahoo. Returns: total returns to each fund\'s last price (3y, 5y, 10y annualised). Vol 3y: annualised standard deviation of the last 36 monthly returns. Max DD: the deepest fall of the daily total-return index over its whole history. Since: the first price on file (a year with * is the inception date from the fund\'s profile, earlier than our prices).'));
+      fLoading = false;
       drawFunds();
     } catch (e) { $('fStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
     fLoading = false;
   }
-  ['f_q', 'f_kind', 'f_cat', 'f_er', 'f_years', 'f_aum', 'f_r5', 'f_vol'].forEach(id => $(id).addEventListener('input', () => { fLimit = 100; drawFunds(); }));
-  $('fReset').addEventListener('click', () => { ['f_q', 'f_er', 'f_years', 'f_aum', 'f_r5', 'f_vol'].forEach(id => { $(id).value = ''; }); $('f_kind').value = ''; $('f_cat').value = ''; fLimit = 100; drawFunds(); });
+  ['f_q', 'f_kind', 'f_cat', 'f_er', 'f_years', 'f_aum', 'f_r5', 'f_vol', 'f_unk'].forEach(id => $(id).addEventListener(id === 'f_unk' ? 'change' : 'input', () => { fLimit = 100; drawFunds(); }));
+  $('fReset').addEventListener('click', () => { ['f_q', 'f_er', 'f_years', 'f_aum', 'f_r5', 'f_vol'].forEach(id => { $(id).value = ''; }); $('f_kind').value = ''; $('f_cat').value = ''; $('f_unk').checked = false; fLimit = 100; drawFunds(); });
   $('fMore').addEventListener('click', () => { fLimit += 100; drawFunds(); });
   async function fundDetail(t) {
     const box = $('fDetail'); box.classList.remove('hide'); spin(box, 'loading ' + t + '…');
@@ -2324,6 +2381,9 @@ window.addEventListener('blur', unpress);
         ['Prices since', s.first || '—'], ['CAGR since', pct(s.cagr)], ['Max drawdown', pct(s.max_dd, 1)]].forEach(([k, v]) => tiles.append(tile(k, v)));
       box.append(tiles);
       if (m.description) box.append(el('p', { class: 'note' }, m.description));
+      const src = D.sources || {}, fromIssuer = Object.entries(src).filter(([, v]) => String(v).startsWith('issuer')).map(([k]) => k.replace('_', ' '));
+      if (fromIssuer.length) box.append(el('p', { class: 'note' }, `From the fund company's own fund list (${src[Object.keys(src).find(k => String(src[k]).startsWith('issuer'))].replace(/^issuer \(|\)$/g, '')}): ${fromIssuer.join(', ')}.`));
+      (D.notes || []).forEach(n => box.append(el('p', { class: 'note' }, n)));
       const wr = (FUNDS && FUNDS.funds.find(r => r.ticker === D.ticker) || {}).warning;
       if (wr) box.append(el('p', { class: 'err' }, '⚠ ' + wr));
       if ((m.top_holdings || []).length) {

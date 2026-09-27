@@ -25,7 +25,7 @@ python -m backtester "buy at the close Microsoft when it trades down 5 days in a
 | **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates, also per percentile of the paths (10th-90th, as Portfolio Visualizer; for contribute-then-withdraw plans measured from the balance when withdrawals start) (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), any number of cash-flow phases (contribute, then withdraw), and a glide path (e.g. 90/10 -> 40/60 over 30 years, linear or target-date shaped). |
 | **Factors** | Regress a ticker, portfolio, sentence or saved run on CAPM, Fama-French 3, Carhart 4, Fama-French 5 or FF5 + momentum for the US or a region (developed, developed ex US, Europe, Japan, Asia Pacific ex Japan, North America, emerging), AQR's quality (QMJ) and betting-against-beta (BAB) factors, and the bond factors TERM and DEF, monthly (French's official monthly files) or daily: loadings with t-stats, R², annualised alpha and rolling 36-month loadings. **Style analysis** (Sharpe 1992) finds the asset-class mix that best tracks the returns, with rolling 36-month weights. |
 | **Correlations** | The correlation matrix of daily or monthly total returns over a chosen period, a rolling correlation of any pair, and per-asset statistics (CAGR, volatility, Sharpe, max drawdown, best/worst year, first date of data; on the matrix's frequency: with monthly returns, volatility and Sharpe from monthly returns and the max drawdown from month-end values), like Portfolio Visualizer's asset correlations. |
-| **Funds** | Fund research: every ETF and mutual fund with data in one sortable, filterable table (search, type, category, expense ratio, years of history, assets, 5-year return, 3-year volatility), with trailing 1/3/5/10-year total returns, volatility and max drawdown computed from our own total-return prices, and fund facts (name, category, family, expense ratio, inception, net assets, yield, top holdings) from `data/funds_meta.json`. Click a ticker for its profile and top holdings; tick 2-6 funds (or type them) to compare growth of $10,000, statistics, calendar-year returns and correlations over their common period. Funds without metadata yet still get every statistic (their category from the built-in fund lists), and a ⚠ marks a history with a one-day move far outside the fund's range (a likely data error). API: `GET /api/funds` (filters `q`, `kind`, `category`, `max_er`, `min_years`, `min_aum`, `min_r5y`, `max_vol`), `GET /api/funds/detail?t=VTI`, `POST /api/funds/compare {"tickers": [...]}`. |
+| **Funds** | Fund research: every ETF and mutual fund with data in one sortable, filterable table (search, type, category, expense ratio, years of history, assets, 5-year return, 3-year volatility), with trailing 1/3/5/10-year total returns, volatility and max drawdown computed from our own total-return prices, and fund facts (name, category, family, expense ratio, inception, net assets, yield, top holdings) from `data/funds_meta.json`. Click a ticker for its profile and top holdings; tick 2-6 funds (or type them) to compare growth of $10,000, statistics, calendar-year returns and correlations over their common period. Funds without Yahoo metadata yet use the issuers' fund lists (`data/fund_reference.json`, marked †) and still get every statistic; a filter on a value a fund doesn't have yet (expense ratio, assets) leaves it out and says how many, with a box to include them (`include_unknown=1`). Statistics are precomputed by the data job (`data/fund_stats.json`), so the page opens at once; without that file the table answers in about 2.5 s and fills in the rest as they are computed. A ⚠ marks a history with a one-day move far outside the fund's range (a likely data error). API: `GET /api/funds` (filters `q`, `kind`, `category`, `max_er`, `min_years`, `min_aum`, `min_r5y`, `max_vol`), `GET /api/funds/detail?t=VTI`, `POST /api/funds/compare {"tickers": [...]}`. |
 | **Signals & paper** | Shows what a strategy says to do on the latest bar: new entries, open positions and target weights. You can also start a forward test ("paper trading") that only uses data arriving after you saved it. |
 | **History** | Saved runs, with open, edit, share and delete. |
 | **Data** | Data freshness, coverage and a ticker browser. |
@@ -766,7 +766,13 @@ close and commits updates, so `git pull` gets fresh data. It downloads:
   shillerdata.com: price, dividend, earnings, CPI, 10-year yield, CAPE, total-return CAPE, from 1871)
 - fund metadata for every ETF and mutual fund of the universe (`data/funds_meta.json`: name, category,
   family, expense ratio, inception, net assets, yield, turnover, top 10 holdings, asset classes, sectors), from
-  Yahoo via yfinance's `Ticker.info` and `Ticker.funds_data`, 300 funds a run, each refreshed after 30 days
+  Yahoo via yfinance's `Ticker.info` and `Ticker.funds_data`, up to 900 funds a run (the most-used funds first,
+  then every mutual fund; a 429 "Too Many Requests" is retried after 15, 45 and 120 s and a run of them ends the
+  batch, keeping what it got), each refreshed after 30 days. Until Yahoo's entry arrives, the name, type, family,
+  category, expense ratio and inception come from `data/fund_reference.json`: the issuers' own fund catalogs
+  (Vanguard, iShares, SPDR, Invesco, Schwab, Dimensional; 686 funds, collected on its `as_of` date, 2026-09-27)
+- the Funds page's statistics, precomputed after the integrity repairs (`data/fund_stats.json`), and the name
+  and instrument type Yahoo sent with each download (`data/ticker_info.json`, for the ticker directory)
 - Fama-French factors from Kenneth French's data library: US daily and official monthly files
   (3 factors, 5 factors, momentum), the same for developed, developed ex US, Europe, Japan, Asia Pacific
   ex Japan and North America, and emerging markets (monthly only)
@@ -812,22 +818,43 @@ DELL before 2016 or MNST before 2012 - the report adds an "Identity:" note.
 list of about 650 US-listed ETFs across asset classes (total market, style, size, Avantis, Dimensional,
 factor, dividend, sector and industry, regional and country, Treasuries, corporates, high yield, munis, TIPS,
 international and EM bonds, REITs, commodities, alternatives, currencies, crypto, and the leveraged / inverse
-funds used in Composer symphonies) and about 200 popular mutual funds (Vanguard, Fidelity, DFA, PIMCO,
-American Funds, T. Rowe Price, Dodge & Cox, PRPFX, ...), listed in `backtester/fund_lists.py`. Yahoo serves a
+funds used in Composer symphonies) and about 530 mutual funds: every retail Vanguard fund, every Dimensional,
+Schwab, American Funds (class A) and Dodge & Cox fund on the issuers' own lists (checked 2026-09-27), plus
+Fidelity, PIMCO, T. Rowe Price and other popular funds, listed in `backtester/fund_lists.py`. Yahoo serves a
 mutual fund as a daily NAV with its distributions, so its file is a total-return history (flat bars, no
-volume), mostly from the 1980s or the fund's launch. They are refreshed in rotating batches of up to 450 a run
+volume), from January 1980 at the earliest (Yahoo has nothing older, even for funds from 1929; the SIM series
+cover earlier years) or the fund's launch. They are refreshed in rotating batches of up to 600 a run
 (missing files first, then the ones updated longest ago), so each run stays short and polite to Yahoo and a
 fund's last bar may be a day older than the ETFs'. A symbol Yahoo doesn't know is retried after 30 days
 (`broad_failed` in `data/universe.json`). None of them is ever read as a Nasdaq-100 member. A price file is
 about 50 bytes a day (about 0.25 MB for a typical ETF, 0.35 MB for a mutual fund with 30-45 years of
 history), so the broad list adds roughly 150 MB to `data/prices` (223 MB before it).
 
+**Stocks beyond the Nasdaq-100.** The job also downloads today's S&P 500, S&P MidCap 400 and S&P SmallCap 600
+members (read from Wikipedia's constituent tables each run and saved in `data/index_constituents.json`) and the
+300 largest other US-listed stocks (mostly ADRs: TSM, ASML, NVO, SAP, TM, ...; `OTHER_STOCKS` in
+`backtester/fund_lists.py`), in rotating batches of up to 700 a run, so the ~1,580 new files arrive over three
+runs and each is then refreshed every two or three runs (its last bar may be a day or two older than the core
+list's). They are stocks (`broad_stocks` in `data/universe.json`): never funds, and never Nasdaq-100 members -
+the Nasdaq-100 universe comes only from its own membership history. The S&P lists are today's members, so a
+backtest over an S&P list has survivorship bias. Size: about 60 bytes a day per stock, 0.3-0.7 MB a file; the
+stocks add roughly 700 MB and the new mutual funds about 125 MB, taking `data/` from about 430 MB to about
+1.25 GB.
+
+**Ticker directory.** The Data page searches every ticker with price data or facts (about 3,100: stocks with
+their S&P / Nasdaq-100 membership, ETFs, mutual funds, indexes, SIM series) by ticker, name, category, fund
+family or index (`GET /api/directory?q=vanguard small value&kind=Mutual fund`); one still to be downloaded has a
+Download button.
+
 **Adding tickers.** The job also downloads every ticker in `data/extra_tickers.txt` (one or more per line,
 `#` for comments). Add a symbol there and run the **Fetch price data** workflow (Actions → Fetch price data →
-Run workflow; pushing a change to the file also starts it), then pull. On the site's Data page, **Add
-ticker** downloads the symbol directly when the machine has internet access; otherwise (the cloud sandbox)
-it appends the symbol to `data/extra_tickers.txt` for you and says to push the file. A sentence or tree
-that names a ticker without data says so and points to this file.
+Run workflow; pushing a change to the file also starts it), then pull. With internet access (not
+`BACKTESTER_OFFLINE`), any ticker without a file - in a sentence, the grid, Monte Carlo, the optimiser,
+factors, correlations or a fund comparison - is downloaded from Yahoo on the fly (`data.fetch_on_demand`):
+saved to `data/prices`, checked by the same price-integrity gate as every file, added to
+`data/extra_tickers.txt` so the job keeps it updated, and named in the run's notes. Offline (the cloud
+sandbox), the site's **Add ticker** appends the symbol to `data/extra_tickers.txt` for you and says to push
+the file, and a sentence or tree that names a ticker without data says so and points to this file.
 
 **Your own series.** Import a daily or monthly return or price series (a CSV of `date,value` rows; returns in
 % or as decimals) as a named ticker, usable anywhere a ticker is (portfolios, benchmarks, Monte Carlo, the

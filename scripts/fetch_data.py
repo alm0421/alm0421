@@ -90,10 +90,24 @@ def constituents() -> tuple[list[str], str]:
     return sorted(FALLBACK_NDX), "fallback"
 
 
+def history_meta(tk) -> dict:
+    """Name and instrument type from the chart response that came with the price download (no extra request):
+    {"name", "type" (EQUITY / ETF / MUTUALFUND / INDEX / CRYPTOCURRENCY ...), "exchange", "currency"}."""
+    try:
+        m = dict(tk.history_metadata or {})
+    except Exception:  # noqa: BLE001 - metadata is optional
+        return {}
+    out = {"name": m.get("longName") or m.get("shortName"), "type": m.get("instrumentType"),
+           "exchange": m.get("fullExchangeName") or m.get("exchangeName"), "currency": m.get("currency")}
+    return {k: v for k, v in out.items() if isinstance(v, str) and v}
+
+
 def fetch(ticker: str) -> pd.DataFrame:
-    df = yf.Ticker(ticker).history(period="max", interval="1d", auto_adjust=False, actions=True)
+    tk = yf.Ticker(ticker)
+    df = tk.history(period="max", interval="1d", auto_adjust=False, actions=True)
     if df.empty:
         raise RuntimeError("no data")
+    meta = history_meta(tk)
     df.index = pd.to_datetime(df.index).tz_localize(None).normalize()
     df = df.rename(columns={
         "Open": "open", "High": "high", "Low": "low", "Close": "close",
@@ -103,7 +117,34 @@ def fetch(ticker: str) -> pd.DataFrame:
     df = df[["open", "high", "low", "close", "adj_close", "volume", "dividend", "split"]]
     df = df[~df.index.duplicated(keep="last")].dropna(subset=["close"])
     df.index.name = "date"
+    if meta:
+        TICKER_INFO[ticker] = meta
     return df
+
+
+# name and instrument type of every symbol downloaded this run (history_meta), merged into data/ticker_info.json
+TICKER_INFO: dict[str, dict] = {}
+TICKER_INFO_FILE = ROOT / "data" / "ticker_info.json"
+
+
+def write_ticker_info(path: Path | None = None, today: str | None = None) -> dict:
+    """data/ticker_info.json: {ticker: {name, type, exchange, currency, seen}} - what Yahoo called each symbol the
+    last time it was downloaded (the site's ticker directory and the fund type use it). Entries are kept when a
+    symbol is not downloaded in a run."""
+    path = path or (ROOT / "data" / "ticker_info.json")
+    today = today or str(pd.Timestamp.today().date())
+    try:
+        doc = json.loads(path.read_text())
+    except (OSError, ValueError):
+        doc = {}
+    info = dict(doc.get("tickers") or {})
+    for t, m in TICKER_INFO.items():
+        info[t] = {**m, "seen": today}
+    doc = {"updated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+           "source": "Yahoo Finance chart metadata (longName, instrumentType) returned with each price download",
+           "tickers": dict(sorted(info.items()))}
+    path.write_text(json.dumps(doc, indent=0, ensure_ascii=False) + "\n")
+    return doc
 
 
 # ETFs and indexes useful for allocation / regime strategies (Composer / Portfolio Visualizer style)
@@ -170,8 +211,70 @@ EXTRA = ETFS + STOCKS + INDEXES + REQUESTED
 BROAD_ETFS = [t for t in fund_lists.BROAD_ETFS if t not in set(EXTRA)]
 BROAD_FUNDS = [t for t in fund_lists.MUTUAL_FUNDS if t not in set(EXTRA) | set(BROAD_ETFS)]
 BROAD = BROAD_ETFS + BROAD_FUNDS
-BROAD_PER_RUN = 450
+BROAD_PER_RUN = 600
 BROAD_RETRY_DAYS = 30
+
+# Stocks beyond the Nasdaq-100: today's S&P 500, S&P MidCap 400 and S&P SmallCap 600 members (read from Wikipedia
+# each run, data/index_constituents.json) and the largest other US-listed stocks (ADRs and non-index companies,
+# fund_lists.OTHER_STOCKS). Also a rotating batch (broad_batch): at most STOCKS_PER_RUN a run, missing files first,
+# so the ~1,700 new files arrive over three runs and each is then refreshed every two or three runs. They are
+# stocks: listed under "broad_stocks" in data/universe.json, never in the Nasdaq-100 universe (which comes only
+# from the Nasdaq-100 membership history) and never among the funds.
+STOCKS_PER_RUN = 700
+INDEX_FILE = ROOT / "data" / "index_constituents.json"
+# key -> (Wikipedia article, plausible member counts)
+INDEX_PAGES = {"sp500": ("List_of_S%26P_500_companies", 480, 520),
+               "sp400": ("List_of_S%26P_400_companies", 380, 420),
+               "sp600": ("List_of_S%26P_600_companies", 560, 640)}
+
+
+def parse_constituents(html: str) -> dict[str, str]:
+    """{symbol: company} from a Wikipedia S&P list: the table with id="constituents", columns Symbol and Security
+    (checked on 2026-09-27 for the S&P 500, 400 and 600 articles). '.' in a symbol becomes '-' (BRK.B -> BRK-B, as
+    Yahoo writes it)."""
+    t = pd.read_html(io.StringIO(html), attrs={"id": "constituents"})[0]
+    t.columns = [" ".join(map(str, c)) if isinstance(c, tuple) else str(c) for c in t.columns]
+    sym = next(c for c in t.columns if c.lower().startswith(("symbol", "ticker")))
+    name = next((c for c in t.columns if c.lower().startswith(("security", "company"))), sym)
+    out = {}
+    for sy, nm in zip(t[sym], t[name]):
+        sy = str(sy).strip().upper().replace(".", "-")
+        if re.fullmatch(r"[A-Z]{1,5}(-[A-Z]{1,2})?", sy):
+            out[sy] = str(nm).strip()
+    return out
+
+
+def index_constituents(path: Path | None = None, download=None) -> dict:
+    """data/index_constituents.json refreshed from Wikipedia; a list that fails to download or parse, or has an
+    implausible number of members, keeps the saved copy."""
+    path = path or INDEX_FILE
+    download = download or (lambda url: requests.get(url, headers=WIKI_UA, timeout=30).text)
+    try:
+        doc = json.loads(path.read_text())
+    except (OSError, ValueError):
+        doc = {}
+    for key, (title, lo, hi) in INDEX_PAGES.items():
+        try:
+            got = parse_constituents(download(f"https://en.wikipedia.org/wiki/{title}"))
+        except Exception as e:  # noqa: BLE001 - keep the saved list
+            print(f"{key} constituents failed: {e}", file=sys.stderr)
+            continue
+        if lo <= len(got) <= hi:
+            doc[key] = got
+            doc.setdefault("fetched", {})[key] = str(pd.Timestamp.today().date())
+        else:
+            print(f"{key} constituents: {len(got)} symbols, outside {lo}-{hi}; keeping the saved list", file=sys.stderr)
+    doc["updated"] = str(pd.Timestamp.today().date())
+    path.write_text(json.dumps(doc, indent=0, ensure_ascii=False) + "\n")
+    return doc
+
+
+def broad_stock_list(doc: dict, exclude=()) -> list[str]:
+    """S&P 500, then 400, then 600 members, then the other large stocks, minus `exclude` (the symbols downloaded every
+    run) and the funds."""
+    ex = set(exclude) | set(fund_lists.ALL_FUNDS)
+    names = [t for k in ("sp500", "sp400", "sp600") for t in (doc.get(k) or {})] + list(fund_lists.OTHER_STOCKS)
+    return [t for t in dict.fromkeys(names) if t not in ex]
 
 
 def broad_batch(broad: list[str], info: dict, failed: dict, today: str, budget: int = BROAD_PER_RUN,
@@ -2381,8 +2484,21 @@ REAL_OVERRIDES: dict[str, pd.Series] = {}   # fund -> repaired daily returns, us
 # ------------------------------------------------------------------ fund research metadata
 
 FUNDS_META_FILE = ROOT / "data" / "funds_meta.json"
-FUNDS_META_PER_RUN = 300      # symbols looked up per run (two Yahoo requests each)
+# Symbols looked up per run (two Yahoo quoteSummary requests each: Ticker.info and Ticker.funds_data). Yahoo
+# publishes no limit; it answers 429 "Too Many Requests" when an IP asks too fast, so the lookups run on 4 threads
+# with a pause and retries on a 429 (FUNDS_META_BACKOFF) and the batch stops early - keeping what it got - after
+# FUNDS_META_MAX_429 rate-limited lookups in a row. The ~1,300 ETFs and mutual funds are covered in two runs.
+FUNDS_META_PER_RUN = 900
 FUNDS_META_MAX_AGE = 30       # days before an entry is refreshed
+FUNDS_META_BACKOFF = (15, 45, 120)   # seconds to wait before each retry of a rate-limited lookup
+FUNDS_META_MAX_429 = 12
+META_SLEEP = time.sleep       # (tests replace it)
+# looked up first (then every mutual fund, then the ETFs of the core download list, then the rest)
+FUNDS_META_FIRST = """
+SPY QQQ VTI VOO IVV BND AGG DIA IWM VEA VWO VXUS BNDX VT VIG VYM VUG VTV VB VO VNQ SCHD SCHB SCHX SCHF SCHZ
+SCHP SCHH SCHG SCHV SCHA SCHE TLT IEF SHY GLD IAU IEFA IEMG IJH IJR ITOT IXUS IUSB EFA EEM LQD HYG TIP MUB
+SPLG RSP QQQM MDY XLK XLF XLV XLE BIL SGOV VGSH VGIT VGLT EDV BSV BIV BLV VCSH VCIT VCLT VTIP VTEB VGT
+""".split()
 
 
 def _num(v):
@@ -2468,10 +2584,24 @@ def extract_fund_meta(info: dict | None, funds=None) -> dict:
     return out
 
 
+def meta_priority(t: str) -> int:
+    """0: the most-used funds (FUNDS_META_FIRST), 1: mutual funds, 2: ETFs of the core download list, 3: the rest."""
+    if t in FUNDS_META_FIRST_SET:
+        return 0
+    if t in MUTUAL_FUND_SET:
+        return 1
+    return 2 if t in CORE_ETF_SET else 3
+
+
+FUNDS_META_FIRST_SET = set(FUNDS_META_FIRST)
+MUTUAL_FUND_SET = set(fund_lists.MUTUAL_FUNDS) | {t for t in ETFS if len(t) == 5 and t.endswith("X")}
+CORE_ETF_SET = set(ETFS)
+
+
 def funds_meta_batch(universe: list[str], entries: dict, today: str, budget: int = FUNDS_META_PER_RUN,
-                     max_age: int = FUNDS_META_MAX_AGE, failed: dict | None = None) -> list[str]:
-    """The symbols to look up this run: those with no entry first, then the stalest entries older than
-    `max_age` days; a symbol that failed is retried after `max_age` days."""
+                     max_age: int = FUNDS_META_MAX_AGE, failed: dict | None = None, priority=meta_priority) -> list[str]:
+    """The symbols to look up this run: those with no entry first (by `priority`, then list order), then the
+    stalest entries older than `max_age` days; a symbol that failed is retried after `max_age` days."""
     failed = failed or {}
     t0 = pd.Timestamp(today)
 
@@ -2480,10 +2610,17 @@ def funds_meta_batch(universe: list[str], entries: dict, today: str, budget: int
             return (t0 - pd.Timestamp(d)).days
         except Exception:  # noqa: BLE001
             return 10 ** 6
-    missing = [t for t in universe if t not in entries and age(failed.get(t, "1900-01-01")) >= max_age]
+    order = {t: i for i, t in enumerate(universe)}
+    missing = sorted((t for t in universe if t not in entries and age(failed.get(t, "1900-01-01")) >= max_age),
+                     key=lambda t: (priority(t), order[t]))
     stale = sorted((t for t in universe if t in entries and age(entries[t].get("fetched")) >= max_age),
                    key=lambda t: entries[t].get("fetched") or "")
     return (missing + stale)[:budget]
+
+
+def rate_limited(e: BaseException) -> bool:
+    """Yahoo's 429 (yfinance raises YFRateLimitError, 'Too Many Requests. Rate limited. Try after a while.')."""
+    return type(e).__name__ == "YFRateLimitError" or "too many requests" in str(e).lower() or "rate limit" in str(e).lower()
 
 
 def fetch_funds_meta(universe: list[str], path: Path | None = None, today: str | None = None) -> dict:
@@ -2497,26 +2634,56 @@ def fetch_funds_meta(universe: list[str], path: Path | None = None, today: str |
         doc = {}
     entries, failed = dict(doc.get("funds") or {}), dict(doc.get("failed") or {})
     batch = funds_meta_batch(universe, entries, today, failed=failed)
+    import threading
+    lock, state = threading.Lock(), {"streak": 0, "stop": False, "limited": 0}
+
+    def lookup(t):
+        tk = yf.Ticker(t)
+        try:
+            info = tk.info or {}
+        except Exception as e:  # noqa: BLE001
+            if rate_limited(e):
+                raise
+            info = {}
+        try:
+            funds = tk.funds_data
+        except Exception as e:  # noqa: BLE001
+            if rate_limited(e):
+                raise
+            funds = None
+        return extract_fund_meta(info, funds)
 
     def one(t):
-        try:
-            tk = yf.Ticker(t)
+        """(ticker, metadata | None | "limited"): "limited" (a 429 after every retry, or the batch stopped) is not
+        a failure - the symbol is simply looked up in a later run."""
+        for attempt in range(len(FUNDS_META_BACKOFF) + 1):
+            if state["stop"]:
+                return t, "limited"
             try:
-                info = tk.info or {}
-            except Exception:  # noqa: BLE001
-                info = {}
-            try:
-                funds = tk.funds_data
-            except Exception:  # noqa: BLE001
-                funds = None
-            return t, extract_fund_meta(info, funds)
-        except Exception as e:  # noqa: BLE001
-            print(f"fund meta {t} failed: {e}", file=sys.stderr)
-            return t, None
+                m = lookup(t)
+                with lock:
+                    state["streak"] = 0
+                return t, m
+            except Exception as e:  # noqa: BLE001
+                if not rate_limited(e):
+                    print(f"fund meta {t} failed: {e}", file=sys.stderr)
+                    return t, None
+                if attempt < len(FUNDS_META_BACKOFF):
+                    META_SLEEP(FUNDS_META_BACKOFF[attempt])
+        with lock:
+            state["streak"] += 1
+            state["limited"] += 1
+            if state["streak"] >= FUNDS_META_MAX_429:
+                state["stop"] = True
+                print(f"fund metadata: {state['streak']} rate-limited lookups in a row; stopping this run's batch",
+                      file=sys.stderr)
+        return t, "limited"
     from concurrent.futures import ThreadPoolExecutor
     got = 0
     with ThreadPoolExecutor(max_workers=4) as pool:
         for t, m in pool.map(one, batch):
+            if m == "limited":
+                continue
             if m and len(m) >= 2:
                 m["fetched"] = today
                 entries[t] = m
@@ -2529,7 +2696,8 @@ def fetch_funds_meta(universe: list[str], path: Path | None = None, today: str |
                      "fractions, net_assets in USD, top_holdings weights are fractions",
            "funds": dict(sorted(entries.items())), "failed": dict(sorted(failed.items()))}
     path.write_text(json.dumps(doc, indent=1, default=str) + "\n")
-    print(f"fund metadata: {got} of {len(batch)} looked up; {len(entries)} funds on file")
+    print(f"fund metadata: {got} of {len(batch)} looked up ({state['limited']} rate-limited, left for the next run); "
+          f"{len(entries)} funds on file")
     return doc
 
 
@@ -2599,6 +2767,27 @@ def main() -> None:
             broad_ok[t] = save_merged(t, df)
     print(f"broad universe: {len(broad_ok)} of {len(batch)} downloaded in {time.time() - t1:.0f}s "
           f"({len(BROAD)} symbols in all; {len(broad_failed)} waiting to be retried)", flush=True)
+
+    # S&P 500/400/600 members and the largest other US-listed stocks, a rotating batch per run (STOCKS_PER_RUN)
+    try:
+        idx_doc = index_constituents()
+    except Exception as e:  # noqa: BLE001 - the saved lists stay
+        print(f"index constituents failed: {e}", file=sys.stderr)
+        idx_doc = {}
+    stock_list = broad_stock_list(idx_doc, exclude=set(tickers) | set(BROAD) | set(former))
+    stocks_failed = {t: d for t, d in (prev.get("stocks_failed") or {}).items() if t in set(stock_list)}
+    sbatch = broad_batch(stock_list, prev.get("tickers") or {}, stocks_failed, today, STOCKS_PER_RUN)
+    stock_ok = {}
+    t2 = time.time()
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for t, df in zip(sbatch, pool.map(lambda x: fetch_with_retry(x, tries=2), sbatch)):
+            if df is None:
+                stocks_failed.setdefault(t, today)
+                continue
+            stocks_failed.pop(t, None)
+            stock_ok[t] = save_merged(t, df)
+    print(f"broad stocks: {len(stock_ok)} of {len(sbatch)} downloaded in {time.time() - t2:.0f}s "
+          f"({len(stock_list)} symbols in all; {len(stocks_failed)} waiting to be retried)", flush=True)
 
     def file_info(t: str) -> dict | None:
         df = read_prices(t)
@@ -2726,6 +2915,13 @@ def main() -> None:
             info = (prev.get("tickers") or {}).get(t) or file_info(t)
             if info:
                 broad_info[t] = info
+    for t in stock_list:
+        if t in stock_ok:
+            broad_info[t] = stock_ok[t]
+        elif (PRICES / f"{t}.csv").exists():
+            info = (prev.get("tickers") or {}).get(t) or file_info(t)
+            if info:
+                broad_info[t] = info
     meta = {
         "updated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "constituent_source": source,
@@ -2734,6 +2930,11 @@ def main() -> None:
         "funds": [t for t in BROAD_FUNDS if t in broad_info],               # mutual funds (backtester/fund_lists.py)
         "broad_failed": dict(sorted(broad_failed.items())),
         "stocks": [t for t in STOCKS if t in ok or t in kept],
+        # S&P 1500 members and other large stocks with a file (rotating batches; never Nasdaq-100 members)
+        "broad_stocks": [t for t in stock_list if t in broad_info],
+        "stocks_failed": dict(sorted(stocks_failed.items())),
+        "sp500": sorted(idx_doc.get("sp500") or {}), "sp400": sorted(idx_doc.get("sp400") or {}),
+        "sp600": sorted(idx_doc.get("sp600") or {}),
         "indexes": [t for t in INDEXES if t in ok or t in kept],
         "requested": [t for t in REQUESTED if t in ok or t in kept],            # from data/extra_tickers.txt
         "requested_failed": [t for t in REQUESTED if t not in ok and t not in kept],
@@ -2759,6 +2960,18 @@ def main() -> None:
         write_integrity_log()
     except Exception as e:  # noqa: BLE001 - the log is informational
         print(f"price integrity log failed: {e}", file=sys.stderr)
+    try:
+        write_ticker_info()
+    except Exception as e:  # noqa: BLE001 - names are informational
+        print(f"ticker info failed: {e}", file=sys.stderr)
+    try:
+        # the Funds page's statistics, precomputed (integrity-checked) so the page opens at once
+        from backtester import data as bt_data, funds as bt_funds
+        bt_data.universe_meta.cache_clear()
+        n = bt_funds.precompute(PRICES.parent / "fund_stats.json")
+        print(f"fund statistics: {n} funds (data/fund_stats.json)")
+    except Exception as e:  # noqa: BLE001 - the site computes them itself when the file is missing
+        print(f"fund statistics failed: {e}", file=sys.stderr)
     (ROOT / "data" / "sims_log.txt").write_text(
         ("\n".join(SIM_LOG) if SIM_LOG else "all simulated series built") + "\n\n"
         + "Model vs fund on their overlap:\n" + "\n".join(SIM_NOTES) + "\n")

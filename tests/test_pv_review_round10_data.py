@@ -306,6 +306,9 @@ def fund_env(tmp_path, monkeypatch):
                               "net_assets": 6e11, "fetched": "2026-09-27"}}}
     (tmp_path / "funds_meta.json").write_text(json.dumps(meta))
     monkeypatch.setattr(funds, "META_FILE", tmp_path / "funds_meta.json")
+    # no issuer table here: SPY is the only fund with an expense ratio (the issuer table is tested in
+    # test_funds_round11.py)
+    monkeypatch.setattr(funds, "REFERENCE_FILE", tmp_path / "no_reference.json")
     return tmp_path
 
 
