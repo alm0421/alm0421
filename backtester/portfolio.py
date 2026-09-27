@@ -235,13 +235,22 @@ class Portfolio:
             bands.append(f"drifts {self.drift_band:.0%} from its target")
         if self.drift_band_relative:
             bands.append(f"drifts by {self.drift_band_relative:.0%} of its own target weight")
+        dyn = _is_dynamic(self.tree)
+        what = ("the rules pick different holdings" if _continuous_weights(self.tree) or self.target_vol
+                else "the rules change the target allocation (a different branch, selection or weights)")
         if bands:
             b = " or ".join(bands)
             if self.rebalance == "none":
-                rb = f"rebalanced only when a holding {b}"
+                rb = (f"no calendar schedule (threshold rebalancing): the rules are re-evaluated at every close and it "
+                      f"trades only when {what} or a holding {b}" if dyn else
+                      f"no calendar schedule (threshold rebalancing): rebalanced only when a holding {b}")
             else:
                 rb += (f", trading only when the target changes or a holding {b}" if self.rebalance == "daily"
-                       else f", and also whenever a holding {b} in between")
+                       else f", and also whenever a holding {b} in between (back to the target set at the last "
+                            "scheduled rebalance)")
+        elif self.rebalance == "none" and dyn:
+            rb = (f"never rebalanced back to its weights, but the rules are re-evaluated at every close and it trades "
+                  f"when {what} (as Composer follows its logic)")
         lines.append(f"Rebalancing: {rb}; trades at the {'close' if self.fill == 'close' else 'next open'}")
         cf = []
 
@@ -370,6 +379,10 @@ NODE_KEYS = {  # allowed keys per node type ("name" is an optional label on any 
     "filter": {"filter", "universe", "children", "fallback"},
 }
 FILTER_KEYS = {"select", "n", "by", "require", "weights", "lookback"}
+# labels any node may carry, which never change the allocation: "name" (a group name) and "composer" (the ids of
+# the Composer blocks it came from: "id"; "group_id" of a named group around it; "then_id" / "else_id" of the
+# if-children of an if block), kept so that an exported symphony keeps its ids
+META_KEYS = {"name", "composer"}
 
 
 def _node_type(n: dict) -> str | None:
@@ -410,6 +423,44 @@ def _has_rules(n) -> bool:
     if "if" in n or "filter" in n or ("weights" in n and n["weights"] not in ("equal", "specified", "market_cap")):
         return True
     return any(_has_rules(k) for k in _kids(n))
+
+
+def without_ids(n):
+    """A copy of a tree without the Composer block ids ("composer" labels) its nodes carry."""
+    if isinstance(n, dict):
+        return {k: without_ids(v) for k, v in n.items() if k != "composer"}
+    if isinstance(n, list):
+        return [without_ids(x) for x in n]
+    return n
+
+
+def _is_dynamic(n) -> bool:
+    """Does the tree make decisions that can change from day to day (if-nodes, filters, Python functions)?"""
+    if not isinstance(n, dict):
+        return False
+    if "if" in n or "filter" in n or "custom" in n:
+        return True
+    return any(_is_dynamic(k) for k in _kids(n))
+
+
+def _continuous_weights(n) -> bool:
+    """Do some target weights move a little every day (inverse volatility, market cap, optimisers), rather than
+    only when a decision changes?"""
+    if not isinstance(n, dict):
+        return False
+    if "weights" in n and n["weights"] not in ("equal", "specified"):
+        return True
+    if "filter" in n and isinstance(n["filter"], dict) and (n["filter"].get("weights") or "equal") != "equal":
+        return True
+    return any(_continuous_weights(k) for k in _kids(n))
+
+
+def follows_rules(p: "Portfolio") -> bool:
+    """A portfolio that is never rebalanced on a schedule but still follows its rules every day: a drift band
+    (Composer's threshold rebalancing) or a tree whose decisions change (if-nodes, filters). Its tree is
+    re-evaluated at every close and it trades only when the target allocation changes or a holding leaves its
+    band."""
+    return p.rebalance == "none" and bool(p.drift_band or p.drift_band_relative or _is_dynamic(p.tree))
 
 
 def _has_ndx(n) -> bool:
@@ -518,12 +569,17 @@ def validate_node(n: dict, depth: int = 0) -> None:
     if kind is None:
         raise ValueError(f"unrecognised portfolio node {n!r}: a node needs one of 'asset', 'cash', 'weights', "
                          "'if', 'filter' (or 'custom' from Python)")
-    extra = set(n) - NODE_KEYS[kind] - {"name"}
+    extra = set(n) - NODE_KEYS[kind] - META_KEYS
     if kind != "cash" and "cash" in extra and not n.get("cash"):
         extra.discard("cash")  # {"cash": false} alongside another type is harmless
     if extra:
         raise ValueError(f"unknown key(s) {', '.join(repr(k) for k in sorted(extra))} in {kind} node {_short(n)}; "
                          f"allowed: {', '.join(sorted(NODE_KEYS[kind] | {'name'}))}")
+    if "composer" in n:
+        cm = n["composer"]
+        if not isinstance(cm, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in cm.items()):
+            raise ValueError(f"'composer' on {kind} node {_short(n)} must be an object of Composer block ids (text), "
+                             'e.g. {"id": "..."}')
     if kind == "asset":
         data.load(n["asset"])  # raises DataError for unknown tickers
     elif kind == "custom":
@@ -1067,7 +1123,7 @@ def check_tree(p: "Portfolio") -> None:
             if bad:
                 raise ValueError(f"The condition `{n['if']}` compares a value with itself ({bad}), so it is always true or "
                                  "always false. Compare it with a number, another indicator or another ticker.")
-            if n.get("then") == n.get("else"):
+            if without_ids(n.get("then")) == without_ids(n.get("else")):
                 note(f"Both branches of the condition `{n['if']}` on {n.get('on', 'SPY')} hold the same thing "
                      f"({short_name(n['then'], 60)}), so the condition changes nothing.")
         f = n.get("filter")
@@ -1075,6 +1131,16 @@ def check_tree(p: "Portfolio") -> None:
             bad = _self_comparison(f["require"], None)
             if bad:
                 raise ValueError(f"The requirement `{f['require']}` compares a value with itself ({bad}).")
+        if isinstance(f, dict):
+            u = n.get("universe", "children")
+            cands = (n.get("children") or []) if u == "children" else u if isinstance(u, list) else None
+            k = int(f.get("n", 1) or 1)
+            if cands is not None and len(cands) and k >= len(cands):
+                what = ", ".join(short_name(c, 30) if isinstance(c, dict) else str(c) for c in cands[:6])
+                note(f"The {f.get('select', 'top')} {k} of {len(cands)} candidate{'s' if len(cands) != 1 else ''} ({what}): "
+                     f"the filter keeps every candidate that has a value, so its ranking by {pretty_rule(f.get('by'))} "
+                     "never leaves anything out" + (" (only its requirement can)" if f.get("require") else "")
+                     + f". Name more than {k} candidates, or pick fewer.")
         if getattr(p, "price_basis", "adjusted") == "adjusted":
             for holder, key, on in ((n, "if", n.get("on", "SPY")), (f if isinstance(f, dict) else {}, "require", None)):
                 r = holder.get(key)
@@ -1800,6 +1866,33 @@ def _union_index(idxs: list) -> pd.DatetimeIndex | None:
     return out.rename(names.pop()) if len(names) == 1 else out
 
 
+def _short_history_warning(p: Portfolio, dfs: dict, first: pd.Timestamp) -> None:
+    """A requested start the data could not honour: name the requested date, the actual start, the tickers whose
+    short history cut the period (fixed holdings that began trading later, or assets a rule, ranking or weighting
+    had to wait for) and how much of the period was lost, as a Warning."""
+    if not p.start:
+        return
+    asked = pd.Timestamp(p.start)
+    lost = (first - asked).days / 365.25
+    if lost < 30 / 365.25:
+        return
+    late = sorted(((t, df.index[0]) for t, df in dfs.items() if len(df) and df.index[0] > asked + pd.Timedelta(days=7)),
+                  key=lambda kv: kv[1], reverse=True)
+    late = [(t, d) for t, d in late if d <= first]
+    if late:
+        who = ", ".join(f"{t} (from {d.date()})" for t, d in late[:6]) + (f" and {len(late) - 6} more" if len(late) > 6 else "")
+        why = (f"the price history of {who} starts later" + (" (plus the indicators' warm-up after it)"
+                                                                if first > late[0][1] + pd.Timedelta(days=3) else ""))
+    else:
+        why = "the rules' indicators or the data only allowed it then (see the notes below)"
+    span = f"{lost:.1f} years" if lost >= 1 else f"{lost * 12:.0f} months"
+    msg = (f"Warning: You asked to start on {asked.date()}, but the backtest starts on {first.date()}: {why}. "
+           f"{span} of the requested period are missing"
+           + (f"; drop or replace {', '.join(t for t, _ in late[:3])} to test the whole period" if late else "") + ".")
+    if msg not in p.notes:
+        p.notes.insert(0, msg)
+
+
 def run(p: Portfolio) -> Result:
     p.validate()
     names = tickers_in(p.tree)
@@ -1845,13 +1938,17 @@ def run(p: Portfolio) -> Result:
             p.notes.append(basis_note)
     # the warm-up: start trading on the first day every rule, ranking and weighting lookback has its values, so
     # nothing is bought on incomplete indicators and the statistics start with the starting capital
+    waited: dict = {}
     if len(cal) > 1:
         warm, _, waited = warmup_dates(p, dfs)
         if warm is not None and warm > cal[0]:
             slow = sorted(((t, d) for t, d in waited.items() if d > cal[0]), key=lambda kv: kv[1], reverse=True)
             who = ", ".join(f"{t} ({d.date()})" for t, d in slow[:6]) + (f" and {len(slow) - 6} more" if len(slow) > 6 else "")
             if warm <= cal[-2]:
-                p.notes.append(f"Warm-up: the portfolio starts on {cal[cal >= warm][0].date()} instead of {cal[0].date()}, the "
+                asked = pd.Timestamp(p.start) if p.start and pd.Timestamp(p.start) < cal[0] else None
+                p.notes.append(f"Warm-up: the portfolio starts on {cal[cal >= warm][0].date()} instead of "
+                               + (f"the requested {asked.date()} (the data allowed {cal[0].date()})" if asked else
+                                  f"{cal[0].date()}") + ", the "
                                "first day every rule's indicators" + (" and every ranked or weighted asset's lookback" if waited else "")
                                + " have values" + (f" (waited for {who})" if who else "")
                                + ". Nothing is traded during the warm-up, so the statistics start with the starting capital."
@@ -1870,6 +1967,7 @@ def run(p: Portfolio) -> Result:
             cal = cal[int(np.argmax(both)):]
     if len(cal) < 2:
         raise ValueError("no price data in the requested period")
+    _short_history_warning(p, {t: dfs[t] for t in set(must) | set(waited) if t in dfs}, cal[0])
     for n in data.gap_notes(names, cal[0], cal[-1]):
         if n not in p.notes:
             p.notes.append(n)
@@ -1913,6 +2011,16 @@ def run(p: Portfolio) -> Result:
     fee_daily = p.expense_ratio / 252.0
     fees = 0.0
     sched = _schedule(cal, p.rebalance)
+    bands = bool(p.drift_band or p.drift_band_relative)
+    # never rebalanced on a schedule but following the rules (threshold rebalancing, or a dynamic tree held without
+    # a schedule): re-evaluate every close, trade only when the target changes or a holding leaves its band
+    follow = follows_rules(p)
+    gated = follow or (bands and p.rebalance == "daily")
+    if follow:
+        sched = np.ones(T, bool)
+    # weights that move a little every day (inverse volatility, ...): only a change of holdings is a new target;
+    # smaller moves trade through the drift band
+    cont_w = _continuous_weights(p.tree) or bool(p.target_vol)
     slip = p.slippage_bps / 1e4
     # volume-based slippage: average daily volume of the 20 bars before each bar (known when the order is placed)
     vol_slip = p.slippage_model == "volume"
@@ -2043,8 +2151,6 @@ def run(p: Portfolio) -> Result:
                 orders.append({"date": day.date(), "ticker": tick[j], "side": "buy" if q > 0 else "sell",
                                "shares": abs(q) / SF[i, j], "price": fill * SF[i, j], "value": abs(q) * fill, "commission": com,
                                "reason": reason})
-
-    bands = bool(p.drift_band or p.drift_band_relative)
 
     def drifted(prices) -> bool:
         """Has any holding left its absolute (drift_band) or relative (drift_band_relative) band?"""
@@ -2182,7 +2288,7 @@ def run(p: Portfolio) -> Result:
         if depleted is None and f < 0 and cash < min(0.0, tgt_cash) * eq_close - 1e-6 * max(eq_close, 1.0) and eq_close > 0 and target:
             trade_to(target, c, i, "raise cash")
         # invest new contributions at the close in the current target mix (no selling)
-        if f > 0 and target and not sched[i]:
+        if f > 0 and target and (not sched[i] or gated):
             pv = px_now(c)
             live = {t: w for t, w in target.items() if t != "cash" and np.isfinite(pv[idx[t]]) and pv[idx[t]] > 0
                     and i < gone[idx[t]]}
@@ -2230,17 +2336,20 @@ def run(p: Portfolio) -> Result:
             elif p.leverage != 1.0:
                 new = {t: w * p.leverage for t, w in new.items() if t != "cash"}
             new = {t: w for t, w in new.items() if abs(w) > 1e-9 and t != "cash"}
-            changed = set(new) != set(target) or any(abs(new.get(t, 0) - target.get(t, 0)) > 1e-9 for t in new)
+            changed = set(new) != set(target) or (not cont_w and any(
+                abs(new.get(t, 0) - target.get(t, 0)) > 1e-9 for t in set(new) | set(target)))
             # "rebalance quarterly or when a weight drifts 5%": the schedule always trades and the band trades in
-            # between. Only a daily re-evaluation (Composer-style rules) is gated by the band: it trades when the
-            # rules change the target or a holding leaves its band, not back to the exact weights every day.
-            if bands and target and not changed and p.rebalance == "daily" and not drifted(c) and i > 0:
-                decide = False
+            # between. A daily re-evaluation with a band (Composer-style threshold rebalancing) and a dynamic tree that
+            # is never rebalanced are gated: they trade when the rules change the target or a holding leaves its band
+            # (measured against the new target), not back to the exact weights every day.
             target = new
+            if gated and i > 0 and not changed and not (bands and drifted(c)):
+                decide = False
             if decide:
                 n_before = len(orders)
                 if p.fill == "close":
-                    trade_to(target, c, i, "rebalance" if i else "initial")
+                    trade_to(target, c, i, "initial" if not i else "drift rebalance" if gated and not changed
+                             else "rebalance")
                     n_rebal += len(orders) > n_before
                     rebalanced_at_close = True
                 else:

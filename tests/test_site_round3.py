@@ -11,11 +11,19 @@ import pytest
 
 from backtester import composer_import as ci
 from backtester import data, library, web
+from backtester import portfolio as pf
 from backtester.portfolio import Portfolio
 
 FIXTURE = Path(__file__).with_name("fixtures") / "composer_tqqq_ftlt.json"
 AVAILABLE = set(data.available_tickers())
 needs = lambda *t: pytest.mark.skipif(not set(t) <= AVAILABLE, reason="price data not downloaded")  # noqa: E731
+
+
+def _conv(obj):
+    """ci.convert with the Composer block ids left out of the tree (these tests check its structure)."""
+    d = ci.convert(obj)
+    d["tree"] = pf.without_ids(d["tree"])
+    return d
 
 
 def asset(t, **kw):
@@ -46,45 +54,46 @@ def other(*children):
 # ------------------------------------------------------------------ Composer import: node types
 
 def test_asset_and_ticker_formats():
-    assert ci.convert(root(asset("SPY")))["tree"] == {"asset": "SPY"}
-    assert ci.convert(root(asset("EQUITIES::TQQQ//USD")))["tree"] == {"asset": "TQQQ"}
-    assert ci.convert(root(asset("CRYPTO::BTC//USD")))["tree"] == {"asset": "BTC-USD"}
-    assert ci.convert(root(asset("BRK.B")))["tree"] == {"asset": "BRK-B"}
+    assert _conv(root(asset("SPY")))["tree"] == {"asset": "SPY"}
+    assert _conv(root(asset("EQUITIES::TQQQ//USD")))["tree"] == {"asset": "TQQQ"}
+    assert _conv(root(asset("CRYPTO::BTC//USD")))["tree"] == {"asset": "BTC-USD"}
+    assert _conv(root(asset("BRK.B")))["tree"] == {"asset": "BRK-B"}
 
 
 def test_equal_weights_and_group():
-    s = ci.convert(root({"step": "wt-cash-equal", "children": [
+    s = _conv(root({"step": "wt-cash-equal", "children": [
         asset("SPY"), {"step": "group", "name": "Bonds", "children": [
             {"step": "wt-cash-equal", "children": [asset("TLT"), asset("IEF")]}]}]}))
     assert s["tree"] == {"weights": "equal", "children": [
-        {"asset": "SPY"}, {"weights": "equal", "children": [{"asset": "TLT"}, {"asset": "IEF"}]}]}
+        {"asset": "SPY"}, {"weights": "equal", "children": [{"asset": "TLT"}, {"asset": "IEF"}], "name": "Bonds"}]}
+    # (the group's name is kept, for the export back to Composer)
     # a single child needs no wrapper
-    assert ci.convert(root({"step": "wt-cash-equal", "children": [asset("QQQ")]}))["tree"] == {"asset": "QQQ"}
+    assert _conv(root({"step": "wt-cash-equal", "children": [asset("QQQ")]}))["tree"] == {"asset": "QQQ"}
 
 
 def test_specified_weights():
-    s = ci.convert(root({"step": "wt-cash-specified", "children": [
+    s = _conv(root({"step": "wt-cash-specified", "children": [
         asset("UPRO", weight={"num": 55, "den": 100}), asset("TMF", weight={"num": "45", "den": "100"})]}))
     assert s["tree"] == {"weights": "specified", "w": [0.55, 0.45], "children": [{"asset": "UPRO"}, {"asset": "TMF"}]}
     # weights that don't add up are scaled, with a note
-    s = ci.convert(root({"step": "wt-cash-specified", "children": [
+    s = _conv(root({"step": "wt-cash-specified", "children": [
         asset("SPY", weight={"num": 30, "den": 100}), asset("TLT", weight={"num": 30, "den": 100})]}))
     assert s["tree"]["w"] == [0.5, 0.5] and any("scaled" in n for n in s["notes"])
     with pytest.raises(ci.ComposerImportError, match="weight"):
-        ci.convert(root({"step": "wt-cash-specified", "children": [asset("SPY")]}))
+        _conv(root({"step": "wt-cash-specified", "children": [asset("SPY")]}))
 
 
 def test_inverse_vol():
-    s = ci.convert(root({"step": "wt-inverse-vol", "window-days": "30", "children": [asset("SPY"), asset("TLT")]}))
+    s = _conv(root({"step": "wt-inverse-vol", "window-days": "30", "children": [asset("SPY"), asset("TLT")]}))
     assert s["tree"] == {"weights": "inverse_vol", "lookback": 30, "children": [{"asset": "SPY"}, {"asset": "TLT"}]}
 
 
 def test_if_fixed_value_and_percent_functions():
-    s = ci.convert(root({"step": "if", "children": [
+    s = _conv(root({"step": "if", "children": [
         cond("relative-strength-index", "TQQQ", "gt", "79", asset("UVXY"), window=10), other(asset("TQQQ"))]}))
     assert s["tree"] == {"if": "rsi(close, 10) > 79", "on": "TQQQ", "then": {"asset": "UVXY"}, "else": {"asset": "TQQQ"}}
     # cumulative return thresholds are in percent in Composer: -12 means -12%
-    s = ci.convert(root({"step": "if", "children": [
+    s = _conv(root({"step": "if", "children": [
         cond("cumulative-return", "QQQ", "lte", "-12", asset("TQQQ"), window=5), other(asset("BIL"))]}))
     assert s["tree"]["if"] == "tret(tr, 5) <= -0.12"
 
@@ -100,63 +109,63 @@ def test_if_fixed_value_and_percent_functions():
     ("max-drawdown", "max_drawdown(tr, 14)", "10", "0.1"),
 ])
 def test_function_map(fn, expect, rhs, rhs_expect):
-    s = ci.convert(root({"step": "if", "children": [cond(fn, "SPY", "gte", rhs, asset("SPY"), window=14),
+    s = _conv(root({"step": "if", "children": [cond(fn, "SPY", "gte", rhs, asset("SPY"), window=14),
                                                     other(asset("BIL"))]}))
     assert s["tree"]["if"] == f"{expect} >= {rhs_expect}"
 
 
 def test_two_ticker_comparisons_use_sym():
-    s = ci.convert(root({"step": "if", "children": [
+    s = _conv(root({"step": "if", "children": [
         cond("cumulative-return", "SPY", "gt", "TLT", asset("SPY"), window=63, rhs_fn="cumulative-return", rhs_window=63),
         other(asset("TLT"))]}))
     assert s["tree"]["if"] == 'tret(tr, 63) > tret(sym("TLT").tr, 63)' and s["tree"]["on"] == "SPY"
-    s = ci.convert(root({"step": "if", "children": [
+    s = _conv(root({"step": "if", "children": [
         cond("current-price", "SPY", "lt", "SPY", asset("BIL"), rhs_fn="moving-average-price", rhs_window=200),
         other(asset("SPY"))]}))
     assert s["tree"]["if"] == "close < sma(close, 200)"
-    s = ci.convert(root({"step": "if", "children": [
+    s = _conv(root({"step": "if", "children": [
         cond("current-price", "QQQ", "gt", "SPY", asset("QQQ"), rhs_fn="current-price"), other(asset("SPY"))]}))
     # price levels of two tickers are only comparable as quoted (each total-return level starts at its own first close)
     assert s["tree"]["if"] == 'quoted(close) > quoted(sym("SPY").close)'
     # the window may also come as lhs-fn-params (newer exports)
     c = cond("relative-strength-index", "SPY", "lt", "30", asset("UPRO"))
     c["lhs-fn-params"] = {"window": 10}
-    assert ci.convert(root({"step": "if", "children": [c, other(asset("SPY"))]}))["tree"]["if"] == "rsi(close, 10) < 30"
+    assert _conv(root({"step": "if", "children": [c, other(asset("SPY"))]}))["tree"]["if"] == "rsi(close, 10) < 30"
 
 
 def test_else_if_chain_and_missing_else():
-    s = ci.convert(root({"step": "if", "children": [
+    s = _conv(root({"step": "if", "children": [
         cond("relative-strength-index", "SPY", "gt", "80", asset("UVXY"), window=10),
         cond("relative-strength-index", "SPY", "lt", "30", asset("UPRO"), window=10),
         other(asset("SPY"))]}))
     t = s["tree"]
     assert t["then"] == {"asset": "UVXY"} and t["else"]["if"] == "rsi(close, 10) < 30"
     assert t["else"]["then"] == {"asset": "UPRO"} and t["else"]["else"] == {"asset": "SPY"}
-    s = ci.convert(root({"step": "if", "children": [cond("relative-strength-index", "SPY", "gt", "80", asset("UVXY"), window=10)]}))
+    s = _conv(root({"step": "if", "children": [cond("relative-strength-index", "SPY", "gt", "80", asset("UVXY"), window=10)]}))
     assert s["tree"]["else"] == {"cash": True} and any("no else" in n for n in s["notes"])
 
 
 def test_filter():
     f = {"step": "filter", "sort-by-fn": "relative-strength-index", "sort-by-window-days": "10", "select-fn": "bottom",
          "select-n": "2", "children": [asset("SOXL"), asset("TECL"), asset("TQQQ")]}
-    s = ci.convert(root(f))
+    s = _conv(root(f))
     assert s["tree"] == {"filter": {"select": "bottom", "n": 2, "by": "rsi(close, 10)", "weights": "equal"},
                          "universe": "children", "children": [{"asset": "SOXL"}, {"asset": "TECL"}, {"asset": "TQQQ"}],
                          "fallback": {"cash": True}}
     # groups inside a filter are kept as they are (ranked by their own NAV by the simulator)
     f2 = {**f, "children": [{"step": "group", "name": "A", "children": [asset("SPY")]},
                             {"step": "wt-cash-equal", "children": [asset("TLT"), asset("GLD")]}]}
-    assert ci.convert(root(f2))["tree"]["children"][1] == {"weights": "equal", "children": [{"asset": "TLT"}, {"asset": "GLD"}]}
+    assert _conv(root(f2))["tree"]["children"][1] == {"weights": "equal", "children": [{"asset": "TLT"}, {"asset": "GLD"}]}
 
 
 def test_rebalance_settings():
-    assert ci.convert(root(asset("SPY"), rebalance="monthly"))["rebalance"] == "monthly"
-    s = ci.convert(root(asset("SPY"), **{"rebalance": "none", "rebalance-corridor-width": 0.05}))
+    assert _conv(root(asset("SPY"), rebalance="monthly"))["rebalance"] == "monthly"
+    s = _conv(root(asset("SPY"), **{"rebalance": "none", "rebalance-corridor-width": 0.05}))
     assert s["rebalance"] == "none" and s["drift_band"] == 0.05
-    s = ci.convert(root(asset("SPY"), **{"rebalance": "none", "rebalance-corridor-width": "10"}))
+    s = _conv(root(asset("SPY"), **{"rebalance": "none", "rebalance-corridor-width": "10"}))
     assert s["drift_band"] == 0.1
     with pytest.raises(ci.ComposerImportError, match="rebalance"):
-        ci.convert(root(asset("SPY"), rebalance="hourly"))
+        _conv(root(asset("SPY"), rebalance="hourly"))
 
 
 @pytest.mark.parametrize("sym, needle", [
@@ -171,15 +180,15 @@ def test_rebalance_settings():
 ])
 def test_unknown_or_bad_input_is_a_clear_error(sym, needle):
     with pytest.raises(ci.ComposerImportError) as e:
-        ci.convert(sym)
+        _conv(sym)
     assert needle in str(e.value)
 
 
 def test_wrappers_and_text_input():
     sym = root(asset("SPY"))
-    assert ci.convert(json.dumps(sym))["tree"] == {"asset": "SPY"}
-    assert ci.convert({"symphony": sym})["tree"] == {"asset": "SPY"}
-    assert ci.convert({"fields": {"score": json.dumps(sym)}})["tree"] == {"asset": "SPY"}
+    assert _conv(json.dumps(sym))["tree"] == {"asset": "SPY"}
+    assert _conv({"symphony": sym})["tree"] == {"asset": "SPY"}
+    assert _conv({"fields": {"score": json.dumps(sym)}})["tree"] == {"asset": "SPY"}
 
 
 @needs("SPY", "TQQQ", "UVXY", "TECL", "QQQ", "TLT", "GLD", "SHY", "BTAL", "SHV")
@@ -187,7 +196,7 @@ def test_fixture_imports_validates_and_runs():
     from backtester import runner
     d = ci.load(FIXTURE)
     assert d["name"] == "TQQQ For The Long Term (sample)" and d["rebalance"] == "daily"
-    t = d["tree"]
+    t = pf.without_ids(d["tree"])
     assert (t["if"], t["on"]) == ("close > sma(close, 200)", "SPY")
     assert t["then"]["if"] == "rsi(close, 10) > 79" and t["else"]["then"] == {"asset": "TECL"}
     hedge = t["else"]["else"]["else"]
@@ -318,7 +327,7 @@ def test_composer_import_endpoint(server):
     assert r["summary"]["label"] == "TQQQ For The Long Term (sample)"
     # a ticker without data still loads the tree (for the editor to mark), with the problem listed
     code, j = call(server, "/api/import/composer", {"json": root(asset("NOSUCHX"))})
-    assert code == 200 and j["spec"]["tree"] == {"asset": "NOSUCHX"} and j["problems"]
+    assert code == 200 and pf.without_ids(j["spec"]["tree"]) == {"asset": "NOSUCHX"} and j["problems"]
     code, j = call(server, "/api/import/composer", {"json": root(asset("SPY", surprise=1))})
     assert code == 400 and "surprise" in j["error"]
 

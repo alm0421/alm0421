@@ -372,7 +372,7 @@ def test_composer_export_settings():
     sym, _ = ce.export(Portfolio(tree={"if": "tret(tr, 5) <= -0.06", "on": "QQQ", "then": {"asset": "QQQ"},
                                        "else": {"asset": "BIL"}}, rebalance="daily"))
     c = sym["children"][0]["children"][0]
-    assert c["lhs-fn"] == "cumulative-return" and c["rhs-val"] == -6 and c["comparator"] == "lte"
+    assert c["lhs-fn"] == "cumulative-return" and c["rhs-val"] == "-6" and c["comparator"] == "lte"
     with pytest.raises(ce.ComposerExportError, match="trading rule"):
         ce.export(parser.parse("buy SPY when RSI(2) is below 10, sell after 5 days"))
 
@@ -389,7 +389,7 @@ def test_composer_export_cli_and_api(tmp_path, capsys):
     spec = tmp_path / "spec.json"
     spec.write_text(json.dumps({"kind": "allocation", "tree": {"asset": "SPY"}, "rebalance": "monthly"}))
     assert main(["composer-export", str(spec)]) == 0
-    assert json.loads(capsys.readouterr().out)["children"] == [{"step": "asset", "ticker": "SPY"}]
+    assert json.loads(capsys.readouterr().out)["children"][0]["ticker"] == "SPY"
     assert main(["composer-export", "hold the top 5 Nasdaq 100 stocks by 20 day return"]) == 2
     assert "Nasdaq-100" in capsys.readouterr().err
     assert api.composer_export("hold 60% SPY and 40% QQQ")["children"][0]["step"] == "wt-cash-specified"
