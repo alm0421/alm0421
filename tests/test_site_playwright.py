@@ -54,6 +54,24 @@ _QUIET = ["--disable-background-networking", "--disable-component-update", "--di
           "--no-first-run", "--disable-domain-reliability", "--disable-features=OptimizationHints,Translate"]
 
 
+def _settle(pg, inflight: set, quiet_ms: int = 500, timeout_s: float = 120.0) -> None:
+    """Every frame loaded and no request of the page in flight for quiet_ms. (Playwright's "networkidle" can fail to
+    arrive after an iframe navigates although nothing is loading, so the test tracks the page's requests itself.)"""
+    import time as _time
+    for f in pg.frames:
+        f.wait_for_load_state("load")
+    end, quiet_since = _time.monotonic() + timeout_s, None
+    while _time.monotonic() < end:
+        if inflight:
+            quiet_since = None
+        elif quiet_since is None:
+            quiet_since = _time.monotonic()
+        elif (_time.monotonic() - quiet_since) * 1000 >= quiet_ms:
+            return
+        pg.wait_for_timeout(50)
+    raise AssertionError(f"requests still loading after {timeout_s:.0f} s: {sorted(inflight)[:5]}")
+
+
 PAGES = ["backtest", "library", "gallery", "community", "build", "compare", "research", "montecarlo", "factors",
          "correlations", "signals", "history", "data"]
 
@@ -64,18 +82,22 @@ def test_every_page_and_main_controls_without_errors(site):
     with sync_playwright() as p:
         b = p.chromium.launch(executable_path=_chromium(), args=_QUIET)
         pg = b.new_page(viewport={"width": 1280, "height": 900})
+        _inflight: set = set()
+        pg.on("request", lambda r: _inflight.add(r.url + "#" + str(id(r))))
+        pg.on("requestfinished", lambda r: _inflight.discard(r.url + "#" + str(id(r))))
+        pg.on("requestfailed", lambda r: _inflight.discard(r.url + "#" + str(id(r))))
         pg.on("pageerror", lambda e: errs.append(f"pageerror: {e}"))
         pg.on("console", lambda m: errs.append(f"console {m.type}: {m.text}") if m.type == "error" else None)
         pg.on("response", lambda r: errs.append(f"HTTP {r.status} {r.request.method} {r.url}") if r.status >= 400 else None)
         pg.set_default_timeout(120_000)
         pg.goto(site + "/")
-        pg.wait_for_load_state("networkidle")
+        _settle(pg, _inflight)
 
         # every page (tab) of the site
         for name in PAGES:
             pg.evaluate(f"location.hash = '#{name}'")
             pg.wait_for_selector(f"#p-{name}:not(.hide)")
-            pg.wait_for_load_state("networkidle")
+            _settle(pg, _inflight)
         assert not errs, errs
 
         # Monte Carlo: the forecast mode shows one return and one volatility box per ticker, following weight edits
@@ -111,7 +133,7 @@ def test_every_page_and_main_controls_without_errors(site):
         pg.click("#runBtn")
         pg.wait_for_selector("#result:not(.hide)")
         pg.wait_for_function("document.querySelector('#frame').src && document.querySelector('#frame').src.includes('report')")
-        pg.wait_for_load_state("networkidle")
+        _settle(pg, _inflight)
         # an allocation portfolio's report has no trade-return distribution or excursion charts
         rep = pg.frame_locator("#frame")
         rep.locator("#distCard.hide").wait_for(state="attached")
@@ -123,7 +145,7 @@ def test_every_page_and_main_controls_without_errors(site):
         pg.wait_for_selector("#p-build:not(.hide)")
         pg.click("#buildMode button[data-v='signal']")
         pg.click("#buildMode button[data-v='portfolio']")
-        pg.wait_for_load_state("networkidle")
+        _settle(pg, _inflight)
 
         # Research: all three modes
         pg.evaluate("location.hash = '#research'")
@@ -137,7 +159,7 @@ def test_every_page_and_main_controls_without_errors(site):
         pg.fill("#fx_ticker", "QQQ")
         pg.click("#fxRun")
         pg.wait_for_function("!/…|\\.\\.\\./.test(document.querySelector('#fxStatus').textContent)")
-        pg.wait_for_load_state("networkidle")
+        _settle(pg, _inflight)
 
         # Correlations: daily returns with a monthly-stepped series switch to monthly (with a note)
         pg.evaluate("location.hash = '#correlations'")
@@ -151,7 +173,7 @@ def test_every_page_and_main_controls_without_errors(site):
         # Compare: add a row
         pg.evaluate("location.hash = '#compare'")
         pg.click("#cmpAdd")
-        pg.wait_for_load_state("networkidle")
+        _settle(pg, _inflight)
         b.close()
     assert not errs, errs
 
@@ -172,6 +194,10 @@ def test_reports_with_steps_depletion_and_late_benchmarks_render_without_errors(
     with sync_playwright() as p:
         b = p.chromium.launch(executable_path=_chromium(), args=_QUIET)
         pg = b.new_page(viewport={"width": 1280, "height": 900})
+        _inflight: set = set()
+        pg.on("request", lambda r: _inflight.add(r.url + "#" + str(id(r))))
+        pg.on("requestfinished", lambda r: _inflight.discard(r.url + "#" + str(id(r))))
+        pg.on("requestfailed", lambda r: _inflight.discard(r.url + "#" + str(id(r))))
         pg.on("pageerror", lambda e: errs.append(f"pageerror: {e}"))
         pg.on("console", lambda m: errs.append(f"console {m.type}: {m.text}") if m.type == "error" else None)
         for path in paths:
