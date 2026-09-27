@@ -1,13 +1,336 @@
 {
-  "_about": "Price-integrity gate (backtester/integrity.py, run by data.load on every price file). 'overrides' are manual decisions the gate applies: action 'split' (record a split of 'ratio' new shares per old share on that day and back-adjust the earlier prices), 'rescale' (back-adjust by 1/'ratio' without recording a split: the earlier prices were on a wrong basis, no split happened) or 'ignore' (leave the day alone). 'inferred' is written by scripts/fetch_data.py after each data run: every repair the gate made, with its evidence.",
-  "overrides": {
-    "SOXS": {
-      "2026-05-26": {
-        "action": "rescale",
-        "ratio": 15,
-        "why": "the prices before 2026-05-26 are 15x too high in the source data (-94.6% that day, SOXX +6.2%, SOXL +18.5%); Direxion's only SOXS splits around then were 1-for-20 on 2026-03-05 and 1-for-10 on 2026-07-15 (press releases of 2026-02-04 and 2026-06-10), both already in the data, so no split happened that day: the earlier prices were divided by 15 (the day is left at -18.6%, as the -3x SOXX move predicts)"
-      }
-    }
+ "_about": "Price-integrity gate (backtester/integrity.py, run by data.load on every price file). 'overrides' are manual decisions the gate applies: action 'split' (record a split of 'ratio' new shares per old share on that day and back-adjust the earlier prices), 'rescale' (back-adjust by 1/'ratio' without recording a split: the earlier prices were on a wrong basis, no split happened) or 'ignore' (leave the day alone). 'inferred' is written by scripts/fetch_data.py after each data run: every repair the gate made, with its evidence.",
+ "overrides": {
+  "SOXS": {
+   "2026-05-26": {
+    "action": "rescale",
+    "ratio": 15,
+    "why": "the prices before 2026-05-26 are 15x too high in the source data (-94.6% that day, SOXX +6.2%, SOXL +18.5%); Direxion's only SOXS splits around then were 1-for-20 on 2026-03-05 and 1-for-10 on 2026-07-15 (press releases of 2026-02-04 and 2026-06-10), both already in the data, so no split happened that day: the earlier prices were divided by 15 (the day is left at -18.6%, as the -3x SOXX move predicts)"
+   }
+  }
+ },
+ "inferred": {
+  "CPER": {
+   "2014-12-04": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.331455,
+    "day_return_repaired": 0.001024,
+    "expected_from_reference": -0.001842,
+    "residual_sd": 0.007719,
+    "reference": "DBC",
+    "volume_ratio_after": null,
+    "why": "close 13.05 is 33% from the day before and 50% from the day after, which agree within 0.2%; replaced by their geometric mean 19.54"
+   },
+   "2015-02-02": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.286571,
+    "day_return_repaired": 0.019592,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.054031,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 11.9 is 29% from the day before and 46% from the day after, which agree within 4.0%; replaced by their geometric mean 17.0068"
+   }
   },
-  "inferred": {}
+  "CPWR": {
+   "2010-04-15": {
+    "kind": "inferred_split",
+    "ratio": 5.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.800001,
+    "day_return_repaired": -3e-06,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.050066,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -80.0% on 2010-04-15 with no split in the source data; a 5-for-1 split leaves -0.0% (no reference moves with it; its daily sd is 5.0%)"
+   },
+   "2011-05-23": {
+    "kind": "inferred_split",
+    "ratio": 10.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.9,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.10511,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -90.0% on 2011-05-23 with no split in the source data; a 10-for-1 split leaves +0.0% (no reference moves with it; its daily sd is 10.5%)"
+   },
+   "2013-06-19": {
+    "kind": "inferred_split",
+    "ratio": 2.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.500002,
+    "day_return_repaired": -4e-06,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.026262,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -50.0% on 2013-06-19 with no split in the source data; a 2-for-1 split leaves -0.0% (no reference moves with it; its daily sd is 2.6%)"
+   },
+   "2024-05-22": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.69,
+    "day_return_repaired": 0.048809,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.184033,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 0.0062 is 69% from the day before and 255% from the day after, which agree within 10.0%; replaced by their geometric mean 0.0209762"
+   }
+  },
+  "DFEN": {
+   "2024-06-03": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.643908,
+    "day_return_repaired": 0.006457,
+    "expected_from_reference": -0.024863,
+    "residual_sd": 0.01625,
+    "reference": "XLI",
+    "volume_ratio_after": null,
+    "why": "close 10.17 is 64% from the day before and 184% from the day after, which agree within 1.3%; replaced by their geometric mean 28.7444"
+   }
+  },
+  "FER": {
+   "2020-03-13": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.431954,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.051733,
+    "residual_sd": 0.019424,
+    "reference": "BTC-USD",
+    "volume_ratio_after": null,
+    "why": "close 32.3487 is 43% from the day before and 30% from the day after, which agree within 0.0%; replaced by their geometric mean 22.5906"
+   }
+  },
+  "FMAGX": {
+   "1981-04-27": {
+    "kind": "inferred_split",
+    "ratio": 1.5,
+    "applied": "recorded",
+    "day_return_in_file": -0.33184,
+    "day_return_repaired": 0.00224,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.020775,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -33.2% on 1981-04-27 with no split in the source data; a 3-for-2 split leaves +0.2% (no reference moves with it; its daily sd is 2.1%)"
+   }
+  },
+  "LILA": {
+   "2018-01-03": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.21548,
+    "day_return_repaired": -0.004646,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.018158,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 10.8401 is 22% from the day before and 26% from the day after, which agree within 0.9%; replaced by their geometric mean 13.7533"
+   }
+  },
+  "MAT": {
+   "1976-10-29": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.348836,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.028325,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 0.955733 is 35% from the day before and 54% from the day after, which agree within 0.0%; replaced by their geometric mean 1.46773"
+   }
+  },
+  "MCD": {
+   "1968-05-21": {
+    "kind": "inferred_split",
+    "ratio": 2.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.507194,
+    "day_return_repaired": -0.014388,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.02592,
+    "reference": null,
+    "volume_ratio_after": 2.2212,
+    "why": "the close moved -50.7% on 1968-05-21 with no split in the source data; a 2-for-1 split leaves -1.4% (no reference moves with it; its daily sd is 2.6%); volume x2.22 after"
+   },
+   "1969-06-13": {
+    "kind": "inferred_split",
+    "ratio": 2.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.500959,
+    "day_return_repaired": -0.001918,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.017549,
+    "reference": null,
+    "volume_ratio_after": 2.1548,
+    "why": "the close moved -50.1% on 1969-06-13 with no split in the source data; a 2-for-1 split leaves -0.2% (no reference moves with it; its daily sd is 1.8%); volume x2.15 after"
+   }
+  },
+  "NVDS": {
+   "2023-08-09": {
+    "kind": "phantom_split",
+    "ratio": 0.2,
+    "applied": "dropped",
+    "day_return_in_file": -0.78828,
+    "day_return_repaired": 0.058599,
+    "expected_from_reference": 0.058983,
+    "residual_sd": 0.001,
+    "reference": "NVDA",
+    "volume_ratio_after": 17.1547,
+    "why": "a 1-for-5 split is booked on 2023-08-09 but the prices already moved by it (the earlier prices were adjusted for a split that did not happen then): split dropped, earlier prices restored"
+   }
+  },
+  "PCRAX": {
+   "2023-03-27": {
+    "kind": "inferred_split",
+    "ratio": 0.333333,
+    "applied": "recorded",
+    "day_return_in_file": 2.017032,
+    "day_return_repaired": 0.005677,
+    "expected_from_reference": 0.014649,
+    "residual_sd": 0.010448,
+    "reference": "DBC",
+    "volume_ratio_after": null,
+    "why": "the close moved +201.7% on 2023-03-27 with no split in the source data; a 1-for-3 split leaves +0.6%, in line with DBC (+1.5% expected, residual sd 1.0%)"
+   }
+  },
+  "PGOVX": {
+   "2023-03-27": {
+    "kind": "inferred_split",
+    "ratio": 0.25,
+    "applied": "recorded",
+    "day_return_in_file": 2.921914,
+    "day_return_repaired": -0.019521,
+    "expected_from_reference": -0.021114,
+    "residual_sd": 0.002077,
+    "reference": "TLT",
+    "volume_ratio_after": null,
+    "why": "the close moved +292.2% on 2023-03-27 with no split in the source data; a 1-for-4 split leaves -2.0%, in line with TLT (-2.1% expected, residual sd 0.2%)"
+   }
+  },
+  "PSLDX": {
+   "2023-03-27": {
+    "kind": "inferred_split",
+    "ratio": 0.333333,
+    "applied": "recorded",
+    "day_return_in_file": 1.962578,
+    "day_return_repaired": -0.012474,
+    "expected_from_reference": -0.00528,
+    "residual_sd": 0.009214,
+    "reference": "HYG",
+    "volume_ratio_after": null,
+    "why": "the close moved +196.3% on 2023-03-27 with no split in the source data; a 1-for-3 split leaves -1.2%, in line with HYG (-0.5% expected, residual sd 0.9%)"
+   }
+  },
+  "SDD": {
+   "2015-01-29": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.280857,
+    "day_return_repaired": 0.007119,
+    "expected_from_reference": -0.014805,
+    "residual_sd": 0.017472,
+    "reference": "IWM",
+    "volume_ratio_after": null,
+    "why": "close 233.52 is 28% from the day before and 41% from the day after, which agree within 1.4%; replaced by their geometric mean 327.032"
+   }
+  },
+  "SOXS": {
+   "2026-05-26": {
+    "kind": "basis_change",
+    "ratio": 15.0,
+    "applied": "rescaled",
+    "day_return_in_file": -0.945752,
+    "day_return_repaired": -0.186287,
+    "expected_from_reference": -0.18153,
+    "residual_sd": 0.004656,
+    "reference": "SOXX",
+    "volume_ratio_after": 26.7596,
+    "why": "the prices before 2026-05-26 are 15x too high in the source data (-94.6% that day, SOXX +6.2%, SOXL +18.5%); Direxion's only SOXS splits around then were 1-for-20 on 2026-03-05 and 1-for-10 on 2026-07-15 (press releases of 2026-02-04 and 2026-06-10), both already in the data, so no split happened that day: the earlier prices were divided by 15 (the day is left at -18.6%, as the -3x SOXX move predicts)"
+   }
+  },
+  "SSCC": {
+   "2013-11-20": {
+    "kind": "inferred_split",
+    "ratio": 1.5,
+    "applied": "recorded",
+    "day_return_in_file": -0.333333,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.001,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -33.3% on 2013-11-20 with no split in the source data; a 3-for-2 split leaves -0.0% (no reference moves with it; its daily sd is 0.1%)"
+   },
+   "2017-12-22": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 1.390438,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.136278,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 1200 is 139% from the day before and 58% from the day after, which agree within 0.0%; replaced by their geometric mean 502"
+   },
+   "2021-03-10": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.652989,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.128522,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 312.31 is 65% from the day before and 188% from the day after, which agree within 0.0%; replaced by their geometric mean 900"
+   }
+  },
+  "SZK": {
+   "2014-12-19": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.306614,
+    "day_return_repaired": -0.044107,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.043349,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 154.32 is 31% from the day before and 32% from the day after, which agree within 9.4%; replaced by their geometric mean 212.744"
+   }
+  },
+  "TWCUX": {
+   "1987-12-22": {
+    "kind": "inferred_split",
+    "ratio": 1.5,
+    "applied": "recorded",
+    "day_return_in_file": -0.344974,
+    "day_return_repaired": -0.01746,
+    "expected_from_reference": -0.002948,
+    "residual_sd": 0.021105,
+    "reference": "AAPL",
+    "volume_ratio_after": null,
+    "why": "the close moved -34.5% on 1987-12-22 with no split in the source data; a 3-for-2 split leaves -1.7%, in line with AAPL (-0.3% expected, residual sd 2.1%)"
+   }
+  }
+ }
 }
