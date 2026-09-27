@@ -221,6 +221,9 @@ class Portfolio:
 
     def summary(self) -> str:
         lines = ["Portfolio:"] + ["  " + l for l in describe(self.tree)]
+        if _has_ndx(self.tree):
+            lines.append("  Nasdaq-100 universe: " + ("point-in-time membership" if self.point_in_time else
+                                                      "today's members (survivorship-biased by construction)"))
         rb = {"none": "never rebalanced (buy and hold)", "daily": "re-evaluated and rebalanced daily",
               "semiannual": "re-evaluated and rebalanced every six months (end of June and December)"}.get(
             self.rebalance, f"re-evaluated and rebalanced {self.rebalance}")
@@ -420,6 +423,18 @@ def _has_ndx(n) -> bool:
     return any(_has_ndx(k) for k in _kids(n))
 
 
+def _mcap_used(n) -> bool:
+    """Does any rule, ranking or weighting in the tree read market caps?"""
+    if not isinstance(n, dict):
+        return False
+    if "filter" in n and (any("market_cap" in str(n["filter"].get(k) or "") for k in ("by", "require"))
+                          or n["filter"].get("weights") == "market_cap"):
+        return True
+    if n.get("weights") == "market_cap" or ("if" in n and "market_cap" in str(n.get("if"))):
+        return True
+    return any(_mcap_used(k) for k in _kids(n))
+
+
 def _ndx_by_mcap(n) -> bool:
     """Does a Nasdaq-100 filter rank, require or weight by market cap?"""
     if not isinstance(n, dict):
@@ -596,12 +611,17 @@ def _short(n: dict) -> str:
     return s if len(s) < 80 else s[:77] + "..."
 
 
-def _universe(n: dict) -> list[str]:
-    """Tickers a filter ranks directly (for universe 'children': its single-asset children)."""
+def _universe(n: dict, point_in_time: bool = True) -> list[str]:
+    """Tickers a filter ranks directly (for universe 'children': its single-asset children). A Nasdaq-100 universe
+    is every member there has been (filtered by point-in-time membership each day), or - point_in_time False,
+    "today's members only" - the current members (data.current_members), with no membership filter."""
     u = n.get("universe", "children")
     if u == "children":
         return [data.canonical(k["asset"]) for k in n.get("children") or [] if _is_asset(k)]
     if u in ("NDX", "nasdaq100"):
+        if not point_in_time:
+            have = set(data.available_tickers())
+            return [t for t in data.current_members() if t in have]
         return data.nasdaq100_ever()
     return [data.canonical(t) for t in u]
 
@@ -804,7 +824,7 @@ def describe(n: dict, indent: int = 0) -> list[str]:
             for k in kids:
                 out.extend(_member_lines(k, indent + 2))
         else:
-            uname = "Nasdaq-100 members (point-in-time)" if u in ("NDX", "nasdaq100") else ", ".join(_universe(n))
+            uname = "Nasdaq-100 members" if u in ("NDX", "nasdaq100") else ", ".join(_universe(n))
             out = [f"{pad}{f.get('select', 'top')} {f.get('n', 1)} of [{uname}] by {f['by']}, {wl}"]
         if f.get("require"):
             out.append(f"{pad}  only if {f['require']}, else:")
@@ -1462,7 +1482,9 @@ class _Evaluator:
             mk = ("members", id(n))
             if mk not in self.cache:   # the same members every day
                 self._keep.append(n)
-                mem = [self._member(k) for k in n.get("children") or []] if u == "children" else _universe(n)
+                mem = [self._member(k) for k in n.get("children") or []] if u == "children" else _universe(n, self.p.point_in_time)
+                if u in ("NDX", "nasdaq100") and not self.p.point_in_time:
+                    self.note(data.TODAY_MEMBERS_WARNING.format(n=len(mem)))
                 self.cache[mk] = (mem, bool(mem) and all(isinstance(m, str) for m in mem))
             mem, assets = self.cache[mk]
             pit = u in ("NDX", "nasdaq100") and self.p.point_in_time
@@ -1824,6 +1846,16 @@ def run(p: Portfolio) -> Result:
     cal = cal[cal >= start]
     if p.end:
         cal = cal[cal <= pd.Timestamp(p.end)]
+    if len(cal) and _mcap_used(p.tree):
+        named = [t for t in tickers_in(p.tree, index_universes=False) if t in dfs]
+        msgs, fund_list = data.mcap_notes(named, cal[0], cal[-1])
+        if fund_list:
+            msgs.append(f"Market cap: {', '.join(fund_list[:5])} {'is a fund' if len(fund_list) == 1 else 'are funds'}: "
+                        "ETFs have no market cap, so market-cap rules and weights never use "
+                        f"{'it' if len(fund_list) == 1 else 'them'} (market-cap weights fall back to equal weight).")
+        for msg_ in msgs:
+            if msg_ not in p.notes:
+                p.notes.append(msg_)
     if _ndx_by_mcap(p.tree) and p.point_in_time and len(cal):
         # market-cap rankings need share counts for most members: start where they cover MCAP_MIN_COVERAGE
         names = [t for t in data.nasdaq100_ever() if t in dfs]

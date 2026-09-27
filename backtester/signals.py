@@ -110,6 +110,8 @@ def scan(spec) -> dict:
     out["exit_orders"] = standing
     held = {r["ticker"] for r in out["open_positions"]}
     sig, assumed = [], False
+    if spec.entry_order != "market":
+        return _scan_level_orders(spec, res, out, exits, standing)
     for t in spec.universe:
         t = data.canonical(t)
         df = data.load(t).loc[:last]   # a run that ends earlier (spec.end) is scanned as of its last day
@@ -185,6 +187,70 @@ def scan(spec) -> dict:
     return out
 
 
+def entry_orders(spec: Strategy, res) -> list[dict]:
+    """The limit / stop entry orders the engine has working after the last bar, as orders for the next session(s):
+    {ticker, side, action, order ("LIMIT"/"STOP"), price, valid_sessions, placed, close, stop_loss, take_profit}.
+    The level is the engine's own (the entry_level expression on the signal bar), so a limit 1% below the close
+    is 0.99 x the signal day's close; the order works for `valid_sessions` more sessions, as in the backtest
+    (order_valid_bars counted from the signal bar). stop_loss / take_profit are the bracket levels the engine
+    applies after a fill at that price."""
+    out = []
+    last = res.equity.index[-1]
+    for od in res.extras.get("pending_entries", []) or []:
+        t, sgn = od["ticker"], 1 if od["side"] == "long" else -1
+        lvl = float(od["level"])
+        try:
+            close = float(data.load(t)["close"].loc[:last].iloc[-1])
+        except Exception:  # noqa: BLE001
+            close = None
+        row = {"ticker": t, "side": od["side"], "action": "BUY" if sgn == 1 else "SELL SHORT",
+               "order": od["order"].upper(), "price": round(lvl, 4), "valid_sessions": int(od["sessions_left"]),
+               "placed": od["placed"], "close": None if close is None else round(close, 4)}
+        if spec.stop_loss:
+            row["stop_loss"] = round(lvl * (1 - sgn * spec.stop_loss), 4)
+        if spec.take_profit:
+            row["take_profit"] = round(lvl * (1 + sgn * spec.take_profit), 4)
+        row["until"] = str(_sessions_after(last, int(od["sessions_left"]), t).date())
+        out.append(row)
+    return out
+
+
+def _scan_level_orders(spec: Strategy, res, out: dict, exits: list[dict], standing: list[dict]) -> dict:
+    """scan() for limit / stop entries: the signal is an order at a level, not a fill at the close."""
+    pend = entry_orders(spec, res)
+    out["entry_signals"] = [{"ticker": o["ticker"], "side": o["side"], "close": o["close"], "order": o["order"],
+                             "level": o["price"], "valid_sessions": o["valid_sessions"], "until": o["until"],
+                             "placed": o["placed"],
+                             **{k: o[k] for k in ("stop_loss", "take_profit") if k in o}} for o in pend]
+    out["entry_orders"] = pend
+    out["skipped_already_held"] = []
+    out["skipped_no_free_slot"] = []
+    held = len(out["open_positions"])
+    if len(pend) > max(0, int(spec.max_positions) - held):
+        out["note"] = (f"{len(pend)} entry orders are working but only {max(0, int(spec.max_positions) - held)} position "
+                       "slot(s) are free: as in the backtest, the ones that fill first take the slots and the rest are "
+                       "not filled.")
+    todo = [e for e in exits if not e.get("done") and e["when"] in ("at the next open", "at the next close")]
+    moc = [e for e in exits if e.get("done") and e["order"] == "MOC"]
+    parts = [f"{e['action']} {e['ticker']} {e['when']} ({e['reason']})" for e in moc + todo]
+    for o in pend:
+        br = ", ".join(x for x in (f"stop {o['stop_loss']}" if "stop_loss" in o else "",
+                                   f"target {o['take_profit']}" if "take_profit" in o else "") if x)
+        parts.append(f"{o['action']} {o['order']} {o['ticker']} @ {o['price']} "
+                     f"(entry order, {'the next session' if o['valid_sessions'] == 1 else str(o['valid_sessions']) + ' sessions, until ' + o['until']}"
+                     + (f"; bracket {br}" if br else "") + ")")
+    if not pend:
+        parts.append("No new entry orders")
+    if out["open_positions"]:
+        parts.append(f"{len(out['open_positions'])} position(s) open")
+    txt = "; ".join(parts)
+    if any(o.get("price") is not None for o in standing):
+        txt += " (exit orders for the next session: " + ", ".join(
+            f"{o['action']} {o['order']} {o['ticker']} @ {o['price']}" for o in standing if o.get("price") is not None) + ")"
+    out["action"] = txt
+    return out
+
+
 def paper_add(spec, name: str) -> Path:
     PAPER.mkdir(exist_ok=True)
     d = runner.to_dict(spec)
@@ -239,7 +305,11 @@ def format_alert(rows) -> str:
             else:
                 lines.append(f"  • {o['action']} {o['ticker']} at the next open if {o['reason']}")
         for e in s.get("entry_signals", [])[:20]:
-            lines.append(f"  • {e['side']} {e['ticker']} @ {e['close']}")
+            if e.get("order"):
+                lines.append(f"  • {e['side']} {e['ticker']}: {e['order']} order @ {e['level']} (close {e['close']}, "
+                             f"valid {e['valid_sessions']} session(s))")
+            else:
+                lines.append(f"  • {e['side']} {e['ticker']} @ {e['close']}")
         if s.get("target_weights"):
             lines.append("  target: " + ", ".join(f"{t} {w:.0%}" for t, w in s["target_weights"].items()))
     return "\n".join(lines)

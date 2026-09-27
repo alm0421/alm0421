@@ -298,7 +298,8 @@ class Strategy:
         u = list(self.universe or [])
         uni = self.universe_name or (", ".join(u) if len(u) <= 6 else f"{len(u)} tickers ({', '.join(u[:4])}, ...)")
         if self.universe_name:
-            uni += f" ({len(u)} tickers{', point-in-time membership' if self.point_in_time else ', current members only'})"
+            pit_txt = ", point-in-time membership" if self.point_in_time else ", today's members (survivorship-biased by construction)"
+            uni += f" ({len(u)} tickers{pit_txt})"
         lines = [f"{side} {uni} {fill} when: {self.entry}"]
         if self.side == "both":
             lines.append(f"Short when: {self.short_entry}" + (" (signals reverse the position)" if self.reverse else ""))

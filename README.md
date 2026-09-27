@@ -382,6 +382,14 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   - "At the close" rules use that day's data and fill at the close (market-on-close).
   - "At the open" rules may only use data known at the open. Anything else is automatically checked
     on the previous close, and a spec that breaks this is rejected.
+    - Calendar variables and the period-end flags (`is_week_end()`, `is_month_end()`, `is_quarter_end()`,
+      `is_year_end()`, `trading_days_left_in_month`) come from the published NYSE schedule
+      (`backtester/calendar.py`), so they are known at the open. The schedule is point in time: holidays on the
+      rules of their year (Feb 22 / May 30 holidays, Election Day and the other pre-1971 closures) and the
+      pre-announced closures (the Reagan, Ford, G. H. W. Bush and Carter days of mourning) from their
+      announcement day; unscheduled closures (9/11, Hurricane Sandy) are never known in advance.
+      `trading_days_left_in_month` counts the sessions AFTER today: 0 on the month's last session
+      ("the last trading day of the month" is `trading_days_left_in_month == 0`).
     - The check is a whitelist: the open, `gap`, calendar variables, `sym("X").open`, anything inside
       `ref(..., n)` with n ≥ 1, and one-series indicators given an open-safe series (`sma(open, 5)`;
       `sma(20)` means `sma(close, 20)` and is refused). Keyword arguments are refused at the open.
@@ -390,8 +398,10 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
       differently.
   - Rules written as Python functions (the Python API: `entry=lambda df, ns: ...`, also exits, rankings and
     order levels) can't be checked statically, so they are probed: the function is run on the data cut at
-    about 20 dates spread over the history (half of them days an entry fires) and its output up to each cut
-    must equal its output on the full data. `df.close.shift(-1)`, `rolling(..., center=True)` or
+    many dates chosen adversarially - the latest 40 bars one by one, every day an entry fires and the three
+    days before it, every day its answer changes, every day of a short run window, then a dense random grid
+    (up to 1,200 cuts, a few seconds) - and its output up to each cut must equal its output on the full data.
+    (A leak confined to a few days of a long history can still escape the random part.) `df.close.shift(-1)`, `rolling(..., center=True)` or
     `df.close.mean()` change when later rows are removed, and the run is refused ("Lookahead: the entry
     function uses future data: its result on D changes when the data after D is removed"). A function used
     at the open must be marked `f.open_safe = True` and is also run with that day's close/high/low/volume
@@ -402,8 +412,12 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   - Negative offsets are rejected.
   - Tests truncate all data at a date and check that no earlier trade changes.
 - **Survivorship.** "Nasdaq 100 stocks" means point-in-time membership from 2004 (monthly snapshots
-  of the index list). A stock is only bought while it was in the index, and former members are
-  included where price history exists.
+  of the index list, with exact change days from the dated component-change table from 2007: SMCI counts from
+  2024-07-22, PLTR from 2024-12-23, not from the next month). A stock is only bought while it was in the index,
+  and former members are included where price history exists.
+  - "using today's members only" trades the CURRENT member list (the latest snapshot plus the dated changes
+    since) over the whole period with no membership filter: survivorship-biased by construction, and both
+    engines add a warning saying so.
   - About 90 former members (mostly acquired companies) have no free price history, so some bias
     remains (member-month coverage about 48% in 2004, about 75% over 2004-2026). The report and the
     console summary put the coverage in the headline ("Survivorship: 75% of member-months have data (48%
@@ -495,10 +509,17 @@ python -m backtester trade "buy QQQ when RSI(2) is below 10, sell when RSI(2) is
   bar (a portfolio's tree evaluated today; a signal strategy's open positions plus new entries), sized to the
   account's equity, minus the positions the broker reports. Sells go first.
 - **Order types.** Fills at the close are market-on-close (`time_in_force: "cls"`), at the (next) open
-  market-on-open (`"opg"`). Limit/stop entries are limit/stop orders at the rule's level, with the stop loss
-  and take profit attached as a bracket. Open positions of a signal strategy get the next session's exit
+  market-on-open (`"opg"`). Limit/stop entries are the engine's own working orders (`signals` lists them as
+  "BUY LIMIT SPY @ 763.64"): the level computed on the signal bar exactly as the backtest does (a limit 1% below
+  the close is 0.99 x that close), sized at that price, a day order (good-til-cancelled, with a note, when it
+  works for several sessions), with the stop loss and take profit attached as a bracket at the levels the
+  engine applies after a fill at that price. Market entries at the next open carry their stop / target as a
+  day market bracket (sent before the open, it fills at the open), so the entry session is protected; a
+  market-on-close entry can't carry one at Alpaca, so a dry run shows the OCO exit pair the next run places
+  once the shares are held (before the first session they are exposed in). Open positions of a signal strategy get the next session's exit
   orders: stop + target as one-cancels-other, or a single stop / limit, and scale-out limits, at the
-  backtest's levels. Orders this tool placed earlier (client ids starting `bt-`) are cancelled first, so
+  backtest's levels. Orders this tool placed earlier (client ids starting `bt-`, and the open legs of its
+  filled brackets) are cancelled first, so
   yesterday's levels are replaced (`--keep-open-orders` keeps them).
 - **Fractional shares.** Portfolios are rebalanced to exact weights with fractional shares, which Alpaca only
   takes as day market orders; `--whole-shares` keeps the close/open timing.
@@ -521,7 +542,10 @@ close and commits updates, so `git pull` gets fresh data. It downloads:
 - prices from Yahoo Finance for current and former Nasdaq-100 members, ETFs and indexes (Tiingo,
   Alpha Vantage and Stooq as keyed fallbacks for delisted names, below)
 - point-in-time membership reconstructed from the Wikipedia article's revision history, with the live
-  list from stockanalysis.com, Wikipedia or Nasdaq for the current month
+  list from stockanalysis.com, Wikipedia or Nasdaq for the current month, and the dated component changes
+  (`data/ndx_changes.csv`: date, added, removed, reason, from the "Historical components of the Nasdaq-100"
+  table, February 2007 on). Within 40 days of a dated change the table decides membership (a member from the
+  effective day); elsewhere the monthly snapshots stand
 - the T-bill rate and CPI from FRED
 - Fama-French factors from Kenneth French's data library: US daily and official monthly files
   (3 factors, 5 factors, momentum), the same for developed, developed ex US, Europe, Japan, Asia Pacific
@@ -529,8 +553,12 @@ close and commits updates, so `git pull` gets fresh data. It downloads:
 - AQR's Quality Minus Junk and Betting Against Beta factors (monthly spreadsheets, every country and
   aggregate). Each file is parsed on its own (`backtester/sources.py`); a failure is logged in
   `data/factors/fetch_log.txt` and the rest of the job carries on
-- share counts for market-cap weighting: Yahoo (mostly from late 2015; merged into the saved files, so
-  the history grows) and SEC EDGAR XBRL company facts (`data/shares_sec`, from about 2009; keyless, one
+- share counts for market-cap weighting: Yahoo (from about late 2015; merged into the saved files, so
+  the history grows). **Market caps therefore start around 2015-11 for most stocks** (AAPL: 2015-10-29); a
+  `market_cap` rule is false before a stock's first count and a note names the date. ETFs, funds and indexes
+  have no market cap: a signal rule on `market_cap` for one is refused. SEC EDGAR XBRL company facts would
+  reach back to about 2009 (`data/shares_sec`), but the SEC currently blocks the download from GitHub
+  Actions, so that folder is empty and nothing before Yahoo's counts is available. (Keyless, one
   count per 10-Q/10-K - the cover-page shares outstanding, else the balance-sheet or weighted-average count -
   dated by the filing date, so it is only used once public). SEC counts fill the dates before Yahoo's
   first count and any gap of more than 120 days in Yahoo's.

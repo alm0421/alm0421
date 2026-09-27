@@ -494,6 +494,75 @@ def wiki_revision_at(ts: str, title: str = "Nasdaq-100") -> tuple[int, str, str]
 
 MEMBERSHIP_LOG: list[str] = []
 
+# Dated component changes ("Historical components of the Nasdaq-100": one wikitable, columns Date | Added
+# Ticker | Added Security | Removed Ticker | Removed Security | Reason, newest first, from February 2007). They give
+# the exact effective day of each change; the monthly snapshots above only say which month.
+CHANGES = ROOT / "data" / "ndx_changes.csv"
+CHANGE_TITLES = ["Historical components of the Nasdaq-100", "List of NASDAQ-100 companies", "Nasdaq-100"]
+
+
+def _cell_text(cell: str) -> str:
+    cell = re.sub(r"<ref[^>]*/>|<ref[^>]*>.*?</ref>", "", cell, flags=re.S)
+    cell = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]*)\]\]", r"\1", cell)       # [[link|text]] -> text
+    cell = re.sub(r"\{\{[^{}]*\}\}", "", cell)
+    if "|" in cell:                                                     # 'style="..." | value'
+        cell = cell.rsplit("|", 1)[-1]
+    return re.sub(r"<[^>]+>", "", cell).strip()
+
+
+def parse_changes(wikitext: str) -> list[dict]:
+    """The dated component-change table(s) of a Nasdaq-100 article revision -> [{date, added, removed, reason}]
+    (tickers with '.' written as '-'; an empty side is ''). A table counts when its header names Date, Added and
+    Removed. Rows whose date does not parse are skipped."""
+    out: list[dict] = []
+    for tm in re.finditer(r"(?s)\{\|(.*?)\n\|\}", wikitext):
+        body = tm.group(1)
+        head = body.split("\n|-", 2)
+        if not (re.search(r"(?i)\bdate\b", body[:600]) and re.search(r"(?i)\badded\b", body[:600])
+                and re.search(r"(?i)\bremoved\b", body[:600])):
+            continue
+        for row in re.split(r"\n\|-[^\n]*", body)[1:]:
+            cells: list[str] = []
+            for line in row.split("\n"):
+                line = line.strip()
+                if not line.startswith("|") or line.startswith(("|}", "|+")):
+                    continue
+                # "||" separates cells on one line; links are protected from the split
+                prot = re.sub(r"\[\[[^\]]*\]\]", lambda m: m.group(0).replace("|", "\x00"), line[1:])
+                prot = re.sub(r"\{\{[^{}]*\}\}", lambda m: m.group(0).replace("|", "\x00"), prot)
+                cells += [c.replace("\x00", "|") for c in prot.split("||")]
+            if len(cells) < 5:
+                continue
+            txt = [_cell_text(c) for c in cells]
+            try:
+                d = pd.Timestamp(txt[0])
+            except (ValueError, TypeError):
+                continue
+            if pd.isna(d):
+                continue
+            tick = lambda x: x.upper().replace(".", "-") if re.fullmatch(r"[A-Za-z.]{1,6}", x or "") else ""  # noqa: E731
+            out.append({"date": str(d.date()), "added": tick(txt[1]), "removed": tick(txt[3]),
+                        "reason": (txt[5] if len(txt) > 5 else "")[:200]})
+    return [r for r in out if r["added"] or r["removed"]]
+
+
+def update_changes() -> pd.DataFrame | None:
+    """data/ndx_changes.csv from the current revision of the change table (kept as it is when that fails)."""
+    for title in CHANGE_TITLES:
+        try:
+            got = wiki_revision_at(pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ"), title)
+        except Exception as e:  # noqa: BLE001
+            print(f"component changes ({title}): {e}", file=sys.stderr)
+            continue
+        rows = parse_changes(got[2]) if got else []
+        if len(rows) >= 50:
+            df = pd.DataFrame(rows).drop_duplicates().sort_values(["date", "added", "removed"])
+            df.to_csv(CHANGES, index=False)
+            print(f"component changes: {len(df)} rows ({df['date'].min()} .. {df['date'].max()}) from {title}")
+            return df
+    print("component changes: no table found; data/ndx_changes.csv kept", file=sys.stderr)
+    return None
+
 
 def update_membership() -> pd.DataFrame:
     """Monthly snapshots of Nasdaq-100 membership reconstructed from Wikipedia's revision history."""
@@ -1753,6 +1822,10 @@ def main() -> None:
     ndx, source = constituents()
     try:
         membership = update_membership()
+        try:
+            update_changes()
+        except Exception as e:  # noqa: BLE001
+            print(f"component changes failed: {e}", file=sys.stderr)
         # the live constituent list is this month's snapshot (Wikipedia's format may not parse)
         cur_month = str(pd.Timestamp.today().to_period("M"))
         if source != "fallback" and cur_month not in set(membership["month"]):

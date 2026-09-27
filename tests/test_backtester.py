@@ -118,7 +118,7 @@ def test_streak():
     # no holding period + an entry at the open: the close of the entry bar (hold 0)
     ("short QQQ at the open when it gaps up 1%, cover at the close", "(gap >= 0.01)", "open", 0, "close"),
     ("buy SPY at the close on the last trading day of the month, sell at the close 5 days later",
-     "(trading_days_left_in_month == 1)", "close", 5, "close"),
+     "(trading_days_left_in_month == 0)", "close", 5, "close"),
     ("buy AAPL at the next open when RSI(2) < 10, hold 3 days", "(rsi(close, 2) < 10)", "next_open", 3, "close"),
 ])
 def test_parser_cases(text, entry, fill, hold, hold_fill):
@@ -428,7 +428,7 @@ def test_nyse_calendar_month_end_at_data_edge():
     df = pd.DataFrame({"open": c, "high": c, "low": c, "close": c, "volume": 1e6, "dividend": 0.0, "adj_close": c})
     ns = expr.Namespace(df)
     assert not bool(ns["is_month_end"]().iloc[-1])            # Sept 25 is not the last session of September
-    assert int(ns["trading_days_left_in_month"].iloc[-1]) == 4  # 25, 28, 29, 30
+    assert int(ns["trading_days_left_in_month"].iloc[-1]) == 3  # after the 25th: 28, 29, 30
     assert bool(ns["is_month_end"]().loc["2026-08-31"])
 
 
@@ -554,8 +554,8 @@ def test_leverage_and_optimiser_weights_run():
     # 12. trading days of the month
     ("buy SPY on the third trading day of the month, hold 5 days", lambda s: s.entry == "(trading_day_of_month == 3)"),
     ("buy SPY on the last trading day of the month, sell on the first trading day of the next month",
-     lambda s: s.entry == "(trading_days_left_in_month == 1)" and s.exit_when == "(trading_day_of_month == 1)"),
-    ("buy SPY on the second to last trading day of the month, hold 3 days", lambda s: s.entry == "(trading_days_left_in_month == 2)"),
+     lambda s: s.entry == "(trading_days_left_in_month == 0)" and s.exit_when == "(trading_day_of_month == 1)"),
+    ("buy SPY on the second to last trading day of the month, hold 3 days", lambda s: s.entry == "(trading_days_left_in_month == 1)"),
     # 13. assorted
     ("buy SPY when it is up 3 days in a row, hold 3 days", lambda s: s.entry == "(up_days >= 3)"),
     ("buy SPY when it gaps down more than 2%, hold 3 days", lambda s: s.entry == "(gap < -0.02)"),

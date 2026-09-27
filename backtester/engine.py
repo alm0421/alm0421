@@ -178,6 +178,15 @@ def _union_index(indexes: list[pd.DatetimeIndex]) -> pd.DatetimeIndex | None:
 
 def _prepare(strat: Strategy):
     tickers = [data.canonical(t) for t in strat.universe]
+    if strat.universe_name == "NDX" and not strat.point_in_time:
+        # "today's members only": the current member list (not every former member without a membership filter)
+        cur = set(data.current_members())
+        tickers = [t for t in tickers if t in cur]
+        if not tickers:
+            raise ValueError("No price data for today's Nasdaq-100 members.")
+        strat.universe = tickers
+        strat.notes = [n for n in strat.notes if not n.startswith("Warning: survivorship bias")]
+        strat.notes.append(data.TODAY_MEMBERS_WARNING.format(n=len(tickers)))
     dfs = data.load_many(tickers)
     start = pd.Timestamp(strat.start) if strat.start else None
     if strat.universe_name == "NDX" and strat.point_in_time:
@@ -204,6 +213,15 @@ def _prepare(strat: Strategy):
     if len(cal) < 2:
         raise ValueError("no price data in the requested period")
     rules = " ".join(str(r) for r in (strat.rank_by, strat.entry, strat.short_entry, strat.exit_when) if r)
+    if "market_cap" in rules and not (strat.universe_name == "NDX"):
+        msgs, fund_list = data.mcap_notes(list(dfs), cal[0], cal[-1])
+        if fund_list:
+            raise ValueError(f"market_cap: {', '.join(fund_list[:5])} {'is a fund' if len(fund_list) == 1 else 'are funds'} "
+                             "(ETF, mutual fund, index or simulated series): ETFs have no market cap (no shares "
+                             "outstanding of a company). Use a stock, or a rule on price or volume.")
+        for msg_ in msgs:
+            if msg_ not in strat.notes:
+                strat.notes.append(msg_)
     if strat.universe_name == "NDX" and strat.point_in_time and "market_cap" in rules:
         # ranking / selecting members by market cap needs share counts for most of them: start where they do
         names = list(dfs)
@@ -236,7 +254,7 @@ def _prepare(strat: Strategy):
                              ("exit", strat.exit_when, "bool"), ("order level", strat.entry_level, "value"),
                              ("ranking", strat.rank_by, "value")):
         if callable(rule):
-            bad = expr.callable_lookahead_probe(rule, dfs[t0], t0, kind)
+            bad = expr.callable_lookahead_probe(rule, dfs[t0], t0, kind, window=(cal[0], cal[-1]))
             if bad:
                 nm = getattr(rule, "__name__", "")
                 label = f"{what} function {nm}()" if nm and not nm.startswith("<") else f"{what} function"
@@ -890,7 +908,8 @@ def run(strat: Strategy) -> Result:
                     lvl = LEVEL[i, k]
                     if np.isfinite(lvl):
                         pending_lvl = [od for od in pending_lvl if od["k"] != k]
-                        pending_lvl.append({"k": k, "sign": sgn, "level": lvl, "expires": i + strat.order_valid_bars})
+                        pending_lvl.append({"k": k, "sign": sgn, "level": lvl, "expires": i + strat.order_valid_bars,
+                                            "placed": i})
             elif strat.entry_fill == "close":
                 for k, sgn in todays:
                     want(i, k, sgn, c, at_open=False)
@@ -1032,6 +1051,13 @@ def run(strat: Strategy) -> Result:
     # the entry / exit rules' value on every bar (what the simulation acted on), for the report's rule-state strip;
     # an exit rule that uses the position (bars_held, entry_price...) has no per-bar value outside a trade
     res.extras["open_state"] = open_state
+    # limit / stop entry orders still working after the last bar: the engine tries to fill them from the next
+    # session on (signals.scan / broker.plan send exactly these, at these levels)
+    res.extras["pending_entries"] = [
+        {"ticker": tick[od["k"]], "side": "long" if od["sign"] == 1 else "short", "order": strat.entry_order,
+         "level": float(od["level"]), "placed": str(cal[od["placed"]].date()),
+         "sessions_left": int(od["expires"] - (T - 1))}
+        for od in pending_lvl if od["expires"] >= T and not S["halted"]]
     res.extras["rule_state"] = {"cal": cal, "tick": tick, "entry": long_sig | short_sig,
                                 "exit": None if P["per_trade_exit"] or not strat.exit_when else exit_sig}
     return res

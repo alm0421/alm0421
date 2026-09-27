@@ -19,7 +19,8 @@
     r = api.backtest(Portfolio(tree={"custom": risk_on, "tickers": ["SPY", "QQQ", "TLT", "GLD"]}, rebalance="monthly"))
 
 Rules written as functions must only use data up to each row (no .shift(-1), no centred windows): each run
-probes them on data cut at ~20 dates and refuses one whose past output changes (expr.callable_lookahead_probe).
+probes them on data cut at many dates (every day the rule fires or changes its answer, the days before those,
+the latest bars one by one, and a dense random grid) and refuses one whose output changes (expr.callable_lookahead_probe).
 """
 from __future__ import annotations
 
