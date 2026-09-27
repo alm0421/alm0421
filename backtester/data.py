@@ -11,6 +11,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 PRICES = DATA / "prices"
+CUSTOM = DATA / "custom"        # the user's own imported series (custom_series.py): NAME.csv + NAME.json
 UNIVERSE_FILE = DATA / "universe.json"
 MEMBERSHIP_FILE = DATA / "ndx_membership.csv"
 CHANGES_FILE = DATA / "ndx_changes.csv"          # dated Nasdaq-100 component changes (scripts/fetch_data.py)
@@ -31,7 +32,44 @@ def canonical(ticker: str) -> str:
 
 
 def available_tickers() -> list[str]:
-    return sorted(p.stem for p in PRICES.glob("*.csv"))
+    out = {p.stem for p in PRICES.glob("*.csv")}
+    if CUSTOM.exists():
+        out |= {p.stem for p in CUSTOM.glob("*.csv")}
+    return sorted(out)
+
+
+def price_path(ticker: str) -> Path:
+    """The price file of a ticker: data/prices/T.csv, or data/custom/T.csv for an imported series."""
+    t = canonical(ticker)
+    p = PRICES / f"{t}.csv"
+    if not p.exists() and (CUSTOM / f"{t}.csv").exists():
+        return CUSTOM / f"{t}.csv"
+    return p
+
+
+def is_custom(ticker: str) -> bool:
+    t = canonical(ticker)
+    return not (PRICES / f"{t}.csv").exists() and (CUSTOM / f"{t}.csv").exists()
+
+
+def custom_notes(tickers) -> list[str]:
+    """A note per imported (custom) series among the tickers."""
+    out = []
+    for t in dict.fromkeys(canonical(x) for x in tickers):
+        if is_custom(t):
+            from . import custom_series
+            info = next((x for x in custom_series.list_series() if x.get("name") == t), {"name": t})
+            out.append("Custom series: " + custom_series.describe(info))
+    return out
+
+
+def clear_caches() -> None:
+    """Forget cached price data (after a custom series is imported or deleted)."""
+    for fn in (load, stepped_ranges, data_gaps, quality):
+        try:
+            fn.cache_clear()
+        except AttributeError:
+            pass
 
 
 def suggest(ticker: str, n: int = 5) -> list[str]:
@@ -743,7 +781,7 @@ def load(ticker: str) -> pd.DataFrame:
     total-return (dividend-reinvested) close; `tr` is the total-return index (adj_close / first close).
     """
     t = canonical(ticker)
-    path = PRICES / f"{t}.csv"
+    path = price_path(t)
     if not path.exists() and not fetch_on_demand(t):
         raise DataError(unknown_ticker_message(t))
     raw = pd.read_csv(path, parse_dates=["date"], index_col="date").sort_index()
@@ -1001,7 +1039,7 @@ REPAIRS: dict[str, pd.DataFrame] = {}   # what repair_bars changed, per ticker (
 
 
 def _raw_file(t: str) -> pd.DataFrame | None:
-    path = PRICES / f"{t}.csv"
+    path = price_path(t)
     if not path.exists():
         return None
     raw = pd.read_csv(path, parse_dates=["date"], index_col="date").sort_index()

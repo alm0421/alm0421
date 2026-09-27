@@ -247,26 +247,60 @@ def test_open_fill_requires_open_safe_rule():
 
 # ------------------------------------------------------------ allocation engine
 
+def _independent_6040(start_day, end=None):
+    """60/40 SPY/QQQ bought at `start_day`'s close, total returns from the raw close and dividend columns,
+    rebalanced at the last close of each calendar month; the value at every close from start_day on."""
+    def tr(t):
+        d = data.load(t)
+        return (d.close + d.dividend) / d.close.shift() - 1
+    ret = pd.concat([tr("SPY"), tr("QQQ")], axis=1).dropna(how="all").fillna(0)
+    ret = ret.loc[start_day:end] if end else ret.loc[start_day:]
+    w = np.array([0.6, 0.4])
+    hold = 10_000 * w
+    ends = set(pd.Series(ret.index, index=ret.index).groupby(ret.index.to_period("M")).max())
+    vals = []
+    for n, (d, row) in enumerate(ret.iterrows()):
+        if n:
+            hold = hold * (1 + row.values)
+        vals.append(hold.sum())
+        if d in ends:
+            hold = hold.sum() * w
+    return pd.Series(vals, index=ret.index)
+
+
 @needs_data
 def test_sixty_forty_matches_independent_calculation():
+    """With a start date: bought at the close of the last session before it (day 0 = the starting balance, as
+    Portfolio Visualizer starts from the prior period-end), so the first day's return counts."""
+    from backtester import portfolio as pf
+    p = pf.Portfolio(tree={"weights": "specified", "w": [0.6, 0.4], "children": [{"asset": "SPY"}, {"asset": "QQQ"}]},
+                     rebalance="monthly", cash_rate=None, start="2005-01-01")
+    r = pf.run(p)
+    spy, qqq = data.load("SPY"), data.load("QQQ")
+    both = spy.index.intersection(qqq.index)
+    d0 = both[both < pd.Timestamp("2005-01-01")][-1]       # 2004-12-31, chosen from the raw data
+    want = _independent_6040(d0)
+    assert r.equity.index[0] == d0 == want.index[0]
+    assert r.equity.iloc[-1] == pytest.approx(want.iloc[-1], rel=1e-9)
+    assert (r.equity.reindex(want.index) / want - 1).abs().max() < 1e-9
+    # 2005's return is the whole calendar year: from the Dec 31 2004 close
+    y = metrics.yearly_returns({"s": r.equity})["s"]
+    assert y.loc[2005] == pytest.approx(want.loc[:"2005-12-31"].iloc[-1] / 10_000 - 1, rel=1e-12)
+
+
+@needs_data
+def test_sixty_forty_from_the_first_ever_bar_keeps_the_old_convention():
+    """No start: QQQ has no price before its first day, so the portfolio is bought at that day's close, the
+    starting capital sits on the session before, and a note says the first day's return is not counted."""
     from backtester import portfolio as pf
     p = pf.Portfolio(tree={"weights": "specified", "w": [0.6, 0.4], "children": [{"asset": "SPY"}, {"asset": "QQQ"}]},
                      rebalance="monthly", cash_rate=None)
     r = pf.run(p)
-
-    def tr(t):
-        d = data.load(t)
-        return (d.close + d.dividend) / d.close.shift() - 1
-    ret = pd.concat([tr("SPY"), tr("QQQ")], axis=1).loc[r.equity.index[1]:].fillna(0)
-    w = np.array([0.6, 0.4])
-    hold = 10_000 * w
-    ends = set(pd.Series(ret.index, index=ret.index).groupby(ret.index.to_period("M")).max())
-    for n, (d, row) in enumerate(ret.iterrows()):
-        if n:
-            hold = hold * (1 + row.values)
-        if d in ends:
-            hold = hold.sum() * w
-    assert r.equity.iloc[-1] == pytest.approx(hold.sum(), rel=1e-9)
+    q0 = data.load("QQQ").index[0]
+    assert r.equity.index[1] == q0 and not r.extras["day0"]
+    want = _independent_6040(q0)
+    assert r.equity.iloc[-1] == pytest.approx(want.iloc[-1], rel=1e-9)
+    assert any(n.startswith("First day: QQQ has no price before") for n in p.notes)
 
 
 @needs_data
@@ -275,7 +309,11 @@ def test_contributions_buy_at_that_days_price():
     p = pf.Portfolio(tree={"asset": "SPY"}, rebalance="none", cash_rate=None, contribution=500,
                      contribution_freq="monthly", start="2010-01-01", end="2012-12-31")
     r = pf.run(p)
-    d = data.load("SPY").loc["2010-01-01":"2012-12-31"]
+    # day 0: the starting balance is bought at the last close before the start (2009-12-31)
+    spy = data.load("SPY")
+    d0 = spy.index[spy.index < "2010-01-01"][-1]
+    assert r.equity.index[0] == d0 and r.equity.iloc[0] == 10_000
+    d = spy.loc[d0:"2012-12-31"]
     g = ((d.close + d.dividend) / d.close.shift()).fillna(1.0)
     growth = g.cumprod()
     flows = r.extras["flows"]

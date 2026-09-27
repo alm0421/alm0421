@@ -194,7 +194,7 @@ def test_grid_page_runs_a_comparison(site, width):
         fr = pg.frame_locator("#gFrame")
         fr.locator("text=Comparison: 60/40 vs Three-fund").wait_for(timeout=60_000)
         txt = fr.locator("body").inner_text()
-        assert "40% VTI" in txt and "20% VXUSSIM" in txt and "withdraw 4.0% of the balance yearly from year 6" in txt
+        assert "40% VTI" in txt and "20% VXUSSIM" in txt and "withdraw 4% of the balance yearly from year 6" in txt
         assert "#backtest?g=" in pg.url
         assert pg.evaluate("document.documentElement.scrollWidth") <= width     # no horizontal page scroll
         pg.click("#gShare")

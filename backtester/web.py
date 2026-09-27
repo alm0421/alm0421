@@ -817,7 +817,58 @@ def grid_specs(body: dict) -> tuple[list, list[str], list[str]]:
             problems.append(f"{name}: {e}")
             continue
         specs.append(p)
+    if len(specs) > 1 and not problems:
+        warn = _grid_common_period(specs, start, end)
+        if isinstance(warn, str) and warn.startswith("The common period"):
+            problems.append(warn)
+            return [], notes, problems
+        if warn:
+            notes.insert(0, warn)
+            for s in specs:
+                s.notes.insert(0, warn)
     return specs, notes, problems
+
+
+def _grid_common_period(specs: list, start: str | None, end: str | None) -> str | None:
+    """Portfolio Visualizer runs every portfolio of the grid over the same period: the latest start the data allows
+    among them. When one portfolio's holdings start later than the requested start (or than the others' data), every
+    portfolio starts on the session after that holding's first day (so each is bought at the close of that first
+    day: day 0), cash-flow years and real dollars count from there, and a warning names the portfolio and ticker.
+    Sets each spec's start; returns the warning (or a problem starting "The common period"), or None."""
+    import pandas as pd
+    from .portfolio import fixed_tickers
+    firsts = []
+    for s in specs:
+        f = {}
+        for t in fixed_tickers(s.tree):
+            try:
+                f[t] = data.load(t).index
+            except (FileNotFoundError, data.DataError, KeyError):
+                continue
+        if f:
+            t_late = max(f, key=lambda k: f[k][0])
+            firsts.append((f[t_late][0], s.name, t_late, f[t_late]))
+    if len(firsts) < 2:
+        return None
+    first, name, tick, idx = max(firsts, key=lambda x: x[0])
+    asked = pd.Timestamp(start) if start else min(x[0] for x in firsts)
+    if first <= asked:
+        return None
+    if len(idx) < 2:
+        return None
+    common = idx[1]            # bought at the close of `first` (every holding has a price then), counted from here
+    if end and common >= pd.Timestamp(end):
+        return (f"The common period of the portfolios is empty: {name}'s {tick} has data only from {first.date()}, "
+                f"after the end ({end}). Remove it or choose a later end.")
+    for s in specs:
+        s.start = str(common.date())
+    others = [x for x in firsts if x[1] != name and x[0] < first]
+    return (f"Warning: The period is constrained by the available data: every portfolio runs from {common.date()} "
+            f"(bought at the close of {first.date()}), because {name} holds {tick}, which has data only from "
+            f"{first.date()}" + (f" (you asked for {start})" if start else
+                                 f" ({', '.join(x[1] for x in others[:2])} could start earlier)")
+            + ". Cash-flow years and real dollars count from then. Drop or replace "
+            f"{tick} to test the longer period.")
 
 
 def _grid_flows(rows: list) -> dict:
@@ -910,8 +961,43 @@ def api_grid(body):
     j = _compare_run(specs, [s.name for s in specs])
     out.update(j)
     for s in specs:
-        out["notes"] += [f"{s.name}: {n}" for n in s.notes]
+        out["notes"] += [f"{s.name}: {n}" for n in s.notes if n not in notes]
     return out
+
+
+MAX_SERIES_BYTES = 5_000_000
+
+
+def api_series(body):
+    """The Data page's custom series: action "import" (name, csv text, kind auto/returns/prices, frequency
+    auto/daily/monthly, units auto/percent/decimal) stores it as a ticker in data/custom/; "list"; "delete"."""
+    from . import custom_series
+    action = body.get("action") or "import"
+    if action == "list":
+        return {"series": [dict(x, about=custom_series.describe(x)) for x in custom_series.list_series()]}
+    name = str(body.get("name") or "").strip().upper()
+    if action == "delete":
+        if not data.is_custom(name):
+            raise ClientError(f"There is no custom series {name}.")
+        custom_series.delete_series(name)
+        return {"deleted": name, "series": custom_series.list_series()}
+    if action != "import":
+        raise ClientError("action must be import, list or delete")
+    text = str(body.get("csv") or "")
+    if not text.strip():
+        raise ClientError("Choose a CSV file of date,value rows.")
+    if len(text) > MAX_SERIES_BYTES:
+        raise ClientError("The file is too large (5 MB at most).")
+    freq = str(body.get("frequency") or "auto")
+    try:
+        info = custom_series.import_series(
+            name, text, kind=str(body.get("kind") or "auto"),
+            monthly={"monthly": True, "daily": False}.get(freq), units=str(body.get("units") or "auto"),
+            source=str(body.get("source") or "")[:120])
+    except ValueError as e:
+        raise ClientError(str(e))
+    return {"series": info, "about": custom_series.describe(info),
+            "example": f"hold 60% {info['name']} and 40% AGG, rebalance yearly"}
 
 
 def _method_list(v) -> list[str] | None:
@@ -1340,6 +1426,7 @@ class Handler(BaseHTTPRequestHandler):
             body = self._body()
             handlers = {
                 "/api/parse": api_parse, "/api/run": api_run, "/api/compare": api_compare, "/api/grid": api_grid,
+                "/api/series": api_series,
                 "/api/sweep": lambda b: api_research(b, "sweep"), "/api/walkforward": lambda b: api_research(b, "walkforward"),
                 "/api/optimize": lambda b: api_research(b, "optimize"), "/api/signals": api_signals,
                 "/api/paper": lambda b: api_paper(b, "POST"),

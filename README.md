@@ -16,7 +16,7 @@ python -m backtester "buy at the close Microsoft when it trades down 5 days in a
 
 | Page | What it does |
 |---|---|
-| **Backtest** | Type a strategy. The interpretation updates as you type, and the full report appears on the page. You can download Excel, CSV and JSON, save a PDF, or copy a share link that carries the full spec and settings, so opening it re-runs exactly the same backtest. Opening a link fills in every setting (TradingView mode, cash interest, dividends, commissions...), and changing one setting re-runs the shared spec with that change (not a re-reading of the sentence). "Today's orders" turns the strategy's current target into buy/sell orders for your account value and holdings (generic CSV, or an Interactive Brokers basket file). Below it, the **asset allocation grid** (as Portfolio Visualizer's "Backtest Portfolio"): rows of tickers or asset-class names ("US Stock Market", "Total Bond Market", with autocomplete) x up to three portfolios of weights (totals per column; each must add up to 100%, unknown tickers are flagged), start/end as a year or a month, initial amount, cash-flow phases (contribute or withdraw, $ or % of the balance per year, frequency, inflation-adjusted, start/end year: one contribution and one withdrawal phase per portfolio), rebalancing (none, monthly, quarterly, semi-annual, annual, or absolute/relative bands), benchmark, expense ratio and leverage. "Run portfolios" builds one Portfolio spec per column and runs them together in a Compare report; "Copy share link" (`#backtest?g=...`) reopens the filled grid and re-runs it (API: `POST /api/grid`). |
+| **Backtest** | Type a strategy. The interpretation updates as you type, and the full report appears on the page. You can download Excel, CSV and JSON, save a PDF, or copy a share link that carries the full spec and settings, so opening it re-runs exactly the same backtest. Opening a link fills in every setting (TradingView mode, cash interest, dividends, commissions...), and changing one setting re-runs the shared spec with that change (not a re-reading of the sentence). "Today's orders" turns the strategy's current target into buy/sell orders for your account value and holdings (generic CSV, or an Interactive Brokers basket file). Below it, the **asset allocation grid** (as Portfolio Visualizer's "Backtest Portfolio"): rows of tickers or asset-class names ("US Stock Market", "Total Bond Market", with autocomplete) x up to three portfolios of weights (totals per column; each must add up to 100%, unknown tickers are flagged), start/end as a year or a month, initial amount, cash-flow phases (contribute or withdraw, $ or % of the balance per year, frequency, inflation-adjusted, start/end year: one contribution and one withdrawal phase per portfolio), rebalancing (none, monthly, quarterly, semi-annual, annual, or absolute/relative bands), benchmark, expense ratio and leverage. "Run portfolios" builds one Portfolio spec per column and runs them together in a Compare report over their common period (as Portfolio Visualizer: when one column holds an asset whose data starts later, every column starts then, with a warning naming the column and ticker, and cash-flow years and real dollars count from that start); a blended benchmark can use asset-class names ("60% US Stock Market 40% Total Bond Market"); "Copy share link" (`#backtest?g=...`) reopens the filled grid and re-runs it (API: `POST /api/grid`). |
 | **Build** | A block editor for portfolios (weighted groups, if/else switches and top-N filters, nested as deep as you like), like a Composer symphony: indicator pickers for conditions and rankings, eight weightings (equal, specified, inverse volatility, risk parity, min variance, max Sharpe, max diversification, market cap), drag and drop, duplicate, inline checks, leverage and expense ratio. It also has a form for signal strategies: controls for the common fields (entry, exits, stops and targets, breakeven, scale-outs, stop/target levels, sizing, ranking, costs, cash interest, dividends, TradingView mode) and an "Advanced fields" JSON box that carries every other field unchanged, so a strategy opened from a sentence, a file, the gallery or a share link runs exactly as loaded (the portfolio editor has the same box). A guard compares the loaded spec with the one the editor would run and refuses a run that would change a field you did not edit (a second click runs it anyway). Both convert to and from JSON files and from sentences, and both offer "Today's orders". |
 | **Gallery** | Library strategies and saved runs with their headline numbers. Fork one into the editor, or export/import a strategy JSON file. |
 | **Community** | Strategies people published with "Publish to the community gallery" (Backtest and Build pages: a name, an author and a description; the strategy is backtested first). Search, sort by CAGR, Sharpe or max drawdown, **Fork** into the editor or **Run**. Kept in `data/community.json` (`BACKTESTER_COMMUNITY` points elsewhere). |
@@ -88,6 +88,11 @@ SPY, TLT and GLD in equal thirds        TQQQ and TMF equally        TQQQ, TMF an
 hold the top 2 by 10 day RSI of SPY, QQQ, TLT                  hold the highest 10 day RSI of SPY, QQQ, TLT
 if SPY 60 day max drawdown is worse than 10% then hold BIL else hold SPY, rebalance every 2 days
 if not (SPY is above its 200 day moving average or QQQ 10 day RSI is above 80) then hold QQQ else hold BIL
+hold 25% each of VTI, TLT, GLD and SHY, start 2008, starting balance $1,000,000      60% US stocks 40% bonds 1972-2020
+hold the top 3 of SPY, EFA, TLT and GLD by 3 month return weighted 50%, 6 month weighted 30% and 12 month weighted 20%
+hold 60% SPY and 40% TLT, rebalance every year in June            (or "rebalance annually in June", "each December")
+hold 60% SPY and 40% TLT, withdraw 5% a year taken quarterly      (1.25% of the balance each quarter)
+hold 60% SPY and 40% TLT, benchmark 60% US Stock Market and 40% Total Bond Market
 ```
 
 Portfolios with if-conditions, top-N filters or dynamic weights (inverse volatility, risk parity, ...)
@@ -105,7 +110,11 @@ before the funds existed). A bare asset-class name holds 100% of it ("long-term 
 1955", "US small cap value"). An "N month return" is 21 trading days a month by default (12 months = 252
 sessions); add "using calendar months" (or "using month-end prices", or `"month_lookbacks": "calendar"` in a
 JSON spec) to measure N-month returns month-end to month-end from the last completed month-end, as Portfolio
-Visualizer and Antonacci do. The interpretation says which one a portfolio uses. Filters and weightings
+Visualizer and Antonacci do. The interpretation says which one a portfolio uses. With calendar months, "12 month
+return skipping the last month" (12-1 momentum) is measured on month-end prices: the month-end price one month
+ago over the month-end price 12 months ago, minus 1. A weighted mix of lookbacks ("3 month return weighted 50%,
+6 month weighted 30% and 12 month weighted 20%") is the weighted average of those total returns (the weights
+must add to 100%), each lookback following the same month convention. Filters and weightings
 can also rank or weight whole groups ("the top 1 of (60% TECL and 40% BIL), SVIX and TQQQ by 10 day
 return"): in a JSON spec or the Build editor, any node can sit inside a filter, and it is
 measured on its own simulated value over time. **Composer symphonies** can be imported directly:
@@ -239,7 +248,12 @@ never quietly drops them or swaps in a different ticker.
   (average weight x marginal contribution, from the covariance of daily and of monthly total returns over
   the run; plus the realised share with the actual drifting weights) and of the loss in its maximum
   drawdown. Also in the Excel export (sheet "Risk contributions").
-- Benchmarks are bought at the close of the strategy's first bar, like the strategy.
+- Benchmarks are bought when the strategy is: at the close of the session before a portfolio's first day
+  (day 0, see "Equity curve"), otherwise at the close of the strategy's first bar.
+- For portfolios, an income table (dividends and other distributions, cash interest, the total and its yield on
+  the balance at the start of each year) and each holding's calendar-year total return next to the
+  portfolio's; also in the Excel export (sheets "Income" and "Asset returns by year"). A partial first or last
+  year is labelled with its dates ("2010 (from Mar 3)", "2026 (to Sep 25)").
 - A Monte Carlo block bootstrap (with "chance the money lasts" when there are withdrawals) and a
   transaction-cost sensitivity table.
 - Exports: HTML, Excel, CSV (trades, orders, equity, holdings, yearly, monthly), JSON, and PDF
@@ -470,7 +484,13 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   closest to the market's that day: DHR +2.6% (Danaher's own figures: $101.91 before, $78.94 + $24.56 of
   Fortive after), EXPE +1.8%, TMUS +4.1%. Both engines use the reconciled data and a note lists the days.
 - **Equity curve.** The curve starts with the starting capital on the previous trading session (never a
-  weekend or holiday), so the first bar's return counts; that row has no year or month of its own.
+  weekend or holiday); that row has no year or month of its own. A **portfolio** is bought at that session's
+  close (day 0), as Portfolio Visualizer starts from the prior period-end: "hold 100% SPY from 2010" is bought
+  at the 2009-12-31 close, so 2010 is SPY's whole calendar-year return (15.06%) and the first day's return
+  counts. The initial allocation is decided on data up to that close; the benchmarks and equity.csv start on
+  day 0 too. When a holding has no price that day (its first day of data, e.g. no start date and a fund that
+  began then) or the rules cannot decide yet (warm-up, membership data), it is bought at the first day's close
+  instead and a note says that day's return is not counted. A signal strategy trades from its first bar.
 - **Portfolios.** Targets are re-evaluated on the schedule (month-end close by default) and traded at
   the close or next open. Only the differences are traded, and new contributions buy the target mix.
   - "Trade at the next open" needs real opening prices. A ticker with none in the period (a SIM series or a
@@ -480,6 +500,8 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   - A period ends on the last *scheduled* NYSE session of the week/month/quarter as known that day: after an
     unscheduled closure (9/11) the rebalance happens on the first bar after it, not in hindsight on the bar
     before.
+  - "rebalance every year in June" (or "annually in June", "each December"): once a year at the last trading
+    day of that month (`"rebalance": "yearly_6"` in a spec), plus the initial purchase.
   - Cash flows are made on the first trading day of each period, the first day of the backtest included (as
     Portfolio Visualizer and the Monte Carlo simulation do): "add $1,000 a month for 20 years" is 240
     contributions, the first on day one; "withdraw 4% a year" takes the first withdrawal on day one.
@@ -632,6 +654,17 @@ Run workflow; pushing a change to the file also starts it), then pull. On the si
 ticker** downloads the symbol directly when the machine has internet access; otherwise (the cloud sandbox)
 it appends the symbol to `data/extra_tickers.txt` for you and says to push the file. A sentence or tree
 that names a ticker without data says so and points to this file.
+
+**Your own series.** Import a daily or monthly return or price series (a CSV of `date,value` rows; returns in
+% or as decimals) as a named ticker, usable anywhere a ticker is (portfolios, benchmarks, Monte Carlo, the
+optimiser, factors): `python -m backtester import-series MYFUND returns.csv [--returns|--prices] [--monthly]
+[--percent|--decimal]` (`--list`, `--delete`), or **Import your own series** on the Data page (POST
+/api/series). It is stored in `data/custom/MYFUND.csv` (plus `MYFUND.json`, what was imported); commit the
+files to keep them. Daily values sit on NYSE sessions (a value dated on a weekend counts from the next session;
+gaps of more than 40 days are refused); monthly values step on the last NYSE session of each month (every
+month must be present), so the reports treat the series as stepped (monthly statistics). Dates must be in
+order without repeats, and implausible values (a daily return above 75%, a monthly one above 300%, a price at
+or below 0) are refused. Names are 1-10 capital letters or digits and cannot be an existing ticker.
 
 **Delisted former members.** `data/delisted.json` marks a symbol whose saved history is too short to use
 (`"history": "history unavailable - needs TIINGO_API_KEY"`): EA was taken private in August 2026 and Yahoo
@@ -802,7 +835,9 @@ notes. Keep in mind:
 
 ## Monte Carlo
 
-Monthly steps over complete months (a month still in progress at the end of the data is left out). Return models: **historical** (block bootstrap: whole months are drawn together for
+Monthly steps over complete months (a month still in progress at the end of the data is left out; a history
+window `--start 1972-01-01` starts with January 1972, measured from the December month-end, and one starting
+mid-month starts with the next whole month). Return models: **historical** (block bootstrap: whole months are drawn together for
 every asset and CPI, in blocks of consecutive months, so correlations, the link with inflation
 and short-term momentum are kept), **normal** and **Student-t** (historical mean and covariance;
 the t's degrees of freedom are fitted by maximum likelihood), and **forecast** (your expected

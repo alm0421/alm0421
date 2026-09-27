@@ -226,9 +226,11 @@ def test_benchmark_starts_at_the_first_invested_close_and_gets_the_same_flows():
     A = report.analyze(res, sensitivity=False, mc=False, detail=False)
     idx = res.equity.index
     b = A["benchmarks"]["SPY buy & hold"]
-    assert b.iloc[0] == b.iloc[1] == pytest.approx(res.equity.iloc[0])
+    # day 0 (2009-12-31): the portfolio is bought at that close, so the benchmark is too (the first day counts)
+    assert res.extras["day0"] and idx[0] == pd.Timestamp("2009-12-31")
+    assert b.index[0] == idx[0] and b.iloc[0] == pytest.approx(res.equity.iloc[0])
     adj = data.load("SPY")["adj_close"]
-    assert b.iloc[5] / b.iloc[1] == pytest.approx(adj[idx[5]] / adj[idx[1]])
+    assert b.iloc[5] / b.iloc[0] == pytest.approx(adj[idx[5]] / adj[idx[0]])
     # displayed dates skip the synthetic day before the first bar
     assert A["stats"]["start"] == idx[1].date()
     assert A["drawdowns"]["peak"].min() >= idx[1].date()

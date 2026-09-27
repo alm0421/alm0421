@@ -587,6 +587,13 @@ def _known() -> set[str]:
     return set(data.available_tickers())
 
 
+def _custom_long_names() -> list[str]:
+    """Imported custom series whose names the ticker pattern (1-5 letters) does not read: longer or with digits."""
+    if not data.CUSTOM.exists():
+        return []
+    return [p.stem for p in data.CUSTOM.glob("*.csv") if not re.fullmatch(r"[A-Z]{1,5}", p.stem)]
+
+
 def find_tickers(text: str, strict: bool = False) -> list[str]:
     """Tickers mentioned in `text` (original casing), in order of appearance.
 
@@ -611,6 +618,10 @@ def find_tickers(text: str, strict: bool = False) -> list[str]:
                 found.append((m.start(), cand))
             else:
                 unknown.append(sym)
+    # imported custom series may have longer names (MYFUND, up to 10 letters or digits): matched as whole words
+    for sym in _custom_long_names():
+        for m in re.finditer(rf"(?<![\w^$]){re.escape(sym)}(?![\w-])", stripped):
+            found.append((m.start(), sym))
     low = stripped.lower()
     for name, sym in sorted(COMPANIES.items(), key=lambda kv: -len(kv[0])):
         for m in re.finditer(rf"(?<![\w$^]){re.escape(name)}\b", low):
@@ -2307,7 +2318,7 @@ def common_options(T: Text, notes: list[str]) -> dict:
                 raise ParseError(f"'{m.group(0).strip()}': {len(ws)} weights but {len(ts)} tickers.")
             pairs = list(zip(ts, ws))
         else:
-            pairs = [(t, w) for w, t in re.findall(r"(\d+(?:\.\d+)?)% (" + BT + ")", m.group("list"), re.I)]
+            pairs = [(t, w) for w, t in re.findall(r"(\d+(?:\.\d+)?)% (" + BT + r")(?![\w-])", m.group("list"), re.I)]
         pairs = [(data.canonical(t), float(w)) for t, w in pairs]
         for t, _ in pairs:
             if t not in _known():
@@ -2406,6 +2417,8 @@ def parse(text: str, **overrides):
         extra = [n for n in _pending_notes() if n not in obj.notes]
         if extra:
             obj.notes = list(obj.notes) + extra
+        if getattr(obj, "month_lookbacks", None) == "calendar":
+            obj.notes = [_calendar_skip_note(n) for n in obj.notes]
         _check_runnable(obj)
         return obj
     finally:
@@ -3771,6 +3784,21 @@ def _avg_returns(nums: str, unit: str, tr: str, c: str, total: bool) -> str:
     return f"({' + '.join(parts)}) / {len(ns)}"
 
 
+_SKIP_NOTE = re.compile(r"^('[^']+') = .*?the (\d+)-day return ending (\d+) (?:trading )?days ago \(ref\(\.\.\., \d+\)\).*$")
+
+
+def _calendar_skip_note(note: str) -> str:
+    """With calendar-month lookbacks a skip-month return is measured on month-end prices: say so instead of the
+    trading-day reading (see expr.calendar_month_return's skip)."""
+    m = _SKIP_NOTE.match(note)
+    if not m or int(m.group(2)) % 21 or int(m.group(3)) % 21:
+        return note
+    k, n = int(m.group(3)) // 21, (int(m.group(2)) + int(m.group(3))) // 21
+    return (f"{m.group(1)} = {n}-{k} month momentum on month-end prices (calendar months): the month-end price {k} "
+            f"month{'s' if k > 1 else ''} ago / the month-end price {n} months ago - 1, both completed month-ends counted "
+            "from the last one (on a month's last session, that session).")
+
+
 def _skip_return(m, tr: str, c: str, total: bool) -> str:
     """'12 month return skipping the last month' -> the return from 12 months ago to 1 month ago."""
     g = m.groups()
@@ -4524,15 +4552,70 @@ def _refuse_portfolio_stops(t: str) -> None:
           "down 10% or more from its 52 week high then hold BIL else hold 60% SPY and 40% TLT, rebalance daily'.")
 
 
+_MONTH_NUM = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov",
+                                          "dec"), 1)}
+_MONTH_FULL = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+               "November", "December")
+_TICK_ITEM = r"\^?[A-Z][A-Z0-9]{0,5}(?:[.-][A-Z]{1,3})?"
+_LB_UNIT = r"(day|week|month|year)s?"
+
+
+def _portfolio_phrases(t: str, notes: list[str]) -> str:
+    """Portfolio phrases rewritten into the forms the rest of parse_allocation reads:
+    'start 2008' -> 'since 2008'; 'starting balance $1,000,000' -> 'starting with $1000000'; a year range
+    '1972-2020' -> 'from 1972 to 2020'; '25% each of VTI, TLT, GLD and SHY' -> '25% VTI, 25% TLT, 25% GLD and 25% SHY';
+    'by 3 month return weighted 50%, 6 month weighted 30% and 12 month weighted 20%' -> the weighted average of those
+    total returns (a rule in backticks: each lookback follows the portfolio's month convention)."""
+    t = _sub_outside(r"(?i)\b(?:start|begin)(?: date)?(?: in| on| from|:)? (?=(?:" + MONTH_RX + r" )?\d{4}\b)", "since ", t)
+    t = _sub_outside(r"(?i)\b(?:(?:starting|initial|opening|start|beginning) (?:balance|investment|amount|capital|value|portfolio "
+                     r"(?:balance|value))|initial deposit)(?: of| is|:|=)? (?=\$)", "starting with ", t)
+    t = _sub_outside(r"(?i)(?:\b(?:from|between|during|over|in|for) )?(?<![\w$./-])((?:18|19|20)\d\d) ?(?:-|–|to|through|thru) ?"
+                     r"((?:18|19|20)\d\d)(?![\w%/.-])(?! dollars)", r"from \1 to \2", t)
+
+    def each(m):
+        items = [x for x in re.split(r",\s*(?:and\s+|&\s*)?|\s+and\s+|\s*&\s*", m.group("items")) if x]
+        w = float(m.group("w"))
+        if abs(w * len(items) - 100) > 0.01 and m.group("rest") is None:
+            raise ParseError(f"'{m.group(0).strip()}': {w:g}% each of {len(items)} holdings is {w * len(items):g}%, not 100%.")
+        return " and ".join(f"{m.group('w')}% {x}" for x in items) if len(items) > 1 else f"{m.group('w')}% {items[0]}"
+    # (not "20% each of SPY, EFA, ..., each only when ...": per-asset timing, read by _node)
+    t = t if re.search(r"(?i),? each (?:only|when|if|while|as long as)\b", t) else _sub_outside(r"(?P<w>\d+(?:\.\d+)?)% each (?:of |in |to |into )?(?:the )?(?P<items>" + _TICK_ITEM
+                     + r"(?:(?:,\s*(?:and\s+|&\s*)?|\s+and\s+|\s*&\s*)" + _TICK_ITEM + r")+)(?![\w-])(?!,? each\b)(?P<rest>(?= plus| with \d))?", each, t)
+    t = _sub_outside(r"(?P<items>" + _TICK_ITEM + r"(?:(?:,\s*(?:and\s+|&\s*)?|\s+and\s+|\s*&\s*)" + _TICK_ITEM
+                     + r")+),? (?:at |with )?(?P<w>\d+(?:\.\d+)?)% each(?P<rest>(?!))?", each, t)
+
+    def weighted(m):
+        parts = re.findall(r"(\d+) " + _LB_UNIT + r"(?: (?:total )?(?:returns?|momentum|performance))? (?:weighted|at|with a weight of) "
+                           r"(\d+(?:\.\d+)?)%", m.group(0))
+        if len(parts) < 2:
+            return m.group(0)
+        ws = [float(x) for _, _, x in parts]
+        if abs(sum(ws) - 100) > 0.01:
+            raise ParseError(f"'{m.group(0).strip()}': the lookback weights add up to {sum(ws):g}%, not 100%.")
+        ns = [_period(n, u) for n, u, _ in parts]
+        if len(set(ns)) < len(ns):
+            raise ParseError(f"'{m.group(0).strip()}': give different lookbacks.")
+        rule = " + ".join(f"{w / 100:g} * tret(tr, {n})" for w, n in zip(ws, ns))
+        notes.append(f"'{m.group(0).strip()}' = the weighted average of the total returns: "
+                     + ", ".join(f"{w:g}% x {n_} {u}" for w, (n_, u, _) in zip(ws, parts))
+                     + f" (`{rule}`; month lookbacks follow the portfolio's month convention: 21 trading days a month, "
+                     "or month-end to month-end with 'using calendar months').")
+        return f"`{rule}`"
+    item = r"\d+ " + _LB_UNIT + r"(?: (?:total )?(?:returns?|momentum|performance))? (?:weighted|at|with a weight of) \d+(?:\.\d+)?%"
+    t = _sub_outside(r"(?i)" + item + r"(?:(?:,\s*(?:and\s+)?|\s+and\s+|\s+plus\s+)" + item + r")+", weighted, t)
+    return t
+
+
 def parse_allocation(text: str) -> Portfolio:
     raw = text
     t = _normalize(text)
     t = _sub_outside(r"\[", "(", _sub_outside(r"\]", ")", t))
     # "off by 5 percentage points": an absolute drift of 5% of the portfolio
     t = _sub_outside(r"(?i)(\d+(?:\.\d+)?) ?(?:percentage points?|pct points?|ppts?|pp)\b", r"\1%", t)
+    notes: list[str] = []
+    t = _portfolio_phrases(t, notes)
     _refuse_portfolio_stops(t)
     T = Text(t)
-    notes: list[str] = []
     flows = _cash_flows(T, notes)
     # "target 10% volatility (using 60 day volatility)": scale the whole portfolio towards that volatility
     tv: dict = {}
@@ -4564,7 +4647,17 @@ def parse_allocation(text: str) -> Portfolio:
 
     # rebalancing
     rb = None
-    m = T.find(r",? ?(?:and )?(?:re-?balanc\w*|reset|rotat\w*|re-?evaluat\w*|check\w*)(?: (?:it|the weights|the portfolio|them))?(?: back)?(?: to (?:target|the target weights))? "
+    # once a year in a chosen month: "rebalance every year in June", "rebalance annually in June", "rebalance each June",
+    # "annual rebalancing in June": at that month's last trading day
+    m = T.find(r",? ?(?:and )?(?:(?:re-?balanc\w*|reset|re-?evaluat\w*)(?: (?:it|the weights|the portfolio|them))?(?: back)?"
+               r"(?: to (?:target|the target weights))?(?: (?:(?:once )?(?:every|each|a|per) year|annually|yearly|once a year))?"
+               r"|(?:annual|yearly) re-?balanc\w*),? (?:in|every|each|at the end of(?: every| each)?|at (?:the )?(?:end|close) of) "
+               r"(?P<mon>" + MONTH_RX + r")(?: (?:each|every) year)?(?![\w-])")
+    if m:
+        mon = _MONTH_NUM.get(m.group("mon").lower().rstrip(".")[:3])
+        rb = f"yearly_{mon}"
+        notes.append(f"Rebalanced once a year at the end of {_MONTH_FULL[mon - 1]} (its last trading day), and on the first day.")
+    m = None if rb else T.find(r",? ?(?:and )?(?:re-?balanc\w*|reset|rotat\w*|re-?evaluat\w*|check\w*)(?: (?:it|the weights|the portfolio|them))?(?: back)?(?: to (?:target|the target weights))? "
                r"(?:semi-?annually|semi-?annual|twice (?:a|per|each) year|twice yearly|half-?yearly|every 6 months|once every 6 months)"
                r"|,? ?(?:semi-?annual|half-?yearly) re-?balanc\w*")
     if m:
@@ -4586,7 +4679,7 @@ def parse_allocation(text: str) -> Portfolio:
         if rb is None:
             raise ParseError(f"'{m.group(0).strip(' ,')}': rebalancing can be daily, weekly, monthly, quarterly, every 6 months, "
                              "yearly, or every N days / weeks / months.")
-    m = T.find(r",? ?(?:and )?(?:re-?balanc\w*|reset|rotat\w*|re-?evaluat\w*|check\w*)(?: (?:it|the weights|the portfolio|them))?(?: back)?(?: to (?:target|the target weights))? (?:every|each|once (?:a|per)) (day|week|month|quarter|year)|,? ?(?:and )?re-?balanc\w*(?: (?:it|the weights|the portfolio))? (daily|weekly|monthly|quarterly|annually|yearly)|,? ?(daily|weekly|monthly|quarterly|annual|yearly) re-?balanc\w*")
+    m = None if rb else T.find(r",? ?(?:and )?(?:re-?balanc\w*|reset|rotat\w*|re-?evaluat\w*|check\w*)(?: (?:it|the weights|the portfolio|them))?(?: back)?(?: to (?:target|the target weights))? (?:every|each|once (?:a|per)) (day|week|month|quarter|year)|,? ?(?:and )?re-?balanc\w*(?: (?:it|the weights|the portfolio))? (daily|weekly|monthly|quarterly|annually|yearly)|,? ?(daily|weekly|monthly|quarterly|annual|yearly) re-?balanc\w*")
     if m:
         rb = FREQ_WORDS[(m.group(1) or m.group(2) or m.group(3)).lower()]
     # "fortnightly" / "biweekly" / "every other week": every 2nd week-end
@@ -4832,6 +4925,17 @@ def _year_text(v) -> str:
     return f"year {v} of the backtest" if isinstance(v, int) and v < 1900 else f"{v}"
 
 
+class _Unit:
+    """A match whose 'u' group is 'month' / 'quarter' also when it was written 'monthly' / 'quarterly'."""
+    def __init__(self, m):
+        self.m = m
+
+    def group(self, k=0):
+        if k == "u":
+            return self.m.group("u") or {"monthly": "month", "quarterly": "quarter"}[self.m.group("ly").lower()]
+        return self.m.group(k)
+
+
 def _cash_flows(T: "Text", notes: list[str]) -> dict:
     """Contributions and withdrawals, with optional schedules:
     'add $1,000 a month for 20 years, then withdraw $50,000 a year', 'withdraw $40,000 a year starting in
@@ -4842,6 +4946,24 @@ def _cash_flows(T: "Text", notes: list[str]) -> dict:
     # inflation (read below as a % withdrawal adjusted for inflation)
     T.rest = _sub_outside(r"(?i),? ?(?:(?:and |then )?(?:using|with|following|apply(?:ing)?|by) )?(?:the )?(\d+(?:\.\d+)?)% "
                           r"(?:safe withdrawal |withdrawal |spending )?rule\b", r", withdraw \1% every year adjusted for inflation", T.rest)
+    # "withdraw 5% a year taken quarterly" / "withdraw $40,000 a year paid monthly": the yearly amount split over the
+    # periods (as Portfolio Visualizer's withdrawal frequency): 1.25% of the balance every quarter
+    def split(m):
+        n = {"month": 12, "quarter": 4}[m.group("u")]
+        if m.group("pct"):
+            amt = f"{round(float(m.group('pct')) / n, 6):g}% of the balance"
+            shown = f"{m.group('pct')}% of the balance"
+        else:
+            amt = f"${round(float(m.group('usd')) / n, 2):g}"
+            shown = f"${float(m.group('usd')):,.0f}"
+        each = amt if m.group("pct") else f"${float(m.group('usd')) / n:,.2f}"
+        notes.append(f"'{m.group(0).strip(' ,')}' = {shown} a year taken every {m.group('u')}: {each} each {m.group('u')}.")
+        return f"{m.group('v')} {amt} every {m.group('u')}"
+    T.rest = _sub_outside(r"(?i)\b(?P<v>withdraw\w*|take out|spend\w*) (?:(?P<pct>\d+(?:\.\d+)?)%(?: of the (?:balance|portfolio))?|"
+                          r"\$(?P<usd>\d+(?:\.\d+)?)) (?:a|per|each|every|1) year,? (?:(?:taken|paid|withdrawn|split|spread) (?:out )?)?"
+                          r"(?:(?:in|as) (?:equal )?(?:monthly|quarterly) (?:instalments|installments|payments) ?)?"
+                          r"(?:(?:every|each|per|1) (?P<u>month|quarter)|(?P<ly>monthly|quarterly))",
+                          lambda m: split(_Unit(m)), T.rest)
     # "add $500 monthly", "withdraw 4% annually" -> "... every month / every year"
     T.rest = _sub_outside(r"(?i)\b((?:add(?:ing)?|invest(?:ing)?|contribut\w+|deposit\w*|put(?:ting)? in|withdraw\w*|take out|spend\w*|draw\w*(?: down)?)"
                           r"(?: an additional| another| a further)? (?:\$\d+(?:\.\d+)?|\d+(?:\.\d+)?%(?: of the (?:balance|portfolio))?)(?: more)?) "
