@@ -18,7 +18,9 @@
         return {"QQQ": 1.0} if spy.iloc[-1] > spy.tail(200).mean() else {"TLT": 0.5, "GLD": 0.5}
     r = api.backtest(Portfolio(tree={"custom": risk_on, "tickers": ["SPY", "QQQ", "TLT", "GLD"]}, rebalance="monthly"))
 
-Rules written as functions must only use data up to each row (no .shift(-1), no centred windows): each run
+Rules written as functions are evaluated bar by bar on the data up to each bar (so they cannot see later rows; files
+and the network are blocked while they run), and a run refuses one whose whole-history answer differs (e.g. .shift(-1),
+centred windows). Mark a function `vectorized_causal = True` to run it once instead; then each run
 probes them on data cut at many dates (every day the rule fires or changes its answer, the days before those,
 the latest bars one by one, and a dense random grid) and refuses one whose output changes (expr.callable_lookahead_probe).
 """

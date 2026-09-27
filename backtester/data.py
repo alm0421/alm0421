@@ -800,6 +800,29 @@ def load(ticker: str) -> pd.DataFrame:
     return df
 
 
+# While a Python-function rule is evaluated bar by bar (expr.evaluate), data.load returns each ticker only up to the
+# bar being decided, so a function that loads data itself cannot read later rows either.
+import contextvars as _cv  # noqa: E402
+LOAD_CUTOFF: _cv.ContextVar = _cv.ContextVar("backtester_load_cutoff", default=None)
+_load_cached = load
+
+
+def load(ticker: str) -> pd.DataFrame:  # noqa: F811 - the cached loader above, cut at LOAD_CUTOFF when one is set
+    cut = LOAD_CUTOFF.get()
+    if cut is None:
+        return _load_cached(ticker)
+    from . import expr as _expr
+    with _expr.io_allowed():
+        df = _load_cached(ticker)
+    return df.loc[:cut].copy()
+
+
+load.cache_clear = _load_cached.cache_clear
+load.cache_info = _load_cached.cache_info
+load.__wrapped__ = _load_cached.__wrapped__
+load.__doc__ = _load_cached.__doc__
+
+
 # ------------------------------------------------------------------ corporate actions
 #
 # Yahoo sometimes books one event twice or in inconsistent units on its ex-date, e.g.

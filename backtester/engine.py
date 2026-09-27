@@ -259,7 +259,7 @@ def _prepare(strat: Strategy):
                              ("exit", strat.exit_when, "bool"), ("order level", strat.entry_level, "value"),
                              ("ranking", strat.rank_by, "value")):
         if callable(rule):
-            bad = expr.callable_lookahead_probe(rule, dfs[t0], t0, kind, window=(cal[0], cal[-1]))
+            bad = expr.callable_check(rule, dfs[t0], t0, kind, window=(cal[0], cal[-1]))
             if bad:
                 nm = getattr(rule, "__name__", "")
                 label = f"{what} function {nm}()" if nm and not nm.startswith("<") else f"{what} function"
@@ -345,6 +345,12 @@ def _prepare(strat: Strategy):
         else:  # default preference: most liquid (20-day average dollar volume)
             r = (df["close"] * df["volume"]).rolling(20, min_periods=1).mean().reindex(cal)
         rank[:, j] = r.fillna(-np.inf if not strat.rank_ascending else np.inf).to_numpy()
+    # notes the rule evaluation earned (Python-function rules: bar-by-bar evaluation and its timing; crypto lag)
+    for ns_ in namespaces.values():
+        for n_ in ns_.notes:
+            if (n_.startswith(("Python rule", "Warning: Python rule")) or n_ in (expr.CRYPTO_LAG_NOTE,)) \
+                    and not any(x.split(":")[0] == n_.split(":")[0] for x in strat.notes):
+                strat.notes.append(n_)
     valid = ~np.isnan(C)
     long_sig &= valid
     short_sig &= valid

@@ -1532,8 +1532,15 @@ class _Evaluator:
         if "custom" in n:
             # Python API: fn(date, history) -> {ticker: weight}; history holds data up to and including date
             d = self.cal[i]
-            hist = {t: self.dfs[data.canonical(t)].loc[:d] for t in n["tickers"]}
-            w = n["custom"](d, hist) or {}
+            # copies (a slice could reach the whole frame through its buffer), with files, the network and
+            # data.load beyond `d` out of reach while the function runs (see expr.stream_callable)
+            hist = {t: self.dfs[data.canonical(t)].loc[:d].copy() for t in n["tickers"]}
+            tok = data.LOAD_CUTOFF.set(d)
+            try:
+                with expr.io_blocked():
+                    w = n["custom"](d, hist) or {}
+            finally:
+                data.LOAD_CUTOFF.reset(tok)
             tot = sum(max(v, 0) for v in w.values())
             if tot > 1 + 1e-9:
                 raise ValueError(f"custom weights on {d.date()} add up to {tot:.2%}")

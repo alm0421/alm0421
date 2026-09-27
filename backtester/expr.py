@@ -1516,9 +1516,10 @@ def names_in(text) -> set[str]:
 
 def evaluate(text, ns: Namespace) -> pd.Series:
     """Evaluate a rule to a boolean Series (NaN -> False). `text` may also be a Python callable
-    f(df, ns) -> Series (the Python API); it is responsible for not looking ahead."""
+    f(df, ns) -> Series (the Python API): it is evaluated bar by bar on the data up to each bar (stream_callable),
+    so it cannot look ahead."""
     if callable(text):
-        out = text(ns.df, ns)
+        out = stream_callable(text, ns, "bool")
     else:
         code = compile_expr(text)
         out = eval(code, {"__builtins__": {}}, ns)  # noqa: S307 - AST is whitelisted above
@@ -1532,7 +1533,7 @@ def evaluate(text, ns: Namespace) -> pd.Series:
 
 def evaluate_value(text, ns: Namespace) -> pd.Series:
     """Evaluate a numeric expression (used for ranking); callables f(df, ns) are allowed."""
-    out = text(ns.df, ns) if callable(text) else eval(compile_expr(text), {"__builtins__": {}}, ns)  # noqa: S307
+    out = stream_callable(text, ns, "value") if callable(text) else eval(compile_expr(text), {"__builtins__": {}}, ns)  # noqa: S307
     if not isinstance(out, pd.Series):
         out = pd.Series(out, index=ns.df.index, dtype=float)
     return out.astype(float)
@@ -1838,8 +1839,8 @@ def callable_lookahead_probe(fn, df: pd.DataFrame, ticker: str | None = None, ki
     def run(frame: pd.DataFrame) -> np.ndarray:
         ns = Namespace(frame, ticker=ticker)
         if kind == "bool":
-            return evaluate(fn, ns).to_numpy(dtype=bool)
-        return evaluate_value(fn, ns).reindex(frame.index).to_numpy(dtype=float)
+            return _as_bool(call_guarded(fn, frame, ns), frame.index).to_numpy(dtype=bool)
+        return _as_value(call_guarded(fn, frame, ns), frame.index).to_numpy(dtype=float)
 
     def same(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         if kind == "bool":
@@ -1907,3 +1908,241 @@ def callable_lookahead_probe(fn, df: pd.DataFrame, ticker: str | None = None, ki
             _CALLABLE_PROBES.clear()
         _CALLABLE_PROBES[key] = (df, verdict)
     return verdict
+
+
+# ---------------------------------------------------------------- Python-function rules: causal by construction
+#
+# A rule written as a Python function f(df, ns) can do anything: df.close.shift(-1), a centred window, keep the
+# largest frame it has seen in a global, or read data/prices/QQQ.csv itself. So it is never shown the future:
+# stream_callable calls it on the data up to bar i (a copy, with a namespace - sym() and data.load included - cut at
+# the same bar) for every bar i in increasing order and keeps only the last value of each call as bar i's answer.
+# A function that caches what it has seen has, at bar i, seen nothing after bar i. File and network access is
+# blocked while it runs (CallableIOError). A function marked `fn.vectorized_causal = True` is instead called once on
+# the whole history (fast), guarded only by the empirical lookahead probe (callable_lookahead_probe), with a note.
+# (Python cannot be sandboxed completely - a function could still dig through the interpreter's memory - but no
+# ordinary way of writing a rule reaches later data.)
+
+import threading as _threading  # noqa: E402
+from contextlib import contextmanager as _contextmanager  # noqa: E402
+
+_IO = _threading.local()                 # .blocked: a Python rule is running on this thread
+_IO_INSTALLED = [False]
+_IO_LOCK = _threading.Lock()
+
+
+class CallableIOError(PermissionError):
+    pass
+
+
+def _io_blocked() -> bool:
+    return bool(getattr(_IO, "blocked", 0)) and not getattr(_IO, "allowed", 0)
+
+
+def _refuse(what: str):
+    raise CallableIOError(f"A Python rule tried to {what} while it was being evaluated. Rules only get the bars up to "
+                          "each day (df and ns, including ns['sym']('SPY') for other tickers); reading files or the "
+                          "network could reach later data, so it is not allowed. Load what you need through "
+                          "ns['sym'] instead.")
+
+
+def _install_io_guard() -> None:
+    """Wrap the file / network entry points once; the wrappers only refuse on a thread running a Python rule."""
+    with _IO_LOCK:
+        if _IO_INSTALLED[0]:
+            return
+        import builtins
+        import io
+        import os
+        import socket
+
+        def wrap(obj, name, what):
+            orig = getattr(obj, name)
+
+            def guarded(*a, **k):
+                if _io_blocked():
+                    _refuse(what)
+                return orig(*a, **k)
+            guarded.__wrapped__ = orig
+            guarded.__name__ = getattr(orig, "__name__", name)
+            guarded.__doc__ = getattr(orig, "__doc__", None)
+            setattr(obj, name, guarded)
+
+        wrap(builtins, "open", "open a file")
+        wrap(io, "open", "open a file")
+        wrap(os, "open", "open a file")
+        wrap(socket.socket, "connect", "open a network connection")
+        for name in ("read_csv", "read_table", "read_parquet", "read_json", "read_excel", "read_pickle", "read_feather",
+                     "read_html", "read_sql", "read_fwf", "read_hdf", "read_orc", "read_xml", "read_stata", "read_sas"):
+            if hasattr(pd, name):
+                wrap(pd, name, f"read data with pandas.{name}")
+        for name in ("load", "loadtxt", "genfromtxt", "fromfile"):
+            if hasattr(np, name):
+                wrap(np, name, f"read data with numpy.{name}")
+        _IO_INSTALLED[0] = True
+
+
+@_contextmanager
+def io_blocked():
+    _install_io_guard()
+    _IO.blocked = getattr(_IO, "blocked", 0) + 1
+    try:
+        yield
+    finally:
+        _IO.blocked -= 1
+
+
+@_contextmanager
+def io_allowed():
+    """The backtester's own data access (sym(), data.load) inside a Python rule."""
+    _IO.allowed = getattr(_IO, "allowed", 0) + 1
+    try:
+        yield
+    finally:
+        _IO.allowed -= 1
+
+
+def call_guarded(fn, df: pd.DataFrame, ns):
+    """fn(df, ns) with file and network access blocked."""
+    with io_blocked():
+        return fn(df, ns)
+
+
+def _as_bool(out, idx) -> pd.Series:
+    if not isinstance(out, pd.Series):
+        out = pd.Series(out, index=idx)
+    if out.dtype != bool:
+        out = out.fillna(0).astype(bool)
+    return out.reindex(idx, fill_value=False)
+
+
+def _as_value(out, idx) -> pd.Series:
+    if not isinstance(out, pd.Series):
+        out = pd.Series(out, index=idx, dtype=float)
+    return out.astype(float).reindex(idx)
+
+
+def _last(out, kind: str):
+    """The answer for the last bar of a call on the data up to that bar."""
+    if isinstance(out, pd.DataFrame):
+        out = out.iloc[:, 0]
+    if isinstance(out, (pd.Series, pd.Index, np.ndarray, list, tuple)):
+        if len(out) == 0:
+            return False if kind == "bool" else np.nan
+        v = out.iloc[-1] if isinstance(out, pd.Series) else out[-1]
+    else:
+        v = out
+    if kind == "bool":
+        try:
+            return False if v is None or (isinstance(v, float) and np.isnan(v)) else bool(v)
+        except (TypeError, ValueError):
+            return False
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return np.nan
+
+
+def _sub_namespace(ns, k: int):
+    """ns cut after its k-th row (a copy of the bars, so nothing of the later rows is reachable through it)."""
+    base = ns.quoted_df.iloc[:k].copy()
+    extra = {}
+    for key in POSITION_VARS | {"highest_since_entry", "lowest_since_entry"}:
+        v = dict.get(ns, key)
+        if isinstance(v, pd.Series):
+            extra[key] = v.iloc[:k].copy()
+    return Namespace(base, extra or None, ticker=ns.ticker, price_basis=ns.price_basis,
+                     month_lookbacks=ns.month_lookbacks)
+
+
+_STREAMED: dict = {}      # (fn, ticker, id(bars), basis, months, kind) -> (bars, Series, seconds)
+STREAM_NOTE = ("Python rule {name}: evaluated bar by bar on the data up to each bar ({n:,} calls, {s:.1f}s), so it "
+               "cannot see later data; mark the function `vectorized_causal = True` to run it once on the whole history "
+               "instead (faster, but then only an empirical lookahead check guards it).")
+VECTOR_NOTE = ("Warning: Python rule {name} is marked vectorized_causal, so it ran once on the whole history and only "
+               "the empirical lookahead probe (the data cut at many dates) checks it - a weaker guarantee than the "
+               "default bar-by-bar evaluation.")
+
+
+def _fn_name(fn) -> str:
+    nm = getattr(fn, "__name__", "")
+    return f"{nm}()" if nm and not nm.startswith("<") else "(function)"
+
+
+def stream_callable(fn, ns, kind: str = "bool") -> pd.Series:
+    """Evaluate a Python-function rule causally (see the comment above): bar i's answer is the last value of
+    fn(df.iloc[:i+1], ns cut at i). Cached per function and data. A `vectorized_causal` function is called once."""
+    import time as _time
+    df = ns.df
+    idx = df.index
+    if getattr(fn, "vectorized_causal", False):
+        out = call_guarded(fn, df, ns)
+        note = VECTOR_NOTE.format(name=_fn_name(fn))
+        if note not in ns.notes:
+            ns.notes.append(note)
+        return _as_bool(out, idx) if kind == "bool" else _as_value(out, idx)
+    positional = any(isinstance(dict.get(ns, k), pd.Series) for k in POSITION_VARS)
+    try:
+        key = None if positional else (fn, ns.ticker, id(ns.quoted_df), ns.price_basis, ns.month_lookbacks, kind)
+        hit = _STREAMED.get(key) if key is not None else None
+    except TypeError:          # an unhashable callable object: not cached
+        key, hit = None, None
+    if hit is not None and hit[0] is ns.quoted_df:
+        res, secs = hit[1], hit[2]
+    else:
+        t0 = _time.perf_counter()
+        vals = np.zeros(len(idx), bool) if kind == "bool" else np.full(len(idx), np.nan)
+        tok = data.LOAD_CUTOFF.set(None)
+        try:
+            with io_blocked():
+                for i in range(len(idx)):
+                    data.LOAD_CUTOFF.set(idx[i])
+                    sub = _sub_namespace(ns, i + 1)
+                    vals[i] = _last(fn(sub.df, sub), kind)
+        finally:
+            data.LOAD_CUTOFF.reset(tok)
+        secs = _time.perf_counter() - t0
+        res = pd.Series(vals, index=idx)
+        if key is not None:
+            if len(_STREAMED) > 512:
+                _STREAMED.clear()
+            _STREAMED[key] = (ns.quoted_df, res, secs)
+    head = f"Python rule {_fn_name(fn)}: evaluated bar by bar"
+    if not any(n.startswith(head) for n in ns.notes):
+        ns.notes.append(STREAM_NOTE.format(name=_fn_name(fn), n=len(idx), s=secs))
+    return res.copy()
+
+
+def callable_check(fn, df: pd.DataFrame, ticker: str | None = None, kind: str = "bool", window=None) -> str | None:
+    """Lookahead check of a Python-function rule before a run. A streamed function (the default) cannot use later
+    data, but one that tries to - shift(-1), a centred window, a whole-series statistic, a cache of the largest frame
+    it was given - answers differently when run once on the whole history; such a function is refused rather than
+    silently run on logic other than what it says. A `vectorized_causal` one gets the empirical probe
+    (callable_lookahead_probe). Returns a description of the problem, or None."""
+    if getattr(fn, "vectorized_causal", False):
+        return callable_lookahead_probe(fn, df, ticker, kind, window=window)
+    ns = Namespace(df, ticker=ticker)
+    streamed = (evaluate(fn, ns) if kind == "bool" else evaluate_value(fn, ns)).to_numpy()
+    try:
+        full = call_guarded(fn, df, Namespace(df, ticker=ticker))
+    except CallableIOError:
+        raise
+    except Exception:  # noqa: BLE001 - the streamed values stand
+        return None
+    full = (_as_bool(full, df.index) if kind == "bool" else _as_value(full, df.index)).to_numpy()
+    if kind == "bool":
+        ok = streamed == full
+    else:
+        a, b = streamed.astype(float), full.astype(float)
+        with np.errstate(invalid="ignore"):
+            close = np.abs(a - b) <= 1e-9 * np.maximum(1.0, np.maximum(np.abs(a), np.abs(b)))
+        ok = (np.isnan(a) & np.isnan(b)) | np.nan_to_num(close, nan=0.0).astype(bool)
+    bad = np.flatnonzero(~ok)
+    if window is not None and len(bad):
+        w0, w1 = (pd.Timestamp(x) if x is not None else None for x in window)
+        inside = np.asarray((df.index >= (w0 or df.index[0])) & (df.index <= (w1 or df.index[-1])))
+        bad = np.flatnonzero(~ok & inside) if (~ok & inside).any() else bad
+    if not len(bad):
+        return None
+    d = df.index[int(bad[0])].date()
+    return (f"its result on {d} changes when the data after {d} is removed (run on the data up to each day it answers "
+            "differently than on the whole history)")
