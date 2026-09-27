@@ -603,6 +603,25 @@ class Namespace(dict):
         def stoch_d(n=14, smooth=3, d=3):
             return stoch_k(n, smooth).rolling(int(d)).mean()
 
+        def stoch(x, h_, l_, n=14):
+            """TradingView's ta.stoch(source, high, low, length): 100 * (x - lowest(l, n)) / (highest(h, n) - lowest(l, n))."""
+            x, h_, l_ = (series_arg(v, "stoch") for v in (x, h_, l_))
+            n = lookback_number(n)
+            ll, hh = l_.rolling(n).min(), h_.rolling(n).max()
+            with np.errstate(divide="ignore", invalid="ignore"):
+                return 100 * (x - ll) / (hh - ll)
+
+        def stoch_rsi_k(smooth_k=3, rsi_n=14, stoch_n=14, x=None):
+            """TradingView's Stochastic RSI %K: sma(ta.stoch(r, r, r, stoch_n), smooth_k) with r = rsi(x, rsi_n)."""
+            r = rsi_wilder(c if x is None else series_arg(x, "stoch_rsi_k"), lookback_number(rsi_n))
+            k = stoch(r, r, r, stoch_n)
+            sk = lookback_number(smooth_k)
+            return k.rolling(sk).mean() if sk > 1 else k
+
+        def stoch_rsi_d(smooth_k=3, smooth_d=3, rsi_n=14, stoch_n=14, x=None):
+            """TradingView's Stochastic RSI %D: the smooth_d-bar SMA of %K (defaults 3, 3, 14, 14 as the built-in)."""
+            return stoch_rsi_k(smooth_k, rsi_n, stoch_n, x).rolling(lookback_number(smooth_d)).mean()
+
         def _dm(n):
             n = int(n)
             up, dn = hi.diff(), -lo.diff()
@@ -1042,7 +1061,8 @@ class Namespace(dict):
             "ma_return": ma_return, "stdev_return": stdev_return, "atr": atr, "natr": natr, "volatility": volatility, "drawdown": drawdown,
             "bb_upper": bb_upper, "bb_lower": bb_lower, "pct_rank": pct_rank,
             "macd": macd, "macd_signal": macd_signal, "macd_hist": macd_hist,
-            "stoch_k": stoch_k, "stoch_d": stoch_d, "adx": adx, "plus_di": plus_di, "minus_di": minus_di,
+            "stoch_k": stoch_k, "stoch_d": stoch_d, "stoch": stoch, "stoch_rsi_k": stoch_rsi_k,
+            "stoch_rsi_d": stoch_rsi_d, "adx": adx, "plus_di": plus_di, "minus_di": minus_di,
             "cci": cci, "willr": willr, "obv": obv, "mfi": mfi, "vwap": vwap,
             "donchian_upper": donchian_upper, "donchian_lower": donchian_lower,
             "keltner_upper": keltner_upper, "keltner_lower": keltner_lower,
@@ -1099,6 +1119,8 @@ Functions (x defaults to close; n = lookback in bars, a number written in the ru
   bands        bb_upper(n,k) bb_lower(n,k) keltner_upper(n,k) keltner_lower(n,k)
   momentum     ret(x,n) rsi(x,n) macd(fast,slow) macd_signal(f,s,sig) macd_hist(f,s,sig)
                stoch_k(n,smooth) stoch_d(n,smooth,d) cci(n) willr(n) mfi(n) obv()
+               stoch_rsi_k(k,rsi_n,stoch_n) stoch_rsi_d(k,d,rsi_n,stoch_n)  Stochastic RSI (TradingView's 3, 3, 14, 14)
+               stoch(x,high,low,n)  TradingView's ta.stoch of any series, e.g. stoch(rsi(14), rsi(14), rsi(14), 14)
   trend        adx(n) plus_di(n) minus_di(n) supertrend(n,k) supertrend_dir(n,k) (-1 up, +1 down, as TradingView)
                sar(start,max,inc) aroon_up(n) aroon_down(n) aroon_osc(n) cmf(n)
   ichimoku     tenkan(9) kijun(26) senkou_a(9,26,26) senkou_b(52,26): the cloud as drawn on the current bar
@@ -1131,7 +1153,7 @@ TradingView (Pine) spellings are accepted and translated: close[1] -> ref(close,
   ta.sma ta.ema ta.rma ta.wma ta.hma ta.vwma ta.alma ta.linreg ta.rsi ta.atr ta.highest ta.lowest ta.stdev
   ta.crossover ta.crossunder ta.cross ta.cci ta.mfi ta.wpr (-> willr) ta.obv ta.sar(start, inc, max) ta.tr
   ta.pivothigh ta.pivotlow ta.change (-> diff) ta.mom (-> diff) ta.roc (-> 100 * ret) ta.barssince ta.valuewhen
-  ta.stoch(close, high, low, n) (-> stoch_k(n, 1), the raw %K) ta.vwap (-> hlc3: on daily bars the
+  ta.stoch(close, high, low, n) (-> stoch_k(n, 1), the raw %K; other sources -> stoch(x, h, l, n)) ta.vwap (-> hlc3: on daily bars the
   session VWAP is the bar's own typical price; use vwap(n) or avwap("date") for longer ones)
   ta.macd(src, fast, slow, signal) (-> the MACD line only; use macd_signal / macd_hist for the others)
   ta.bb / ta.supertrend / ta.dmi return several values and are refused with the equivalent:
@@ -1367,11 +1389,11 @@ class _Pine(ast.NodeTransformer):
             args = list(node.args)
             if name == "stoch":
                 # ta.stoch(source, high, low, length): the raw (unsmoothed) %K
-                if len(args) != 4 or not (_is_name(args[0], "close") and _is_name(args[1], "high")
-                                          and _is_name(args[2], "low")):
-                    raise ValueError("ta.stoch is supported as ta.stoch(close, high, low, length) (-> stoch_k(length, 1)); "
-                                     "other sources are not")
-                return ast.Call(func=ast.Name(id="stoch_k", ctx=ast.Load()), args=[args[3], ast.Constant(1)], keywords=[])
+                if len(args) != 4:
+                    raise ValueError("ta.stoch takes (source, high, low, length), e.g. ta.stoch(close, high, low, 14)")
+                if _is_name(args[0], "close") and _is_name(args[1], "high") and _is_name(args[2], "low"):
+                    return ast.Call(func=ast.Name(id="stoch_k", ctx=ast.Load()), args=[args[3], ast.Constant(1)], keywords=[])
+                return ast.Call(func=ast.Name(id="stoch", ctx=ast.Load()), args=args, keywords=[])
             if name == "cci" and len(args) == 2 and _is_name(args[0], "hlc3"):
                 args = [args[1]]
             if name == "mfi" and len(args) == 2 and _is_name(args[0], "hlc3"):
@@ -1549,8 +1571,8 @@ _DEFAULTS_TO_CLOSE = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "st
                       "max_drawdown", "ma_return", "stdev_return"}
 # functions that always read today's close/high/low
 _ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "macd_signal", "macd_hist",
-                 "stoch_k", "stoch_d", "adx", "plus_di", "minus_di", "cci", "willr", "obv", "mfi", "vwap",
-                 "donchian_upper", "donchian_lower", "keltner_upper", "keltner_lower", "supertrend", "sar",
+                 "stoch_k", "stoch_d", "stoch_rsi_k", "stoch_rsi_d", "adx", "plus_di", "minus_di", "cci", "willr",
+                 "obv", "mfi", "vwap", "donchian_upper", "donchian_lower", "keltner_upper", "keltner_lower", "supertrend", "sar",
                  "weekly_sma", "monthly_sma", "weekly_close", "monthly_close", "is_week_end",
                  "weekly_rsi", "monthly_rsi", "weekly_ema", "monthly_ema", "weekly_ret", "monthly_ret",
                  "is_month_end", "is_quarter_end", "is_year_end", "bars_since", "count", "weekly", "monthly",

@@ -739,13 +739,41 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++) for (const m of [1, 1.5, 2, 3, 5, 7]) { const v = m * Math.pow(10, e); if (v >= lo && v <= hi) out.push(v); }
     return out.length > 8 ? out.filter((_, i) => i % Math.ceil(out.length / 8) === 0) : out;
   }
-  // drawings are kept per report and ticker in this browser (best effort: storage may be unavailable)
-  const drawKey = () => 'bt-draw|' + location.pathname + '|' + PX.key;
+  // drawings are kept per ticker in this browser (best effort: storage may be unavailable), so they carry across runs
+  // and reports of the same ticker: trend lines are stored by date (each run charts its own stretch of bars) and
+  // those outside the charted dates are kept for the runs that show them
+  const pxTickerNow = () => (PX.key || '').split('|').slice(1).join('|');
+  const drawKey = () => 'bt-draw|' + pxTickerNow();
+  const oldDrawKey = () => 'bt-draw|' + location.pathname + '|' + PX.key;     // earlier reports: per report and run
   function drawings() {
-    if (!PX.draws[PX.key]) { let v = []; try { v = JSON.parse(localStorage.getItem(drawKey()) || '[]'); } catch (e) { v = []; } PX.draws[PX.key] = Array.isArray(v) ? v : []; }
+    if (!PX.draws[PX.key]) {
+      const P = PX.P || { dates: [] };
+      let v = null, legacy = false;
+      try { v = JSON.parse(localStorage.getItem(drawKey()) || 'null'); } catch (e) { v = null; }
+      if (!Array.isArray(v)) { try { v = JSON.parse(localStorage.getItem(oldDrawKey()) || '[]'); legacy = true; } catch (e) { v = []; } }
+      if (!Array.isArray(v)) v = [];
+      const idx = new Map(P.dates.map((d, i) => [d, i])), shown = [], hidden = [];
+      const at = d => (idx.has(d) ? idx.get(d) : null);
+      v.forEach(d => {
+        if (!d || typeof d !== 'object') return;
+        if (d.t === 'h' && isFinite(+d.v)) { shown.push({ t: 'h', v: +d.v }); return; }
+        if (d.t !== 'tr') return;
+        const i1 = legacy ? d.i1 : at(d.d1), i2 = legacy ? d.i2 : at(d.d2);
+        if (i1 == null || i2 == null || !isFinite(i1) || !isFinite(i2) || i1 >= P.dates.length || i2 >= P.dates.length) hidden.push(d);
+        else shown.push({ t: 'tr', i1: +i1, v1: +d.v1, i2: +i2, v2: +d.v2 });
+      });
+      PX.draws[PX.key] = shown; (PX.drawsOff = PX.drawsOff || {})[PX.key] = hidden.filter(d => d.d1 && d.d2);
+    }
     return PX.draws[PX.key];
   }
-  function saveDrawings() { try { localStorage.setItem(drawKey(), JSON.stringify(drawings())); } catch (e) { /* no storage */ } pxBase.dataset.drawings = drawings().length; }
+  function saveDrawings() {
+    const D = (PX.P || { dates: [] }).dates, day = i => D[Math.max(0, Math.min(D.length - 1, Math.round(i)))];
+    const out = drawings().map(d => (d.t === 'h' ? { t: 'h', v: d.v } : { t: 'tr', d1: day(d.i1), v1: d.v1, d2: day(d.i2), v2: d.v2 }));
+    try { localStorage.setItem(drawKey(), JSON.stringify(out.concat((PX.drawsOff || {})[PX.key] || []))); } catch (e) { /* no storage */ }
+    const t = pxTickerNow();
+    Object.keys(PX.draws).forEach(k => { if (k !== PX.key && k.split('|').slice(1).join('|') === t) delete PX.draws[k]; });   // other runs re-read
+    pxBase.dataset.drawings = drawings().length;
+  }
   let pxBase, pxTop, pxTip;
   const barAt = x => { const g = PX.geo; return PX.a + (x - g.l) / g.iw * (PX.b - PX.a) - 0.5; };   // fractional bar index under x
   function pxHit(p) {

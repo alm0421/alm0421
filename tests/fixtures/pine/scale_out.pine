@@ -1,0 +1,13 @@
+//@version=5
+// ticker: NVDA
+strategy("RSI(2) with a partial exit", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity,
+     default_qty_value=100, process_orders_on_close=true)
+
+buySignal = ta.rsi(close, 2) < 10
+inDate = time >= timestamp("2012-01-01T00:00:00")
+
+if buySignal and inDate
+    strategy.entry("L", strategy.long)
+
+strategy.exit("TP1", "L", qty_percent=50, limit=strategy.position_avg_price * 1.03)
+strategy.exit("TP2", "L", limit=strategy.position_avg_price * 1.06, stop=strategy.position_avg_price * 0.95)

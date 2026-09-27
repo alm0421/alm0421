@@ -1,0 +1,15 @@
+//@version=5
+// symbol: NASDAQ:QQQ
+strategy("MACD long/short reversal", overlay=false, default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     initial_capital=25000, commission_type=strategy.commission.cash_per_order, commission_value=1)
+
+[macdLine, signalLine, hist] = ta.macd(close, 12, 26, 9)
+
+if ta.crossover(macdLine, signalLine)
+    strategy.entry("Long", strategy.long)
+else if ta.crossunder(macdLine, signalLine)
+    strategy.entry("Short", strategy.short)
+
+plot(macdLine, color=color.blue)
+plot(signalLine, color=color.orange)
+plot(hist, style=plot.style_columns)

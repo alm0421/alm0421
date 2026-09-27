@@ -727,7 +727,8 @@ MAK = r"(?:(?:simple|exponential|weighted) )?(?:moving average|moving avg|ma|sma
 
 def _mat(p: str) -> str:
     """A moving-average term: '50 day moving average', '9 EMA', '20 period EMA', 'EMA(9)', '10 week SMA'."""
-    return (rf"(?:(?P<{p}n>\d+) (?:(?P<{p}u>day|week|month|period|bar|session)s? )?(?P<{p}k>{MAK}|average(?! (?:true|volume|of|daily|range|return|gain|loss))\b)"
+    return (rf"(?:(?P<{p}n>\d+) (?:(?P<{p}u>day|week|month|period|bar|session)s? )?(?P<{p}k>{MAK}|average(?! (?:true|volume|of|daily|range|return|gain|loss))\b"
+            rf"|mean(?! (?:of|return|reversion|reverting|daily|absolute|deviation))\b)"
             rf"|(?P<{p}k2>{MAK}) ?\( ?(?P<{p}n2>\d+) ?\))")
 
 
@@ -1115,12 +1116,71 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
         if m.group("cross"):
             return f"{'crossover' if rel in ('above', 'over') else 'crossunder'}({k}, {d}){zone}"
         return f"{k} {_cmp(rel)} {d}{zone}"
+    # Stochastic RSI (TradingView's built-in: %K smoothing 3, %D 3, RSI length 14, stochastic length 14)
+    SRSI = r"(?:the )?(?:stoch(?:astic)?[ -]?rsi|stochrsi)(?:\s*\(\s*(?P<sk>\d+)\s*,\s*(?P<sd>\d+)\s*,\s*(?P<rn>\d+)\s*,\s*(?P<sn>\d+)\s*\))?"
+
+    def srsi_calls(m):
+        if not ctx.base:
+            _unsupported("the stochastic RSI of another ticker")
+        sk, sd, rn, sn = (m.group("sk") or "3", m.group("sd") or "3", m.group("rn") or "14", m.group("sn") or "14")
+        _note(f"Stochastic RSI: TradingView's built-in - %K = the {sk}-bar SMA of ta.stoch(rsi, rsi, rsi, {sn}) with "
+              f"rsi = RSI({rn}) (stoch_rsi_k({sk}, {rn}, {sn})), %D = the {sd}-bar SMA of %K "
+              f"(stoch_rsi_d({sk}, {sd}, {rn}, {sn})).")
+        return f"stoch_rsi_k({sk}, {rn}, {sn})", f"stoch_rsi_d({sk}, {sd}, {rn}, {sn})"
+
+    def srsi_kd(m):
+        k, d = srsi_calls(m)
+        rel = m.group("rel")
+        if m.group("cross"):
+            return f"{'crossover' if rel in ('above', 'over') else 'crossunder'}({k}, {d})"
+        return f"{k} {_cmp(rel)} {d}"
+    take(rf"{SRSI}(?:'s)? %?k(?: line)? (?:is )?(?:(?P<cross>cross(?:es|ed)?(?: back)?) )?(?P<rel>above|over|below|under) "
+         rf"(?:the |its )?(?:stoch(?:astic)?[ -]?rsi(?:'s)? |stochrsi(?:'s)? )?%?d(?: line)?", srsi_kd)
+
+    def srsi_lvl(m):
+        k, d = srsi_calls(m)
+        e = d if m.group("which") and m.group("which").strip().lstrip("%") == "d" else k
+        op = _cmp(m.group("rel"))
+        if m.group("cross"):
+            return f"{'crossover' if op[0] == '>' else 'crossunder'}({e}, {m.group('v')})"
+        return f"{e} {op} {m.group('v')}"
+    take(rf"{SRSI}(?:'s)?(?P<which> %?k| %?d)?(?: line| value| reading)? (?:is |closes |drops |falls |rises |goes |reads )?"
+         rf"(?:(?P<cross>cross(?:es|ed)?(?: back)?) )?(?P<rel>{CMPW[1:-1]}) (?P<v>-?{NUM[1:-1]})(?!%)", srsi_lvl)
+
     KP = r"(?:the )?(?:(?:slow |full )?stoch(?:astic)?(?:'s)? )?%k(?: line)?"
     DP = r"(?:the |its )?(?:(?:slow |full )?stoch(?:astic)?(?:'s)? )?%d(?: line)?"
     take(rf"{KP} (?:is )?(?:(?P<cross>cross(?:es|ed)?(?: back)?) )?(?P<rel>above|over|below|under|<=|>=) {DP}"
          rf"(?: (?:while |when |with )?(?:(?:%k|it|both) (?:is |are )?)?(?:in the oversold zone |in the overbought zone )?(?P<zrel>below|under|above|over) (?P<zv>{NUM[1:-1]}))?", kd)
     if re.search(rf"{KP} cross(?:es|ed)? {DP}", s):
         raise ParseError("'%K crosses %D': which way? Say '%K crosses above %D' or '%K crosses below %D'.")
+
+    # "%K is below 20", "%D crosses above 80": the stochastic lines against a level (TradingView's 14, 1, 3)
+    def kd_lvl(m):
+        if not ctx.base:
+            _unsupported("the stochastic of another ticker")
+        slow = bool(re.search(r"\b(?:slow|full)\b", m.group(0)))
+        sm = 3 if slow else 1
+        _stoch_note(slow)
+        e = f"stoch_d(14, {sm}, 3)" if m.group("which") == "d" else f"stoch_k(14, {sm})"
+        op = _cmp(m.group("rel"))
+        if m.group("cross"):
+            return f"{'crossover' if op[0] == '>' else 'crossunder'}({e}, {m.group('v')})"
+        return f"{e} {op} {m.group('v')}"
+    take(rf"(?:the )?(?:(?:slow |full )?stoch(?:astic)?(?:'s)? )?%(?P<which>k|d)(?: line| value| reading)? (?:is )?"
+         rf"(?:(?P<cross>cross(?:es|ed)?(?: back)?) )?(?P<rel>{CMPW[1:-1]}) (?P<v>-?{NUM[1:-1]})(?!%)", kd_lvl)
+
+    # Heikin Ashi candles (TradingView's): green = ha_close > ha_open; "turns green" = green today, not yesterday
+    def ha_colour(m):
+        if not ctx.base:
+            _unsupported("Heikin Ashi candles of another ticker")
+        green = m.group("col") in ("green", "bullish", "up", "white")
+        op, nop = (">", "<=") if green else ("<", ">=")
+        if m.group("turn"):
+            return f"ha_close {op} ha_open and ref(ha_close, 1) {nop} ref(ha_open, 1)"
+        return f"ha_close {op} ha_open"
+    HA = r"(?:the )?(?:heikin[- ]?ashi|ha)(?: candles?| candlesticks?| bars?)?"
+    take(rf"{HA} (?:(?P<turn>turns?|turned|flips?|flipped|changes?(?: to)?|changed(?: to)?|switches(?: to)?)|is|are|closes?|was) "
+         rf"(?P<col>green|red|bullish|bearish|white|black)", ha_colour)
 
     # higher-timeframe RSI, computed on completed weekly / monthly bars
     def htf_rsi(m):
@@ -1419,6 +1479,9 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     take(rf"volume (?:is )?(?:at least |more than |above |over )?{NUM} ?(?:x|times) (?:its |the )?(?:(\d+) day )?(?:average|avg)(?: volume)?(?: of the (?:last|past) (\d+) days)?",
          lambda m: f"{v} {_bound('>', m.group(0))} {m.group(1)} * sma({v}, {m.group(2) or m.group(3) or 20})")
 
+    # a price crossing a level: "VIX crosses above 30" (the close crossing the number: TradingView's ta.crossover)
+    take(rf"(?:closes? |is |trades? |price )?cross(?:es|ed)?(?: back)? {CMPW} \$?(-?{NUM})(?![\d%])(?! (?:day|week|month|bar))",
+         lambda m: f"{'crossover' if _cmp(m.group(1))[0] == '>' else 'crossunder'}({c}, {m.group(2)})", level=True)
     # plain level comparisons, e.g. "VIX is above 30", "closes above 100"
     take(rf"(?:closes?|is|trades?|stays?) {CMPW} \$?(-?{NUM})(?![\d%])(?! (?:day|week|month|bar))",
          lambda m: f"{c} {_cmp(m.group(1))} {m.group(2)}", level=True)
@@ -2252,7 +2315,7 @@ def common_options(T: Text, notes: list[str]) -> dict:
     m = T.find(r"(?:start(?:ing)? with|capital of|initial capital of|account of|begin(?:ning)? with|with an? (?:initial |starting )?(?:balance|investment) of|with) \$(\d+(?:\.\d+)?)(?! (?:per|a|each|every|monthly|quarterly|yearly|annually))(?:(?: of)? (?:capital|in capital))?")
     if m:
         kw["capital"] = float(m.group(1))
-    m = T.find(rf"(?:(?:with |and )?{NUM} ?(?:bps|basis points?)(?: of)? slippage|slippage(?: of)? {NUM} ?(?:bps|basis points?)|(?:with |and )?{NUM}% slippage|slippage of {NUM}%)(?: per side| each way| per trade)?")
+    m = T.find(rf"(?:(?:with |and )?{NUM} ?(?:bps|basis points?)(?: of)? slippage|slippage(?: of)? {NUM} ?(?:bps|basis points?)|(?:with |and )?{NUM}% slippage|slippage(?: of|:|=)? {NUM}%)(?: per side| each way| per trade)?")
     if m:
         g = m.groups()
         kw["slippage_bps"] = float(g[0] or g[1]) if (g[0] or g[1]) else float(g[2] or g[3]) * 100
@@ -2262,7 +2325,8 @@ def common_options(T: Text, notes: list[str]) -> dict:
     m = T.find(rf"(?:with |and )?\$\s?{NUM} (?:per share|a share)(?: commissions?)?|commissions?(?: of|:)? \$\s?{NUM} (?:per|a) share")
     if m:
         kw["commission_per_share"] = float(m.group(1) or m.group(2))
-    m = T.find(rf"(?:with |and )?{NUM}% commissions?|commissions? of {NUM}%")
+    m = T.find(rf"(?:with |and )?{NUM}% commissions?(?: per (?:trade|order|side))?"
+               rf"|(?:(?:with |and )?(?:a )?)?commissions?(?: of|:|=)? {NUM}%(?: per (?:trade|order|side))?")
     if m:
         kw["commission_pct"] = float(m.group(1) or m.group(2)) / 100
     m = T.find(r"slippage(?: of)? \d+(?:\.\d+)? ticks?|\d+(?:\.\d+)? ticks?(?: of)? slippage", consume=False)
@@ -2417,6 +2481,12 @@ def _check_runnable(obj) -> None:
     an empty or reversed period, a start after the last data date, and lookbacks / offsets the rule
     language rejects when it evaluates (a lookback below 1, a negative offset)."""
     start, end = getattr(obj, "start", None), getattr(obj, "end", None)
+    from .strategy import check_date
+    for v_, what in ((start, "start"), (end, "end")):
+        try:
+            check_date(v_, what)
+        except ValueError as e:
+            raise ParseError(str(e)) from None
     if start and end and str(start)[:10] > str(end)[:10]:
         raise ParseError(f"The period is reversed: it starts on {str(start)[:10]} but ends on {str(end)[:10]}.")
     known = _known()
@@ -2510,6 +2580,11 @@ def _negative_costs(text: str) -> None:
 def _parse(text: str, **overrides):
     if not text or not text.strip():
         raise ParseError("Describe a strategy, e.g. 'buy MSFT at the close when it is down 5 days in a row, hold 1 day'.")
+    from . import pine_import
+    if pine_import.looks_like_pine(text):
+        # a pasted TradingView strategy script: translated (or refused with its line number), not read as English
+        obj = pine_import.translate(text, ticker=overrides.get("ticker"))
+        return _finish(obj, overrides)
     original = text
     text = _lowercase_tickers(text)
     text = _asset_class_names(text)
@@ -2525,8 +2600,13 @@ def _parse(text: str, **overrides):
     finally:
         _TL.tv = False
     obj.description = original
+    return _finish(obj, overrides)
+
+
+def _finish(obj, overrides: dict):
+    """The option overrides (command line / site settings) on top of the parsed spec, then its own checks."""
     for k, v in overrides.items():
-        if v is None:
+        if v is None or k == "ticker":
             continue
         if not hasattr(obj, k):
             if k in ("max_positions", "position_size", "stop_loss", "take_profit", "trailing_stop", "hold_bars",
@@ -2689,6 +2769,33 @@ def _exit_rule(wl: str, entry: str, universe: list[str], notes: list[str]) -> st
         notes.append("'RSI' with no period: using the standard 14-day RSI.")
         return m.group(0)
     wl = _sub_outside(r"(?i)\b(?:(\d+) (?:day|period|bar|session) )?rsi\b(\s*\(\s*\d+\s*\)|\s+\d+(?![\d.]|\s*%))?", bare_rsi, wl)
+
+    # "it flips to down" after a Supertrend entry, "it turns red" after a Heikin Ashi entry: the same signal, reversed
+    def it_flips(m):
+        d = m.group("d").lower()
+        up = d in ("up", "bullish", "green", "long", "buy", "positive")
+        std = re.search(r"supertrend_dir\((\d+), (\d+(?:\.\d+)?)\)", entry)
+        st = re.search(r"(?<!_)supertrend\((\d+), (\d+(?:\.\d+)?)\)", entry)
+        if std:
+            e = std.group(0)
+            rule = f"{e} < 0 and ref({e}, 1) > 0" if up else f"{e} > 0 and ref({e}, 1) < 0"
+            what = "the Supertrend direction (-1 up, +1 down) flipping"
+        elif st:
+            rule = f"{'crossover' if up else 'crossunder'}(close, {st.group(0)})"
+            what = "the close crossing the Supertrend line"
+        elif "ha_close" in entry and d in ("green", "red", "bullish", "bearish", "up", "down"):
+            op, nop = (">", "<=") if up else ("<", ">=")
+            rule = f"ha_close {op} ha_open and ref(ha_close, 1) {nop} ref(ha_open, 1)"
+            what = "the Heikin Ashi candle changing colour"
+        elif re.match(r"(?i)turn", m.group("verb")) and d in ("up", "down"):
+            return m.group(0)       # "it turns down": the entry's subject falling (below)
+        else:
+            raise ParseError(f"'{m.group(0).strip()}': what flips? The entry has no Supertrend or Heikin Ashi signal to "
+                             "reverse. Name it, e.g. 'sell when the supertrend flips bearish'.")
+        notes.append(f"Warning: '{m.group(0).strip()}' was read as {what} the other way: {rule}.")
+        return f" `{rule}` "
+    wl = _sub_outside(r"(?i)\bit\s+(?P<verb>flips?|flipped|turns?|turned|switches|changes|changed)\s+(?:to\s+)?"
+                      r"(?P<d>up|down|bullish|bearish|green|red|long|short)\b", it_flips, wl)
 
     # "it is over 70" / "it's under 30" / "it rises back above 50" -> the entry's indicator
     oscs = _calls(entry)
@@ -2860,7 +2967,7 @@ def _holding_signal(text: str) -> str | None:
     return f"buy {who} while {m.group('rest')}"
 
 
-_PINE_OPERAND = (r"(?:(?:ta|math)\.\w+|[a-z_]\w*|\d+(?:\.\d+)?)(?:\[\d+\])?"
+_PINE_OPERAND = (r"(?:(?:ta|math)\.\w+|request\.security|[a-z_]\w*|\d+(?:\.\d+)?)(?:\[\d+\])?"
                  r"(?:\((?:[^()`]|\((?:[^()`]|\([^()`]*\))*\))*\))?")
 _PINE_EXPR = rf"{_PINE_OPERAND}(?:\s*[-+*/]\s*{_PINE_OPERAND})*"
 _PINE_RX = re.compile(rf"(?i)(?<![\w.`])(?:{_PINE_EXPR}\s*(?:>=|<=|==|!=|>|<)\s*{_PINE_EXPR}"
@@ -2873,16 +2980,17 @@ def _pine_backticks(t: str) -> str:
     ta.sma(close, 200)") are wrapped in backticks, so the dot and the commas inside them are not read as English.
     Only a comparison or ta.cross...() that contains a Pine marker (ta.xxx(, math.xxx(, close[1]) and nothing but
     price names, functions and numbers."""
-    if not re.search(r"(?i)\b(?:ta|math)\.\w+\s*\(|\b(?:close|open|high|low|volume|hl2|hlc3|ohlc4)\[\d+\]", t):
+    if not re.search(r"(?i)\b(?:ta|math)\.\w+\s*\(|\brequest\.security\s*\(|\b(?:close|open|high|low|volume|hl2|hlc3|ohlc4)\[\d+\]", t):
         return t
     from .expr import pine_to_rule
 
     def wrap(m):
         e = m.group(0)
-        if not re.search(r"(?i)\b(?:ta|math)\.\w+|\[\d+\]", e):
+        if not re.search(r"(?i)\b(?:ta|math)\.\w+|\brequest\.security\b|\[\d+\]", e):
             return e
-        # every bare word must be a price name or a function call (no English words inside)
-        for w in re.finditer(r"(?i)(?<![\w.])([a-z_]\w*)(?!\w*\s*[.(])", e):
+        # every bare word must be a price name or a function call (no English words inside; quoted strings such as
+        # request.security's "W" are not words)
+        for w in re.finditer(r"(?i)(?<![\w.\"'])([a-z_]\w*)(?!\w*\s*[.(])", re.sub(r'"[^"]*"|\'[^\']*\'', '""', e)):
             if w.group(1).lower() not in _PINE_WORDS:
                 return e
         try:
@@ -3095,7 +3203,7 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
     m = T.find(rf"(?:with a |use a |place a |and a )?{NUM} ?(?:x )?atr (?:trailing|chandelier) stop|(?:trailing|chandelier) stop(?: loss)?(?: of| at)? {NUM} ?(?:x )?atrs?(?: (?:from|below|above) the (?:high|low|highest high|lowest low))?")
     if m:
         ex["trailing_atr"] = float(m.group(1) or m.group(2))
-    m = T.find(rf"(?:with a |use a |place a |and a )?{NUM} ?(?:x )?atr stop(?:[- ]loss)?|stop(?:[- ]loss)?(?: of| at)? {NUM} ?(?:x )?atrs?(?: (?:below|from) (?:the )?entry)?")
+    m = T.find(rf"(?:with a |use a |place a |and a )?{NUM} ?(?:x )?atr stop(?:[- ]loss)?|stop(?:[- ]loss)?(?: of| at)? {NUM} ?(?:x )?atrs?(?: (?:below|under|above|over|from) (?:the )?entry(?: price)?)?")
     if m:
         ex["stop_atr"] = float(m.group(1) or m.group(2))
     m = T.find(rf"(?:take[- ]profits?|profit target|target)(?: of| at)? {NUM} ?(?:x )?atrs?|{NUM} ?(?:x )?atr (?:profit target|take[- ]profit|target)")

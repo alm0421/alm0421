@@ -78,6 +78,12 @@ def build_run_parser() -> argparse.ArgumentParser:
 
 
 def _overrides(a) -> dict:
+    from .strategy import check_date
+    for k in ("start", "end"):
+        try:
+            check_date(getattr(a, k, None), k)
+        except ValueError as e:
+            raise parser.ParseError(str(e)) from None
     ov = dict(capital=a.capital, start=a.start, end=a.end, slippage_bps=a.slippage_bps, commission=a.commission)
     for k in ("max_positions", "position_size", "rank_by", "stop_loss", "take_profit", "trailing_stop",
               "exit_when", "entry_fill", "benchmark", "name"):
@@ -104,6 +110,11 @@ def make_spec(text: str | None, a, spec_path: str | None = None):
             if v is not None and hasattr(spec, k):
                 setattr(spec, k, v)
     elif text:
+        from . import pine_import
+        if text.strip().endswith(".pine") and "\n" not in text and Path(text.strip()).is_file():
+            text = Path(text.strip()).read_text()     # a TradingView script saved to a file
+        if pine_import.looks_like_pine(text) and getattr(a, "tickers", None):
+            ov = {**ov, "ticker": a.tickers}           # the chart symbol for a pasted Pine script
         spec = parser.parse(text, **ov)
     elif getattr(a, "tickers", None) and getattr(a, "entry", None):
         from .strategy import Strategy

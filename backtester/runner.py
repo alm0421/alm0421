@@ -13,6 +13,9 @@ Spec = Strategy | Portfolio
 
 
 def run(spec: Spec) -> Result:
+    from .strategy import check_date
+    check_date(getattr(spec, "start", None), "start")
+    check_date(getattr(spec, "end", None), "end")
     if isinstance(spec, Portfolio):
         res = portfolio.run(spec)
     else:

@@ -38,6 +38,8 @@ INDICATOR_RE = re.compile(r"(?<![\w.])(" + "|".join(sorted(PRICE_FNS, key=len, r
 OSCILLATORS = {
     "rsi": ("RSI", (0, 100)), "weekly_rsi": ("RSI (weekly)", (0, 100)), "monthly_rsi": ("RSI (monthly)", (0, 100)),
     "stoch_k": ("Stochastic", (0, 100)), "stoch_d": ("Stochastic", (0, 100)),
+    "stoch_rsi_k": ("Stochastic RSI", (0, 100)), "stoch_rsi_d": ("Stochastic RSI", (0, 100)),
+    "stoch": ("Stochastic", (0, 100)),
     "macd": ("MACD", None), "macd_signal": ("MACD", None), "macd_hist": ("MACD", None),
     "adx": ("ADX / DMI", None), "plus_di": ("ADX / DMI", None), "minus_di": ("ADX / DMI", None),
     "cci": ("CCI", None), "willr": ("Williams %R", (-100, 0)), "mfi": ("MFI", (0, 100)),
@@ -85,6 +87,14 @@ def _companions(fn: str, args: str) -> list[str]:
         k = n[:2]
         d = n[2:3] if fn == "stoch_d" else []
         return [f"stoch_k({', '.join(k)})", f"stoch_d({', '.join(k + d)})"]
+    if fn in ("stoch_rsi_k", "stoch_rsi_d"):
+        if fn == "stoch_rsi_d":
+            full = (n + ["3", "3", "14", "14"][len(n):])[:4]
+            k, d = [full[0], full[2], full[3]], full
+        else:
+            full = (n + ["3", "14", "14"][len(n):])[:3]
+            k, d = full, [full[0], "3", full[1], full[2]]
+        return [f"stoch_rsi_k({', '.join(k)})", f"stoch_rsi_d({', '.join(d)})"]
     return [f"{fn}({args})"]
 
 
@@ -594,7 +604,8 @@ def chart_layout(rules, own: str = "") -> dict:
             return
         fam, rng = OSCILLATORS[fn]
         key = f"{b[1]} {fam}" if b and b[0] == "sym" else fam
-        if fn in ("macd", "macd_signal", "macd_hist", "stoch_k", "stoch_d") and (b is None or b[0] == "price") \
+        if fn in ("macd", "macd_signal", "macd_hist", "stoch_k", "stoch_d", "stoch_rsi_k", "stoch_rsi_d") \
+                and (b is None or b[0] == "price") \
                 and all(_num_node(a) is not None for a in n.args):
             for c in _companions(fn, ", ".join(_src(a) for a in n.args)):
                 emit(key, src if _norm(c) == _norm(src) else c, rng, periodic)

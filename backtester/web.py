@@ -81,7 +81,8 @@ def _commission_model(v):
 
 OPTION_KEYS = {"capital": float, "start": str, "end": str, "slippage_bps": float, "commission": float,
                "benchmark": str, "name": str, "tv_compat": _flag, "cash_rate": _cash_rate, "dividends": _flag,
-               "commission_per_share": float, "commission_model": _commission_model, "price_basis": str}
+               "commission_per_share": float, "commission_model": _commission_model, "price_basis": str,
+               "ticker": str}   # ticker: the chart symbol of a pasted Pine script
 
 
 class ClientError(Exception):
@@ -148,6 +149,12 @@ def _options(body: dict) -> dict:
             raise ClientError(f"Bad value for {k}: {v!r}")
     if out.get("commission_model") == "":
         del out["commission_model"]   # "none": keep what the strategy says
+    from .strategy import check_date
+    for k in ("start", "end"):
+        try:
+            check_date(out.get(k), k)
+        except ValueError as e:
+            raise ClientError(str(e)) from None
     if "price_basis" in out and out["price_basis"] not in ("adjusted", "quoted"):
         raise ClientError(f"Bad value for price_basis: {out['price_basis']!r} (adjusted or quoted)")
     return out
@@ -213,7 +220,9 @@ def _tv_switch(spec, ov: dict) -> None:
         spec.cash_rate = None if on else "tbill"
     if "dividends" not in ov:
         spec.dividends = None     # the mode's default (validate: credited unless TradingView-compatible)
-    spec.notes = [n for n in spec.notes if not n.startswith("TradingView-compatible mode")]
+    if spec.__class__.__name__ == "Strategy" and "fractional_shares" not in ov:
+        spec.fractional_shares = None   # the mode's default (whole shares for stocks in TradingView-compatible mode)
+    spec.notes = [n for n in spec.notes if not n.startswith(("TradingView-compatible mode", "TradingView sizing:"))]
 
 
 def _spec(body: dict):

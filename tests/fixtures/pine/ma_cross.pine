@@ -1,0 +1,19 @@
+//@version=5
+strategy("MA Cross", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity,
+     default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.05)
+
+fastLen = input.int(10, "Fast length", minval=1)
+slowLen = input.int(30, "Slow length", minval=1)
+
+fast = ta.sma(close, fastLen)
+slow = ta.sma(close, slowLen)
+
+longCondition = ta.crossover(fast, slow)
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+if ta.crossunder(fast, slow)
+    strategy.close("Long", comment="cross down")
+
+plot(fast, "Fast", color=color.blue)
+plot(slow, "Slow", color=color.red)

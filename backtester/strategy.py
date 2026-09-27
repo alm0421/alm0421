@@ -11,12 +11,33 @@ from .costs import COMMISSION_MODELS, broker_commission  # noqa: F401 - re-expor
 Fill = Literal["close", "open", "next_open", "next_close"]
 
 TV_SIZING_NOTE = ("TradingView sizing: a percentage of equity is converted to a quantity on the bar the order is placed, "
-                  "from that bar's equity and close, and the order fills at the next open (TradingView's "
+                  "from that bar's equity and close, and the order fills at the next open (or at that close with "
+                  "process_orders_on_close; TradingView's "
                   "strategy.percent_of_equity: \"position sizes will be calculated as a percentage of the available "
                   "equity\", \"subject to constraints due to the minimum tradable quantities for the symbol\" - TradingView "
                   "Help Center, Strategy properties). The quantity is rounded down to whole shares (the minimum quantity "
                   "of a stock or ETF is 1 share; say 'fractional shares' to allow fractions). An order the cash can't pay "
                   "for at the fill (a gap up) is skipped, not cut.")
+
+
+def check_date(value, what: str = "start"):
+    """A start / end date as given (None or '' for none), refused with a clear message when it is not a date:
+    '2015', '2015-03' and '2015-03-02' (or anything else pandas reads as one date) are accepted."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    import pandas as pd
+    text = str(value).strip()
+    ok = bool(re.fullmatch(r"\d{4}(?:-\d{1,2}(?:-\d{1,2})?)?(?:[T ].*)?|[\w ,./-]*\d[\w ,./-]*", text))
+    if ok:
+        try:
+            ts = pd.Timestamp(text)
+            ok = ts is not pd.NaT and 1800 <= ts.year <= 2200
+        except (ValueError, TypeError, OverflowError):
+            ok = False
+    if not ok:
+        raise ValueError(f"The {what} date {text!r} is not a date. Write it as YYYY-MM-DD, e.g. 2015-01-02 (or a year, "
+                         "e.g. 2015).")
+    return value
 
 
 def _fractional_market(t) -> bool:

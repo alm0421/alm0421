@@ -1,0 +1,23 @@
+//@version=5
+// ticker: SPY
+strategy("RSI(2) mean reversion", overlay=true, initial_capital=100000, default_qty_type=strategy.percent_of_equity,
+         default_qty_value=95, process_orders_on_close=true)
+
+rsiLen = input.int(2, "RSI length", minval=1)
+oversold = input.float(10, "Oversold")
+sl = input.float(5.0, "Stop loss %") / 100
+tp = input.float(6.0, "Take profit %") / 100
+
+r = ta.rsi(close, rsiLen)
+trend = close > ta.sma(close, 200)
+
+if r < oversold and trend and strategy.position_size == 0
+    strategy.entry("L", strategy.long)
+
+if strategy.position_size > 0
+    strategy.exit("Bracket", "L", stop=strategy.position_avg_price * (1 - sl), limit=strategy.position_avg_price * (1 + tp))
+
+if ta.crossover(r, 70)
+    strategy.close("L")
+
+bgcolor(r < oversold ? color.new(color.green, 80) : na)

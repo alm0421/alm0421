@@ -501,15 +501,15 @@ def run(strat: Strategy) -> Result:
         return costs.volume_slippage(slip, shares, float(ADV[i, k]), strat.spread_bps, strat.impact_bps)
 
     def tv_percent_shares(i: int, k: int, fill: float, eq: float, prices: np.ndarray, sgn: int, at_open: bool) -> float:
-        """TradingView's strategy.percent_of_equity: the quantity is computed on the bar the order is placed (the signal
-        bar), from the equity and the close of that bar, rounded down to whole shares for stocks and ETFs; the order
+        """TradingView's strategy.percent_of_equity (and strategy.cash): the quantity is computed on the bar the order is
+        placed (the signal bar), from the equity (or the cash amount) and the close of that bar, rounded down to whole shares for stocks and ETFs; the order
         then fills at the next open. An order the cash can't pay for at the fill is skipped (-1), not cut."""
         sb = S["tv_sb"]
         eq_sig = eq if sb >= i else equity[sb]
         px = C[sb, k]
         if not (np.isfinite(px) and px > 0 and np.isfinite(fill) and fill > 0) or eq_sig <= 0:
             return 0.0
-        shares = eq_sig * strat.position_size / px
+        shares = (eq_sig * strat.position_size if strat.sizing == "percent" else strat.fixed_amount) / px
         f = SF[i, k]
         vol_known = V[i - 1, k] if at_open and i > 0 else (np.nan if at_open else V[i, k])
         if strat.max_volume_pct and vol_known > 0:
@@ -530,7 +530,7 @@ def run(strat: Strategy) -> Result:
     def size_shares(i: int, k: int, fill: float, eq: float, prices: np.ndarray, sgn: int, at_open: bool) -> float:
         # indicators used for sizing must be known when the order is placed
         ib = i - 1 if (at_open and i > 0) else i
-        if strat.tv_compat and strat.sizing == "percent" and S["tv_sb"] is not None:
+        if strat.tv_compat and strat.sizing in ("percent", "fixed_dollars") and S["tv_sb"] is not None:
             return tv_percent_shares(i, k, fill, eq, prices, sgn, at_open)
         if strat.sizing == "percent":
             value = eq * strat.position_size
@@ -1164,8 +1164,9 @@ def run(strat: Strategy) -> Result:
     if S["tv_nofunds"]:
         days = ", ".join(str(d) for d in S["tv_nofunds_days"][:5]) + (" and more" if len(S["tv_nofunds_days"]) > 5 else "")
         strat.notes = [n for n in strat.notes if not n.startswith("TradingView orders skipped:")]
+        size = f"{strat.position_size:.0%} of equity" if strat.sizing == "percent" else f"${strat.fixed_amount:,.0f}"
         strat.notes.append(f"TradingView orders skipped: {S['tv_nofunds']} entry order(s) were skipped ({days}): the quantity, "
-                           f"{strat.position_size:.0%} of equity at the signal bar's close, cost more than the cash "
+                           f"{size} at the signal bar's close, cost more than the cash "
                            "available when the order filled (the price gapped up by the next open). TradingView's broker "
                            "emulator skips such an order rather than cutting it; use a smaller size (e.g. 95% of equity) "
                            "to leave room.")

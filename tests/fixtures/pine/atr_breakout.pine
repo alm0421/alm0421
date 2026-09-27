@@ -1,0 +1,18 @@
+//@version=5
+strategy("Donchian breakout, ATR trail", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     initial_capital=10000, pyramiding=1)
+
+length = input.int(20, "Channel length")
+atrLen = input.int(14, "ATR length")
+mult = input.float(3.0, "ATR multiple")
+
+upper = ta.highest(high, length)[1]
+atr = ta.atr(atrLen)
+
+if close > upper
+    strategy.entry("BO", strategy.long, comment="breakout")
+
+strategy.exit("Trail", from_entry="BO", trail_points=0, trail_offset=mult * atr / syminfo.mintick,
+     stop=strategy.position_avg_price - 2 * ta.atr(atrLen))
+
+plot(upper, "Upper", color=color.teal)

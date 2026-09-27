@@ -124,15 +124,16 @@ symphony gives back the same tree.
 |---|---|
 | Streaks and moves | "closed down on Friday" (the previous session was a Friday and closed lower), "closes higher than the high of the previous 3 days", "3 standard deviations below its 20 day mean" (z-score), "pulls back to the 50 day moving average" (today's low reaches it after closing above it the day before), "falls 10% from its peak" (entries: from the running all-time peak; exits: a 10% trailing stop), "the 14 day momentum is above 0" (the price change over 14 days, TradingView's `ta.mom`), "the close is higher than 5 days ago" (`close > ref(close, 5)`), "yesterday's RSI(2) was below 10 and today RSI(2) is above 10" (the first part on the previous bar), "buy SPY 2 days after RSI(2) is below 10" (`ref(cond, 2)`), down N days in a row, after 3 down days, down *exactly* N days, drops 2% in a day, up 10% over 5 days, gaps down 1%, 10% below / within 2% of / less than 10% below its 52-week high |
 | Averages | above/below/crosses its N-day (or N-week / N-month) SMA/EMA, "the 9 EMA crosses above the 21 EMA", "the 50 MA", "20 period EMA", EMA(9), 50-day MA above the 200-day MA, golden/death cross |
-| Oscillators | RSI(2) below 10, RSI crosses above 30, RSI(2) falls back below 30 / rises back above 70 (crossings), stochastic below 20 (TradingView's defaults: %K 14 with smoothing 1, %D = 3-bar SMA of %K; "slow stochastic" = smoothing 3), ADX above 25, CCI, Williams %R, MFI, MACD crosses its signal / turns positive, "MACD(12,26,9) crosses above signal", +DI above -DI, ATR(14) above 2% of price, "the 14 day ATR is above its 50 day average" |
-| Bands and trends | Bollinger ("the upper / middle / lower band" = 20-day SMA ± 2 sd), Keltner, Supertrend ("the supertrend direction flips to up"), Parabolic SAR, above / below / inside the Ichimoku cloud, VWAP (rolling 20-day volume-weighted typical price on daily bars; "its 10 day VWAP"), closes above its 20-day high (breakout), new N-day low, all-time high, IBS, inside day, volume twice its 20-day average |
-| Other tickers | "…and SPY is above its 200-day moving average", "VIX is above 30", "sell when SPY closes below it" |
+| Oscillators | RSI(2) below 10, RSI crosses above 30, RSI(2) falls back below 30 / rises back above 70 (crossings), stochastic below 20 (TradingView's defaults: %K 14 with smoothing 1, %D = 3-bar SMA of %K; "slow stochastic" = smoothing 3), "%K is below 20", "%D crosses above 80", stochastic RSI ("stochastic RSI below 20", "stoch RSI %K crosses above %D": TradingView's built-in, %K 3, %D 3, RSI 14, stochastic 14 - `stoch_rsi_k` / `stoch_rsi_d`), ADX above 25, CCI, Williams %R, MFI, MACD crosses its signal / turns positive, "MACD(12,26,9) crosses above signal", +DI above -DI, ATR(14) above 2% of price, "the 14 day ATR is above its 50 day average" |
+| Bands and trends | Bollinger ("the upper / middle / lower band" = 20-day SMA ± 2 sd), Keltner, Supertrend ("the supertrend direction flips to up"; exit "sell when it flips to down"), Heikin Ashi ("Heikin Ashi turns green" = the HA candle is green today and was not yesterday; "turns red", "is green"), Parabolic SAR, above / below / inside the Ichimoku cloud, VWAP (rolling 20-day volume-weighted typical price on daily bars; "its 10 day VWAP"), closes above its 20-day high (breakout), new N-day low, all-time high, IBS, inside day, volume twice its 20-day average |
+| Other tickers | "…and SPY is above its 200-day moving average", "VIX is above 30", "sell when VIX crosses above 30" (the close crossing the level, `crossover(sym("^VIX").close, 30)`), "sell when SPY closes below it" |
 | Calendar | on Mondays, in October, last / first / third / second-to-last trading day of the month, first 3 trading days of the month |
 | Ranking | "buy the 5 Nasdaq 100 stocks with the lowest RSI(2) each day, hold 3 days" (up to 5 positions; free slots go to the lowest RSI(2)); with no rule or exit, "buy the 3 Nasdaq 100 stocks with the highest 20 day rate of change each week" is a weekly rotation (an equal-weight allocation re-chosen each week) |
 | Entries | at the close / at the open (same day, rules must be knowable at the open) / next open; limit or stop orders ("a limit 2% below the close"); pyramiding ("pyramid up to 3 entries": with no size given, each position's share is split across the entries); a gap rule with no timing ("buy QQQ when it gaps down 2%") fills at that day's open, when it becomes known; "on QQQ, go long when …" |
-| Exits | hold N days, sell when …, "sell after 10 days or when RSI is above 70", "sell when it's over 70", "sell when it is falling", "sell when they turn down" (*it* / *they* = what the entry is about: its indicator, e.g. the 50-day MA of "buy when the 50 day moving average is rising", or the price; refused if the entry is about several things; shown as a **Warning**), a bare "RSI" takes the entry's period, "sell when it crosses back below", "sell at the open when …" (same open if the rule is known at the open, e.g. a gap; otherwise checked at the close and sold at the next open), "cover at the next open when …", % stop, ATR stop, trailing / chandelier stop (both at once: whichever is closer to the price), "move the stop to breakeven after +2%", take profit, sell half at +X% ("and trail the rest with an 8% trailing stop": the trailing stop starts after the scale-out), "stop at the low of the entry bar", "stop at the 5 day low", "stop at `expr`", "target 2R" / "take profit at 2 times the risk", "target at the 20 day high", "cover when it closes above it". "buy TSLA while …" / "hold TSLA when …" with no exit: in the market while the condition holds |
+| Exits | hold N days, sell when …, "sell after 10 days or when RSI is above 70", "sell when it's over 70", "sell when it is falling", "sell when they turn down" (*it* / *they* = what the entry is about: its indicator, e.g. the 50-day MA of "buy when the 50 day moving average is rising", or the price; refused if the entry is about several things; shown as a **Warning**), a bare "RSI" takes the entry's period, "sell when it crosses back below", "sell when it crosses below it" (after "buy when close crosses above the 50 day MA": the close crossing back below that average), "sell when it crosses above the 20 day mean" (the 20-day SMA), "sell at the open when …" (same open if the rule is known at the open, e.g. a gap; otherwise checked at the close and sold at the next open), "cover at the next open when …", % stop, ATR stop, trailing / chandelier stop (both at once: whichever is closer to the price), "move the stop to breakeven after +2%", take profit, sell half at +X% ("and trail the rest with an 8% trailing stop": the trailing stop starts after the scale-out), "stop at the low of the entry bar", "stop at the 5 day low", "stop at `expr`", "target 2R" / "take profit at 2 times the risk", "target at the 20 day high", "cover when it closes above it". "buy TSLA while …" / "hold TSLA when …" with no exit: in the market while the condition holds |
 | Sizing | max N positions (with a short list of k < 10 tickers and no limit: k slots at 1/k each; otherwise 10 at 10%), X% per position, risk X% per trade (to the stop; with only a trailing stop, to its starting distance), target X% volatility, $X or N shares per trade (filled in full or skipped, see below), 2x leverage |
-| Costs | bps or % slippage, volume-based slippage / market impact, $ per trade, $ per share, % commission, IBKR commissions (fixed or tiered), borrow fee, margin rate, short rebate X% below T-bills, 30% maintenance margin / no margin calls, cap at X% of volume |
+| Pine in a sentence | `request.security(syminfo.tickerid, "W", ta.sma(close, 10))`, `ta.stoch(ta.rsi(close, 14), ta.rsi(close, 14), ta.rsi(close, 14), 14)`, `ta.rsi(close, 2)[1]`, with or without backticks |
+| Costs | bps or % slippage ("slippage 0.05%"), "commission 0.1%" / "0.1% commission", "stop loss at 2 ATR below entry", volume-based slippage / market impact, $ per trade, $ per share, % commission, IBKR commissions (fixed or tiered), borrow fee, margin rate, short rebate X% below T-bills, 30% maintenance margin / no margin calls, cap at X% of volume |
 | Bounds | "more than" / "greater than" / "over" / "above" / "exceeds" are strict (>), "at least" / "or more" include the number (>=); "less than" / "below" / "under" are strict (<), "at most" / "or less" / "no more than" include it (<=). A bare number includes it ("fell 5%" = at least 5%) |
 | Equal weights | "in equal thirds / parts", "equally (weighted)", "equal thirds of …"; weights that are all equal and add up to 99%-99.99% ("33% / 33% / 33%", 33.3% each) are equal thirds (n-ths), with a note, not 1% cash; "A, B and C weighted 50/30/20" |
 | Negation and more | "it is not the case that …", "not (… or …)", "max drawdown is worse (deeper) than 10%" = a fall of more than 10% (better / shallower = less), "the 20 day SMA of SPY crosses below its 50 day SMA" (true on the day it crosses), "the top 2 by 10 day RSI of A, B, C", "the highest / lowest 10 day RSI of A, B, C" (top / bottom 1), rebalance every N days / weeks / months |
@@ -207,6 +208,9 @@ never quietly drops them or swaps in a different ticker.
 - The price chart also draws each trade's stop, trailing stop and target, the other tickers a rule filters on
   (e.g. SPY and its 200-day average) in their own pane, and a strip of the bars on which the entry and exit
   rules were true; it has a log scale and a date label on the crosshair.
+- The chart draws each series as the rule reads it: `ref(highest(high, 20), 1)` (Pine's `ta.highest(high, 20)[1]`,
+  "closes above its 20 day high") is drawn one bar back and labelled `highest(high, 20)[1]`, not today's value.
+  Drawings (horizontal and trend lines) are kept per ticker in the browser, so they carry across runs and reports.
 - Every series a rule uses is charted: moving averages, bands, channels, Supertrend, SAR and the VWAP proxy
   over the price; RSI, stochastic, MACD, ADX/DMI, CCI, MFI, Williams %R, returns, volatility, ATR, OBV,
   volume, IBS, streaks and other tickers' series in their own panes (as many as needed: click a pane's
@@ -381,6 +385,12 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   dividends are not credited (TradingView's default charts are split-adjusted, not dividend-adjusted). Each is stated in
   a note and can be switched back: "with interest on cash", "with dividends" (or the site's settings, or
   `cash_rate` / `dividends` in a spec).
+- **Scale-outs are resting limit orders.** "Sell half at +3%, take profit at 6%, stop loss 5%": on a bar that reaches
+  several levels, the levels fill in the order the price reaches them - the nearest profit level first (a scale-out
+  below the target fills before the target closes the rest), and a level the open already passed fills at the open
+  (a gap). When the stop and a profit level are both touched the stop is assumed first (all of what is left exits at
+  the stop); in TradingView-compatible mode the bar's path decides for every level, scale-outs included (open → high
+  → low → close: the scale-out and target fill on the way up, then the stop on the way down).
 - **Stops and targets at a price** (`stop_level`, `target_level`, `target_r`). A rule-language expression evaluated
   once, when the position opens, and then fixed: "stop at the low of the entry bar" (`low`), "stop at the 5 day low"
   (`lowest(low, 5)`), `entry_price - 2 * atr(14)`; a target may use `stop_price`, and "target 2R" is entry + 2 x
@@ -388,6 +398,47 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   (same day, next day, or a limit/stop order during the bar) reads the previous bar, unless the expression is
   open-safe - so with a next-open entry "the low of the entry bar" is the signal bar's low (a note says so). An entry
   whose level is not defined yet (indicator warm-up) is skipped.
+- **Reconciling with TradingView's Strategy Tester.** In TradingView-compatible mode the backtest follows the broker
+  emulator's documented conventions:
+  - Orders placed at a bar's close fill at the next bar's open (`process_orders_on_close = false`); "at the close"
+    is `process_orders_on_close = true`.
+  - Sizing as a percentage of equity (`strategy.percent_of_equity`) or a cash amount (`strategy.cash`): the quantity
+    is computed on the bar the order is placed, from that bar's equity and **close**, and rounded down to **whole
+    shares** for stocks and ETFs (TradingView's minimum quantity of 1 share; the Help Center's Strategy properties:
+    order sizes are "subject to constraints due to the minimum tradable quantities for the symbol"; crypto and FX
+    pairs keep fractions; say "fractional shares" to allow them). An order the cash can't pay for at the fill (a gap
+    up after a 100%-of-equity signal) is skipped, as TradingView does, and a note counts the skipped orders.
+  - "Hold N days" is `strategy.close()` once N bars have passed since the entry bar: placed at that close, filled at
+    the next open (N + 1 bars after the entry bar). "Hold N days and sell at the close" keeps the close.
+  - A stop and a target (and scale-outs) touched on one bar follow the open → high → low → close path (open nearer
+    the high) or open → low → high → close; price levels crossed by a gap fill at the open.
+  - Cash earns nothing and dividends are not credited (price-only returns, on split-adjusted prices).
+
+  Remaining differences to check when numbers don't match: TradingView's defaults are `initial_capital = 1,000,000`,
+  an order size of 1 share (`strategy.fixed`) and **no commission** - this backtester defaults to $10,000 and 100% of
+  equity, so state the capital and size; `pyramiding` defaults to 1 in both; slippage in TradingView is in ticks
+  (here basis points); margin calls follow the 25% maintenance margin here, TradingView's margin model differs; the
+  price history (a different data vendor, split adjustments) and the first bar used (TradingView starts at the
+  chart's first bar, here at the start date, with indicator warm-up taken from earlier data) can differ;
+  `use_bar_magnifier` / intrabar data is not available (daily bars only); a stop or target recomputed on every bar
+  (a `strategy.exit` with a moving level) is fixed at entry here.
+- **Pine scripts.** A pasted TradingView strategy (text starting with `//@version`, or containing `strategy(...)`
+  and `strategy.entry`) is translated instead of read as English - on the command line (`python -m backtester
+  "$(cat script.pine)" --tickers SPY` or `python -m backtester script.pine --tickers SPY`) and on the site (the
+  "Ticker (Pine script)" setting), or with a `// ticker: SPY` comment in the script. Supported:
+  `strategy()` settings (initial_capital, default_qty_type / value, commission_type / value, pyramiding,
+  process_orders_on_close, margin_long), `input.*()` (their defaults), variables of `ta.*` / `math.*` expressions,
+  tuples (`[m, s, h] = ta.macd(...)`, ta.bb, ta.supertrend, ta.dmi, ta.kc), `strategy.entry` with `when=` or inside
+  `if` / `else if` / `else`, `strategy.close` / `strategy.close_all`, `strategy.exit` with `stop=` / `limit=` from
+  `strategy.position_avg_price` (a percentage, or `- 2 * ta.atr(14)`), `profit=` / `loss=` / `trail_offset=` as a
+  distance `/ syminfo.mintick`, `qty_percent` (scale-outs), `request.security` on the chart's symbol or another
+  ("W" / "M" / "D"), date filters (`time >= timestamp(2015, 1, 1)` sets the start), bars since entry
+  (`bar_index - strategy.opentrades.entry_bar_index(0)`). Plots and alerts are skipped. Anything else (var / `:=`
+  state, custom functions, loops, ternaries, `strategy.order`, limit/stop entries, levels that move every bar) is
+  refused with its line number. Each translated line is listed in the notes, and the result runs in
+  TradingView-compatible mode.
+- **Dates are checked first.** A start or end that is not a date ("garbage", 2016-13-45) is refused with a clear
+  message in sentences, on the command line, on the site and in JSON specs.
 - **Entry fill labels.** In trades.csv `entry_fill` is `close`, `open`, `limit` or `stop` (a limit/stop order filled at
   its level during the bar); a limit/stop order the open had already crossed is `open`.
 - **Partly known at the open.** For an entry at the open whose rule mixes open-time and close-time parts

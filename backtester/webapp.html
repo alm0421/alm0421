@@ -113,7 +113,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 <section id="p-backtest">
   <div class="card">
     <h2>Describe a strategy</h2>
-    <textarea id="text" placeholder="e.g. buy Microsoft at the close when it is down 5 days in a row, hold 1 day and sell at the close"></textarea>
+    <textarea id="text" placeholder="e.g. buy Microsoft at the close when it is down 5 days in a row, hold 1 day and sell at the close (or paste a TradingView Pine strategy script)"></textarea>
     <div class="chips" id="examples"></div>
     <h3>How it will be run</h3>
     <div class="interp" id="interp">Type a strategy above; its interpretation appears here as you type.</div>
@@ -128,6 +128,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label>Benchmark<input id="o_benchmark" list="tickerList" placeholder="SPY"></label>
         <label>Risk-free for Sharpe<select id="o_rf"><option value="tbill">3-month T-bills</option><option value="0">0%</option></select></label>
         <label>Name<input id="o_name" placeholder="optional label"></label>
+        <label title="the symbol a pasted TradingView Pine strategy runs on (or add a line '// ticker: SPY' to the script)">Ticker (Pine script)<input id="o_ticker" list="tickerList" placeholder="e.g. SPY"></label>
         <label title="Unstated entry timing fills at the next open (process_orders_on_close = false); a stop and a target hit on one bar follow TradingView's open-high-low-close path; cash earns nothing and dividends are not credited unless asked for">TradingView-compatible<select id="o_tv_compat"><option value="">as described (off)</option><option value="true">on</option><option value="false">off</option></select></label>
         <label title="interest on idle cash: the 3-month T-bill rate, none, or a fixed annual rate in %">Cash interest<input id="o_cash_rate" list="cashRates" placeholder="as described"></label>
         <label title="credit cash dividends on the ex-date (signal strategies; portfolios always receive them)">Dividends<select id="o_dividends"><option value="">as described</option><option value="true">credited</option><option value="false">not credited (price-only)</option></select></label>
@@ -600,7 +601,7 @@ window.addEventListener('blur', unpress);
   // ---------- backtest
   // every setting of the Backtest page (each overrides the sentence, or the shared / opened spec)
   const OPT_KEYS = ['capital', 'start', 'end', 'slippage_bps', 'commission', 'benchmark', 'name', 'tv_compat', 'cash_rate', 'dividends',
-    'commission_per_share', 'commission_model', 'price_basis'];
+    'commission_per_share', 'commission_model', 'price_basis', 'ticker'];
   const opt = () => { const o = {}; OPT_KEYS.forEach(k => { const v = $('o_' + k).value; if (v !== '') o[k] = v; }); return o; };
   let timer = null, lastSpec = null;
   // a strategy opened from a share link or the gallery is kept whole (every field, not only what the sentence says):
@@ -1238,6 +1239,7 @@ window.addEventListener('blur', unpress);
 
   let buildMode = 'portfolio';
   function setBuildMode(m) {
+    if (m !== buildMode) buildOwn = {};   // the other mode's notes and description don't belong to this one
     buildMode = m; [...$('buildMode').children].forEach(b => b.classList.toggle('on', b.dataset.v === m));
     $('bPortfolio').classList.toggle('hide', m !== 'portfolio'); $('bSignal').classList.toggle('hide', m !== 'signal');
     $('buildHelp').textContent = m === 'portfolio' ? 'Build an allocation like a Composer symphony: weighted groups, if/else switches and top-N filters, nested as deep as you like. Pick indicators for conditions and rankings (or switch a block to rule text), drag ⠿ to move blocks, and fix anything marked in red before running.'
@@ -1296,9 +1298,18 @@ window.addEventListener('blur', unpress);
     const n = Object.keys(adv).length; $(prefix + 'advBox').querySelector('summary').textContent = `Advanced fields (JSON: ${n} other field${n === 1 ? '' : 's'} of the ${prefix === 's_' ? 'strategy' : 'portfolio'}, carried unchanged)`;
   }
   let buildName = '';   // the loaded portfolio's name (gallery, import), kept for its runs
+  // the loaded spec's notes and description (the sentence it came from) go with its runs while its rules are as
+  // loaded; once a rule is edited here they no longer describe it, and the server writes new ones
+  var buildOwn = {};   // var: setBuildMode may run before this line during start-up
+  const RULE_FIELDS = ['entry', 'short_entry', 'exit_when', 'entry_level', 'stop_level', 'target_level', 'rank_by', 'side', 'universe', 'tree', '*advanced'];
+  function keptOwn() {
+    let g = null; try { g = guard; } catch (e) { g = null; }   // declared further down
+    if (g && RULE_FIELDS.some(f => g.edited.has(f))) return {};
+    return JSON.parse(JSON.stringify(buildOwn || {}));
+  }
   function specFromEditor() {
-    if (buildMode === 'portfolio') return Object.assign({ kind: 'allocation' }, advanced('p_'), { tree: JSON.parse(JSON.stringify(tree)) }, buildName ? { name: buildName } : {}, fromForm('p_', P_FIELDS));
-    const s = Object.assign({}, advanced('s_'), fromForm('s_', S_FIELDS));
+    if (buildMode === 'portfolio') return Object.assign({ kind: 'allocation' }, advanced('p_'), { tree: JSON.parse(JSON.stringify(tree)) }, buildName ? { name: buildName } : {}, fromForm('p_', P_FIELDS), keptOwn());
+    const s = Object.assign({}, advanced('s_'), fromForm('s_', S_FIELDS), keptOwn());
     const u = $('s_universe').value.trim();
     if (u.toUpperCase() === 'NDX') { s.universe = (STATUS && STATUS.nasdaq100) || []; s.universe_name = 'NDX'; }
     else { s.universe = u.split(/[\s,]+/).filter(Boolean).map(x => x.toUpperCase()); if (s.universe_name === 'NDX') delete s.universe_name; }
@@ -1404,6 +1415,7 @@ window.addEventListener('blur', unpress);
       toForm('p_', P_FIELDS, spec); setAdvanced('p_', spec, P_FIELDS, P_OWN); rebalTouched = 'rebalance' in spec; $('rebalNote').textContent = ''; draw(); }
     else { setBuildMode('signal'); toForm('s_', S_FIELDS, spec); setAdvanced('s_', spec, S_FIELDS, S_OWN); $('s_universe').value = spec.universe_name === 'NDX' ? 'NDX' : (spec.universe || []).join(', '); }
     guardStart(spec);
+    buildOwn = {}; ['notes', 'description'].forEach(k => { if (spec[k] != null && spec[k] !== '' && !(Array.isArray(spec[k]) && !spec[k].length)) buildOwn[k] = spec[k]; });
     $('specJson').value = JSON.stringify(spec, null, 2); buildName = spec.tree && spec.name ? spec.name : '';
     $('buildShare').classList.add('hide'); buildShare = null;
   }
