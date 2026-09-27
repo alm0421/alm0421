@@ -337,6 +337,7 @@ class _Ctx:
         self.state: dict[str, dict] = {}        # var name -> {"type", "init", "line"}
         self.updates: list[dict] = []           # {"var", "when": [(cond id, node)], "value": node, "line"}
         self.uses: list[tuple[int, set]] = []   # (line, names read) of statements that read state
+        self.allow = None                       # strategy.risk.allow_entry_in: ("long" / "short" / "all", line)
 
 
 def _input_default(call: ast.Call, line: int):
@@ -380,14 +381,29 @@ class _Subst(ast.NodeTransformer):
         if n.id == "bar_index":
             _refuse(self.line, "bar_index is only supported as bar_index - strategy.opentrades.entry_bar_index(0) (the "
                                "bars since the entry) in an exit.")
+        if n.id == "dayofweek":
+            return self._dayofweek()
         if n.id in ("time", "time_close", "timenow"):
             _refuse(self.line, f"{n.id} is only supported in a date filter: time >= timestamp(2015, 1, 1).")
         if n.id == "na":
             _refuse(self.line, "na as a value is only supported in a var's value (var float x = na, x := na).")
         return n
 
+    def _dayofweek(self):
+        """Pine's dayofweek (Sunday = 1 ... Saturday = 7) from the rule language's dow (Monday = 0 ... Sunday = 6):
+        dow + 2 on the weekdays daily stock bars have."""
+        note = ("dayofweek: TradingView numbers the days Sunday = 1, Monday = 2 ... Saturday = 7 (dayofweek.monday = 2); "
+                "the rule language's dow is Monday = 0 ... Friday = 4, so dayofweek is read as dow + 2.")
+        if not any(note in x for x in self.ctx.notes):
+            self.ctx.notes.append(f"line {self.line}: {note}")
+        return ast.BinOp(left=ast.Name(id="dow", ctx=ast.Load()), op=ast.Add(), right=ast.Constant(2))
+
     def visit_Call(self, n):
         name = _call_name(n)
+        if name == "dayofweek":
+            if len(n.args) == 1 and not n.keywords and isinstance(n.args[0], ast.Name) and n.args[0].id in ("time", "time_close"):
+                return self._dayofweek()
+            _refuse(self.line, "dayofweek(...) is only supported for the current bar: dayofweek or dayofweek(time).")
         if name == "input" or name.startswith("input."):
             return self.visit(copy.deepcopy(_input_default(n, self.line)))
         if name in ("timestamp",):
@@ -417,6 +433,11 @@ class _Subst(ast.NodeTransformer):
             return ast.Name(id="entry_price", ctx=ast.Load())
         if a == "barstate.isconfirmed":
             return ast.Constant(True)
+        if a.startswith("dayofweek."):
+            days = {"sunday": 1, "monday": 2, "tuesday": 3, "wednesday": 4, "thursday": 5, "friday": 6, "saturday": 7}
+            if a[len("dayofweek."):] not in days:
+                _refuse(self.line, f"{a} is not a day of the week.")
+            return ast.Constant(days[a[len("dayofweek."):]])
         if a.startswith(("strategy.", "barstate.")) and a not in ("strategy.long", "strategy.short"):
             if self.where == "state":
                 _refuse(self.line, f"{a} in a var's update: state that depends on the position is not supported (the "
@@ -1052,8 +1073,22 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
                     _refuse(line, "strategy.exit(from_entry=...) must be an entry id in quotes.")
                 exits.append({"from": fe, "a": a, "line": line, "cs": head + ([a["when"]] if "when" in a else [])})
                 continue
+            if name == "strategy.risk.allow_entry_in":
+                if head:
+                    _refuse(line, "strategy.risk.allow_entry_in() inside an if is not supported: call it once at the top "
+                                  "level.")
+                d = _attr(call.args[0]) if call.args else _attr(dict((k.arg, k.value) for k in call.keywords).get("value"))
+                if d not in ("strategy.direction.long", "strategy.direction.short", "strategy.direction.all"):
+                    _refuse(line, "strategy.risk.allow_entry_in() takes strategy.direction.long, .short or .all.")
+                ctx.allow = (d.rsplit(".", 1)[-1], line)
+                continue
+            if name.startswith("strategy.risk."):
+                _refuse(line, f"{name}() is not supported: TradingView's risk rules stop a strategy mid-test (after a "
+                              "drawdown, a daily loss, a number of losing days...) or cap its orders, and the backtest has "
+                              "no such kill switch. Remove the line; the report's drawdown and trade statistics show what "
+                              "the rule would have limited. (strategy.risk.allow_entry_in is supported.)")
             _refuse(line, f"{name}() is not supported by the importer (supported: strategy.entry, strategy.close, "
-                          "strategy.close_all, strategy.exit).")
+                          "strategy.close_all, strategy.exit, strategy.risk.allow_entry_in).")
         # tuple assignment
         m = re.match(r"^\[\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*\]\s*=\s*(.+)$", s)
         if m:
@@ -1110,6 +1145,23 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
 
     if not seen_strategy:
         raise PineImportError("This is not a Pine strategy: there is no strategy(...) declaration.")
+    if ctx.allow and ctx.allow[0] != "all":
+        # strategy.risk.allow_entry_in(strategy.direction.long): the short entries only close a long position (and do
+        # nothing while flat); the mirror image for .short
+        keep = 1 if ctx.allow[0] == "long" else -1
+        for eid, e in list(entries.items()):
+            if e["side"] == keep:
+                continue
+            if any(e["orders"]):
+                _refuse(e["line"], f"strategy.entry({eid!r}) is a limit / stop order in the direction that "
+                                   f"strategy.risk.allow_entry_in (line {ctx.allow[1]}) forbids; as an exit it would be a "
+                                   "resting order, which is not supported.")
+            for cs, ln in e["conds"]:
+                closes.append({"ids": None, "cs": cs, "line": ln})
+            del entries[eid]
+            ctx.notes.append(f"line {ctx.allow[1]}: strategy.risk.allow_entry_in(strategy.direction.{ctx.allow[0]}): "
+                             f"TradingView opens only {ctx.allow[0]} positions, and the {'short' if keep == 1 else 'long'} "
+                             f"entry {eid!r} (line {e['line']}) only closes an open {ctx.allow[0]} position (at market).")
     if not entries:
         raise PineImportError("The Pine script places no strategy.entry() orders.")
 
@@ -1122,8 +1174,17 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
             raise PineImportError(f"strategy({bad} = true) is not supported (it needs intrabar data).")
     slip = _const(settings.get("slippage", ast.Constant(0)))
     if slip:
-        raise PineImportError("strategy(slippage=...) is in ticks, which the backtest can't convert (no tick size); set "
-                              "slippage in basis points instead, e.g. add '5 bps slippage' as a setting.")
+        from .strategy import _fractional_market
+        if not isinstance(slip, (int, float)) or isinstance(slip, bool) or slip < 0:
+            raise PineImportError("strategy(slippage=...) must be a whole number of ticks (0 or more).")
+        if _fractional_market(data.canonical(tick)):
+            raise PineImportError(f"strategy(slippage={slip:g}) is in ticks, and the tick size of {tick} is not known; set "
+                                  "slippage in basis points instead, e.g. add '5 bps slippage' as a setting.")
+        kw["slippage_price"] = float(slip) * MINTICK
+        notes.append(f"strategy(slippage={slip:g}): {slip:g} tick{'s' if slip != 1 else ''} x syminfo.mintick $0.01 (US stocks "
+                     f"and ETFs) = ${slip * MINTICK:g} per share, added against the trade to every market and stop fill "
+                     "(entries, strategy.close, stop losses and trailing stops), not to limit fills (limit entries and "
+                     "take-profit targets), as TradingView's broker emulator does.")
     bfl = _const(settings.get("backtest_fill_limits_assumption", ast.Constant(0)))
     if bfl:
         raise PineImportError("strategy(backtest_fill_limits_assumption=...) is not supported.")

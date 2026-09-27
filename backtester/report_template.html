@@ -774,7 +774,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     view: 'D', indMem: {}, keepWin: null };
   const TWO = { trend: 'tr', ray: 'ray', rect: 'rect', fib: 'fib' }, TWO_T = new Set(Object.values(TWO));   // two-point drawings
   const FIBS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
-  const PX_MIN_BARS = 10, PANE_H = 118, PANE_GAP = 12, PRICE_H = 340, AXIS_H = 24, RS_H = 30, FOLD_H = 20, PANE_MIN = 40, EDGE = 5;
+  const PX_MIN_BARS = 10, PANE_H = 118, PANE_GAP = 12, PRICE_H = 340, AXIS_H = 24, RS_H = 38, FOLD_H = 20, PANE_MIN = 40, EDGE = 5;
   const FONT = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
   const fmtV = v => !isNum(v) ? '—' : Math.abs(v) >= 1e5 ? compact(v) : num(v, Math.abs(v) < 10 ? 3 : 2);
   const narrow = () => ($('pxChart').clientWidth || 800) < 560;
@@ -1153,7 +1153,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       PX.idx = idx;
       // trade prices are as traded; the chart is split-adjusted: divide by the later-split factor of each date
       const onChart = tr => { const f = +tr.entry_split_factor || 1, g = +tr.exit_split_factor || 1; if (f === 1 && g === 1) return tr;
-        const o = { ...tr, entry_price: tr.entry_price / f, exit_price: tr.exit_price / g };
+        const o = { ...tr, entry_price: tr.entry_price / f, exit_price: tr.exit_price / g, traded: { entry: tr.entry_price, exit: tr.exit_price } };
         ['stop_level', 'trail_level', 'target_level', 'atr_at_entry'].forEach(k => { if (isNum(tr[k])) o[k] = tr[k] / f; }); return o; };
       PX.trades = r.trades.filter(tr => tr.ticker === t).map(tr => ({ tr: onChart(tr), ei: idx.get(tr.entry_date), xi: idx.get(tr.exit_date) }));
       PX.byBar = new Map();
@@ -1462,9 +1462,12 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
         for (let i = i0; i <= i1; i++) { if (!((rs.charCodeAt(i) - 48) & bit)) continue; const x = Math.floor(X(i) - bw / 2); if (bpp > 1 && x === lastCol) continue; lastCol = x; ctx.rect(x, y, bw, rowH); }
         ctx.globalAlpha = 0.8; ctx.fill(); ctx.globalAlpha = 1;
       });
-      ctx.font = '600 10.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = css('--text-2');
+      // each label sits in its own row (the font never taller than the row), so 'entry' and 'exit' can't overlap
+      const fs = Math.max(8, Math.min(10.5, rowH - 3));
+      ctx.font = `600 ${fs}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = css('--text-2');
       ctx.fillText('entry', l - 6, strip.y + 2 + rowH / 2);
-      ctx.fillText(P.rs_exit ? 'exit' : '', l - 6, strip.y + 4 + rowH * 1.5);
+      if (P.rs_exit) ctx.fillText('exit', l - 6, strip.y + 4 + rowH * 1.5);
+      pxBase.dataset.rsLabels = JSON.stringify({ fs, entry: strip.y + 2 + rowH / 2, exit: P.rs_exit ? strip.y + 4 + rowH * 1.5 : null });
       ctx.font = FONT;
     }
     PX.drawMs = performance.now() - tStart;
@@ -1591,7 +1594,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     (PX.byBar.get(i) || []).forEach(x => {
       const tr = x.tr;
       rows.push({ name: `#${tr.trade} ${tr.side} ${x.entry ? 'entry (' + tr.entry_fill + ')' : 'exit (' + tr.exit_reason + ', ' + pct(tr.return) + ')'}`,
-        value: num(x.entry ? tr.entry_price : tr.exit_price, 2), color: x.entry ? css('--up') : css('--down') });
+        value: num(x.entry ? tr.entry_price : tr.exit_price, 2) + (tr.traded ? ` (as traded ${num(x.entry ? tr.traded.entry : tr.traded.exit, 2)})` : ''),
+        color: x.entry ? css('--up') : css('--down') });
     });
     const bb = pxTop.getBoundingClientRect(), s = bb.width / g.W;
     pxTip.show(g.X(i) * s, Math.max(0, p.y * s - 60), P.dates[i], rows);
@@ -1941,14 +1945,17 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     $('nTrades').textContent = r.trades.length.toLocaleString();
     $('tradeHead').textContent = r.kind === 'allocation' ? 'Holding periods' : 'All trades';
     const alloc = r.kind === 'allocation';
+    // prices as traded on the day; a trade before a later split also shows the split-adjusted price the chart draws
+    const split = !alloc && r.trades.some(t => (+t.entry_split_factor || 1) !== 1 || (+t.exit_split_factor || 1) !== 1);
+    const px = (t, k, f) => { const v = t[k], s = +t[f] || 1; return s === 1 || !isNum(v) ? num(v, 2) : `${num(v, 2)} (chart ${num(v / s, 2)})`; };
     const cols = alloc ? [
       ['#', t => t.trade, t => t.trade], ['Ticker', t => t.ticker, t => t.ticker], ['From', t => t.entry_date, t => t.entry_date], ['To', t => t.exit_date, t => t.exit_date],
       ['Avg value', t => usd(t.position_value), t => t.position_value], ['Bought', t => usd(t.bought), t => t.bought], ['P&L', t => ({ t: usd(t.pnl, 2), c: signCls(t.pnl) }), t => t.pnl],
       ['Return', t => ({ t: pct(t.return), c: signCls(t.return) }), t => t.return], ['Days', t => t.bars_held, t => t.bars_held], ['Status', t => t.exit_reason, t => t.exit_reason],
     ] : [
       ['#', t => t.trade, t => t.trade], ['Ticker', t => t.ticker, t => t.ticker], ['Side', t => t.side, t => t.side],
-      ['Entry date', t => t.entry_date, t => t.entry_date], ['Entry', t => num(t.entry_price, 2), t => t.entry_price],
-      ['Exit date', t => t.exit_date, t => t.exit_date], ['Exit', t => num(t.exit_price, 2), t => t.exit_price],
+      ['Entry date', t => t.entry_date, t => t.entry_date], [split ? 'Entry (as traded)' : 'Entry', t => px(t, 'entry_price', 'entry_split_factor'), t => t.entry_price],
+      ['Exit date', t => t.exit_date, t => t.exit_date], [split ? 'Exit (as traded)' : 'Exit', t => px(t, 'exit_price', 'exit_split_factor'), t => t.exit_price],
       ['Shares', t => num(t.shares, 2), t => t.shares], ['Size', t => usd(t.position_value), t => t.position_value],
       ['P&L', t => ({ t: usd(t.pnl, 2), c: signCls(t.pnl) }), t => t.pnl], ['Return', t => ({ t: pct(t.return), c: signCls(t.return) }), t => t.return],
       ['Bars', t => t.bars_held, t => t.bars_held], ['MAE', t => pct(t.mae), t => t.mae], ['MFE', t => pct(t.mfe), t => t.mfe],
@@ -1976,7 +1983,9 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     tbl.append(tb);
     $('tradeNote').textContent = alloc ? 'A holding period runs from the first purchase of a ticker until a rebalance sells it completely; P&L includes trims, adds and reinvested dividends. '
         + 'Avg value is the average market value while held; Bought adds up every purchase (with daily rebalancing, many small ones); Return is the ticker\'s own total return over the period.'
-      : 'Prices are split-adjusted as quoted; dividends are paid in cash on the ex-date and shown per trade (short positions pay them, plus any borrow fee). MAE/MFE = worst/best excursion while open.';
+      : (split ? 'Entry and exit prices and shares are as traded on the day; for a trade before a later split, "chart" is the split-adjusted price the chart above draws (the as-traded price divided by the later splits). '
+        : 'Entry and exit prices are as traded on the day (no split since, so the chart shows the same prices). ')
+        + 'Dividends are paid in cash on the ex-date and shown per trade (short positions pay them, plus any borrow fee). MAE/MFE = worst/best excursion while open.';
     const od = r.orders || [];
     $('ordersCard').classList.toggle('hide', !od.length);
     if (od.length) {

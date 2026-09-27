@@ -1577,6 +1577,7 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
                   "TradingView's ta.mom); say 'the {n} day return' for a percentage.".replace("{n}", str(n)))
             return f"diff({c}, {n}) {_cmp(m.group(3))} {m.group(4)}"
         take(rf"(?:its |the )?(\d+)[- ](day|bar|period|session)s? momentum (?:is )?{CMPW} (-?\d+(?:\.\d+)?)(?![\d.%])(?! (?:day|week|month|bar))", mom)
+    _r13_candle_takes(take, c, o)
 
     # consecutive down / up closes ("exactly N" fires only on the Nth day)
     take(rf"{dn} (?:for )?exactly {NUM} (?:straight |consecutive )?(?:days|closes|sessions|bars)(?: in a row| straight)?|exactly {NUM} (?:consecutive|straight) {dn} (?:days|closes|sessions|bars)",
@@ -2726,6 +2727,7 @@ def _review_condition_phrases(text: str) -> str:
               f"{'above 70' if over else 'below 30'} (the usual RSI zones). Say e.g. '10 day RSI is {'above 80' if over else 'below 20'}' "
               "for another indicator or level.")
         return f" 14 day RSI is {'above 70' if over else 'below 30'}"
+    text = _r13_osc_zone(text)
     text = _sub_outside(r"(?i)(?<!rsi)(?<!rsi\))\s+(?:is|are|gets|becomes|turns) (oversold|overbought)\b", osc, text)
     return text
 
@@ -3950,6 +3952,7 @@ def _exit_rule(wl: str, entry: str, universe: list[str], notes: list[str]) -> st
     below' / 'QQQ closes below it' (the entry's price comparison reversed), 'it is over 70' (the
     entry's indicator), a bare 'RSI' (the entry's RSI period) and 'the signal ends'."""
     one = universe[0] if len(universe) == 1 else None
+    wl = _r13_exit_refs(wl, entry, notes)
     # "they are falling" (several tickers) is the same pronoun as "it is falling"
     wl = re.sub(r"(?i)\bthey were\b", "it is", wl)
     wl = _they_to_it(wl)
@@ -4458,7 +4461,214 @@ def _signal_phrases_r12(t: str) -> str:
     t = _sub_outside(r"(?i)\b((?:the )?(?:heikin[- ]?ashi|ha)(?: candles?| candlesticks?| bars?)?) (?:is|are) (green|red|bullish|bearish|white|black)"
                      r" (\d+ (?:consecutive )?(?:days|bars|candles|sessions) (?:in a row|straight|consecutively))",
                      r"\1 is \2 for \3", t)
+    return _signal_phrases_r13(t)
+
+
+# ---- round 13 (a TradingView expert's review): clause boundaries and more trader phrases
+_R13_EXIT_CLAUSE = (r"(?:(?:sell|exit|cover|close (?:the position|it|out)|get out|take profits?)(?: it| the position| everything| them| out| all)?"
+                    r"|short|sell short|go short|go long)"
+                    r"(?: (?:at|on) the (?:next )?(?:open|close))? (?:when(?:ever)?|if|once|as soon as)\b")
+_R13_ACTION = (r"(?:buy|sell|short|cover|exit|close|get|go|enter|hold|keep|take|use|with|place|move|raise|trail|stop|"
+               r"wait|at|on|in|after|max(?:imum)?|risk|put|invest|allocate|trade|scale|add|reverse|flip|\d)\b")
+_R13_COND = r"\b(?:when(?:ever)?|if|once|while|as long as)\b"
+
+
+def _signal_phrases_r13(t: str) -> str:
+    """Round 13 (TradingView review): clause boundaries that a missing comma used to merge into the entry as AND, and
+    more trader phrases, each with a note:
+      'buy when A sell when B' / 'exit when' / 'cover when' / 'take profit when' / 'short when'  -> a new clause
+      'when A then B'  (a sequence, or both on the same day?)                                  -> refused, with a question
+      'sell X when A, buy back when B'  (a short, or a holder's exit and re-entry?)            -> refused, with a question
+      'otherwise sell' (out whenever the entry rule is false)  -> 'sell when the signal ends'
+      'on a 20 day breakout' -> the Donchian breakout; 'the 3 day average of the RSI(2)' -> sma(rsi(close, 2), 3);
+      'the 20 day linear regression slope is positive'; 'ichimoku tenkan crosses above kijun';
+      'the price touches the lower keltner channel' (low <= keltner_lower)."""
+    mk = _mask(t, parens=False)
+    # 'sell AAPL when ..., buy back when ...': a short, or a holder selling and buying back?
+    mb = re.match(r"(?is)\s*sell\s+(?!short\b|to\b|it\b|when\b|if\b)(?P<who>[^,;]*?)\s+(?P<a>(?:when(?:ever)?|if|once)\b[^;]*?)"
+                  r"\s*[,;]?\s+(?:and\s+)?(?:then\s+)?(?:buy|purchase)\s+(?:it\s+|them\s+|\S+\s+)?back\s+(?P<b>(?:when(?:ever)?|if|once)\b.*)$", mk)
+    if mb:
+        who, a_, b_ = (t[mb.start(g):mb.end(g)].strip(" ,.;") for g in ("who", "a", "b"))
+        raise ParseError(f"'sell {who} {a_}, buy back {b_}' can be read two ways: a short sale (say 'short {who} {a_}, "
+                         f"cover {b_}') or a position you hold, sold and bought back later (say 'buy {who} {b_}, sell "
+                         f"{a_}'). Which one?")
+    # an exit (or short) clause with no comma before it: "buy AAPL when RSI(2) is below 50 sell when RSI(2) is above 80"
+    # is two rules, never "RSI < 50 and RSI > 80"
+    pos = [m.start() for m in re.finditer(rf"(?i)(?<=[\w)%`\]])(?<!\band)(?<!\bthen)(?<!\bto)(?<!\bor)(?<!\bnot)(?<!\bbuy)(?<!\bgo)(?<!\bsell)"
+                                          rf"(?= +{_R13_EXIT_CLAUSE})", mk)]
+    for p in reversed(pos):
+        if re.search(_R13_COND, mk[:p], re.I):
+            t = t[:p] + "," + t[p:]
+    # "take profit when RSI(2) is above 70": a rule exit ("take profit at 10%" stays a target)
+    t = _sub_outside(r"(?i)\btake profits? (?=(?:when(?:ever)?|if|once|as soon as)\b)", "sell ", t)
+    # "when A then B": a sequence (A, and B on a later day) or both at once? Only "then" + an action is a new clause.
+    mk = _mask(t, parens=False)
+    for m in re.finditer(r"(?i)\bthen\b", mk):
+        seg = re.split(r"[,;]", mk[: m.start()])[-1]
+        after = mk[m.end():].lstrip(" ,:")
+        if re.search(_R13_COND, seg, re.I) and after and not re.match(rf"(?i){_R13_ACTION}", after):
+            a_ = re.split(_R13_COND, t[m.start() - len(seg): m.start()], flags=re.I)[-1].strip()
+            b_ = re.split(r"[,;]", t[m.end():])[0].strip(" ,:")
+            raise ParseError(f"'{a_} then {b_}': is that a sequence (first {a_}, then {b_} on a later day) or both on the "
+                             f"same day? For both, say '{a_} and {b_}'. For a sequence, write it in backticks, e.g. "
+                             f"`ref(A, 1) and B` (A the day before, B today) or `bars_since(A) <= 5 and B` (A within the "
+                             f"last 5 days, then B), with A and B in the rule language (see --help-expr).")
+
+    # "otherwise sell" / "else exit": out on the first close the entry rule is false
+    def otherwise(m):
+        _note(f"'{m.group(0).strip(' ,;')}' was read as: sell at the close of the first day the entry rule is no longer "
+              "true (in the market while it holds, out otherwise). For a different exit, say it, e.g. 'sell when RSI(2) "
+              "is above 70'.")
+        return f"{m.group('lead')}sell when the signal ends"
+    t = _sub_outside(r"(?i)(?P<lead>[,;]\s*|\s+)(?:and\s+)?(?:otherwise|else|or else)\s*,?\s*(?:sell|exit|get out|close the position|"
+                     r"go to cash|move to cash|be in cash|stay out|stay in cash)(?: it| the position| everything)?(?=\s*(?:[,;.]|$))",
+                     otherwise, t)
+    m = _msearch(r"\b(?:otherwise|or else)\b", t)
+    if m:
+        raise ParseError(f"'{t[m.start():].split(',')[0].strip()}': otherwise what? For an exit whenever the entry rule is "
+                         "false, say 'otherwise sell'; for a long/short reversal, say 'buy when ..., short when ...'.")
+
+    # "on a 20 day breakout" / "a 55-day breakdown": the Donchian breakout of the close (Turtle rules)
+    def nday_bo(m):
+        n, up = m.group("n"), m.group("k").lower().replace(" ", "") in ("breakout", "highbreakout")
+        _note(f"'{m.group(0).strip()}' = the close {'above the highest high' if up else 'below the lowest low'} of the {n} "
+              f"bars before ({'close > ref(highest(high, ' if up else 'close < ref(lowest(low, '}{n}), 1)), a Donchian "
+              f"{'breakout' if up else 'breakdown'}.")
+        return f"{m.group('pre') or ''}donchian {n} day {'breakout' if up else 'breakdown'}"
+    t = _sub_outside(r"(?i)(?<!donchian )(?<!channel )(?P<pre>\b(?:on|after|with) (?:an? |the )?|\b(?:an? |the ))?"
+                     r"(?<![\w-])(?P<n>\d+)[- ](?:day|bar|session)s? (?P<k>breakout|break out|breakdown|break down|high breakout|low breakdown)\b",
+                     nday_bo, t)
+
+    # "the 3 day average of the RSI(2)" / "the 3 day moving average of the 2 day RSI": sma(rsi(close, 2), 3)
+    def avg_rsi(m):
+        k, given = m.group("k"), m.group("n1") or m.group("n2") or m.group("n3")
+        n = given or "14"
+        kind = "ema" if (m.group("kind") or "").lower() in ("exponential", "ema") or m.group("ma").lower() == "ema" else "sma"
+        rule = f"{kind}(rsi(close, {n}), {k})"
+        _note(f"'{m.group(0).strip()}' = {rule}: the {k}-day {'exponential ' if kind == 'ema' else ''}average of the "
+              f"{n}-day RSI" + ("" if given else " (no RSI period given: 14)") + ".")
+        return f"`{rule}`"
+    t = _sub_outside(r"(?i)\b(?:the |its )?(?P<k>\d+)[- ](?:day|bar|period|session)s? (?:(?P<kind>simple|exponential) )?"
+                     r"(?P<ma>(?:moving )?average|mean|sma|ema|ma) of (?:the |its )?(?:(?P<n1>\d+)[- ](?:day|bar|period) )?"
+                     r"rsi(?:\s*\(\s*(?:close\s*,\s*)?(?P<n2>\d+)\s*\)| (?P<n3>\d+)(?![\d.%]| ?(?:day|bar|week|month)))?", avg_rsi, t)
+
+    # "the 20 day linear regression slope is positive" (TradingView's ta.linreg: the least-squares line through the last
+    # 20 closes; its slope is the line's value today minus its value one bar earlier)
+    def lr_slope(m):
+        n = m.group("n1") or m.group("n2")
+        if not n:
+            raise ParseError(f"'{m.group(0).strip()}': the linear regression over how many days? e.g. 'the 20 day linear "
+                             "regression slope is positive'.")
+        up = m.group("d").lower() in ("positive", "rising", "up", "above 0", "above zero", "greater than 0", "sloping up", "pointing up")
+        rule = f"linreg(close, {n}, 0) {'>' if up else '<'} linreg(close, {n}, 1)"
+        _note(f"'{m.group(0).strip()}' = the slope of the least-squares line through the last {n} closes is "
+              f"{'positive' if up else 'negative'}: {rule} (TradingView's ta.linreg(close, {n}, 0) - ta.linreg(close, {n}, 1)).")
+        return f"`{rule}`"
+    t = _sub_outside(r"(?i)\b(?:the |its )?(?:(?P<n1>\d+)[- ](?:day|bar|period|session)s? )?(?:linear regression|linreg|lin reg)"
+                     r"(?: line)?(?:\s*\(\s*(?P<n2>\d+)\s*\))?(?:'s)? slope (?:is |turns |stays |has turned )?"
+                     r"(?P<d>positive|negative|rising|falling|up|down|above (?:0|zero)|below (?:0|zero)|greater than 0|less than 0|"
+                     r"sloping up|sloping down|pointing up|pointing down)\b", lr_slope, t)
+    # "ichimoku tenkan crosses above kijun": the word 'ichimoku' in front of the line names
+    t = _sub_outside(r"(?i)\b(?:the )?ichimoku(?:'s)? (?=(?:tenkan|kijun|conversion line|base line)\b)", "", t)
+    t = _sub_outside(r"(?i)\b(?:the )?ichimoku (?=(?:kijun|base line)\b)", "", t)
+
+    # "the price touches the lower keltner channel" (the day's low at or below it) / "the upper" (the high at or above)
+    def touch(m):
+        up = m.group("side").lower() == "upper"
+        n, k = m.group("n1") or m.group("n2") or "20", m.group("k") or "2"
+        kel = m.group("band").lower().startswith("keltner")
+        fn = ("keltner" if kel else "bb") + ("_upper" if up else "_lower")
+        name = "Keltner channel" if kel else "Bollinger band"
+        rule = f"{'high >=' if up else 'low <='} {fn}({n}, {k})"
+        _note(f"'{m.group(0).strip()}' = the day's {'high at or above' if up else 'low at or below'} the "
+              f"{'upper' if up else 'lower'} {name} ({n}, {k}): {rule}. Say 'closes {'above' if up else 'below'} the "
+              f"{'upper' if up else 'lower'} {name}' to use the close.")
+        return f"`{rule}`"
+    t = _sub_outside(r"(?i)\b(?:it |the price |price |the stock )?(?:touches|touched|tags|tagged|hits|hit|reaches|reached)"
+                     r" (?:the |its )?(?:(?P<n1>\d+)[- ](?:day|bar|period) )?(?P<side>upper|lower) (?P<band>keltner(?: channel)?(?: band| line)?|"
+                     r"bollinger(?: band)?)(?:\s*\(\s*(?P<n2>\d+)\s*(?:,\s*(?P<k>\d+(?:\.\d+)?)\s*)?\))?", touch, t)
     return t
+
+
+def _r13_candle_takes(take, c: str, o: str) -> None:
+    """Candle colour as TradingView users mean it (round 13): 'closes red' / 'a red candle' / 'a bearish candle' =
+    close < open (the close against the same day's open); green / bullish = close > open; 'closes red 3 days in a row'
+    / '3 red candles in a row' = the last 3 candles all red. 'closes down' / 'a down day' stay against the previous
+    close."""
+    col = r"(?P<col>red|green|bearish|bullish)"
+    run = r"(?: (?:for|on))?(?: at least)? (?P<n>\d+) (?:straight |consecutive |trading )?(?:days|bars|sessions|times|candles)(?: in a row| straight| consecutively)"
+
+    def cond(m):
+        return f"{c} {'<' if m.group('col') in ('red', 'bearish') else '>'} {o}"
+
+    def note(m, rule):
+        red = m.group("col") in ("red", "bearish")
+        _note(f"'{m.group(0).strip()}' = {rule} (a {'red' if red else 'green'} candle, as TradingView colours it: the close "
+              f"{'below' if red else 'above'} the same day's open). For a close {'below' if red else 'above'} the previous "
+              f"close, say 'closes {'down' if red else 'up'}'.")
+        return rule
+
+    def streak(m):
+        n = int(m.group("n"))
+        return note(m, f"count({cond(m)}, {n}) == {n}")
+    take(rf"(?:closes?|closed|finish(?:es|ed)?|ends?|ended|prints?|printed) {col}{run}", streak)
+    take(rf"(?:at least )?(?P<n>\d+) (?:straight |consecutive )?{col} (?:candles?|candlesticks?|bars?)(?: in a row| straight| consecutively)?", streak)
+    take(rf"(?:closes?|closed|finish(?:es|ed)?|ends?|ended) {col}(?: on the day| for the day)?", lambda m: note(m, cond(m)))
+    take(rf"(?:(?:it |the day |today )?(?:is|was|prints?|printed|forms?|formed|makes?|made) )?(?:an? |the )?{col} (?:candles?|candlesticks?|bars?)",
+         lambda m: note(m, cond(m)))
+
+
+def _r13_osc_zone(text: str) -> str:
+    """'the RSI(14) is oversold' / 'RSI 2 is overbought' / 'the 10 day RSI is oversold': the RSI named, with the usual
+    zones (below 30 / above 70); without a period, the 14 day RSI."""
+    def zone(m):
+        n = m.group("n1") or m.group("n2") or m.group("n3") or "14"
+        over = m.group("z").lower() == "overbought"
+        _note(f"Warning: '{m.group(0).strip()}' has no single definition; it was read as the {n} day RSI "
+              f"{'above 70' if over else 'below 30'} (the usual RSI zones). Say e.g. 'RSI({n}) is "
+              f"{'above 80' if over else 'below 20'}' for another level.")
+        return f"{m.group('lead')}{n} day RSI is {'above 70' if over else 'below 30'}"
+    return _sub_outside(r"(?i)(?P<lead>^|\s+)(?:the |its )?(?:(?P<n1>\d+)[- ](?:day|period|bar|session) )?rsi(?:\s*\(\s*(?:close\s*,\s*)?(?P<n2>\d+)\s*\)"
+                        r"| (?P<n3>\d+)(?![\d.%]))? (?:is|are|gets|becomes|turns) (?P<z>oversold|overbought)\b", zone, text)
+
+
+def _r13_exit_refs(wl: str, entry: str, notes: list[str]) -> str:
+    """References an exit makes back to the entry (round 13): 'the histogram turns negative' after a MACD-histogram
+    entry (that histogram), 'it crosses above the mean' (the entry's moving average / Bollinger or Keltner middle /
+    z-score mean; refused when the entry has none or several)."""
+    if re.search(r"(?i)\bhistogram\b", wl) and not re.search(r"(?i)\bmacd\b", wl):
+        calls = list(dict.fromkeys(re.findall(r"macd_hist\([^()]*\)", entry)))
+        if len(calls) != 1:
+            raise ParseError(f"'{wl.strip()}': which histogram? " + (f"The entry uses {' and '.join(calls)}. " if calls else
+                             "The entry has no MACD histogram. ") + "Name it, e.g. 'sell when the MACD histogram turns negative'.")
+        h = calls[0]
+
+        def hist(m):
+            pos = m.group("d").lower().startswith(("positive", "above", "over"))
+            moving = re.match(r"(?i)turn|go|flip|become|cross|rise|fall|drop|move", m.group("v"))
+            e = f"{'crossover' if pos else 'crossunder'}({h}, 0)" if moving else f"{h} {'>' if pos else '<'} 0"
+            notes.append(f"'{m.group(0).strip()}' = the entry's MACD histogram ({h}): {e}.")
+            return f" `{e}` "
+        wl = _sub_outside(r"(?i)\b(?:the |its )?histogram (?P<v>turns?|goes|flips?|becomes|crosses|is|stays|rises|falls|drops|moves)"
+                          r"(?: back)?(?: to)? (?P<d>positive|negative|above 0|below 0|under 0|over 0)\b", hist, wl)
+    mm = _msearch(r"(?:\b(?:it|the price|price|the close)(?:'s| is)? )?\b(?P<v>crosses|crossed|closes|closed|is|rises|moves|goes|gets|falls|drops|trades)"
+                  r"(?: back)? (?P<rel>above|over|below|under) (?:the |its )?(?P<w>mean|midline|mean line)\b", wl)
+    if mm:
+        cands = []
+        for fn, n in re.findall(r"\b(bb_lower|bb_upper|zscore|keltner_lower|keltner_upper|sma|ema)\((?:close, )?(\d+)", entry):
+            c = f"ema(close, {n})" if fn.startswith("keltner") or fn == "ema" else f"sma(close, {n})"
+            if c not in cands:
+                cands.append(c)
+        if len(cands) != 1:
+            raise ParseError(f"'{mm.group(0).strip()}': which mean? " + (f"The entry uses {' and '.join(cands)}. " if cands else
+                             "The entry has no moving average or band to take it from. ") + "Name it, e.g. 'sell when it "
+                             "crosses above its 20 day moving average'.")
+        up = mm.group("rel").lower() in ("above", "over")
+        e = (f"{'crossover' if up else 'crossunder'}(close, {cands[0]})" if mm.group("v").lower().startswith("cross")
+             else f"close {'>' if up else '<'} {cands[0]}")
+        notes.append(f"Warning: 'the {mm.group('w')}' was read as the entry's mean, {cands[0]}: {e}.")
+        wl = wl[: mm.start()] + f" `{e}` " + wl[mm.end():]
+    return wl
 
 
 class _Dir:
