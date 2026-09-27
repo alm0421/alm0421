@@ -62,12 +62,35 @@ def _corporate_action_note(spec: Spec, res: Result) -> None:
         n = data.distribution_note(held, eq.index[0], eq.index[-1])
         if n and n not in spec.notes:
             spec.notes.append(n)
+        # price-integrity repairs (inferred splits, bad ticks) of any ticker the run held or read
+        n = data.integrity_note(sorted(set(held) | set(_run_tickers(spec))), eq.index[0], eq.index[-1])
+        if n and n not in spec.notes:
+            spec.notes.append(n)
         # SIM series held during their model period: that period is net of an estimated fee/cost drag
         n = data.sim_drag_note([t for t in held if data.is_sim(t)], eq.index[0], eq.index[-1])
         if n and n not in spec.notes:
             spec.notes.append(n)
     except Exception:  # noqa: BLE001 - a note must never break a backtest
         pass
+
+
+def _run_tickers(spec: Spec) -> list[str]:
+    """The tickers a run named: its universe or holdings, and every sym("X") its rules read."""
+    import re
+    out: list[str] = []
+    try:
+        if isinstance(spec, Portfolio):
+            out += portfolio.tickers_in(spec.tree, index_universes=False) if isinstance(spec.tree, dict) else []
+            text = json.dumps(spec.tree, default=str)
+        else:
+            if not getattr(spec, "universe_name", None):
+                out += list(spec.universe)
+            text = " ".join(str(r) for r in (spec.entry, spec.short_entry, spec.exit_when, spec.rank_by,
+                                             getattr(spec, "entry_level", None)) if r and not callable(r))
+        out += re.findall(r"""sym\(\s*\\?["']([^"'\\]+)\\?["']\s*\)""", text)
+    except Exception:  # noqa: BLE001 - only used for notes
+        pass
+    return out
 
 
 def from_dict(d: dict) -> Spec:

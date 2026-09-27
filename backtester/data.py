@@ -265,7 +265,7 @@ IDENTITY_FROM = {
     "MNST": "2012-01-09",   # Monster Worldwide until 2011; the file is Monster Beverage (ex-HANS)
 }
 # the same company listed under two symbols in some revisions: keep the second
-DUPLICATES = {"KLA": "KLAC", "WFMI": "WFM", "ERTS": "EA"}
+DUPLICATES = {"KLA": "KLAC", "WFMI": "WFM", "ERTS": "EA", "NXP": "NXPI", "ANSYS": "ANSS"}   # a company name read as a ticker, or an old symbol
 
 # a member's series must look like a large Nasdaq stock: this catches recycled tickers (a small
 # company that later took over a former member's symbol) and junk series with no trading
@@ -621,7 +621,79 @@ def membership() -> pd.DataFrame | None:
     v = df.to_numpy(copy=True)
     blip = ~v[1:-1] & v[:-2] & v[2:]
     v[1:-1] |= blip
-    return pd.DataFrame(v, index=df.index, columns=df.columns)
+    out, _ = repair_membership(pd.DataFrame(v, index=df.index, columns=df.columns), ndx_changes())
+    return out
+
+
+MEMBERSHIP_GAP_MONTHS = 24
+
+
+def membership_unexplained(since: str = "2007-03-01") -> list[tuple[str, str]]:
+    """Snapshot-to-snapshot membership changes (from `since`, where the dated change table starts) that no dated
+    change within ~45 days and no symbol rename explains: [(month, "+TICKER" / "-TICKER")]. Mostly symbol changes the
+    table records under another spelling, and share classes; listed so each is a known, reviewed item."""
+    mem, ch = membership(), ndx_changes()
+    if mem is None or ch is None:
+        return []
+    ren = {**RENAMED, **{v: k for k, v in RENAMED.items()}}
+    out, prev = [], None
+    for d, row in mem.iterrows():
+        s = set(row.index[row.to_numpy()])
+        if prev is not None and d >= pd.Timestamp(since):
+            w = ch[(ch["date"] > d - pd.DateOffset(months=1) - pd.Timedelta(days=45)) & (ch["date"] <= d + pd.Timedelta(days=45))]
+            ok = set(w["added"]) | set(w["removed"])
+            out += [(f"{d:%Y-%m}", "+" + t) for t in sorted(s - prev) if t not in ok and ren.get(t) not in prev]
+            out += [(f"{d:%Y-%m}", "-" + t) for t in sorted(prev - s) if t not in ok and ren.get(t) not in s]
+        prev = s
+    return out
+
+
+def company_count(names) -> int:
+    groups = {t: g[0] for g in (list(SHARE_CLASSES) + [("CMCSA", "CMCSK")]) for t in g}
+    return len({groups.get(t, t) for t in names})
+
+
+def repair_membership(mem: pd.DataFrame, changes: pd.DataFrame | None) -> tuple[pd.DataFrame, list[str]]:
+    """Fill snapshots that lost members to a parsing slip (Wikipedia revisions of 2004-2008 wrote some entries as
+    piped links, "([[Apple Inc.|AAPL]])", which an older parser missed: AAPL, AKAM and FLEX vanished for months).
+
+    A name missing for up to MEMBERSHIP_GAP_MONTHS months between two snapshots that list it, with no dated change
+    of that name near the gap (ndx_changes), while the snapshots in the gap have fewer than 100 companies, was a
+    member throughout. (Carrying names over from the month before instead would also carry the annual
+    reconstitutions' removals, which the change table only dates from 2007.) Returns (membership, log lines)."""
+    if mem is None or not len(mem):
+        return mem, []
+    v = mem.to_numpy(copy=True)
+    cols = list(mem.columns)
+    idx = mem.index
+    log: list[str] = []
+    counts = np.array([company_count([cols[j] for j in np.flatnonzero(v[i])]) for i in range(len(idx))])
+    near: dict[str, list[pd.Timestamp]] = {}
+    if changes is not None:
+        for d, a, r in zip(changes["date"], changes["added"], changes["removed"]):
+            for t in (a, r):
+                if t:
+                    near.setdefault(t, []).append(pd.Timestamp(d))
+    w = pd.Timedelta(days=CHANGE_WINDOW_DAYS)
+    for j, t in enumerate(cols):
+        col = v[:, j]
+        on = np.flatnonzero(col)
+        if len(on) < 2:
+            continue
+        for a, b in zip(on[:-1], on[1:]):
+            if b - a <= 1 or b - a - 1 > MEMBERSHIP_GAP_MONTHS:
+                continue
+            gap = range(a + 1, b)
+            if not all(counts[i] < 100 for i in gap):
+                continue
+            lo, hi = idx[a + 1] - w, idx[b] + w
+            if any(lo <= d <= hi for d in near.get(t, [])):
+                continue
+            for i in gap:
+                v[i, j] = True
+            log.append(f"{t}: missing from the {idx[a + 1]:%Y-%m}..{idx[b - 1]:%Y-%m} snapshots (each short of 100 "
+                       "companies) with no dated change: filled")
+    return pd.DataFrame(v, index=idx, columns=cols), log
 
 
 @lru_cache(maxsize=1)
@@ -793,7 +865,12 @@ def load(ticker: str) -> pd.DataFrame:
         raise DataError(f"No price data for {t}: its price file ({path.name}) has no valid rows (empty, or no positive "
                         "closes). Re-run the 'Fetch price data' workflow (or delete the file so it is downloaded again).")
     raw, _ = reconcile_actions(t, raw)
+    raw, events = price_integrity(t, raw)
     raw, repaired = repair_bars(t, raw)
+    if len(events):
+        # a replaced bad tick is an estimate, not a quote: its open is not traded at either
+        ticks = pd.DatetimeIndex(events.loc[events["kind"] == "bad_tick", "date"])
+        repaired = repaired | pd.Series(raw.index.isin(ticks), index=raw.index)
     df = pd.DataFrame(index=raw.index)
     opn = raw["open"].where(raw["open"] > 0, raw["close"]).fillna(raw["close"])
     low = raw["low"].where(raw["low"] > 0)
@@ -831,6 +908,29 @@ def load(ticker: str) -> pd.DataFrame:
         # a repaired open is an estimate, not a quote: no fills at it
         df.loc[repaired.reindex(df.index, fill_value=False).to_numpy(), "open_ok"] = False
     return df
+
+
+# While a Python-function rule is evaluated bar by bar (expr.evaluate), data.load returns each ticker only up to the
+# bar being decided, so a function that loads data itself cannot read later rows either.
+import contextvars as _cv  # noqa: E402
+LOAD_CUTOFF: _cv.ContextVar = _cv.ContextVar("backtester_load_cutoff", default=None)
+_load_cached = load
+
+
+def load(ticker: str) -> pd.DataFrame:  # noqa: F811 - the cached loader above, cut at LOAD_CUTOFF when one is set
+    cut = LOAD_CUTOFF.get()
+    if cut is None:
+        return _load_cached(ticker)
+    from . import expr as _expr
+    with _expr.io_allowed():
+        df = _load_cached(ticker)
+    return df.loc[:cut].copy()
+
+
+load.cache_clear = _load_cached.cache_clear
+load.cache_info = _load_cached.cache_info
+load.__wrapped__ = _load_cached.__wrapped__
+load.__doc__ = _load_cached.__doc__
 
 
 # ------------------------------------------------------------------ corporate actions
@@ -1031,6 +1131,102 @@ def corporate_action_note(tickers, start=None, end=None) -> str | None:
         return None
     return ("Corporate actions: the data books these events inconsistently (a payout and a split for one spin-off, "
             "or a payout per pre-split share), so they were reconciled: " + "; ".join(parts) + ".")
+
+
+# ------------------------------------------------------------------ price integrity (backtester/integrity.py)
+#
+# Splits the source data missed or booked wrongly, and isolated bad ticks, found from the prices themselves and
+# repaired on load. data/inferred_splits.json holds manual overrides ("overrides": {ticker: {date: {"action":
+# "split" | "rescale" | "ignore", "ratio": r, "why": ...}}}) and the data job's log of what the gate found.
+
+INFERRED_FILE = DATA / "inferred_splits.json"
+PRICE_REPAIRS: dict[str, pd.DataFrame] = {}     # what the integrity gate changed, per ticker (with the evidence)
+_REPAIR_TEXT = {"inferred_split": "{r} split inferred from prices, not in the source data",
+                "basis_change": "the prices before it were on another basis ({r} apart; no split that day), rescaled",
+                "phantom_split": "a {r} split booked that day that the prices show did not happen, dropped",
+                "unapplied_split": "a {r} split booked that day that the prices were never adjusted for, applied",
+                "bad_tick": "an isolated bad price replaced by the average of the days around it"}
+
+
+@lru_cache(maxsize=1)
+def integrity_overrides() -> dict:
+    try:
+        d = json.loads(INFERRED_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+    ov = d.get("overrides", {}) if isinstance(d, dict) else {}
+    return {canonical(t): v for t, v in ov.items() if isinstance(v, dict)}
+
+
+@lru_cache(maxsize=256)
+def _ref_returns_at(path: str) -> pd.Series | None:
+    try:
+        raw = pd.read_csv(path, usecols=["date", "close"], parse_dates=["date"], index_col="date").sort_index()
+    except (OSError, ValueError):
+        return None
+    c = raw["close"]
+    c = c[~c.index.duplicated(keep="last")]
+    c = c[(c > 0) & c.notna()].astype(float)
+    return np.log(c).diff()
+
+
+def _ref_returns(t: str) -> pd.Series | None:
+    path = PRICES / f"{t}.csv"
+    return _ref_returns_at(str(path)) if path.exists() else None
+
+
+def price_integrity(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The integrity gate (backtester/integrity.py) on a ticker's raw bars: (repaired bars, events)."""
+    from . import integrity
+    try:
+        try:
+            fund = is_fund(t)
+        except Exception:  # noqa: BLE001 - no universe file (synthetic data)
+            fund = True
+        out, ev = integrity.check(t, raw, _ref_returns, integrity_overrides().get(t), fund=fund)
+    except Exception:  # noqa: BLE001 - a data check must never make a price file unreadable
+        return raw, pd.DataFrame(columns=integrity.EVENT_COLUMNS)
+    PRICE_REPAIRS[t] = ev
+    return out, ev
+
+
+def price_repairs(ticker: str) -> pd.DataFrame:
+    """The integrity gate's changes to `ticker`: date, kind (inferred_split, basis_change, phantom_split,
+    unapplied_split, bad_tick), ratio, the day's return in the file and after repair, the move the reference
+    predicted, its residual sd, the reference ticker, the volume shift and the reasoning."""
+    from . import integrity
+    t = canonical(ticker)
+    raw = _raw_file(t)
+    if raw is None:
+        return pd.DataFrame(columns=integrity.EVENT_COLUMNS)
+    if t not in PRICE_REPAIRS:
+        price_integrity(t, reconcile_actions(t, raw)[0])
+    return PRICE_REPAIRS.get(t, pd.DataFrame(columns=integrity.EVENT_COLUMNS))
+
+
+def integrity_note(tickers, start=None, end=None) -> str | None:
+    """'Data repaired: ...' naming the integrity-gate repairs of `tickers` inside [start, end]."""
+    from .integrity import _ratio_text
+    s = pd.Timestamp(start) if start is not None else pd.Timestamp.min
+    e = pd.Timestamp(end) if end is not None else pd.Timestamp.max
+    parts = []
+    for t in dict.fromkeys(canonical(x) for x in tickers):
+        try:
+            ev = price_repairs(t)
+        except Exception:  # noqa: BLE001 - a note must never break a backtest
+            continue
+        for _, row in ev.iterrows():
+            d = pd.Timestamp(row["date"])
+            if not (s <= d <= e):
+                continue
+            ratio = _ratio_text(float(row["ratio"])) if np.isfinite(float(row["ratio"])) else ""
+            parts.append(f"{t} {d.date()}: " + _REPAIR_TEXT.get(row["kind"], row["kind"]).format(r=ratio)
+                         + f" (one-day move {row['day_return_raw']:+.1%} in the file, {row['day_return_now']:+.1%} "
+                         "after the repair)")
+    if not parts:
+        return None
+    return ("Data repaired: " + "; ".join(parts) + ". The source data (Yahoo) had these wrong; data.price_repairs(ticker) "
+            "shows the evidence. Returns on those days are estimates.")
 
 
 # Bars whose repair needs outside knowledge: {ticker: {date: {field: value}}}. Values are split-adjusted.
@@ -1348,7 +1544,7 @@ def splits(ticker: str) -> pd.Series:
     raw = _raw_file(t)
     if raw is None or "split" not in raw:
         return pd.Series(dtype=float)
-    raw = reconcile_actions(t, raw)[0]
+    raw = price_integrity(t, reconcile_actions(t, raw)[0])[0]
     s = pd.to_numeric(raw["split"], errors="coerce").fillna(0.0)
     s = s[(s > 0) & ((s - 1).abs() > 1e-9)]
     return s[~s.index.duplicated(keep="last")].sort_index()

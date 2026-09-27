@@ -667,7 +667,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const rows = [
       { sect: 'Return' }, ['Total return', pct(st.total_return, 1)], ['CAGR', pct(st.cagr)], ['Real CAGR (after inflation)', pct(st.real_cagr)],
       ['Best / worst year', pct(st.best_year, 1) + ' / ' + pct(st.worst_year, 1)], ['Best / worst month', pct(st.best_month, 1) + ' / ' + pct(st.worst_month, 1)],
-      ['Best / worst day', pct(st.best_day) + ' / ' + pct(st.worst_day)], ['Positive days / months', pct(st.pct_positive_days, 0) + ' / ' + pct(st.pct_positive_months, 0)],
+      ['Best / worst day', pct(st.best_day) + ' / ' + pct(st.worst_day)], ['Positive days (in market) / months', pct(st.pct_positive_days, 0) + ' / ' + pct(st.pct_positive_months, 0)],
       { sect: 'Risk' }, ['Volatility (annualised)', pct(st.volatility, 1)], ['Max drawdown (daily)', pct(st.max_drawdown, 1)],
       [{ t: 'Max drawdown (month-end)', title: 'from month-end values only, as Portfolio Visualizer reports it' }, pct(st.max_drawdown_monthly, 1)],
       ['Max drawdown dates', st.max_dd_peak ? `${st.max_dd_peak} → ${st.max_dd_trough} → ${st.max_dd_recovery || 'not recovered'}` : 'no drawdown'],

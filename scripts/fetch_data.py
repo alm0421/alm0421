@@ -429,7 +429,7 @@ def fetch_with_retry(t: str, tries: int = 3) -> pd.DataFrame | None:
 
 # ------------------------------------------------------------------ point-in-time membership
 
-MEMBERSHIP_PARSER = "3"
+MEMBERSHIP_PARSER = "4"   # 4: piped-link tickers ([[Apple Inc.|AAPL]]); every month is fetched again
 NOT_MEMBERS = {"NDX", "QQQ", "QQQQ", "TQQQ", "SQQQ", "QLD", "QID", "PSQ", "ONEQ", "NASDAQ", "ETF", "US", "USD", "CEO",
                "S", "P", "NQ", "ND", "RIC", "DJIA", "NYSE", "REIT", "II", "III", "IV", "A", "B", "C", "ADR", "ADS", "LLC", "INC"}
 
@@ -462,7 +462,10 @@ def wiki_tickers(wikitext: str) -> set[str]:
     for line in wikitext.splitlines():
         s = line.strip()
         if s.startswith(("#", "*")):
-            for m in re.finditer(r"\(\s*(?:NASDAQ:\s*|Nasdaq:\s*)?\[?\[?([A-Z]{1,5}(?:\.[A-Z])?)\]?\]?\s*\)", s):
+            # "([[AAPL]])", "(NASDAQ: AAPL)" and piped links "([[Apple Inc.|AAPL]])" (2006-2008 revisions wrote
+            # Apple, Akamai and Flextronics that way; parser 3 missed them)
+            s = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]|]*)\]\]", r"\1", s)
+            for m in re.finditer(r"\(\s*(?:NASDAQ:\s*|Nasdaq:\s*)?([A-Z]{1,5}(?:\.[A-Z])?)\s*\)", s):
                 found.add(m.group(1))
         if s.startswith("|") and not s.startswith(("|-", "|}", "|+")):
             # cells are separated by "||" (older revisions) or " | " (2025+); strip links first
@@ -614,6 +617,22 @@ def update_membership() -> pd.DataFrame:
         have = pd.concat([have[~have["month"].isin(new["month"])], new]).sort_values("month")
         have.to_csv(MEMBERSHIP, index=False)
     print(f"membership: {len(have)} monthly snapshots ({have['month'].min()} .. {have['month'].max()})")
+    # snapshots short of 100 companies are filled from their neighbours when the backtester loads them
+    # (backtester.data.repair_membership); log what that does and what is still short
+    try:
+        from backtester import data as bt_data
+        bt_data.membership.cache_clear()
+        bt_data.ndx_changes.cache_clear()
+        mem = bt_data.membership()
+        raw = {pd.Period(m, "M").to_timestamp(): set(t.split()) for m, t in zip(have["month"], have["tickers"])}
+        for d, row in mem.iterrows():
+            names = set(row.index[row.to_numpy()])
+            added = sorted(names - raw.get(d, set()))
+            n = bt_data.company_count(names)
+            if added or not 100 <= n <= 103:
+                MEMBERSHIP_LOG.append(f"{d:%Y-%m}\trepair\t{n} companies\tfilled={' '.join(added)}")
+    except Exception as e:  # noqa: BLE001 - the log is informational
+        print(f"membership repair log failed: {e}", file=sys.stderr)
     (ROOT / "data" / "membership_log.tsv").write_text("\n".join(MEMBERSHIP_LOG) + "\n")
     return have
 
@@ -2177,6 +2196,10 @@ def main() -> None:
     (ROOT / "data" / "universe.json").write_text(json.dumps(meta, indent=1))
     KEYED_FILE.write_text(json.dumps(sorted(KEYED_OK), indent=1))
     write_sim_drag()
+    try:
+        write_integrity_log()
+    except Exception as e:  # noqa: BLE001 - the log is informational
+        print(f"price integrity log failed: {e}", file=sys.stderr)
     (ROOT / "data" / "sims_log.txt").write_text(
         ("\n".join(SIM_LOG) if SIM_LOG else "all simulated series built") + "\n\n"
         + "Model vs fund on their overlap:\n" + "\n".join(SIM_NOTES) + "\n")
@@ -2184,6 +2207,49 @@ def main() -> None:
           f"{len(former_missing)} former members without data, {len(failed)} failed {failed}")
     if len(ok) < len(tickers) * 0.85:
         sys.exit(1)
+
+
+INTEGRITY_FILE = ROOT / "data" / "inferred_splits.json"
+
+
+def write_integrity_log(tickers: list[str] | None = None, path: Path | None = None) -> dict:
+    """Run the price-integrity gate (backtester/integrity.py: splits the source data missed or booked wrongly,
+    isolated bad ticks) over every price file and record what it repaired, with the evidence, under "inferred" in
+    data/inferred_splits.json (its "overrides" - manual decisions - are kept). The repair itself happens when the
+    backtester loads a file, so a new download that still carries the error is repaired the same way; this log is
+    what a reviewer checks (and turns into an override when the gate got one wrong)."""
+    from backtester import data as bt_data
+    # next to the price folder in use (a test pointing PRICES at a temporary folder writes there, not into data/)
+    path = path or (PRICES.parent / INTEGRITY_FILE.name)
+    try:
+        doc = json.loads(path.read_text())
+    except (OSError, ValueError):
+        doc = {}
+    doc.setdefault("overrides", {})
+    names = tickers if tickers is not None else sorted(p.stem for p in PRICES.glob("*.csv"))
+    bt_data.load.cache_clear()
+    bt_data.PRICE_REPAIRS.clear()
+    found: dict = {}
+    for t in names:
+        try:
+            ev = bt_data.price_repairs(t)
+        except Exception as e:  # noqa: BLE001
+            print(f"{t}: integrity check failed: {e}", file=sys.stderr)
+            continue
+        for _, r in ev.iterrows():
+            found.setdefault(t, {})[str(pd.Timestamp(r["date"]).date())] = {
+                "kind": r["kind"], "ratio": None if pd.isna(r["ratio"]) else round(float(r["ratio"]), 6),
+                "applied": r["applied"], "day_return_in_file": round(float(r["day_return_raw"]), 6),
+                "day_return_repaired": round(float(r["day_return_now"]), 6),
+                "expected_from_reference": round(float(r["expected"]), 6), "residual_sd": round(float(r["sigma"]), 6),
+                "reference": r["reference"] if isinstance(r["reference"], str) else None,
+                "volume_ratio_after": None if r["volume_ratio"] is None or pd.isna(r["volume_ratio"]) else round(float(r["volume_ratio"]), 4),
+                "why": r["why"]}
+    doc["inferred"] = found
+    path.write_text(json.dumps(doc, indent=1, default=str) + "\n")
+    n = sum(len(v) for v in found.values())
+    print(f"price integrity: {n} repairs in {len(found)} files (data/inferred_splits.json)")
+    return doc
 
 
 if __name__ == "__main__":

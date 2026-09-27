@@ -54,12 +54,46 @@ def _easter(y: int) -> dt.date:
     return dt.date(y, month, day)
 
 
-# Closures announced in advance (national days of mourning): {closed day: the day the closure was announced}.
-# From the announcement on, the schedule knows them (e.g. on 2018-12-03 the week of 2018-12-05 had four
-# sessions); before it, they were not scheduled.
+# Every NYSE closure on a weekday that is not a regular holiday: {closed day: the day the closure was announced}.
+# From the announcement on, the schedule knows it (e.g. on 2018-12-03 the week of 2018-12-05 had four sessions);
+# before it, the day was a scheduled session. Unscheduled closures (9/11, blackouts, storms) are "announced" on the
+# day itself (or the evening/weekend before, when that was so): no session before them knew. The list matches the
+# weekdays missing from the ^GSPC / SPYSIM bars since 1950 (tests/test_calendar_closures.py). Where the exact
+# announcement day is uncertain the latest plausible one is used (the schedule never knows a closure too early).
+_PAPERWORK_1968 = {   # the 1968 paperwork crisis: Wednesdays closed, voted in batches
+    **{dt.date(1968, 6, d): dt.date(1968, 6, 10) for d in (12, 19, 26)},       # first batch (voted early June 1968)
+    dt.date(1968, 7, 5): dt.date(1968, 6, 10),                                 # ... with the Friday after July 4
+    **{dt.date(1968, 7, d): dt.date(1968, 6, 25) for d in (10, 17, 24, 31)},   # NYT 1968-06-26 "extend closings 4 weeks"
+    **{dt.date(1968, 8, d): dt.date(1968, 7, 31) for d in (7, 14, 21, 28)},
+    **{dt.date(1968, 9, d): dt.date(1968, 8, 30) for d in (11, 18, 25)},       # reviewed by the exchanges 1968-08-23
+    **{dt.date(1968, 10, d): dt.date(1968, 9, 27) for d in (2, 9, 16, 23, 30)},
+    dt.date(1968, 11, 20): dt.date(1968, 11, 15),
+    **{dt.date(1968, 12, d): dt.date(1968, 11, 29) for d in (4, 11, 18)},      # the last ones (4-day weeks from 1969)
+}
 SPECIAL_CLOSURES: dict[dt.date, dt.date] = {
+    dt.date(1956, 12, 24): dt.date(1956, 12, 14),  # Christmas Eve (Monday), closed by board vote
+    dt.date(1958, 12, 26): dt.date(1958, 12, 12),  # day after Christmas (Friday)
+    dt.date(1961, 5, 29): dt.date(1961, 5, 12),    # day before Memorial Day (Monday)
+    dt.date(1963, 11, 25): dt.date(1963, 11, 23),  # President Kennedy's funeral (day of mourning proclaimed Nov 23)
+    dt.date(1968, 4, 9): dt.date(1968, 4, 8),      # Dr. Martin Luther King Jr.'s funeral, national day of mourning
+    **_PAPERWORK_1968,
+    dt.date(1969, 2, 10): dt.date(1969, 2, 10),    # snowstorm (unscheduled)
+    dt.date(1969, 3, 31): dt.date(1969, 3, 29),    # President Eisenhower's funeral (died March 28)
+    dt.date(1969, 7, 21): dt.date(1969, 7, 17),    # Apollo 11 moon landing, national day of participation
+    dt.date(1972, 12, 28): dt.date(1972, 12, 27),  # President Truman's funeral (died December 26)
+    dt.date(1973, 1, 25): dt.date(1973, 1, 23),    # President Johnson's funeral (died January 22)
+    dt.date(1977, 7, 14): dt.date(1977, 7, 14),    # New York City blackout (unscheduled)
+    dt.date(1985, 9, 27): dt.date(1985, 9, 27),    # Hurricane Gloria (decided that morning)
+    dt.date(1994, 4, 27): dt.date(1994, 4, 24),    # President Nixon's funeral (died April 22; the closure was set over
+                                                   # the weekend and reported on Monday April 25)
+    dt.date(2001, 9, 11): dt.date(2001, 9, 11),    # September 11 attacks (unscheduled) ...
+    dt.date(2001, 9, 12): dt.date(2001, 9, 11),    # ... each further day announced the day before
+    dt.date(2001, 9, 13): dt.date(2001, 9, 12),
+    dt.date(2001, 9, 14): dt.date(2001, 9, 13),
     dt.date(2004, 6, 11): dt.date(2004, 6, 6),     # President Reagan's funeral (Reagan died June 5)
     dt.date(2007, 1, 2): dt.date(2006, 12, 27),    # President Ford's national day of mourning
+    dt.date(2012, 10, 29): dt.date(2012, 10, 28),  # Hurricane Sandy (announced Sunday October 28) ...
+    dt.date(2012, 10, 30): dt.date(2012, 10, 29),  # ... and extended on the 29th
     dt.date(2018, 12, 5): dt.date(2018, 12, 1),    # President G. H. W. Bush's national day of mourning
     dt.date(2025, 1, 9): dt.date(2024, 12, 30),    # President Carter's national day of mourning
 }
@@ -111,19 +145,21 @@ def closures(year: int, as_of=None) -> frozenset:
     return holidays(year) | frozenset(sp)
 
 
-def is_session(d) -> bool:
-    """A scheduled NYSE session (every announced closure counted; unscheduled closures are not known)."""
+def is_session(d, as_of=None) -> bool:
+    """A scheduled NYSE session: every closure counted (default), or only those announced by `as_of`."""
     d = pd.Timestamp(d).date()
-    return d.weekday() < 5 and d not in closures(d.year)
+    return d.weekday() < 5 and d not in closures(d.year, as_of)
 
 
 def next_sessions(after, n: int = 1) -> pd.DatetimeIndex:
-    """The next `n` NYSE sessions strictly after `after`."""
+    """The next `n` NYSE sessions strictly after `after`, on the schedule as published on `after` (a closure
+    announced later - 9/11, Hurricane Sandy - is not known then)."""
     d = pd.Timestamp(after).normalize()
+    asof = d
     out = []
     while len(out) < n:
         d += pd.Timedelta(days=1)
-        if is_session(d):
+        if is_session(d, asof):
             out.append(d)
     return pd.DatetimeIndex(out)
 
@@ -166,12 +202,24 @@ def _point_in_time(idx: pd.DatetimeIndex, fn):
     d = idx.values.astype("datetime64[D]")
     y0, y1 = int(idx.min().year) - 1, int(idx.max().year) + 1
     out = fn(d, _holiday_array(y0, y1))
+    days, early = [], []
     for day, ann in SPECIAL_CLOSURES.items():
         if not (y0 <= day.year <= y1):
             continue
-        early = (d < np.datetime64(ann)) & (d >= np.datetime64(day - dt.timedelta(days=120)))
-        if early.any():
-            out[early] = fn(d[early], _holiday_array(y0, y1, skip={day}))
+        e = (d < np.datetime64(ann)) & (d >= np.datetime64(day - dt.timedelta(days=120)))
+        if e.any():
+            days.append(day)
+            early.append(e)
+    if not days:
+        return out
+    # each date without the closures not yet announced on it (several can be pending at once: 9/11-9/14 2001)
+    E = np.vstack(early)
+    groups: dict[tuple, list[int]] = {}
+    for i in np.flatnonzero(E.any(axis=0)):
+        groups.setdefault(tuple(np.flatnonzero(E[:, i])), []).append(int(i))
+    for ks, rows in groups.items():
+        rows_a = np.array(rows)
+        out[rows_a] = fn(d[rows_a], _holiday_array(y0, y1, skip={days[k] for k in ks}))
     return out
 
 

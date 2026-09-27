@@ -40,6 +40,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import re
+
 import numpy as np
 import pandas as pd
 
@@ -130,16 +132,16 @@ def _daily_rate(index: pd.DatetimeIndex, spec) -> np.ndarray:
 _NS_CACHE: dict = {}      # (ticker, id(bars)) -> (bars, Namespace): indicators are reused by the next run on the same data
 
 
-def _namespace(df: pd.DataFrame, t: str) -> expr.Namespace:
+def _namespace(df: pd.DataFrame, t: str, close_fill: bool = False) -> expr.Namespace:
     """The rule namespace of a ticker's bars, cached across runs (sweeps, the optimiser and the site re-run the same
     tickers). Keyed on the DataFrame object itself (data.load caches it), so fresh or changed data gets a new one."""
-    hit = _NS_CACHE.get((t, id(df)))
+    hit = _NS_CACHE.get((t, id(df), close_fill))
     if hit is not None and hit[0] is df:
         return hit[1]
     if len(_NS_CACHE) > 1500:
         _NS_CACHE.clear()
-    ns = expr.Namespace(df, ticker=t)
-    _NS_CACHE[(t, id(df))] = (df, ns)
+    ns = expr.Namespace(df, ticker=t, close_fill=close_fill)
+    _NS_CACHE[(t, id(df), close_fill)] = (df, ns)
     return ns
 
 
@@ -252,6 +254,10 @@ def _prepare(strat: Strategy):
     rank = np.zeros((T, N))
     per_trade_exit = bool(strat.exit_when) and bool(expr.names_in(strat.exit_when) & expr.POSITION_VARS)
     namespaces = {}
+    _rules = [r for r in (strat.entry, strat.short_entry, strat.exit_when, strat.rank_by) if r]
+    late_close = any(callable(r) for r in _rules) or any(
+        expr.is_late_close(data.canonical(x)) for r in _rules if isinstance(r, str)
+        for x in re.findall(r"""sym\(\s*["']([^"']+)["']\s*\)""", r))
     # the static open-time check (Strategy.validate) is backed by an empirical one on the longest history
     t0 = max(tick, key=lambda t: len(dfs[t]))
     # rules written as Python functions have no static check: cut the data at sampled dates and compare
@@ -259,7 +265,7 @@ def _prepare(strat: Strategy):
                              ("exit", strat.exit_when, "bool"), ("order level", strat.entry_level, "value"),
                              ("ranking", strat.rank_by, "value")):
         if callable(rule):
-            bad = expr.callable_lookahead_probe(rule, dfs[t0], t0, kind, window=(cal[0], cal[-1]))
+            bad = expr.callable_check(rule, dfs[t0], t0, kind, window=(cal[0], cal[-1]))
             if bad:
                 nm = getattr(rule, "__name__", "")
                 label = f"{what} function {nm}()" if nm and not nm.startswith("<") else f"{what} function"
@@ -319,20 +325,26 @@ def _prepare(strat: Strategy):
         if need_vol:
             VOL[:, j] = on_cal(ns["volatility"](20).to_numpy())
 
-        def on_cal_bool(rule, _pos=pos, _have=have):
-            v = expr.evaluate(rule, ns).to_numpy(dtype=bool)     # indexed like the ticker's data
+        # rules acted on at this bar's own close read late-closing series (VIX, 4:15pm) as of the day before
+        ns_close = _namespace(df, t, close_fill=True) if late_close else ns
+        if late_close:
+            namespaces[t + " (close)"] = ns_close
+
+        def on_cal_bool(rule, _pos=pos, _have=have, at_close=False):
+            v = expr.evaluate(rule, ns_close if at_close else ns).to_numpy(dtype=bool)   # indexed like the ticker's data
             out = np.zeros(len(_pos), bool)
             out[_have] = v[_pos[_have]]
             return out
 
+        entry_close = strat.entry_fill == "close"
         if strat.side in ("long", "both"):
-            long_sig[:, j] = on_cal_bool(strat.entry)
+            long_sig[:, j] = on_cal_bool(strat.entry, at_close=entry_close)
         if strat.side == "short":
-            short_sig[:, j] = on_cal_bool(strat.entry)
+            short_sig[:, j] = on_cal_bool(strat.entry, at_close=entry_close)
         if strat.side == "both":
-            short_sig[:, j] = on_cal_bool(strat.short_entry)
+            short_sig[:, j] = on_cal_bool(strat.short_entry, at_close=entry_close)
         if strat.exit_when and not per_trade_exit:
-            exit_[:, j] = on_cal_bool(strat.exit_when)
+            exit_[:, j] = on_cal_bool(strat.exit_when, at_close=strat.exit_when_fill == "close")
         if strat.entry_level:
             LEVEL[:, j] = expr.evaluate_value(strat.entry_level, ns).reindex(cal)
         for name, (now, prev) in LVL.items():
@@ -341,10 +353,16 @@ def _prepare(strat: Strategy):
             now[:, j] = on_cal(lv.to_numpy())
             prev[:, j] = on_cal((lv if expr.open_safe(rule) else lv.shift(1)).to_numpy())
         if strat.rank_by:
-            r = expr.evaluate_value(strat.rank_by, ns).reindex(cal)
+            r = expr.evaluate_value(strat.rank_by, ns_close if strat.entry_fill == "close" else ns).reindex(cal)
         else:  # default preference: most liquid (20-day average dollar volume)
             r = (df["close"] * df["volume"]).rolling(20, min_periods=1).mean().reindex(cal)
         rank[:, j] = r.fillna(-np.inf if not strat.rank_ascending else np.inf).to_numpy()
+    # notes the rule evaluation earned (Python-function rules: bar-by-bar evaluation and its timing; crypto lag)
+    for ns_ in namespaces.values():
+        for n_ in ns_.notes:
+            if (n_.startswith(("Python rule", "Warning: Python rule")) or n_ == expr.CRYPTO_LAG_NOTE or "closes at 4:15pm" in n_) \
+                    and not any(x.split(":")[0] == n_.split(":")[0] for x in strat.notes):
+                strat.notes.append(n_)
     valid = ~np.isnan(C)
     long_sig &= valid
     short_sig &= valid
@@ -686,7 +704,7 @@ def run(strat: Strategy) -> Result:
                      "pnl": sgn * (dfk["close"] / fill - 1),
                      "highest_since_entry": np.maximum(hs.fillna(fill), fill),
                      "lowest_since_entry": np.minimum(ls.fillna(fill), fill)}
-            p.exit_sig = expr.evaluate(strat.exit_when, expr.Namespace(dfk, extra, ticker=tick[k])).reindex(cal, fill_value=False).to_numpy()
+            p.exit_sig = expr.evaluate(strat.exit_when, expr.Namespace(dfk, extra, ticker=tick[k], close_fill=strat.exit_when_fill == "close")).reindex(cal, fill_value=False).to_numpy()
         if stops_used:
             p.init_stop, p.init_trail, p.init_tgt = split_levels(p)
         positions[k] = p

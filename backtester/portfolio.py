@@ -1250,12 +1250,13 @@ def check_tree(p: "Portfolio") -> None:
 class _Namespaces(dict):
     """ticker -> expr.Namespace, each built on first use (a universe of hundreds of tickers mostly needs few)."""
 
-    def __init__(self, dfs: dict, basis: str, months: str = "trading"):
+    def __init__(self, dfs: dict, basis: str, months: str = "trading", close_fill: bool = False):
         super().__init__()
-        self.dfs, self.basis, self.months = dfs, basis, months
+        self.dfs, self.basis, self.months, self.close_fill = dfs, basis, months, close_fill
 
     def __missing__(self, t: str):
-        ns = self[t] = expr.Namespace(self.dfs[t], ticker=t, price_basis=self.basis, month_lookbacks=self.months)
+        ns = self[t] = expr.Namespace(self.dfs[t], ticker=t, price_basis=self.basis, month_lookbacks=self.months,
+                                      close_fill=self.close_fill)
         return ns
 
 
@@ -1304,7 +1305,8 @@ class _Evaluator:
         self.p, self.cal, self.dfs, self.off = p, cal, dfs, off
         self.basis = getattr(p, "price_basis", "quoted") or "quoted"
         self.months = getattr(p, "month_lookbacks", "trading") or "trading"
-        self.ns = _Namespaces(dfs, self.basis, self.months)   # built when a rule first reads the ticker
+        self.ns = _Namespaces(dfs, self.basis, self.months,       # built when a rule first reads the ticker
+                              close_fill=getattr(p, "fill", "close") == "close")
         self.cache: dict = {}
         self.close = {t: df["close"].reindex(cal).to_numpy() for t, df in dfs.items()}
         self._rets: dict = {}
@@ -1322,13 +1324,30 @@ class _Evaluator:
         key = (rule, t, kind)
         if key not in self.cache:
             ns = self.ns[t]
+            ev = expr.evaluate(rule, ns) if kind == "bool" else expr.evaluate_value(rule, ns)
+            lag = self._lag_note(t)
+            if lag:
+                # a rule on a series that closes after the stock market (a crypto day ends at 8pm New York, VIX at
+                # 4:15pm) is known at a US close only as of its previous bar
+                ev = ev.shift(1)
+                if lag not in self.p.notes:
+                    self.p.notes.append(lag)
             if kind == "bool":
-                s = expr.evaluate(rule, ns).reindex(self.cal, fill_value=False).to_numpy()
+                s = ev.fillna(False).astype(bool).reindex(self.cal, fill_value=False).to_numpy()
             else:
-                s = expr.evaluate_value(rule, ns).reindex(self.cal).to_numpy()
+                s = ev.reindex(self.cal).to_numpy()
             self.cache[key] = s
             self._rule_notes(rule, ns)
         return self.cache[key]
+
+    def _lag_note(self, t: str) -> str | None:
+        """Why rules evaluated on ticker t's own bars must lag a bar here (None: they need not)."""
+        if expr.is_crypto(t) and any(not expr.is_crypto(x) and not x.startswith("^") for x in self.dfs):
+            return (f"Rules on {t} (a crypto day closes at 00:00 UTC, 8pm New York) use its previous day's bar: the "
+                    "latest one complete at the US close the portfolio trades at.")
+        if expr.is_late_close(t) and getattr(self.p, "fill", "close") == "close":
+            return expr.LATE_CLOSE_NOTE.format(t=t)
+        return None
 
     def mseries(self, rule: str, m, kind: str) -> np.ndarray:
         """A rule evaluated on a member: a ticker's own data, or a node's synthetic NAV."""
@@ -1573,8 +1592,15 @@ class _Evaluator:
         if "custom" in n:
             # Python API: fn(date, history) -> {ticker: weight}; history holds data up to and including date
             d = self.cal[i]
-            hist = {t: self.dfs[data.canonical(t)].loc[:d] for t in n["tickers"]}
-            w = n["custom"](d, hist) or {}
+            # copies (a slice could reach the whole frame through its buffer), with files, the network and
+            # data.load beyond `d` out of reach while the function runs (see expr.stream_callable)
+            hist = {t: self.dfs[data.canonical(t)].loc[:d].copy() for t in n["tickers"]}
+            tok = data.LOAD_CUTOFF.set(d)
+            try:
+                with expr.io_blocked():
+                    w = n["custom"](d, hist) or {}
+            finally:
+                data.LOAD_CUTOFF.reset(tok)
             tot = sum(max(v, 0) for v in w.values())
             if tot > 1 + 1e-9:
                 raise ValueError(f"custom weights on {d.date()} add up to {tot:.2%}")
