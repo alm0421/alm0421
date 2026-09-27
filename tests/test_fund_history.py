@@ -241,16 +241,41 @@ def test_cut_fund_starts_at_its_first_reliable_date_unless_opted_in():
 
 def test_cut_fund_warning_and_the_raw_history_phrase():
     t, f = _cut_fund()
-    y0 = pd.Timestamp(f["first"]).year
-    p = parser.parse(f"hold 100% {t} from {y0} to {y0 + 12}")
+    u = pd.Timestamp(f["usable_from"])
+    y0, y1 = max(pd.Timestamp(f["first"]).year, u.year - 5), u.year + 5    # a period spanning the usable date
+    p = parser.parse(f"hold 100% {t} from {y0} to {y1}")
     res = runner.run(p)
     assert any(n.startswith("Warning: fund history cut") and t in n and "using raw fund history" in n for n in p.notes)
     assert res.equity.index[0] >= pd.Timestamp(f["usable_from"]) - pd.Timedelta(days=5)
-    q = parser.parse(f"hold 100% {t} from {y0} to {y0 + 12}, using raw fund history")
+    q = parser.parse(f"hold 100% {t} from {y0} to {y1}, using raw fund history")
     assert isinstance(q, Portfolio) and q.raw_fund_history
     res2 = runner.run(q)
     assert res2.equity.index[0] < pd.Timestamp(f["usable_from"])
     assert any(n.startswith("Warning: using the raw fund history") and f"{t} before" in n for n in q.notes)
+
+
+def test_a_period_wholly_before_a_cut_funds_usable_date_says_why_it_has_no_data():
+    """Both engines and the site: the error names the cut, the date and the opt-in, not just "no price data"."""
+    from backtester import web
+    t, f = _cut_fund()
+    u = pd.Timestamp(f["usable_from"])
+    first = _raw(t).index[0]
+    a, b = first + pd.Timedelta(days=40), min(u - pd.Timedelta(days=30), first + pd.Timedelta(days=5 * 365))
+    if b - a < pd.Timedelta(days=60):
+        pytest.skip("the cut stretch is too short for a period wholly inside it")
+    period = f"from {a.date()} to {b.date()}"
+    for text in (f"hold 100% {t} {period}", f"buy {t} when `close > sma(close, 5)`, sell after 5 days, {period}"):
+        with pytest.raises(ValueError) as e:
+            runner.run(parser.parse(text))
+        msg = web.friendly_error(e.value)
+        assert msg.startswith("no price data in the requested period"), msg
+        assert f"{t}'s history before {u.date()} is left out" in msg and "distributions" in msg, msg
+        assert "using raw fund history" in msg and f"Start on or after {u.date()}" in msg, msg
+        res = runner.run(parser.parse(f"{text}, using raw fund history"))    # the opt-in runs it
+        assert res.equity.index[0] < u
+    # a period after the usable date that has no data for another reason keeps the plain message
+    assert fund_history.no_data_message([t], u + pd.Timedelta(days=400), u + pd.Timedelta(days=500)) == \
+        "no price data in the requested period"
 
 
 @needs("VFINX")

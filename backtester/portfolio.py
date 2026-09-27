@@ -2983,7 +2983,8 @@ def run(p: Portfolio) -> Result:
         if both.any():
             cal = cal[int(np.argmax(both)):]
     if len(cal) < 2:
-        raise ValueError("no price data in the requested period")
+        from . import fund_history
+        raise ValueError(fund_history.no_data_message(list(dfs), p.start, p.end))
     # Day 0, as Portfolio Visualizer starts from the prior period-end: the starting balance is invested at the
     # close of the session before the first day, so the first day's return counts. Only when every fixed holding
     # has a price that day and the rules could decide then (warm-up, membership and market-cap data); the initial

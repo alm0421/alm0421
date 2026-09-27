@@ -355,6 +355,7 @@ def process(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, dict
 
 # ------------------------------------------------------------------ notes
 
+CUT_NO_DATA_SLACK_DAYS = 10   # a period ending this soon after a cut fund's usable date still has too few days
 RAW_HINT = ("say 'using raw fund history' (JSON: \"raw_fund_history\": true; command line: --raw-fund-history) to "
             "use the raw history anyway")
 
@@ -383,6 +384,34 @@ def repair_note(tickers, start=None, end=None) -> str | None:
             "which were matched to the funds' published quarterly total returns (data/fund_returns.json; the missing "
             "growth is booked on the distribution's ex-date where the prices show it, else spread over the quarter): "
             + "; ".join(parts) + ".")
+
+
+def no_data_message(tickers, start=None, end=None, base: str = "no price data in the requested period") -> str:
+    """The "no price data" error, explained when the cause is a fund whose early history was cut (cut_note): the
+    requested period ends before (or just after) the fund's first reliable session, so nothing is left."""
+    from . import data
+    if data.RAW_FUND_HISTORY.get():
+        return base
+    s = pd.Timestamp(start) if start is not None else None
+    e = pd.Timestamp(end) if end is not None else None
+    parts, last = [], None
+    for t in dict.fromkeys(data.canonical(x) for x in tickers):
+        f = data.fund_unreliable(t)
+        if not f:
+            continue
+        u = pd.Timestamp(f["usable_from"])
+        if s is not None and s >= u:
+            continue
+        if e is not None and e > u + pd.Timedelta(days=CUT_NO_DATA_SLACK_DAYS):
+            continue
+        parts.append(f"{t}'s history before {u.date()} is left out because the free (Yahoo) data misses its "
+                     f"capital-gain distributions there ({f['days']} unexplained drops worth {abs(f['sum']):.0%} in all, "
+                     f"{pd.Timestamp(f['first']).date()} to {pd.Timestamp(f['until']).date()}), and there are no published "
+                     "returns on file to repair it")
+        last = u if last is None else max(last, u)
+    if not parts:
+        return base
+    return (f"{base}: " + "; ".join(parts) + f". Start on or after {last.date()}, or " + RAW_HINT + ".")
 
 
 def cut_note(tickers, start=None, raw: bool = False) -> str | None:

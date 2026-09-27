@@ -382,7 +382,8 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
     if end is not None:
         cal = cal[cal <= end]
     if len(cal) < 2:
-        raise ValueError("no price data in the requested period")
+        from . import fund_history
+        raise ValueError(fund_history.no_data_message(list(dfs), start, end))
     rules = " ".join(str(r) for r in (strat.rank_by, strat.entry, strat.short_entry, strat.exit_when) if r)
     if "market_cap" in rules and not (strat.universe_name == "NDX"):
         msgs, fund_list = data.mcap_notes(list(dfs), cal[0], cal[-1])

@@ -170,6 +170,25 @@ def test_level_junk_detector_finds_flipping_blocks_and_ignores_real_moves():
     assert integrity.level_junk_stretches(crash, np.diff(crash, prepend=np.nan)) == []
     ticks = np.log(np.where(np.arange(300) % 3 == 0, 5.0, 6.0))   # a thin stock bouncing between two ticks
     assert integrity.level_junk_stretches(ticks, np.diff(ticks, prepend=np.nan)) == []
+    # a thin stock quoted on a few tick prices, unchanged for days in between (OFG 1990): real, if sparse, trading
+    ofg = np.log([                                   # OFG's closes 1989-10..1990-03 (prices file rows 640-759)
+        0.8367, 0.8367, 0.8367, 0.8008, 0.8008, 0.8606, 0.8128, 0.8128, 0.8128, 0.8367, 0.8367, 0.7889, 0.8128, 0.765,
+        0.8128, 0.8367, 0.8367, 0.8367, 0.8367, 0.7889, 0.9562, 0.9562, 0.9562, 0.9084, 0.9084, 0.9562, 0.8606, 0.8606,
+        0.8606, 0.8606, 0.8606, 0.8606, 0.9562, 0.9562, 0.8128, 0.8845, 0.8845, 0.8845, 0.8845, 0.8845, 0.8845, 0.8845,
+        0.9084, 0.9084, 0.9562, 0.9084, 0.9084, 0.9084, 0.9084, 0.9562, 0.9562, 0.8367, 0.8367, 0.8367, 0.8367, 0.8128,
+        0.8128, 0.8128, 0.8128, 0.9562, 0.7889, 0.7889, 0.8367, 0.7889, 0.7889, 0.7889, 0.7889, 0.9562, 0.8008, 0.8008,
+        0.8008, 0.8008, 0.8008, 0.8008, 0.8008, 0.8008, 0.9562, 0.9562, 0.9323, 0.7889, 0.7889, 0.7889, 0.7889, 0.7889,
+        0.7889, 0.9562, 0.7889, 0.7889, 0.8128, 0.8128, 0.8606, 0.8606, 0.8606, 0.9084, 0.9084, 0.8606, 0.8606, 0.8128,
+        0.8486, 0.8128, 0.9084, 0.9084, 0.9084, 0.9084, 0.9084, 0.9084, 0.8128, 0.8128, 0.8128, 0.765, 0.765, 0.765,
+        0.765, 0.765, 0.8008, 0.8008, 0.8008, 0.8367, 0.8367, 0.8367])
+    thin = np.concatenate([ofg[0] + base[:180] - base[179], ofg])
+    assert integrity.level_junk_stretches(thin, np.diff(thin, prepend=np.nan)) == []
+    old = integrity.LEVEL_SEG_DISTINCT
+    try:                                                 # (the stale-tick check is what keeps it out)
+        integrity.LEVEL_SEG_DISTINCT = 0.0
+        assert integrity.level_junk_stretches(thin, np.diff(thin, prepend=np.nan))
+    finally:
+        integrity.LEVEL_SEG_DISTINCT = old
 
 
 @needs("WFM")
@@ -187,19 +206,43 @@ def test_wfm_1996_junk_is_repaired_and_makes_no_phantom_trades():
     assert "WFM 1996-08-01..1996-10-18" in (data.integrity_note(["WFM"], "1996-01-01", "1997-12-31") or "")
 
 
-def test_only_the_known_junk_stretches_are_found_in_the_price_files():
+# Level-shift junk known in the core universe (Nasdaq-100 members past and present, core ETFs: price_flags.core_tickers):
+# WFM/WFMI 1996 (alternating two-day blocks ~1.33x apart on normal volume). SZK 2014-15 (zero-volume quotes flipping
+# 150 <-> 210) is outside it. The data job keeps adding files, so outside the core only consistency is asserted.
+KNOWN_CORE_JUNK = {("WFM", 1996), ("WFMI", 1996)}
+
+
+def _level_junk_hits(raw: pd.DataFrame) -> list:
     from backtester import integrity
-    hits = set()
+    c = pd.to_numeric(raw["close"], errors="coerce")
+    with np.errstate(invalid="ignore", divide="ignore"):
+        lc = np.log(c.where(c > 0)).to_numpy()
+        lh = np.log(pd.to_numeric(raw["high"], errors="coerce").where(lambda x: x > 0)).to_numpy()
+        ll = np.log(pd.to_numeric(raw["low"], errors="coerce").where(lambda x: x > 0)).to_numpy()
+    return integrity.level_junk_stretches(lc, np.diff(lc, prepend=np.nan), lh, ll)
+
+
+def test_only_the_known_junk_stretches_are_found_in_the_price_files():
+    from backtester import price_flags
+    core = price_flags.core_tickers()
+    hits = {}
     for p in sorted(data.PRICES.glob("*.csv")):
         raw = pd.read_csv(p, index_col=0, parse_dates=True)
-        c = pd.to_numeric(raw["close"], errors="coerce")
-        lc = np.log(c.where(c > 0)).to_numpy()
-        with np.errstate(invalid="ignore", divide="ignore"):
-            lh = np.log(pd.to_numeric(raw["high"], errors="coerce").where(lambda x: x > 0)).to_numpy()
-            ll = np.log(pd.to_numeric(raw["low"], errors="coerce").where(lambda x: x > 0)).to_numpy()
-        if integrity.level_junk_stretches(lc, np.diff(lc, prepend=np.nan), lh, ll):
-            hits.add(p.stem)
-    assert hits <= {"WFM", "WFMI", "SZK"}          # SZK 2014-15: zero-volume quotes flipping 150 <-> 210
+        found = _level_junk_hits(raw)
+        if found:
+            hits[p.stem] = [(raw.index[a], raw.index[b]) for a, b, *_ in found]
+    print("level-shift junk found:", {t: [(a.date(), b.date()) for a, b in v] for t, v in sorted(hits.items())})
+    core_hits = {(t, a.year) for t, v in hits.items() if t in core for a, _ in v}
+    assert core_hits <= KNOWN_CORE_JUNK, f"new level-shift junk in the core universe (check it): {core_hits - KNOWN_CORE_JUNK}"
+    # every detection, anywhere: the integrity gate repairs it, and the loaded series no longer flips there
+    for t, spans in hits.items():
+        ev = data.price_repairs(t)
+        junk = pd.to_datetime(ev.loc[ev["kind"] == "level_junk", "date"]) if len(ev) else pd.Series([], dtype="datetime64[ns]")
+        df = data.load(t)
+        after = [(df.index[a], df.index[b]) for a, b, *_ in _level_junk_hits(df)]
+        for a, b in spans:
+            assert ((junk >= a) & (junk < b)).any(), (t, a.date(), b.date(), "detected but not repaired")
+            assert not any(x <= b and y >= a for x, y in after), (t, a.date(), b.date(), "still flipping after repair")
 
 
 # ------------------------------------------------------------ 4. dividends of rebuilt histories

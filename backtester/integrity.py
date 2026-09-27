@@ -59,6 +59,9 @@ LEVEL_MAX_RUN = 12            # at most this many bars apart,
 LEVEL_SPREAD = 0.3            # between two levels whose own spread is under 30% of the gap between them,
 LEVEL_DISTINCT = 0.3          # with distinct closes on each level (a thin stock's bid/ask bounce sits on a few ticks)
 LEVEL_STRADDLE = 0.2          # and few days whose high-low range spans both levels (real trading between them)
+LEVEL_SEG_DISTINCT = 0.4      # and mostly distinct closes over the whole stretch: a thin stock whose quotes bounce
+                              # between a handful of tick prices, unchanged for days (OFG 1990: 6 prices in 29 bars),
+                              # is real if sparse trading; two mixed sources each move every day (WFM 0.59, SZK 0.73)
 
 
 def level_junk_stretches(lc: np.ndarray, r: np.ndarray, lh: np.ndarray | None = None,
@@ -102,6 +105,8 @@ def level_junk_stretches(lc: np.ndarray, r: np.ndarray, lh: np.ndarray | None = 
             continue
         if min(len(np.unique(np.round(low, 6))), len(np.unique(np.round(high, 6)))) < LEVEL_DISTINCT * min(len(low), len(high)):
             continue                                     # a thin stock bouncing between two ticks (GFF 1977, LCII 1987)
+        if len(np.unique(np.round(seg, 6))) < LEVEL_SEG_DISTINCT * len(seg):
+            continue                                     # ... or between a few ticks, stale in between (OFG 1990)
         # every jump in the group crosses between the levels (not a trend through them)
         mid = 0.5 * (float(low.max()) + float(high.min()))
         crosses = sum(1 for q in grp if (lc[q] - mid) * (lc[q - 1] - mid) < 0)
