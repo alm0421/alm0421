@@ -2177,6 +2177,10 @@ def main() -> None:
     (ROOT / "data" / "universe.json").write_text(json.dumps(meta, indent=1))
     KEYED_FILE.write_text(json.dumps(sorted(KEYED_OK), indent=1))
     write_sim_drag()
+    try:
+        write_integrity_log()
+    except Exception as e:  # noqa: BLE001 - the log is informational
+        print(f"price integrity log failed: {e}", file=sys.stderr)
     (ROOT / "data" / "sims_log.txt").write_text(
         ("\n".join(SIM_LOG) if SIM_LOG else "all simulated series built") + "\n\n"
         + "Model vs fund on their overlap:\n" + "\n".join(SIM_NOTES) + "\n")
@@ -2184,6 +2188,48 @@ def main() -> None:
           f"{len(former_missing)} former members without data, {len(failed)} failed {failed}")
     if len(ok) < len(tickers) * 0.85:
         sys.exit(1)
+
+
+INTEGRITY_FILE = ROOT / "data" / "inferred_splits.json"
+
+
+def write_integrity_log(tickers: list[str] | None = None, path: Path | None = None) -> dict:
+    """Run the price-integrity gate (backtester/integrity.py: splits the source data missed or booked wrongly,
+    isolated bad ticks) over every price file and record what it repaired, with the evidence, under "inferred" in
+    data/inferred_splits.json (its "overrides" - manual decisions - are kept). The repair itself happens when the
+    backtester loads a file, so a new download that still carries the error is repaired the same way; this log is
+    what a reviewer checks (and turns into an override when the gate got one wrong)."""
+    from backtester import data as bt_data
+    path = path or INTEGRITY_FILE
+    try:
+        doc = json.loads(path.read_text())
+    except (OSError, ValueError):
+        doc = {}
+    doc.setdefault("overrides", {})
+    names = tickers if tickers is not None else sorted(p.stem for p in PRICES.glob("*.csv"))
+    bt_data.load.cache_clear()
+    bt_data.PRICE_REPAIRS.clear()
+    found: dict = {}
+    for t in names:
+        try:
+            ev = bt_data.price_repairs(t)
+        except Exception as e:  # noqa: BLE001
+            print(f"{t}: integrity check failed: {e}", file=sys.stderr)
+            continue
+        for _, r in ev.iterrows():
+            found.setdefault(t, {})[str(pd.Timestamp(r["date"]).date())] = {
+                "kind": r["kind"], "ratio": None if pd.isna(r["ratio"]) else round(float(r["ratio"]), 6),
+                "applied": r["applied"], "day_return_in_file": round(float(r["day_return_raw"]), 6),
+                "day_return_repaired": round(float(r["day_return_now"]), 6),
+                "expected_from_reference": round(float(r["expected"]), 6), "residual_sd": round(float(r["sigma"]), 6),
+                "reference": r["reference"] if isinstance(r["reference"], str) else None,
+                "volume_ratio_after": None if r["volume_ratio"] is None or pd.isna(r["volume_ratio"]) else round(float(r["volume_ratio"]), 4),
+                "why": r["why"]}
+    doc["inferred"] = found
+    path.write_text(json.dumps(doc, indent=1, default=str) + "\n")
+    n = sum(len(v) for v in found.values())
+    print(f"price integrity: {n} repairs in {len(found)} files (data/inferred_splits.json)")
+    return doc
 
 
 if __name__ == "__main__":

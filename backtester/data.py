@@ -755,7 +755,12 @@ def load(ticker: str) -> pd.DataFrame:
         raise DataError(f"No price data for {t}: its price file ({path.name}) has no valid rows (empty, or no positive "
                         "closes). Re-run the 'Fetch price data' workflow (or delete the file so it is downloaded again).")
     raw, _ = reconcile_actions(t, raw)
+    raw, events = price_integrity(t, raw)
     raw, repaired = repair_bars(t, raw)
+    if len(events):
+        # a replaced bad tick is an estimate, not a quote: its open is not traded at either
+        ticks = pd.DatetimeIndex(events.loc[events["kind"] == "bad_tick", "date"])
+        repaired = repaired | pd.Series(raw.index.isin(ticks), index=raw.index)
     df = pd.DataFrame(index=raw.index)
     opn = raw["open"].where(raw["open"] > 0, raw["close"]).fillna(raw["close"])
     low = raw["low"].where(raw["low"] > 0)
@@ -993,6 +998,102 @@ def corporate_action_note(tickers, start=None, end=None) -> str | None:
         return None
     return ("Corporate actions: the data books these events inconsistently (a payout and a split for one spin-off, "
             "or a payout per pre-split share), so they were reconciled: " + "; ".join(parts) + ".")
+
+
+# ------------------------------------------------------------------ price integrity (backtester/integrity.py)
+#
+# Splits the source data missed or booked wrongly, and isolated bad ticks, found from the prices themselves and
+# repaired on load. data/inferred_splits.json holds manual overrides ("overrides": {ticker: {date: {"action":
+# "split" | "rescale" | "ignore", "ratio": r, "why": ...}}}) and the data job's log of what the gate found.
+
+INFERRED_FILE = DATA / "inferred_splits.json"
+PRICE_REPAIRS: dict[str, pd.DataFrame] = {}     # what the integrity gate changed, per ticker (with the evidence)
+_REPAIR_TEXT = {"inferred_split": "{r} split inferred from prices, not in the source data",
+                "basis_change": "the prices before it were on another basis ({r} apart; no split that day), rescaled",
+                "phantom_split": "a {r} split booked that day that the prices show did not happen, dropped",
+                "unapplied_split": "a {r} split booked that day that the prices were never adjusted for, applied",
+                "bad_tick": "an isolated bad price replaced by the average of the days around it"}
+
+
+@lru_cache(maxsize=1)
+def integrity_overrides() -> dict:
+    try:
+        d = json.loads(INFERRED_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+    ov = d.get("overrides", {}) if isinstance(d, dict) else {}
+    return {canonical(t): v for t, v in ov.items() if isinstance(v, dict)}
+
+
+@lru_cache(maxsize=256)
+def _ref_returns_at(path: str) -> pd.Series | None:
+    try:
+        raw = pd.read_csv(path, usecols=["date", "close"], parse_dates=["date"], index_col="date").sort_index()
+    except (OSError, ValueError):
+        return None
+    c = raw["close"]
+    c = c[~c.index.duplicated(keep="last")]
+    c = c[(c > 0) & c.notna()].astype(float)
+    return np.log(c).diff()
+
+
+def _ref_returns(t: str) -> pd.Series | None:
+    path = PRICES / f"{t}.csv"
+    return _ref_returns_at(str(path)) if path.exists() else None
+
+
+def price_integrity(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The integrity gate (backtester/integrity.py) on a ticker's raw bars: (repaired bars, events)."""
+    from . import integrity
+    try:
+        try:
+            fund = is_fund(t)
+        except Exception:  # noqa: BLE001 - no universe file (synthetic data)
+            fund = True
+        out, ev = integrity.check(t, raw, _ref_returns, integrity_overrides().get(t), fund=fund)
+    except Exception:  # noqa: BLE001 - a data check must never make a price file unreadable
+        return raw, pd.DataFrame(columns=integrity.EVENT_COLUMNS)
+    PRICE_REPAIRS[t] = ev
+    return out, ev
+
+
+def price_repairs(ticker: str) -> pd.DataFrame:
+    """The integrity gate's changes to `ticker`: date, kind (inferred_split, basis_change, phantom_split,
+    unapplied_split, bad_tick), ratio, the day's return in the file and after repair, the move the reference
+    predicted, its residual sd, the reference ticker, the volume shift and the reasoning."""
+    from . import integrity
+    t = canonical(ticker)
+    raw = _raw_file(t)
+    if raw is None:
+        return pd.DataFrame(columns=integrity.EVENT_COLUMNS)
+    if t not in PRICE_REPAIRS:
+        price_integrity(t, reconcile_actions(t, raw)[0])
+    return PRICE_REPAIRS.get(t, pd.DataFrame(columns=integrity.EVENT_COLUMNS))
+
+
+def integrity_note(tickers, start=None, end=None) -> str | None:
+    """'Data repaired: ...' naming the integrity-gate repairs of `tickers` inside [start, end]."""
+    from .integrity import _ratio_text
+    s = pd.Timestamp(start) if start is not None else pd.Timestamp.min
+    e = pd.Timestamp(end) if end is not None else pd.Timestamp.max
+    parts = []
+    for t in dict.fromkeys(canonical(x) for x in tickers):
+        try:
+            ev = price_repairs(t)
+        except Exception:  # noqa: BLE001 - a note must never break a backtest
+            continue
+        for _, row in ev.iterrows():
+            d = pd.Timestamp(row["date"])
+            if not (s <= d <= e):
+                continue
+            ratio = _ratio_text(float(row["ratio"])) if np.isfinite(float(row["ratio"])) else ""
+            parts.append(f"{t} {d.date()}: " + _REPAIR_TEXT.get(row["kind"], row["kind"]).format(r=ratio)
+                         + f" (one-day move {row['day_return_raw']:+.1%} in the file, {row['day_return_now']:+.1%} "
+                         "after the repair)")
+    if not parts:
+        return None
+    return ("Data repaired: " + "; ".join(parts) + ". The source data (Yahoo) had these wrong; data.price_repairs(ticker) "
+            "shows the evidence. Returns on those days are estimates.")
 
 
 # Bars whose repair needs outside knowledge: {ticker: {date: {field: value}}}. Values are split-adjusted.
@@ -1310,7 +1411,7 @@ def splits(ticker: str) -> pd.Series:
     raw = _raw_file(t)
     if raw is None or "split" not in raw:
         return pd.Series(dtype=float)
-    raw = reconcile_actions(t, raw)[0]
+    raw = price_integrity(t, reconcile_actions(t, raw)[0])[0]
     s = pd.to_numeric(raw["split"], errors="coerce").fillna(0.0)
     s = s[(s > 0) & ((s - 1).abs() > 1e-9)]
     return s[~s.index.duplicated(keep="last")].sort_index()
