@@ -1425,13 +1425,13 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
 
     # calendar
     take(r"(?:on )?(monday|tuesday|wednesday|thursday|friday)s?", lambda m: f"dow == {DOW[m.group(1)]}")
-    take(r"(?:on |at )?(?:the )?month[- ]end", lambda m: "trading_days_left_in_month == 1")
+    take(r"(?:on |at )?(?:the )?month[- ]end", lambda m: "trading_days_left_in_month == 0")
     take(rf"(?:on )?(?:the )?(?:({ORD}) (?:to |from )?last|last) (?:trading )?day (?:of|in) (?:the |each |every )?month",
-         lambda m: f"trading_days_left_in_month == {_ord(m.group(1)) if m.group(1) else 1}")
+         lambda m: f"trading_days_left_in_month == {_ord(m.group(1)) - 1 if m.group(1) else 0}")
     take(rf"(?:on )?(?:the )?({ORD}) trading day (?:of|in) (?:the |each |every )?(?:next |following |new )?month",
          lambda m: f"trading_day_of_month == {_ord(m.group(1))}")
     take(r"(?:on |in |during )?(?:the )?(first|last) (\d+) trading days (?:of|in) (?:the |each |every )?month",
-         lambda m: f"trading_day_of_month <= {m.group(2)}" if m.group(1) == "first" else f"trading_days_left_in_month <= {m.group(2)}")
+         lambda m: f"trading_day_of_month <= {m.group(2)}" if m.group(1) == "first" else f"trading_days_left_in_month <= {int(m.group(2)) - 1}")
     take(r"(?:during |in )?(?:the )?(january|february|march|april|may|june|july|august|september|october|november|december)",
          lambda m: f"month == {MONTHS.index(m.group(1)) + 1}")
 
@@ -3020,7 +3020,12 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
                   r"(?:(largest|biggest|smallest|highest|lowest) )?market[- ]cap(?:itali[sz]ation)?s?(?: first)?"
                   r"|(?:prefer(?:ring)?|pick(?:ing)?|choose|choosing|favou?r(?:ing)?) (?:the )?(largest|biggest|smallest)"
                   r"(?: (?:companies|stocks|names|ones))?(?: (?:by|in) market[- ]cap(?:itali[sz]ation)?)?(?: first)?(?=\s*(?:[,;.]|$))")
-    mr = T.find(r"(?:prefer(?:ring)?|rank(?:ed)? by|pick(?:ing)?|choose|choosing|favou?r(?:ing)?) (?:the )?(lowest|highest|weakest|strongest|biggest losers?|biggest gainers?|most oversold|most overbought|biggest declines?|largest declines?)(?: (rsi|return|decline|change|volatility))?(?: first)?")
+    # "prefer the lowest RSI", "rank by lowest RSI(2)", "prefer the highest 20-day volatility", "rank by the lowest
+    # 5 day return": group 1 the direction, 3 the indicator, 2/4/5 its period (before it, in brackets, after it)
+    mr = T.find(r"(?:prefer(?:ring)?|rank(?:ed|ing)?(?: them)? by|pick(?:ing)?|choose|choosing|favou?r(?:ing)?) (?:the )?"
+                r"(lowest|highest|weakest|strongest|biggest losers?|biggest gainers?|most oversold|most overbought|biggest declines?|largest declines?)"
+                r"(?: (?:(\d+)[- ]?(?:day|bar|period|session)s? )?(rsi|returns?|declines?|change|volatility)"
+                r"(?:\s*\(\s*(?:close\s*,\s*)?(\d+)\s*\)|\s+(\d+)(?![\d.%]| ?(?:day|bar|week|month|year|%)))?)?(?: first)?")
 
     # ---- exits and stops (anywhere)
     ex: dict = {}
@@ -3454,16 +3459,20 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
         notes.append(f"Ranking: when more tickers signal than there are free slots, the {'smallest' if kw['rank_ascending'] else 'largest'} "
                      "market caps (as of the signal day) are bought first.")
     if mr:
-        w = mr.group(1)
-        if mr.group(2) == "rsi" or "oversold" in w or "overbought" in w:
+        w = mr.group(1).lower()                           # T.find matches case-insensitively: "Lowest RSI"
+        ind = (mr.group(3) or "").lower()
+        per = mr.group(2) or mr.group(4) or mr.group(5)   # "RSI(2)", "RSI 2", "2-day RSI"
+        if ind == "rsi" or "oversold" in w or "overbought" in w:
             mn = re.search(r"rsi\([^,]+,\s*(\d+)\)", first["entry"])
-            kw["rank_by"] = f"rsi({mn.group(1) if mn else 2})"
+            kw["rank_by"] = f"rsi(close, {per})" if per else f"rsi({mn.group(1) if mn else 2})"
             kw["rank_ascending"] = w in ("lowest", "most oversold")
-        elif mr.group(2) == "volatility":
-            kw["rank_by"], kw["rank_ascending"] = "volatility(20)", w in ("lowest", "weakest")
+        elif ind == "volatility":
+            kw["rank_by"], kw["rank_ascending"] = f"volatility({per or 20})", w in ("lowest", "weakest")
         else:
-            kw["rank_by"] = "ret(5)" if "return" in (mr.group(2) or "") else "change"
+            kw["rank_by"] = f"ret({per or 5})" if ind.startswith("return") else (f"ret({per})" if per else "change")
             kw["rank_ascending"] = w in ("lowest", "weakest", "biggest loser", "biggest losers", "biggest decline", "biggest declines", "largest decline", "largest declines")
+        notes.append(f"Ranking: when more tickers signal than there are free slots, the {'lowest' if kw['rank_ascending'] else 'highest'} "
+                     f"{kw['rank_by']} (as of the signal day) is bought first.")
     if 1 < len(universe) < 10 and uni_name is None and "max_positions" not in kw:
         # an explicit short list ("buy Tesla and Nvidia when ..."): one slot per ticker, equal shares
         k_ = len(universe)
@@ -3483,7 +3492,11 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
         pit = kw.get("point_in_time", True)
         notes.append("Universe: Nasdaq-100 " + ("with point-in-time membership (stocks are only bought while in the index; "
                      "former members are included where price history exists)." if pit else
-                     "using TODAY'S members only - results carry survivorship bias."))
+                     "using TODAY'S members only (the latest membership list, no membership filter) - survivorship-biased "
+                     "by construction."))
+        if not pit:
+            cur = set(data.current_members())
+            universe = [t for t in universe if t in cur]
     benchmark = kw.pop("benchmark", None)
 
     stop_phrase = ex.pop("_stop_phrase", None)
@@ -4152,7 +4165,7 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
         low = s.lower()
     m = re.match(r"(?is)(?:the )?(\d+) (best|worst|top|bottom)[- ]perform(?:ing|ers)(?: (?:of|among|from|in))? (?:the )?(.+?) over (?:the )?(?:last |past )?(\d+) (day|week|month|year)s?(,.*)?$", s)
     if m:
-        s = f"{'top' if m.group(2) in ('best', 'top') else 'bottom'} {m.group(1)} of {m.group(3)} by {m.group(4)} {m.group(5)} return{m.group(6) or ''}"
+        s = f"{'top' if m.group(2).lower() in ('best', 'top') else 'bottom'} {m.group(1)} of {m.group(3)} by {m.group(4)} {m.group(5)} return{m.group(6) or ''}"
         low = s.lower()
     # "the 5 largest Nasdaq 100 stocks", "the largest 5 ... by market cap": size means market cap
     m = re.match(r"(?is)(?:the )?(?:(\d+) (largest|biggest|smallest)|(largest|biggest|smallest) (\d+)) (?:of |among |from |in )?(?:the )?"

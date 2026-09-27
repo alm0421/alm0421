@@ -110,7 +110,7 @@ REFUSED = [
     'sym("SPY").volume > 0', 'sym("SPY").tr > 0',
     # weekly / monthly bars and period-end flags
     "open > weekly(close)", "open > monthly(close)", "open > weekly_close()", "open > monthly_close()",
-    "weekly_rsi(14) > 50", "open > weekly_sma(10)", "is_month_end()", "is_week_end() and gap < 0",
+    "weekly_rsi(14) > 50", "open > weekly_sma(10)", "is_month_end() and close > open", "is_week_end(close)",
     # position variables at the open
     "pnl > 0.05", "bars_held >= 3", "open > highest_since_entry", "open < lowest_since_entry",
 ]
@@ -134,6 +134,8 @@ SAFE = [
     "down_streak(ref(close, 1)) >= 3", "ref(close, 1) > ref(sma(close, 20), 1)", "open > highest(ref(high, 1), 20)",
     "open < lowest(ref(low, 1), 5)", "ref(ibs, 1) < 0.2 and gap < 0", "ref(rsi(2), 1) < 10", "ref(close, 2) > ref(close)",
     "dow == 0 and month != 12", "trading_day_of_month <= 3", "trading_days_left_in_month <= 2",
+    # scheduled-calendar flags: from the published NYSE schedule, known before the open
+    "is_month_end()", "is_week_end() and gap < 0", "is_quarter_end() or is_year_end()",
     "maximum(gap, 0) > 0.001", "sqrt(abs(gap)) > 0.05", "open > ref(weekly(close), 1)", "ref(macd_hist(), 1) > 0",
     "open / ref(close, 1) - 1 < -0.01 or day == 15", "ret(open, 3) < -0.05", "zscore(ref(close, 1), 20) < -1",
     "cummax(open) > open * 1.2", "drawdown(ref(close, 1), 60) < -0.1", "gap > 0",

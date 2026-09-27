@@ -66,8 +66,11 @@ def portfolio_targets(p: Portfolio) -> tuple[str, dict[str, float], list[str]]:
     return str(cal[-1].date()), w, list(p.notes)
 
 
-def signal_targets(s, account_value: float) -> tuple[str, dict[str, float], list[str], dict[str, float]]:
-    """-> as_of, {ticker: weight}, notes, {ticker: fixed shares} (fixed_shares sizing)."""
+def signal_targets(s, account_value: float, entry_orders: list | None = None
+                   ) -> tuple[str, dict[str, float], list[str], dict[str, float]]:
+    """-> as_of, {ticker: weight}, notes, {ticker: fixed shares} (fixed_shares sizing, and limit/stop entries,
+    which are sized at their order price). For limit / stop entries, the engine's working entry orders
+    (signals.entry_orders) are appended to `entry_orders` when a list is given."""
     from . import signals
     res = runner.run(s)
     notes: list[str] = []
@@ -97,7 +100,49 @@ def signal_targets(s, account_value: float) -> tuple[str, dict[str, float], list
             if px and eq > 0:
                 held[r.ticker] = held.get(r.ticker, 0.0) + sign * float(getattr(r, "exit_shares", r.shares)) * px / eq
     fixed: dict[str, float] = {}
-    if s.entry_fill != "close":
+    if s.entry_order != "market":
+        # limit / stop entries: the orders the engine has working for the next session, at the engine's levels
+        pend = signals.entry_orders(s, res)
+        free = max(int(s.max_positions) - len(held), 0)
+        placed = 0
+        for e in pend:
+            t = e["ticker"]
+            if t in held or t in fixed:
+                notes.append(f"{t}: an entry order at {e['price']} is working while the position is held (pyramiding); "
+                             "add it by hand if wanted.")
+                continue
+            sign = -1 if e["side"] == "short" else 1
+            lvl = float(e["price"])
+            if s.sizing == "fixed_shares" and s.fixed_amount:
+                q = float(s.fixed_amount)
+            else:
+                if s.sizing == "fixed_dollars" and s.fixed_amount:
+                    w = float(s.fixed_amount) / account_value
+                else:
+                    if s.sizing in ("risk", "volatility"):
+                        notes.append(f"{s.sizing} sizing needs the fill-day stop/volatility; entry orders use "
+                                     f"{s.position_size:.0%} of the account each instead.")
+                    w = float(s.position_size)
+                q = float(math.floor(w * account_value / lvl + 1e-9)) if lvl > 0 else 0.0
+            fixed[t] = sign * q
+            held[t] = sign * q * lvl / account_value
+            placed += 1
+            if entry_orders is not None:
+                entry_orders.append({**e, "shares": q})
+            span = ("the next session" if e["valid_sessions"] == 1
+                    else f"{e['valid_sessions']} sessions (until {e['until']})")
+            br = ", ".join(x for x in (f"stop loss {e['stop_loss']}" if "stop_loss" in e else "",
+                                       f"take profit {e['take_profit']}" if "take_profit" in e else "") if x)
+            notes.append(f"{t}: {e['action'].lower()} with a {e['order'].lower()} order at {e['price']} "
+                         f"(signal on {e['placed']}, close {e['close']}), working for {span}, as the backtest does"
+                         + (f"; bracket (the two exits one-cancels-other): {br}" if "," in br
+                            else f"; attached exit once filled: {br}" if br else "") + ".")
+        if placed > free:
+            notes.append(f"{placed} entry orders for {free} free position slot(s): as in the backtest, the first to fill "
+                         "take the slots; cancel the others once the slots are full.")
+        if not pend:
+            notes.append(f"No {s.entry_order} entry orders are working for the next session.")
+    elif s.entry_fill != "close":
         sc = signals.scan(s)
         free = max(int(s.max_positions) - len(held), 0)
         new = [e for e in sc.get("entry_signals", []) if e["ticker"] not in held][:free]
@@ -130,13 +175,15 @@ def todays_orders(spec, account_value: float, holdings_text: str = "", whole_sha
         raise ValueError("Enter the current account value (a positive dollar amount).")
     current = parse_holdings(holdings_text)
     fixed: dict[str, float] = {}
+    pend: list[dict] = []
     if isinstance(spec, Portfolio):
         as_of, target, notes = portfolio_targets(spec)
         order_type = "MOC" if spec.fill == "close" else "MKT"
     else:
         spec.validate()
-        as_of, target, notes, fixed = signal_targets(spec, account_value)
+        as_of, target, notes, fixed = signal_targets(spec, account_value, pend)
         order_type = "MKT"
+    lvl_orders = {e["ticker"]: e for e in pend}
     rows = []
     for t in list(dict.fromkeys([*target, *current])):
         px, px_date = _last_close(t)
@@ -158,9 +205,18 @@ def todays_orders(spec, account_value: float, holdings_text: str = "", whole_sha
             side = "hold"
         else:
             side = "BUY" if delta > 0 else "SELL"
-        rows.append({"ticker": t, "side": side, "shares": round(abs(delta), 6), "est_price": px,
-                     "value": round(abs(delta) * px, 2) if px else None, "current_shares": cur,
-                     "target_shares": tgt, "target_weight": round(w, 6), "price_date": px_date})
+        row = {"ticker": t, "side": side, "shares": round(abs(delta), 6), "est_price": px,
+               "value": round(abs(delta) * px, 2) if px else None, "current_shares": cur,
+               "target_shares": tgt, "target_weight": round(w, 6), "price_date": px_date}
+        e = lvl_orders.get(t)
+        if e is not None and side != "hold":
+            row.update({"order_type": "LMT" if e["order"] == "LIMIT" else "STP", "order_price": e["price"],
+                        "valid_sessions": e["valid_sessions"], "est_price": e["price"],
+                        "value": round(abs(delta) * e["price"], 2)})
+            for k in ("stop_loss", "take_profit"):
+                if k in e:
+                    row[k] = e[k]
+        rows.append(row)
     rows.sort(key=lambda r: (r["side"] == "hold", r["side"] != "SELL", r["ticker"]))
     trades = [r for r in rows if r["side"] != "hold"]
     untradable = [r["ticker"] for r in trades if r["ticker"].startswith("^")]
@@ -171,7 +227,7 @@ def todays_orders(spec, account_value: float, holdings_text: str = "", whole_sha
     return {"as_of": as_of, "account_value": account_value, "orders": rows, "notes": list(dict.fromkeys(notes)),
             "buy_value": round(buys, 2), "sell_value": round(sells, 2),
             "invested_after": round(sum(abs(r["target_shares"]) * (r["est_price"] or 0) for r in rows), 2),
-            "csv": generic_csv(trades), "ib_csv": ib_basket_csv(trades, order_type)}
+            "entry_orders": pend, "csv": generic_csv(trades), "ib_csv": ib_basket_csv(trades, order_type)}
 
 
 def generic_csv(rows: list[dict]) -> str:
@@ -189,12 +245,15 @@ def ib_basket_csv(rows: list[dict], order_type: str = "MKT") -> str:
     f = io.StringIO()
     w = csv.writer(f, lineterminator="\n")
     w.writerow(["Action", "Quantity", "Symbol", "SecType", "Exchange", "Currency", "TimeInForce", "OrderType",
-                "LmtPrice", "BasketTag", "OrderRef"])
+                "LmtPrice", "BasketTag", "OrderRef", "AuxPrice"])
     for r in rows:
         if r["ticker"].startswith("^") or not r["shares"]:
             continue
-        w.writerow([r["side"], _n(r["shares"]), r["ticker"].replace("-", " "), "STK", "SMART", "USD", "DAY", order_type,
-                    "", "Backtester", "rebalance"])
+        ot = r.get("order_type") or order_type          # limit / stop entries carry their own type and price
+        tif = "DAY" if int(r.get("valid_sessions") or 1) <= 1 else "GTC"
+        w.writerow([r["side"], _n(r["shares"]), r["ticker"].replace("-", " "), "STK", "SMART", "USD", tif, ot,
+                    _n(float(r["order_price"])) if r.get("order_type") == "LMT" else "", "Backtester",
+                    "entry" if r.get("order_type") else "rebalance", _n(float(r["order_price"])) if r.get("order_type") == "STP" else ""])
     return f.getvalue()
 
 

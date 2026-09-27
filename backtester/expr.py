@@ -362,8 +362,8 @@ class Namespace(dict):
             "ha_low": lambda: self._ha()["ha_low"], "ha_close": lambda: self._ha()["ha_close"],
             "market_cap": lambda: self._market_cap(),
             "trading_day_of_month": lambda: pd.Series(idx.to_period("M"), index=idx).groupby(idx.to_period("M")).cumcount() + 1,
-            # counted on the NYSE calendar, so the latest bar knows the sessions still to come this month
-            # scheduled NYSE sessions left this month, as known on each day (no hindsight about closures)
+            # scheduled NYSE sessions left this month AFTER today (0 on the month's last session), on the schedule
+            # as published that day (calendar.py: no hindsight about unscheduled closures); known at the open
             "trading_days_left_in_month": lambda: pd.Series(_cal.scheduled_sessions_left(idx, "M"), index=idx),
         }
         if key in lazy:
@@ -1082,7 +1082,8 @@ Variables (per bar; prices are split-adjusted, as quoted):
   gap                               open / previous close - 1
   range                             high/low - 1
   dow month day year                calendar (dow: 0=Mon .. 4=Fri)
-  trading_day_of_month, trading_days_left_in_month
+  trading_day_of_month               1 on the month's first session
+  trading_days_left_in_month        scheduled sessions left this month after today (0 = the last one)
   dollar_volume                     close * volume
   hl2 hlc3 ohlc4 hlcc4              price averages (hlc3 = typical price)   true_range
   ha_open ha_high ha_low ha_close   Heikin Ashi bars (as TradingView draws them)
@@ -1120,7 +1121,8 @@ Functions (x defaults to close; n = lookback in bars, a number written in the ru
                weekly_close() monthly_close()   the last completed week's / month's close, as a
                  daily series. Daily indicators of it (rsi(weekly_close(), 14)) are refused: they
                  would run over repeated daily values; use weekly_rsi(14) etc. instead
-               is_week_end() is_month_end() is_quarter_end() is_year_end()
+               is_week_end() is_month_end() is_quarter_end() is_year_end()   the last scheduled session of
+                 the week/month/quarter/year, from the published NYSE schedule (known at the open)
   other ticker sym("SPY").close, sym("^VIX").close  -> another ticker aligned to this one
   price basis  quoted(x)  x computed on prices as quoted (not dividend-adjusted), e.g.
                  quoted(close) > 400 in a portfolio whose indicators use total-return prices
@@ -1588,6 +1590,9 @@ _OPEN_SERIES_FUNCS = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "st
                       "linreg", "alma", "kama"}
 _OPEN_ONE_SERIES = {"cummax", "cummin", "down_streak", "up_streak", "quoted"}   # quoted(x): x on the quoted basis
 _OPEN_ELEMENTWISE = _VALUE_FUNCS | {"crossover", "crossunder", "cross", "nz", "na"}
+# zero-argument calendar functions computed from the published NYSE schedule (backtester/calendar.py), not from
+# prices: known before the open (an unscheduled closure is never in the schedule, so none of them ever uses one)
+_OPEN_CALENDAR_CALLS = {"is_week_end", "is_month_end", "is_quarter_end", "is_year_end"}
 
 
 def _is_sym(node) -> bool:
@@ -1675,6 +1680,8 @@ def open_safe(rule) -> bool:
                 return len(args) == 1 and _kind(args[0]) == "series" and ok(args[0])
             if f in _OPEN_ELEMENTWISE:
                 return bool(args) and all(ok(a) for a in args)
+            if f in _OPEN_CALENDAR_CALLS:
+                return not args
             return False
         if isinstance(node, ast.BinOp):
             return ok(node.left) and ok(node.right)
@@ -1794,15 +1801,30 @@ _CALLABLE_PROBES: dict = {}     # (function, ticker, kind, id(bars)) -> (bars, v
 
 
 def callable_lookahead_probe(fn, df: pd.DataFrame, ticker: str | None = None, kind: str = "bool",
-                             samples: int = 20, seed: int = 0) -> str | None:
+                             samples: int = 20, seed: int = 0, window=None, budget: float = 6.0,
+                             max_evals: int = 1200, fire_cap: int = 300, stream: int = 40,
+                             back: int = 5) -> str | None:
     """Empirical lookahead check for a rule written as a Python function f(df, ns) (the Python API).
 
     A text rule is checked statically (the whitelist, no negative offsets); a function can do anything, e.g.
-    df.close.shift(-1) or a centred rolling window. So it is run on the data cut at ~`samples` dates D spread over
-    the whole history (for a yes/no rule, half of them days it fires) and its output on every date up to D is
-    compared with its output on the full data. A causal function gives the same values; one that reads later
-    rows changes when they are removed. `kind` is "bool" (entry/exit rules) or "value" (ranking, order level).
-    Returns a description of the first difference, or None. Cached per function and data."""
+    df.close.shift(-1) or a centred rolling window. A causal function's value on day D computed from the data up
+    to D equals its value on D computed from the whole history; one that reads later rows does not (a
+    `shift(-1)` becomes NaN on the last row of the cut data). So the function is run once on the whole history and
+    then on the data cut at many days D, comparing its output on every day up to D (reporting a difference
+    within `back` days of D first).
+
+    A leak shows only on the days where the later rows would have changed the answer, which a handful of random
+    cuts misses (e.g. `(rsi(2) < 10) & ~(close.shift(-1) < close)` differs only on oversold days followed by a
+    down day), so the cut days are chosen adversarially, in this order, within a time budget (`budget` seconds,
+    at most `max_evals` cuts):
+      1. the last `stream` days (an incremental, streaming replay of the most recent bars),
+      2. for a yes/no rule, every day it fires and the 3 days before each (up to `fire_cap` fire days, sampled
+         uniformly when there are more), and every day its answer changes and the day before,
+      3. a dense random grid over the rest.
+    Days inside `window` (the run's (start, end)) come first, and every day of a short window is replayed. `kind` is "bool" (entry/exit
+    rules) or "value" (ranking, order level). Returns a description of the first difference, or None. Cached per
+    function and data. (`samples` is kept for compatibility: the minimum number of random cuts.)"""
+    import time as _time
     if not callable(fn) or df is None or len(df) < 30:
         return None
     try:
@@ -1827,34 +1849,56 @@ def callable_lookahead_probe(fn, df: pd.DataFrame, ticker: str | None = None, ki
             close = np.abs(a - b) <= 1e-9 * np.maximum(1.0, np.maximum(np.abs(a), np.abs(b)))
         return both_nan | np.nan_to_num(close, nan=0.0).astype(bool)
 
+    t_start = _time.perf_counter()
     full = run(df)
     n = len(df)
     lo = min(max(20, n // 50), n - 2)
     rng = np.random.default_rng(seed)
-    cand = np.arange(lo, n - 1)
-    picks: list[int] = []
+    cand = np.arange(lo, n - 1)             # cut after day i (the last day, n - 1, has nothing after it)
+    in_win = np.ones(n, bool)
+    if window is not None:
+        w0, w1 = (pd.Timestamp(x) if x is not None else None for x in window)
+        in_win = np.asarray((df.index >= (w0 or df.index[0])) & (df.index <= (w1 or df.index[-1])))
+
+    tiers: list[list[int]] = [list(range(n - 2, max(lo, n - 2 - stream) - 1, -1))]
+    hot: list[int] = []
     if kind == "bool":
-        pools = ((cand[full[cand]], samples // 2), (cand[~full[cand]], samples - samples // 2))
-    else:
-        pools = ((cand, samples),)
-    for pool, k in pools:
-        if len(pool) and k:
-            for part in np.array_split(pool, min(k, len(pool))):   # stratified over the whole history
-                if len(part):
-                    picks.append(int(rng.choice(part)))
-    picks.append(n - 2)
+        fire = cand[full[cand]]
+        if len(fire) > fire_cap:          # sampled uniformly, the run window's own fire days first
+            fw, fo = fire[in_win[fire]], fire[~in_win[fire]]
+            fw = rng.choice(fw, min(len(fw), fire_cap), replace=False)
+            fire = np.r_[fw, rng.choice(fo, min(len(fo), fire_cap - len(fw)), replace=False)].astype(int)
+        near = {int(f) - k for f in fire for k in (0, 1, 2, 3)}
+        chg = np.flatnonzero(full[1:] != full[:-1]) + 1
+        hot = [int(i) for i in rng.permutation(np.array(sorted(near | {int(c) - k for c in chg for k in (0, 1)}),
+                                                         dtype=int))]
+    rest = [int(i) for i in rng.permutation(cand)]
+    small = int(in_win[cand].sum()) <= max_evals // 2     # a short run window: replay every day of it
+    tiers += [[i for i in hot if in_win[i]], [i for i in rest if in_win[i]] if small else [],
+              [i for i in hot if not in_win[i]], [i for i in rest if in_win[i]], [i for i in rest if not in_win[i]]]
+    order: list[int] = []
+    seen: set[int] = set()
+    for tier in tiers:
+        for i in tier:
+            if i not in seen and lo <= i < n - 1:
+                seen.add(i)
+                order.append(i)
     verdict = None
-    for i in sorted(set(picks)):
+    done = 0
+    for i in order:
+        if done >= max(samples, 1) and (done >= max_evals or _time.perf_counter() - t_start > budget):
+            break
         cut = df.iloc[: i + 1]
+        done += 1
         try:
             got = run(cut)
         except Exception:  # noqa: BLE001 - e.g. a function that needs more rows than the cut has
             continue
         if len(got) != i + 1:
             continue
-        ok = same(got, full[: i + 1])
+        ok = same(got, full[: i + 1])      # the cut day and the days before it (cheap: one array compare)
         if not ok.all():
-            j = int(np.flatnonzero(~ok)[0])
+            j = int(np.flatnonzero(~ok)[-1] if not ok[max(0, i + 1 - back):].all() else np.flatnonzero(~ok)[0])
             d, cut_day = df.index[j].date(), df.index[i].date()
             verdict = f"its result on {d} changes when the data after {cut_day} is removed"
             break

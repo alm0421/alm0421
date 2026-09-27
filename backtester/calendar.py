@@ -1,8 +1,16 @@
-"""NYSE trading calendar for dates beyond the last bar of data.
+"""NYSE trading calendar: the published (scheduled) schedule, point in time.
 
 History uses the bars themselves as the calendar. Anything that asks "is this the last trading day of
-the month/week/quarter?" about the latest bar needs to know the sessions that come next, which the
-data can't tell us yet. That is what this module is for.
+the month/week/quarter?" about a bar needs to know the sessions that come next, which the data can't tell
+yet. That is what this module is for.
+
+The schedule is the regular holiday rules (the historical ones before 1971: Washington's Birthday on Feb 22,
+Memorial Day on May 30, Lincoln's Birthday to 1953 and in 1968, Columbus Day 1909-1953, Armistice/Veterans Day 1934-1953 and 1968, no Friday closure for a Saturday holiday before 1954,
+Election Day every year to 1968 and in presidential years to 1980, Thanksgiving on the last Thursday before
+1939) plus the closures announced in advance (state funerals: SPECIAL_CLOSURES), each known from its
+announcement day on - so a question asked on day D uses only the schedule as published on D. Closures
+nobody could know in advance (9/11, Hurricane Sandy) are never in the schedule: on 2001-09-10 the next
+scheduled session was 2001-09-11. Saturday sessions (to 1952) are not modelled: the data is weekday bars.
 """
 from __future__ import annotations
 
@@ -13,7 +21,7 @@ import numpy as np
 import pandas as pd
 
 
-def _observed(d: dt.date) -> dt.date | None:
+def _observed_modern(d: dt.date) -> dt.date | None:
     if d.weekday() == 5:  # Saturday -> Friday, except New Year's Day (NYSE does not close Dec 31)
         return None if (d.month, d.day) == (1, 1) else d - dt.timedelta(days=1)
     if d.weekday() == 6:
@@ -46,26 +54,67 @@ def _easter(y: int) -> dt.date:
     return dt.date(y, month, day)
 
 
+# Closures announced in advance (national days of mourning): {closed day: the day the closure was announced}.
+# From the announcement on, the schedule knows them (e.g. on 2018-12-03 the week of 2018-12-05 had four
+# sessions); before it, they were not scheduled.
+SPECIAL_CLOSURES: dict[dt.date, dt.date] = {
+    dt.date(2004, 6, 11): dt.date(2004, 6, 6),     # President Reagan's funeral (Reagan died June 5)
+    dt.date(2007, 1, 2): dt.date(2006, 12, 27),    # President Ford's national day of mourning
+    dt.date(2018, 12, 5): dt.date(2018, 12, 1),    # President G. H. W. Bush's national day of mourning
+    dt.date(2025, 1, 9): dt.date(2024, 12, 30),    # President Carter's national day of mourning
+}
+
+
+# Fridays before a Saturday holiday on which the NYSE traded anyway (from 1954 the Friday was usually closed)
+_FRIDAYS_OPEN = {dt.date(1958, 2, 21), dt.date(1959, 5, 29), dt.date(1970, 5, 29)}
+
+
+def _election_day(year: int) -> dt.date:
+    return _nth_weekday(year, 11, 0, 1) + dt.timedelta(days=1)   # the Tuesday after the first Monday
+
+
 @lru_cache(maxsize=None)
 def holidays(year: int) -> frozenset:
+    """The regular NYSE holidays of `year` on the rules of that year (not the special closures)."""
+    modern = year >= 1971          # Uniform Monday Holiday Act
+
+    def _observed(d: dt.date) -> dt.date | None:
+        # a holiday on a Saturday closed no weekday before 1954 (Saturday sessions ran to 1952; 1953-07-03 traded),
+        # and in a few later years the Friday stayed open too
+        if d.weekday() == 5 and (year < 1954 or d - dt.timedelta(days=1) in _FRIDAYS_OPEN):
+            return None
+        return _observed_modern(d)
     out = [
         _observed(dt.date(year, 1, 1)),
         _nth_weekday(year, 1, 0, 3) if year >= 1998 else None,     # Martin Luther King Jr. Day
-        _nth_weekday(year, 2, 0, 3),                               # Washington's Birthday
-        _easter(year) - dt.timedelta(days=2),                      # Good Friday
-        _last_weekday(year, 5, 0),                                 # Memorial Day
+        _observed(dt.date(year, 2, 12)) if (year <= 1953 or year == 1968) else None,  # Lincoln's Birthday
+        _nth_weekday(year, 2, 0, 3) if modern else _observed(dt.date(year, 2, 22)),   # Washington's Birthday
+        None if year in (1898, 1906, 1907) else _easter(year) - dt.timedelta(days=2),  # Good Friday
+        _last_weekday(year, 5, 0) if modern else _observed(dt.date(year, 5, 30)),     # Memorial Day
         _observed(dt.date(year, 6, 19)) if year >= 2022 else None,  # Juneteenth
         _observed(dt.date(year, 7, 4)),
         _nth_weekday(year, 9, 0, 1),                               # Labor Day
-        _nth_weekday(year, 11, 3, 4),                              # Thanksgiving
+        _observed(dt.date(year, 10, 12)) if 1909 <= year <= 1953 else None,           # Columbus Day
+        _election_day(year) if (year <= 1968 or (year <= 1980 and year % 4 == 0)) else None,
+        _observed(dt.date(year, 11, 11)) if (1934 <= year <= 1953 or year == 1968) else None,  # Armistice/Veterans Day
+        (_nth_weekday(year, 11, 3, 4) if year >= 1942 else                           # Thanksgiving
+         _last_weekday(year, 11, 3) - dt.timedelta(days=7) if year >= 1939 else _last_weekday(year, 11, 3)),
         _observed(dt.date(year, 12, 25)),
     ]
-    return frozenset(d for d in out if d is not None)
+    return frozenset(d for d in out if d is not None and d.weekday() < 5)
+
+
+def closures(year: int, as_of=None) -> frozenset:
+    """The scheduled closures of `year` as published on `as_of` (default: today - every announced closure)."""
+    a = pd.Timestamp(as_of).date() if as_of is not None else None
+    sp = {d for d, ann in SPECIAL_CLOSURES.items() if d.year == year and (a is None or ann <= a)}
+    return holidays(year) | frozenset(sp)
 
 
 def is_session(d) -> bool:
+    """A scheduled NYSE session (every announced closure counted; unscheduled closures are not known)."""
     d = pd.Timestamp(d).date()
-    return d.weekday() < 5 and d not in holidays(d.year)
+    return d.weekday() < 5 and d not in closures(d.year)
 
 
 def next_sessions(after, n: int = 1) -> pd.DatetimeIndex:
@@ -103,20 +152,40 @@ def extend(idx: pd.DatetimeIndex, n: int = 70) -> pd.DatetimeIndex:
     return idx.append(next_sessions(idx[-1], n))
 
 
-def _holiday_array(start_year: int, end_year: int) -> np.ndarray:
-    return np.array(sorted(d for y in range(start_year, end_year + 1) for d in holidays(y)), dtype="datetime64[D]")
+def _holiday_array(start_year: int, end_year: int, specials: bool = True, skip=()) -> np.ndarray:
+    days = {d for y in range(start_year, end_year + 1) for d in holidays(y)}
+    if specials:
+        days |= {d for d in SPECIAL_CLOSURES if start_year <= d.year <= end_year and d not in skip}
+    return np.array(sorted(days), dtype="datetime64[D]")
+
+
+def _point_in_time(idx: pd.DatetimeIndex, fn):
+    """fn(dates as datetime64[D], holiday array) evaluated with the schedule as published on each date: every
+    special closure counted, except - for the dates before its announcement (and within 120 days of it) - the
+    ones not yet announced."""
+    d = idx.values.astype("datetime64[D]")
+    y0, y1 = int(idx.min().year) - 1, int(idx.max().year) + 1
+    out = fn(d, _holiday_array(y0, y1))
+    for day, ann in SPECIAL_CLOSURES.items():
+        if not (y0 <= day.year <= y1):
+            continue
+        early = (d < np.datetime64(ann)) & (d >= np.datetime64(day - dt.timedelta(days=120)))
+        if early.any():
+            out[early] = fn(d[early], _holiday_array(y0, y1, skip={day}))
+    return out
 
 
 def next_scheduled(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
-    """For each date, the next session on the regular NYSE schedule (weekends and holidays skipped).
+    """For each date, the next session on the NYSE schedule as published that day (weekends, holidays and the
+    closures announced by then skipped).
 
-    Unscheduled closures (9/11, hurricanes, state funerals) are deliberately not known in advance:
-    on 2001-09-10 the next scheduled session was 2001-09-11."""
+    Unscheduled closures (9/11, hurricanes) are deliberately not known in advance: on 2001-09-10 the next
+    scheduled session was 2001-09-11. A pre-announced closure is known from its announcement: on 2018-12-04 the
+    next session was 2018-12-06 (the Bush day of mourning was announced on 2018-12-01), on 2018-11-30 it was not
+    yet known."""
     if len(idx) == 0:
         return idx
-    d = idx.values.astype("datetime64[D]")
-    hol = _holiday_array(int(idx[0].year) - 1, int(idx[-1].year) + 1)
-    nxt = np.busday_offset(d, 1, roll="forward", holidays=hol)
+    nxt = _point_in_time(idx, lambda d, hol: np.busday_offset(d, 1, roll="forward", holidays=hol))
     return pd.DatetimeIndex(nxt.astype("datetime64[ns]"))
 
 
@@ -128,10 +197,14 @@ def scheduled_period_end(idx: pd.DatetimeIndex, freq: str) -> np.ndarray:
 
 
 def scheduled_sessions_left(idx: pd.DatetimeIndex, freq: str = "M") -> np.ndarray:
-    """Scheduled sessions from each date to the end of its period, counting the date itself."""
+    """Scheduled sessions AFTER each date to the end of its period (0 on the period's last scheduled session),
+    on the schedule as published that day. Known at the open: it depends only on the published schedule."""
     if len(idx) == 0:
         return np.zeros(0, int)
-    d = idx.values.astype("datetime64[D]")
     end = (idx.to_period(freq).end_time.normalize() + pd.Timedelta(days=1)).values.astype("datetime64[D]")
-    hol = _holiday_array(int(idx[0].year) - 1, int(idx[-1].year) + 1)
-    return np.busday_count(d, end, holidays=hol)
+    pos = {k: j for j, k in enumerate(idx.values.astype("datetime64[D]"))}
+
+    def count(d, hol):
+        e = end[[pos[x] for x in d]]
+        return np.busday_count(d + np.timedelta64(1, "D"), e, holidays=hol)
+    return _point_in_time(idx, count)

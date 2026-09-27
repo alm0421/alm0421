@@ -13,6 +13,8 @@ DATA = ROOT / "data"
 PRICES = DATA / "prices"
 UNIVERSE_FILE = DATA / "universe.json"
 MEMBERSHIP_FILE = DATA / "ndx_membership.csv"
+CHANGES_FILE = DATA / "ndx_changes.csv"          # dated Nasdaq-100 component changes (scripts/fetch_data.py)
+CHANGE_WINDOW_DAYS = 40                          # the change table decides membership this close to a change
 
 BENCHMARKS = ["SPY", "QQQ"]
 ALIASES = {"VIX": "^VIX", "NDX100": "^NDX", "SPX": "^GSPC", "GSPC": "^GSPC", "IRX": "^IRX", "TNX": "^TNX",
@@ -584,6 +586,87 @@ def membership() -> pd.DataFrame | None:
     return pd.DataFrame(v, index=df.index, columns=df.columns)
 
 
+@lru_cache(maxsize=1)
+def ndx_changes() -> pd.DataFrame | None:
+    """Dated Nasdaq-100 component changes: columns date (Timestamp, the effective day: a member from its open),
+    added, removed (tickers, '' for none). None when the file is missing or empty."""
+    if not CHANGES_FILE.exists():
+        return None
+    try:
+        raw = pd.read_csv(CHANGES_FILE, dtype=str).fillna("")
+    except Exception:  # noqa: BLE001
+        return None
+    if raw.empty or not {"date", "added", "removed"} <= set(raw.columns):
+        return None
+    raw["date"] = pd.to_datetime(raw["date"], errors="coerce")
+    raw = raw[raw["date"].notna()].copy()
+    for c in ("added", "removed"):
+        raw[c] = raw[c].map(lambda t: canonical(t.replace(".", "-")) if t.strip() else "")
+    return raw.sort_values("date").reset_index(drop=True)
+
+
+def change_events(tickers: list[str]) -> dict[str, list[tuple[pd.Timestamp, bool]]]:
+    """{ticker: [(effective day, joined?)]} from the change table, in date order."""
+    ch = ndx_changes()
+    out: dict[str, list] = {}
+    if ch is None:
+        return out
+    want = set(tickers)
+    for d, a, r in zip(ch["date"], ch["added"], ch["removed"]):
+        if a in want:
+            out.setdefault(a, []).append((d, True))
+        if r in want:
+            out.setdefault(r, []).append((d, False))
+    for t in out:
+        out[t].sort(key=lambda e: e[0])
+    return out
+
+
+def apply_changes(out: np.ndarray, tickers: list[str], index: pd.DatetimeIndex,
+                  window_days: int = CHANGE_WINDOW_DAYS) -> np.ndarray:
+    """Exact change days on top of the monthly snapshots (in place): within `window_days` of a dated change of a
+    ticker (and never past its neighbouring changes), the change table decides - a member from the effective day
+    of an addition, not from the next month's snapshot; a member until the day before a removal. Elsewhere the
+    snapshots stand (so a change missing from the table, or a renamed symbol, costs only granularity)."""
+    if not len(index):
+        return out
+    ev = change_events(list(tickers))
+    w = pd.Timedelta(days=window_days)
+    col = {t: j for j, t in enumerate(tickers)}
+    for t, lst in ev.items():
+        j = col[t]
+        for n, (d, joined) in enumerate(lst):
+            lo = d - w if n == 0 else max(d - w, lst[n - 1][0])
+            hi = d + w if n == len(lst) - 1 else min(d + w, lst[n + 1][0])
+            before = (index >= lo) & (index < d)
+            after = (index >= d) & (index < hi)
+            out[before, j] = not joined
+            out[after, j] = joined
+    return out
+
+
+TODAY_MEMBERS_WARNING = "Warning: survivorship bias - the universe is TODAY'S Nasdaq-100 members ({n} stocks, the latest membership list), traded over the whole period with no membership filter. They were chosen because they are in the index now (they survived and grew), which past-you could not know: results are biased upward, often strongly. Drop 'using today's members only' for point-in-time membership."
+
+
+def current_members() -> list[str]:
+    """Today's Nasdaq-100 members: the latest membership snapshot with the dated changes since it applied (the
+    live list from universe.json when there is no membership history)."""
+    mem = membership()
+    if mem is None or not len(mem):
+        return nasdaq100()
+    last = mem.index[-1]
+    cur = {t for t in mem.columns if mem.iloc[-1][t]}
+    ch = ndx_changes()
+    if ch is not None:
+        for d, a, r in zip(ch["date"], ch["added"], ch["removed"]):
+            if d >= last - pd.Timedelta(days=CHANGE_WINDOW_DAYS) and d <= pd.Timestamp.today():
+                if a:
+                    cur.add(a)
+                if r:
+                    cur.discard(r)
+    return sorted(cur)
+
+
 def nasdaq100_ever() -> list[str]:
     """Every ticker that has been a Nasdaq-100 member (in the membership history) and has price data.
 
@@ -639,6 +722,9 @@ def member_mask(tickers: list[str], index: pd.DatetimeIndex) -> tuple[np.ndarray
     after = index >= last + pd.offsets.MonthBegin(1)
     if after.any():
         out[after] = np.array([t in cur for t in tickers])
+    # exact change days from the dated change table (the snapshots are monthly)
+    apply_changes(out, tickers, index)
+    out[index < first] = False
     # never treat a junk or recycled-ticker series as the index member
     for j, t in enumerate(tickers):
         if t in IDENTITY_FROM:
@@ -1368,6 +1454,54 @@ def mcap_coverage(eligible: np.ndarray, tickers: list[str], index: pd.DatetimeIn
     n = eligible.sum(axis=1)
     with np.errstate(invalid="ignore", divide="ignore"):
         return np.where(n > 0, (eligible & known).sum(axis=1) / np.maximum(n, 1), 0.0)
+
+
+def is_fund(ticker: str) -> bool:
+    """An ETF, mutual fund, index or simulated series: no shares outstanding, so no market cap."""
+    t = canonical(ticker)
+    if t.startswith("^") or is_sim(t):
+        return True
+    from .fund_lists import ALL_FUNDS
+    stocks = set(universe_meta().get("stocks", [])) | LARGE_STOCKS
+    return t not in stocks and (t in set(etfs()) or t in set(funds()) or t in ALL_FUNDS)
+
+
+def mcap_notes(tickers: list[str], start, end=None, max_named: int = 5) -> tuple[list[str], list[str]]:
+    """(notes, funds) for rules that read market_cap on explicitly named tickers: the funds among them (no market
+    cap at all) and, per stock, the first day it has a market cap when that is after `start` (share counts from
+    Yahoo start around late 2015; the SEC filing history that would reach back to ~2009 is fetched by
+    scripts/fetch_data.py but GitHub Actions is currently blocked by the SEC, so data/shares_sec is empty)."""
+    start = pd.Timestamp(start) if start is not None else None
+    end = pd.Timestamp(end) if end is not None else None
+    fund_list = [canonical(t) for t in tickers if is_fund(t)]
+    late: list[tuple[str, pd.Timestamp | None]] = []
+    for t in tickers:
+        t = canonical(t)
+        if t in fund_list:
+            continue
+        mc = market_cap(t).dropna()
+        first = mc.index[0] if len(mc) else None
+        if first is None:
+            late.append((t, None))
+        elif start is None or first > start:
+            try:
+                data_start = load(t).index[0]
+            except DataError:
+                continue
+            if first > max(start or data_start, data_start) + pd.Timedelta(days=7):
+                late.append((t, first))
+    notes = []
+    for t, first in late[:max_named]:
+        if first is None:
+            notes.append(f"Market cap: market_cap has no value for {t} in this data (no share counts), so the rule is "
+                         "never true for it.")
+        else:
+            notes.append(f"Market cap: market_cap has no value before {first.date()} for {t} (share counts start "
+                         f"{first.date()}): a market_cap rule is false before then. Yahoo's share counts start around "
+                         "late 2015; the SEC history that would reach back to ~2009 can't currently be downloaded.")
+    if len(late) > max_named:
+        notes.append(f"Market cap: {len(late) - max_named} more ticker(s) have no market cap for part of the period.")
+    return notes, fund_list
 
 
 def mcap_start(eligible: np.ndarray, tickers: list[str], index: pd.DatetimeIndex,
