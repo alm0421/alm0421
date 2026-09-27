@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-09-27T17:37:12+00:00",
+ "updated_utc": "2026-09-27T23:35:49+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAAU": {
@@ -41194,6 +41194,91 @@
     "industrials": 0.0298
    },
    "description": "The fund invests primarily in companies whose securities are listed on U.S. national securities exchanges, including through American Depositary Receipts (\u201cADRs\u201d), which are U.S. dollar-denominated securities of foreign issuers listed on U.S. national securities exchanges. Under normal circumstances, it invests at least 80% of its net assets in securities of companies that are principally engaged in the research, design, development, manufacturing, or distributing of products or services in the technology industry.",
+   "fetched": "2026-09-27"
+  },
+  "HWLAX": {
+   "name": "Hotchkis & Wiley Large Cap Fdml Value A",
+   "quote_type": "MUTUALFUND",
+   "inception": "2001-10-26",
+   "net_assets": 387933472.0,
+   "yield": 0.012,
+   "expense_ratio": 0.0119,
+   "category": "Large Value",
+   "family": "Hotchkis & Wiley",
+   "top_holdings": [
+    {
+     "symbol": "WDAY",
+     "name": "Workday Inc Class A",
+     "weight": 0.060176503
+    },
+    {
+     "symbol": "APA",
+     "name": "APA Corp",
+     "weight": 0.040771097
+    },
+    {
+     "symbol": "AIG",
+     "name": "American International Group Inc",
+     "weight": 0.0321612
+    },
+    {
+     "symbol": "GEHC",
+     "name": "GE HealthCare Technologies Inc Common Stock",
+     "weight": 0.030396
+    },
+    {
+     "symbol": "ELV",
+     "name": "Elevance Health Inc",
+     "weight": 0.0271037
+    },
+    {
+     "symbol": "CMCSA",
+     "name": "Comcast Corp Class A",
+     "weight": 0.025832301
+    },
+    {
+     "symbol": "USB",
+     "name": "U.S. Bancorp",
+     "weight": 0.0248756
+    },
+    {
+     "symbol": "GM",
+     "name": "General Motors Co",
+     "weight": 0.0243401
+    },
+    {
+     "symbol": "CDW",
+     "name": "CDW Corp",
+     "weight": 0.0240099
+    },
+    {
+     "symbol": "MG.TO",
+     "name": "Magna International Inc",
+     "weight": 0.0231605
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0,
+    "stock": 1.0001,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "realestate": 0.0046,
+    "consumer_cyclical": 0.0713,
+    "basic_materials": 0.0323,
+    "consumer_defensive": 0.0592,
+    "technology": 0.2457,
+    "communication_services": 0.0641,
+    "financial_services": 0.1627,
+    "utilities": 0.026800001,
+    "industrials": 0.095699996,
+    "energy": 0.105100006,
+    "healthcare": 0.1325
+   },
+   "description": "Under normal circumstances, the fund invests at least 80% of its net assets (plus borrowings for investment purposes) in equity securities of large capitalization companies that meet Hotchkis & Wiley Capital Management, LLC\u2019s (the \u201cAdvisor\u201d) definition of value.",
    "fetched": "2026-09-27"
   },
   "HWMIX": {
@@ -90184,6 +90269,90 @@
     "healthcare": 0.089499995
    },
    "description": "The fund employs an active management approach, investing mainly in the stocks of small and mid-size U.S. companies considered by an advisor to be undervalued. Undervalued stocks are generally those that are out of favor with investors and are trading at prices that an advisor feels are below average in relation to measures such as cash flow and book value. The fund has multiple advisors, each of which independently selects and maintains a portfolio of common stocks for the fund.",
+   "fetched": "2026-09-27"
+  },
+  "VEVIX": {
+   "name": "Victory Sycamore Established Value I",
+   "quote_type": "MUTUALFUND",
+   "inception": "2010-03-01",
+   "net_assets": 14951391232.0,
+   "yield": 0.0117,
+   "expense_ratio": 0.0058,
+   "category": "Mid-Cap Value",
+   "family": "Victory Capital Management Inc.",
+   "top_holdings": [
+    {
+     "symbol": "LH",
+     "name": "Labcorp Holdings Inc",
+     "weight": 0.0262487
+    },
+    {
+     "symbol": "USFD",
+     "name": "US Foods Holding Corp",
+     "weight": 0.0234496
+    },
+    {
+     "symbol": "MOH",
+     "name": "Molina Healthcare Inc",
+     "weight": 0.021291202
+    },
+    {
+     "symbol": "LNT",
+     "name": "Alliant Energy Corp",
+     "weight": 0.021034801
+    },
+    {
+     "symbol": "MCHP",
+     "name": "Microchip Technology Inc",
+     "weight": 0.0199688
+    },
+    {
+     "symbol": "PKG",
+     "name": "Packaging Corp of America",
+     "weight": 0.0198643
+    },
+    {
+     "symbol": "RPM",
+     "name": "RPM International Inc",
+     "weight": 0.019541599
+    },
+    {
+     "symbol": "KEYS",
+     "name": "Keysight Technologies Inc",
+     "weight": 0.0193044
+    },
+    {
+     "symbol": "TFC",
+     "name": "Truist Financial Corp",
+     "weight": 0.0188109
+    },
+    {
+     "symbol": "HUBB",
+     "name": "Hubbell Inc",
+     "weight": 0.0186686
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0217,
+    "stock": 0.9784,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "realestate": 0.0623,
+    "consumer_cyclical": 0.13859999,
+    "basic_materials": 0.0687,
+    "consumer_defensive": 0.0454,
+    "technology": 0.12979999,
+    "financial_services": 0.0769,
+    "utilities": 0.056999996,
+    "industrials": 0.2466,
+    "energy": 0.0688,
+    "healthcare": 0.106000006
+   },
+   "description": "Under normal circumstances, at least 80% of the fund's assets will be invested in equity securities of companies with market capitalizations, at the time of purchase, within the range of companies comprising the Russell Midcap\u00ae Value Index. It may invest a portion of its assets in equity securities of foreign companies traded in the U.S., including American Depositary Receipts and Global Depositary Receipts (\"ADRs\" and \"GDRs\").",
    "fetched": "2026-09-27"
   },
   "VEXAX": {

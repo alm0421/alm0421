@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-09-27T17:30:39+00:00",
+ "updated_utc": "2026-09-27T23:32:47+00:00",
  "constituent_source": "stockanalysis.com",
  "nasdaq100": [
   "AAPL",
@@ -433,6 +433,10 @@
   "MUB",
   "BWX",
   "IGOV",
+  "IWC",
+  "DFSCX",
+  "VPACX",
+  "RWX",
   "IVV",
   "ITOT",
   "SPTM",
@@ -480,7 +484,6 @@
   "VIOO",
   "VIOV",
   "CALF",
-  "IWC",
   "AVUV",
   "AVEM",
   "AVLV",
@@ -714,7 +717,6 @@
   "IYR",
   "USRT",
   "ICF",
-  "RWX",
   "REM",
   "MORT",
   "FREL",
@@ -826,7 +828,6 @@
   "VTEAX",
   "VTABX",
   "VEURX",
-  "VPACX",
   "VTRIX",
   "VINEX",
   "VIMSX",
@@ -910,7 +911,6 @@
   "DISVX",
   "DFISX",
   "DFALX",
-  "DFSCX",
   "DFSTX",
   "DFREX",
   "DFGBX",
@@ -1824,6 +1824,8 @@
   "GSGRX",
   "VSOIX",
   "SSGSX",
+  "VEVIX",
+  "HWLAX",
   "HWSIX",
   "HWMIX",
   "MGRPX",
@@ -3215,7 +3217,375 @@
   "SKYW",
   "SLG",
   "SLVM",
-  "SM"
+  "SM",
+  "SMP",
+  "SMPL",
+  "SNDR",
+  "SNEX",
+  "SONO",
+  "SPHR",
+  "SPNT",
+  "SPSC",
+  "SRPT",
+  "STAA",
+  "STBA",
+  "STC",
+  "STEP",
+  "STRA",
+  "SUPN",
+  "SXI",
+  "SXT",
+  "TALO",
+  "TBBK",
+  "TDC",
+  "TDS",
+  "TDW",
+  "TFIN",
+  "TFX",
+  "TGTX",
+  "THRM",
+  "TILE",
+  "TMDX",
+  "TMP",
+  "TNC",
+  "TNDM",
+  "TPC",
+  "TR",
+  "TRMK",
+  "TRN",
+  "TRNO",
+  "TRST",
+  "TRUP",
+  "UA",
+  "UAA",
+  "UCB",
+  "UCTT",
+  "UE",
+  "UFCS",
+  "UFPT",
+  "UNF",
+  "UNFI",
+  "UNIT",
+  "UPBD",
+  "UPWK",
+  "USLM",
+  "USPH",
+  "UTI",
+  "UTL",
+  "UVV",
+  "VAC",
+  "VCEL",
+  "VCTR",
+  "VCYT",
+  "VECO",
+  "VGNT",
+  "VIR",
+  "VIRT",
+  "VRRM",
+  "VSAT",
+  "VSEC",
+  "VSH",
+  "VSNT",
+  "VSTS",
+  "VSXY",
+  "VTOL",
+  "VVX",
+  "VYX",
+  "WABC",
+  "WAFD",
+  "WAY",
+  "WD",
+  "WDFC",
+  "WEN",
+  "WERN",
+  "WGO",
+  "WHD",
+  "WINA",
+  "WKC",
+  "WLY",
+  "WOR",
+  "WRBY",
+  "WRLD",
+  "WS",
+  "WSBC",
+  "WSC",
+  "WSFS",
+  "WT",
+  "WU",
+  "WWW",
+  "XHR",
+  "XNCR",
+  "XPEL",
+  "YELP",
+  "YOU",
+  "ZD",
+  "ZWS",
+  "TSM",
+  "SKHY",
+  "HSBC",
+  "RY",
+  "NVS",
+  "SHEL",
+  "BABA",
+  "MUFG",
+  "SAP",
+  "TM",
+  "BHP",
+  "SAN",
+  "TTE",
+  "TD",
+  "SCCO",
+  "NVO",
+  "SMFG",
+  "RIO",
+  "BBVA",
+  "BUD",
+  "UBS",
+  "SONY",
+  "UL",
+  "MFG",
+  "PBR",
+  "NET",
+  "BMO",
+  "BTI",
+  "SNOW",
+  "HDB",
+  "BP",
+  "BNS",
+  "ENB",
+  "CM",
+  "ING",
+  "EQNR",
+  "IBN",
+  "AEM",
+  "GSK",
+  "SNY",
+  "CNQ",
+  "ASX",
+  "SOMN",
+  "ITUB",
+  "LYG",
+  "BN",
+  "BCS",
+  "E",
+  "SU",
+  "EPD",
+  "RACE",
+  "CP",
+  "NGG",
+  "NWG",
+  "CNI",
+  "MFC",
+  "BAM",
+  "B",
+  "ET",
+  "DB",
+  "AMX",
+  "NU",
+  "WPM",
+  "TRP",
+  "SE",
+  "UMC",
+  "TAK",
+  "ARGX",
+  "NTRA",
+  "IMO",
+  "NOK",
+  "RELX",
+  "VALE",
+  "MPLX",
+  "CVE",
+  "LNG",
+  "MT",
+  "AU",
+  "FNV",
+  "CBRS",
+  "DEO",
+  "STM",
+  "MDLN",
+  "ABEV",
+  "KB",
+  "SLF",
+  "RVMD",
+  "HEI",
+  "IX",
+  "HMC",
+  "WDS",
+  "CLS",
+  "ONC",
+  "HLN",
+  "CRDO",
+  "WCN",
+  "CCJ",
+  "SHG",
+  "FMX",
+  "VIK",
+  "GFI",
+  "CHT",
+  "ESLT",
+  "NTR",
+  "RKT",
+  "BBD",
+  "EC",
+  "UI",
+  "RPRX",
+  "RBLX",
+  "QSR",
+  "TECK",
+  "VG",
+  "ALC",
+  "PUK",
+  "SUNB",
+  "CQP",
+  "BAP",
+  "KGC",
+  "NMR",
+  "TS",
+  "FTS",
+  "SYM",
+  "TSEM",
+  "PBA",
+  "CPNG",
+  "BNTX",
+  "LPLA",
+  "PHG",
+  "AFRM",
+  "CIB",
+  "ASTS",
+  "GH",
+  "FWONK",
+  "TW",
+  "FCNCA",
+  "KOF",
+  "IHG",
+  "AER",
+  "CRCL",
+  "RBRK",
+  "PS",
+  "IOT",
+  "PAAS",
+  "BCE",
+  "BEP",
+  "BEKE",
+  "RCI",
+  "MGA",
+  "FUTU",
+  "ZTO",
+  "EMA",
+  "AGI",
+  "EQX",
+  "GIB",
+  "TME",
+  "YUMC",
+  "TU",
+  "HTHT",
+  "HBM",
+  "LI",
+  "IAG",
+  "EGO",
+  "TFII",
+  "DRS",
+  "BEPC",
+  "PSO",
+  "XPEV",
+  "ENLT",
+  "GLXY",
+  "AG",
+  "SIMO",
+  "KYMR",
+  "JAN",
+  "ESTC",
+  "LINE",
+  "SNAP",
+  "KT",
+  "OSCR",
+  "LLYVA",
+  "CAI",
+  "ELPC",
+  "NIO",
+  "SSL",
+  "IBRX",
+  "GGB",
+  "EDU",
+  "RIOT",
+  "AAOI",
+  "TIMB",
+  "YMM",
+  "BVN",
+  "PCVX",
+  "ABVX",
+  "BOKF",
+  "CAE",
+  "HESM",
+  "WULF",
+  "PRAX",
+  "GTLB",
+  "S",
+  "STN",
+  "HNGE",
+  "CBC",
+  "APLD",
+  "GIL",
+  "LEVI",
+  "SYRE",
+  "VIST",
+  "UGP",
+  "SFD",
+  "PCOR",
+  "SBSW",
+  "VFS",
+  "IONS",
+  "ZETA",
+  "CIFR",
+  "SSRM",
+  "ASR",
+  "BTG",
+  "NTSK",
+  "FIGR",
+  "COMP",
+  "SOBO",
+  "OKLO",
+  "PRMB",
+  "CIG-C",
+  "AUGO",
+  "AXS",
+  "IMVT",
+  "CAMT",
+  "VIPS",
+  "MBLY",
+  "MAAS",
+  "RYTM",
+  "NICE",
+  "GLBE",
+  "BLTE",
+  "DSGX",
+  "TAP",
+  "OR",
+  "TAL",
+  "ICL",
+  "TFPM",
+  "GGAL",
+  "OMF",
+  "GDS",
+  "PACS",
+  "GRFS",
+  "TBBB",
+  "QBTS",
+  "Z",
+  "BLDR",
+  "PL",
+  "BZ",
+  "OGC",
+  "LB",
+  "JOBY",
+  "BILI",
+  "INGM",
+  "PAGP",
+  "IFS",
+  "NXE",
+  "XE",
+  "DPC",
+  "LOAR"
  ],
  "stocks_failed": {
   "CWEN-A": {
@@ -5510,20 +5880,744 @@
   "PICS",
   "GDRX",
   "BBNX",
-  "MUX"
+  "MUX",
+  "PSNY",
+  "BRAI",
+  "AZUL",
+  "BVS",
+  "AVO",
+  "SPTX",
+  "SGML",
+  "CDRE",
+  "JCAP",
+  "TE",
+  "WLFC",
+  "BOW",
+  "TDOC",
+  "ECVT",
+  "HBNB",
+  "NCZ",
+  "MCB",
+  "SPH",
+  "AKTS",
+  "VOR",
+  "AEVA",
+  "IRMD",
+  "LOMA",
+  "REAL",
+  "BST",
+  "KRT",
+  "DEC",
+  "CSTL",
+  "RSKD",
+  "GSBD",
+  "HSLV",
+  "PSIX",
+  "RXT",
+  "ANRO",
+  "FSBC",
+  "OCSL",
+  "FUBO",
+  "MGTX",
+  "MNKD",
+  "SBR",
+  "IGIC",
+  "NBN",
+  "TUYA",
+  "GPRE",
+  "FTK",
+  "PDS",
+  "ETW",
+  "SVRA",
+  "RCAT",
+  "BCX",
+  "CPAC",
+  "ITRN",
+  "MLTX",
+  "AEF",
+  "MBWM",
+  "GHM",
+  "LAC",
+  "ODD",
+  "ASA",
+  "CRAI",
+  "JANX",
+  "ANL",
+  "BTZ",
+  "DSL",
+  "HQH",
+  "ASM",
+  "CCNE",
+  "IQ",
+  "FSCO",
+  "MCBS",
+  "PRCT",
+  "GLUE",
+  "BFST",
+  "RHLD",
+  "EDN",
+  "CGEM",
+  "VMET",
+  "CRVS",
+  "EQBK",
+  "NPKI",
+  "HBNC",
+  "HRTG",
+  "XIFR",
+  "NBBK",
+  "PSUS",
+  "SG",
+  "NWPX",
+  "OIG",
+  "PCT",
+  "BXBL",
+  "SIFY",
+  "CEVA",
+  "HPK",
+  "IBTA",
+  "KURA",
+  "ABUS",
+  "CAC",
+  "FET",
+  "ODTX",
+  "CMP",
+  "FEIM",
+  "MTA",
+  "GLIBK",
+  "LMRI",
+  "BKSY",
+  "TDAY",
+  "ALMS",
+  "SB",
+  "BTGO",
+  "JBIO",
+  "GLIBA",
+  "NXDR",
+  "KRO",
+  "LAR",
+  "KODK",
+  "AGBK",
+  "PXED",
+  "SGP",
+  "REPX",
+  "SBGI",
+  "HELP",
+  "KFRC",
+  "BW",
+  "BV",
+  "MPB",
+  "PLOW",
+  "CBLL",
+  "NNE",
+  "SATL",
+  "VPG",
+  "QFIN",
+  "FRBT",
+  "RMIX",
+  "FMNB",
+  "ANGX",
+  "HIVE",
+  "KOPN",
+  "CRESY",
+  "BBDC",
+  "DJCO",
+  "DC",
+  "APMD",
+  "PDX",
+  "JMIA",
+  "FCBC",
+  "ACEL",
+  "RIGL",
+  "THFF",
+  "BRBR",
+  "RZLV",
+  "TTI",
+  "BZH",
+  "EVLV",
+  "SANA",
+  "NNNN",
+  "CADL",
+  "CYRX",
+  "MAKO",
+  "FMN",
+  "RJET",
+  "SLBT",
+  "AEBI",
+  "CIM",
+  "MCS",
+  "TBLA",
+  "RPD",
+  "BUUU",
+  "RERE",
+  "ARDX",
+  "SMBK",
+  "GSBC",
+  "KBDC",
+  "HQ",
+  "AIO",
+  "GRPN",
+  "INR",
+  "CODI",
+  "PUBM",
+  "CCBG",
+  "AVTX",
+  "HEPS",
+  "HSHP",
+  "CVLG",
+  "TIGR",
+  "SVC",
+  "MTAL",
+  "IMMX",
+  "YALA",
+  "BLZE",
+  "OGG",
+  "SIBN",
+  "ATTO",
+  "SCZM",
+  "DAKT",
+  "LXRX",
+  "OBX",
+  "PLTK",
+  "SXC",
+  "ACDC",
+  "CAPL",
+  "MFA",
+  "ADSE",
+  "ORRF",
+  "DSP",
+  "FBYD",
+  "HMH",
+  "GYRE",
+  "INMD",
+  "MITK",
+  "MNTN",
+  "RPC",
+  "LWLG",
+  "FDMT",
+  "BH",
+  "CRTO",
+  "GERN",
+  "ABX",
+  "TRNS",
+  "SPFI",
+  "ACHV",
+  "ALRS",
+  "ARI",
+  "SKYH",
+  "SLDB",
+  "HIPO",
+  "NAK",
+  "PGC",
+  "SMBC",
+  "BUR",
+  "ACRS",
+  "TXO",
+  "IBCP",
+  "OLMA",
+  "FISI",
+  "WYFI",
+  "KELYB",
+  "APEI",
+  "NRGV",
+  "VLRS",
+  "LYTS",
+  "WVE",
+  "VREX",
+  "WEST",
+  "IMC",
+  "DQ",
+  "MTW",
+  "CSHR",
+  "CTO",
+  "IVA",
+  "MLAB",
+  "CGBD",
+  "BBSI",
+  "DSGN",
+  "SHBI",
+  "HDL",
+  "HTB",
+  "PRAA",
+  "SOC",
+  "LINC",
+  "WLKP",
+  "GILT",
+  "VBNK",
+  "FTH",
+  "OBE",
+  "HYLN",
+  "BLDP",
+  "AVR",
+  "MOV",
+  "CTKB",
+  "GSM",
+  "CSIQ",
+  "ETRA",
+  "GOOS",
+  "REF",
+  "ROOT",
+  "MOMO",
+  "NUAI",
+  "FINV",
+  "WASH",
+  "BWMN",
+  "PHAR",
+  "GPRK",
+  "THM",
+  "GEMI",
+  "SWIM",
+  "PAYS",
+  "TASK",
+  "MFIC",
+  "GDOT",
+  "ASC",
+  "EVEX",
+  "QVCG",
+  "LXU",
+  "WHK",
+  "ELVR",
+  "FDUS",
+  "GROY",
+  "BCSF",
+  "ANNX",
+  "EVC",
+  "VTS",
+  "RCBC",
+  "ESRT",
+  "CWBC",
+  "TCBX",
+  "AAC",
+  "BALY",
+  "PSTL",
+  "LUCK",
+  "INDI",
+  "VSTM",
+  "LPTH",
+  "NVCT",
+  "SOPH",
+  "ABTC",
+  "MPLT",
+  "TRON",
+  "CASS",
+  "OABI",
+  "BLMN",
+  "NIE",
+  "PFLT",
+  "BCAL",
+  "PFIS",
+  "OFRM",
+  "IRWD",
+  "LEGH",
+  "AROW",
+  "NGVC",
+  "SSYS",
+  "PSNYW",
+  "PKOH",
+  "MSBI",
+  "DBVT",
+  "IVR",
+  "MDXG",
+  "XFLT",
+  "FPH",
+  "HNRG",
+  "HELE",
+  "UAMY",
+  "CLYM",
+  "MG",
+  "SUPV",
+  "VLGEA",
+  "CNNE",
+  "HOV",
+  "TMS",
+  "MATV",
+  "NFGC",
+  "RGR",
+  "ZVRA",
+  "CCB",
+  "BHB",
+  "CARE",
+  "IPX",
+  "DGICA",
+  "STLN",
+  "NMFC",
+  "DNA",
+  "KE",
+  "RRBI",
+  "WOOF",
+  "BSTZ",
+  "SMWB",
+  "TBLD",
+  "KRNT",
+  "OSPN",
+  "AHG",
+  "BLSM",
+  "BWMX",
+  "ENVX",
+  "CCSI",
+  "BTBT",
+  "DGICB",
+  "FAC",
+  "ACNB",
+  "PKE",
+  "DDI",
+  "TROX",
+  "CGNT",
+  "PRTH",
+  "YEXT",
+  "AURA",
+  "HIFS",
+  "SLRC",
+  "EVER",
+  "HPP",
+  "STTK",
+  "WCCB",
+  "ANGO",
+  "SMC",
+  "TIPT",
+  "FWRG",
+  "SWBI",
+  "MAMA",
+  "GLAS",
+  "DLY",
+  "HTZ",
+  "RSVR",
+  "EGY",
+  "GDYN",
+  "NGNE",
+  "CLDT",
+  "GAIN",
+  "VTEX",
+  "PHR",
+  "RMT",
+  "FWDI",
+  "INN",
+  "ISOU",
+  "LMB",
+  "MLR",
+  "GOOD",
+  "VEL",
+  "VINP",
+  "BAK",
+  "CRMD",
+  "CTGO",
+  "AQST",
+  "ARRY",
+  "OOMA",
+  "KRNY",
+  "FOF",
+  "RMR",
+  "ELMT",
+  "NTGR",
+  "TLRY",
+  "BME",
+  "CTMX",
+  "GRNT",
+  "MNPR",
+  "MTC",
+  "FLGT",
+  "SWRD",
+  "RYAM",
+  "ALOY",
+  "ALT",
+  "GCBC",
+  "KIDS",
+  "ONT",
+  "SSII",
+  "VALN",
+  "SPT",
+  "FBIZ",
+  "WEAV",
+  "CBNK",
+  "OIO",
+  "WTI",
+  "METC",
+  "CLMB",
+  "ENHA",
+  "GMRS",
+  "BXC",
+  "VMO",
+  "GOTU",
+  "MAX",
+  "NCDL",
+  "ALLO",
+  "BWB",
+  "PAR",
+  "IBEX",
+  "PHAT",
+  "DDD",
+  "KELYA",
+  "SFST",
+  "CD",
+  "CARS",
+  "XMAX",
+  "HNST",
+  "ADTN",
+  "BRBI",
+  "EBF",
+  "IIIN",
+  "LOT",
+  "CIVB",
+  "JBI",
+  "ENRD",
+  "SGMT",
+  "TMQ",
+  "YB",
+  "DCBO",
+  "DCTH",
+  "KDK",
+  "ARQQ",
+  "PRME",
+  "UNTY",
+  "AGCC",
+  "HY",
+  "TITN",
+  "MSIF",
+  "CMDB",
+  "ITRG",
+  "NRIM",
+  "NVRI",
+  "BMM",
+  "SENS",
+  "OCS",
+  "EVO",
+  "ITIC",
+  "AUXX",
+  "EPRX",
+  "UHT",
+  "CWH",
+  "NOAH",
+  "SLDP",
+  "PANL",
+  "SDHC",
+  "HBCP",
+  "INDP",
+  "DDL",
+  "HUYA",
+  "OPFI",
+  "WRN",
+  "ETD",
+  "NPB",
+  "GFUZ",
+  "BWAY",
+  "CBIO",
+  "NDMO",
+  "DRUG",
+  "BSVN",
+  "BWFG",
+  "CERS",
+  "SD",
+  "SLN",
+  "NRDS",
+  "GAU",
+  "AGMB",
+  "IIM",
+  "RFI",
+  "EOLS",
+  "MEI",
+  "TCMD",
+  "BRSP",
+  "DNUT",
+  "LAES",
+  "ROMA",
+  "NVEC",
+  "NB",
+  "BSRR",
+  "KMDA",
+  "ARVN",
+  "AUTL",
+  "CSV",
+  "PROK",
+  "SLI",
+  "TRTX",
+  "PBYI",
+  "JKS",
+  "BDN",
+  "HBB",
+  "ILPT",
+  "ESEA",
+  "NMCO",
+  "OBT",
+  "OIS",
+  "TKNO",
+  "YORW",
+  "CAPR",
+  "FWRD",
+  "SPIR",
+  "ETO",
+  "AII",
+  "AMCX",
+  "MCFT",
+  "HQL",
+  "NEXN",
+  "WTBA",
+  "COFS",
+  "PBAM",
+  "VGM",
+  "OLP",
+  "PACB",
+  "KPLT",
+  "PDLB",
+  "SBC",
+  "ENTX",
+  "GLRE",
+  "OVID",
+  "SPCE",
+  "TATT",
+  "VKQ",
+  "BBCP",
+  "ASMB",
+  "FMAO",
+  "IPI",
+  "MFI",
+  "TYG",
+  "CLB",
+  "NPCE",
+  "RGNX",
+  "SGHT",
+  "ALTI",
+  "GORO",
+  "QUAD",
+  "WNC",
+  "MASS",
+  "ARKO",
+  "FTHY",
+  "OPTU",
+  "XRN",
+  "IQI",
+  "KRUS",
+  "MTLS",
+  "IDR",
+  "TECX",
+  "GTN",
+  "CTNM",
+  "GRVY",
+  "FPI",
+  "SRTA",
+  "CMCO",
+  "CMCL",
+  "IMSR",
+  "LXFR",
+  "RWT",
+  "MBUU",
+  "DGXX",
+  "JOUT",
+  "CZNC",
+  "TWI",
+  "VHI",
+  "ZKH",
+  "ETB",
+  "WEYS",
+  "AHRT",
+  "ASPI",
+  "BMRC",
+  "NRC",
+  "URG",
+  "ATNI",
+  "EIKN",
+  "ADUR",
+  "CIX",
+  "RBB",
+  "CDRO",
+  "CLPT",
+  "CWCO",
+  "FVR",
+  "NMG",
+  "ORBS",
+  "ASTL",
+  "FRBA",
+  "ASPN",
+  "CBAN",
+  "CYPH",
+  "TRC",
+  "GLOO",
+  "MNRO",
+  "XRX",
+  "CBK",
+  "ADV",
+  "GUT",
+  "MRAM",
+  "ULH",
+  "GLAD",
+  "VCV",
+  "AVBC",
+  "HVT",
+  "VITL",
+  "KYTX",
+  "LOCO",
+  "CAL",
+  "PBFS",
+  "NGS",
+  "ACIC",
+  "MEC",
+  "PLBC",
+  "PRTA",
+  "ASIX",
+  "MAGN",
+  "ALLT",
+  "DMAC",
+  "EDIT",
+  "TRX",
+  "ACTG",
+  "ECX",
+  "USCB",
+  "CTRN",
+  "EVGO",
+  "GNE",
+  "AVIR",
+  "CLFD",
+  "QNC",
+  "SGU",
+  "BLW",
+  "SPRY",
+  "GMTL",
+  "BTQ",
+  "CHCT",
+  "DDT",
+  "MNTK",
+  "BKKT",
+  "FISN",
+  "LAND",
+  "SCTX",
+  "PHOE",
+  "CYH",
+  "RLMD",
+  "BOC",
+  "CARL",
+  "FRPH",
+  "IRD",
+  "ISTR",
+  "ARCT",
+  "NKLR",
+  "RLGT",
+  "HCMA",
+  "RMNI",
+  "GALT",
+  "GRRR",
+  "ZURA",
+  "EVH",
+  "IIIV",
+  "ACCO",
+  "PKBK",
+  "CHMG",
+  "CTEV",
+  "MYGN",
+  "SRZN",
+  "VGZ",
+  "CPS",
+  "FCBM",
+  "FSTR",
+  "TTRX",
+  "CGC"
  ],
  "listed_failed": {},
  "listed_policy": {
   "min_market_cap": 250000000.0,
   "per_run": 800,
   "in_scope": 6901,
-  "with_data": 760
+  "with_data": 1487
  },
  "queue": {
-  "downloaded": [
-   "F",
-   "LLPFX"
-  ],
+  "downloaded": [],
   "waiting": [],
   "dropped": {},
   "to_extra_tickers": []
@@ -5531,7 +6625,7 @@
  "queue_attempts": {},
  "rate_limit": {
   "pauses": 3,
-  "limited": 434,
+  "limited": 435,
   "stopped": true
  },
  "benchmarks": [
@@ -5574,6 +6668,11 @@
   "VCLTSIM",
   "MUBSIM",
   "EMBSIM",
+  "VOOSIM",
+  "IWCSIM",
+  "VTSIM",
+  "VPLSIM",
+  "VNQISIM",
   "EWJSIM",
   "EWUSIM",
   "EWGSIM",
@@ -9604,6 +10703,3641 @@
    "last": "2026-09-25",
    "rows": 11691
   },
+  "PSNY": {
+   "first": "2021-05-18",
+   "last": "2026-09-25",
+   "rows": 1346
+  },
+  "BRAI": {
+   "first": "2026-02-12",
+   "last": "2026-09-25",
+   "rows": 156
+  },
+  "AZUL": {
+   "first": "2026-05-28",
+   "last": "2026-09-25",
+   "rows": 84
+  },
+  "BVS": {
+   "first": "2021-02-11",
+   "last": "2026-09-25",
+   "rows": 1412
+  },
+  "AVO": {
+   "first": "2020-10-02",
+   "last": "2026-09-25",
+   "rows": 1502
+  },
+  "SPTX": {
+   "first": "2026-05-01",
+   "last": "2026-09-25",
+   "rows": 102
+  },
+  "SGML": {
+   "first": "2018-07-03",
+   "last": "2026-09-25",
+   "rows": 2069
+  },
+  "CDRE": {
+   "first": "2021-11-04",
+   "last": "2026-09-25",
+   "rows": 1227
+  },
+  "JCAP": {
+   "first": "2025-06-26",
+   "last": "2026-09-25",
+   "rows": 315
+  },
+  "TE": {
+   "first": "2020-01-10",
+   "last": "2026-09-25",
+   "rows": 1686
+  },
+  "WLFC": {
+   "first": "1996-09-18",
+   "last": "2026-09-25",
+   "rows": 7553
+  },
+  "BOW": {
+   "first": "2024-05-23",
+   "last": "2026-09-25",
+   "rows": 587
+  },
+  "TDOC": {
+   "first": "2015-06-30",
+   "last": "2026-09-25",
+   "rows": 2827
+  },
+  "ECVT": {
+   "first": "2017-09-29",
+   "last": "2026-09-25",
+   "rows": 2259
+  },
+  "HBNB": {
+   "first": "2025-06-03",
+   "last": "2026-09-25",
+   "rows": 331
+  },
+  "NCZ": {
+   "first": "2003-07-29",
+   "last": "2026-09-25",
+   "rows": 5828
+  },
+  "MCB": {
+   "first": "2017-11-08",
+   "last": "2026-09-25",
+   "rows": 2231
+  },
+  "SPH": {
+   "first": "1996-02-29",
+   "last": "2026-09-25",
+   "rows": 7693
+  },
+  "AKTS": {
+   "first": "2026-01-09",
+   "last": "2026-09-25",
+   "rows": 179
+  },
+  "VOR": {
+   "first": "2021-02-05",
+   "last": "2026-09-25",
+   "rows": 1416
+  },
+  "AEVA": {
+   "first": "2020-02-27",
+   "last": "2026-09-25",
+   "rows": 1654
+  },
+  "IRMD": {
+   "first": "2014-07-16",
+   "last": "2026-09-25",
+   "rows": 3068
+  },
+  "LOMA": {
+   "first": "2017-11-01",
+   "last": "2026-09-25",
+   "rows": 2236
+  },
+  "REAL": {
+   "first": "2019-06-28",
+   "last": "2026-09-25",
+   "rows": 1821
+  },
+  "BST": {
+   "first": "2014-10-29",
+   "last": "2026-09-25",
+   "rows": 2994
+  },
+  "KRT": {
+   "first": "2021-04-15",
+   "last": "2026-09-25",
+   "rows": 1369
+  },
+  "DEC": {
+   "first": "2021-01-04",
+   "last": "2026-09-25",
+   "rows": 1439
+  },
+  "CSTL": {
+   "first": "2019-07-25",
+   "last": "2026-09-25",
+   "rows": 1803
+  },
+  "RSKD": {
+   "first": "2021-07-29",
+   "last": "2026-09-25",
+   "rows": 1296
+  },
+  "GSBD": {
+   "first": "2015-03-18",
+   "last": "2026-09-25",
+   "rows": 2899
+  },
+  "HSLV": {
+   "first": "2026-03-11",
+   "last": "2026-09-25",
+   "rows": 138
+  },
+  "PSIX": {
+   "first": "2012-04-17",
+   "last": "2026-09-25",
+   "rows": 3632
+  },
+  "RXT": {
+   "first": "2020-08-05",
+   "last": "2026-09-25",
+   "rows": 1543
+  },
+  "ANRO": {
+   "first": "2024-02-02",
+   "last": "2026-09-25",
+   "rows": 664
+  },
+  "FSBC": {
+   "first": "2021-05-04",
+   "last": "2026-09-25",
+   "rows": 1356
+  },
+  "OCSL": {
+   "first": "2008-06-12",
+   "last": "2026-09-25",
+   "rows": 4601
+  },
+  "FUBO": {
+   "first": "2019-03-27",
+   "last": "2026-09-25",
+   "rows": 1886
+  },
+  "MGTX": {
+   "first": "2018-06-08",
+   "last": "2026-09-25",
+   "rows": 2086
+  },
+  "MNKD": {
+   "first": "2004-07-28",
+   "last": "2026-09-25",
+   "rows": 5577
+  },
+  "SBR": {
+   "first": "1983-01-03",
+   "last": "2026-09-25",
+   "rows": 11020
+  },
+  "IGIC": {
+   "first": "2018-04-10",
+   "last": "2026-09-25",
+   "rows": 2128
+  },
+  "NBN": {
+   "first": "1987-08-19",
+   "last": "2026-09-25",
+   "rows": 9850
+  },
+  "TUYA": {
+   "first": "2021-03-19",
+   "last": "2026-09-25",
+   "rows": 1387
+  },
+  "GPRE": {
+   "first": "2006-03-15",
+   "last": "2026-09-25",
+   "rows": 5166
+  },
+  "FTK": {
+   "first": "2005-07-27",
+   "last": "2026-09-25",
+   "rows": 5325
+  },
+  "PDS": {
+   "first": "1996-11-15",
+   "last": "2026-09-25",
+   "rows": 7511
+  },
+  "ETW": {
+   "first": "2005-11-21",
+   "last": "2026-09-25",
+   "rows": 5243
+  },
+  "SVRA": {
+   "first": "2017-04-28",
+   "last": "2026-09-25",
+   "rows": 2366
+  },
+  "RCAT": {
+   "first": "2002-01-16",
+   "last": "2026-09-25",
+   "rows": 6211
+  },
+  "BCX": {
+   "first": "2011-03-29",
+   "last": "2026-09-25",
+   "rows": 3897
+  },
+  "CPAC": {
+   "first": "2012-02-22",
+   "last": "2026-09-25",
+   "rows": 3670
+  },
+  "ITRN": {
+   "first": "2005-09-28",
+   "last": "2026-09-25",
+   "rows": 5281
+  },
+  "MLTX": {
+   "first": "2020-10-20",
+   "last": "2026-09-25",
+   "rows": 1490
+  },
+  "AEF": {
+   "first": "1989-09-26",
+   "last": "2026-09-25",
+   "rows": 9318
+  },
+  "MBWM": {
+   "first": "1999-07-20",
+   "last": "2026-09-25",
+   "rows": 6839
+  },
+  "GHM": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "LAC": {
+   "first": "2023-10-02",
+   "last": "2026-09-25",
+   "rows": 749
+  },
+  "ODD": {
+   "first": "2023-07-19",
+   "last": "2026-09-25",
+   "rows": 801
+  },
+  "ASA": {
+   "first": "1978-01-03",
+   "last": "2026-09-25",
+   "rows": 12284
+  },
+  "CRAI": {
+   "first": "1998-04-24",
+   "last": "2026-09-25",
+   "rows": 7150
+  },
+  "JANX": {
+   "first": "2021-06-11",
+   "last": "2026-09-25",
+   "rows": 1329
+  },
+  "ANL": {
+   "first": "2023-09-29",
+   "last": "2026-09-25",
+   "rows": 750
+  },
+  "BTZ": {
+   "first": "2006-12-22",
+   "last": "2026-09-25",
+   "rows": 4969
+  },
+  "DSL": {
+   "first": "2013-04-26",
+   "last": "2026-09-25",
+   "rows": 3375
+  },
+  "HQH": {
+   "first": "1987-04-23",
+   "last": "2026-09-25",
+   "rows": 9932
+  },
+  "ASM": {
+   "first": "2005-11-21",
+   "last": "2026-09-25",
+   "rows": 5243
+  },
+  "CCNE": {
+   "first": "1994-04-04",
+   "last": "2026-09-25",
+   "rows": 8175
+  },
+  "IQ": {
+   "first": "2018-03-29",
+   "last": "2026-09-25",
+   "rows": 2135
+  },
+  "FSCO": {
+   "first": "2022-11-14",
+   "last": "2026-09-25",
+   "rows": 969
+  },
+  "MCBS": {
+   "first": "2019-09-05",
+   "last": "2026-09-25",
+   "rows": 1774
+  },
+  "PRCT": {
+   "first": "2021-09-15",
+   "last": "2026-09-25",
+   "rows": 1263
+  },
+  "GLUE": {
+   "first": "2021-06-24",
+   "last": "2026-09-25",
+   "rows": 1320
+  },
+  "BFST": {
+   "first": "2018-04-23",
+   "last": "2026-09-25",
+   "rows": 2119
+  },
+  "RHLD": {
+   "first": "2025-02-24",
+   "last": "2026-09-25",
+   "rows": 400
+  },
+  "EDN": {
+   "first": "2007-04-26",
+   "last": "2026-09-25",
+   "rows": 4886
+  },
+  "CGEM": {
+   "first": "2021-01-08",
+   "last": "2026-09-25",
+   "rows": 1435
+  },
+  "VMET": {
+   "first": "2026-03-02",
+   "last": "2026-09-25",
+   "rows": 145
+  },
+  "CRVS": {
+   "first": "2016-03-23",
+   "last": "2026-09-25",
+   "rows": 2643
+  },
+  "EQBK": {
+   "first": "2015-11-11",
+   "last": "2026-09-25",
+   "rows": 2733
+  },
+  "NPKI": {
+   "first": "1990-09-06",
+   "last": "2026-09-25",
+   "rows": 9079
+  },
+  "HBNC": {
+   "first": "2002-01-09",
+   "last": "2026-09-25",
+   "rows": 6218
+  },
+  "HRTG": {
+   "first": "2014-05-23",
+   "last": "2026-09-25",
+   "rows": 3104
+  },
+  "XIFR": {
+   "first": "2014-06-27",
+   "last": "2026-09-25",
+   "rows": 3080
+  },
+  "NBBK": {
+   "first": "2023-12-28",
+   "last": "2026-09-25",
+   "rows": 688
+  },
+  "PSUS": {
+   "first": "2026-04-29",
+   "last": "2026-09-25",
+   "rows": 104
+  },
+  "SG": {
+   "first": "2021-11-18",
+   "last": "2026-09-25",
+   "rows": 1217
+  },
+  "NWPX": {
+   "first": "1995-11-30",
+   "last": "2026-09-25",
+   "rows": 7755
+  },
+  "OIG": {
+   "first": "2026-09-18",
+   "last": "2026-09-25",
+   "rows": 6
+  },
+  "PCT": {
+   "first": "2020-07-14",
+   "last": "2026-09-25",
+   "rows": 1559
+  },
+  "BXBL": {
+   "first": "2025-02-11",
+   "last": "2026-09-25",
+   "rows": 408
+  },
+  "SIFY": {
+   "first": "1999-10-19",
+   "last": "2026-09-25",
+   "rows": 6775
+  },
+  "CEVA": {
+   "first": "2002-11-01",
+   "last": "2026-09-25",
+   "rows": 6012
+  },
+  "HPK": {
+   "first": "2018-05-29",
+   "last": "2026-09-25",
+   "rows": 2094
+  },
+  "IBTA": {
+   "first": "2024-04-19",
+   "last": "2026-09-25",
+   "rows": 611
+  },
+  "KURA": {
+   "first": "2015-09-16",
+   "last": "2026-09-25",
+   "rows": 2773
+  },
+  "ABUS": {
+   "first": "2007-07-26",
+   "last": "2026-09-25",
+   "rows": 4823
+  },
+  "CAC": {
+   "first": "1997-10-08",
+   "last": "2026-09-25",
+   "rows": 7286
+  },
+  "FET": {
+   "first": "2012-04-12",
+   "last": "2026-09-25",
+   "rows": 3635
+  },
+  "ODTX": {
+   "first": "2026-05-08",
+   "last": "2026-09-25",
+   "rows": 97
+  },
+  "CMP": {
+   "first": "2003-12-12",
+   "last": "2026-09-25",
+   "rows": 5732
+  },
+  "FEIM": {
+   "first": "1980-06-18",
+   "last": "2026-09-25",
+   "rows": 11662
+  },
+  "MTA": {
+   "first": "2009-12-18",
+   "last": "2026-09-25",
+   "rows": 4217
+  },
+  "GLIBK": {
+   "first": "2025-07-11",
+   "last": "2026-09-25",
+   "rows": 305
+  },
+  "LMRI": {
+   "first": "2025-12-11",
+   "last": "2026-09-25",
+   "rows": 198
+  },
+  "BKSY": {
+   "first": "2019-12-20",
+   "last": "2026-09-25",
+   "rows": 1699
+  },
+  "TDAY": {
+   "first": "2014-02-04",
+   "last": "2026-09-25",
+   "rows": 3180
+  },
+  "ALMS": {
+   "first": "2024-06-28",
+   "last": "2026-09-25",
+   "rows": 563
+  },
+  "SB": {
+   "first": "2008-05-30",
+   "last": "2026-09-25",
+   "rows": 4610
+  },
+  "BTGO": {
+   "first": "2026-01-21",
+   "last": "2026-09-25",
+   "rows": 172
+  },
+  "JBIO": {
+   "first": "2021-06-30",
+   "last": "2026-09-25",
+   "rows": 1316
+  },
+  "GLIBA": {
+   "first": "2025-07-11",
+   "last": "2026-09-25",
+   "rows": 305
+  },
+  "NXDR": {
+   "first": "2021-11-08",
+   "last": "2026-09-25",
+   "rows": 1225
+  },
+  "KRO": {
+   "first": "2003-12-09",
+   "last": "2026-09-25",
+   "rows": 5735
+  },
+  "LAR": {
+   "first": "2008-09-18",
+   "last": "2026-09-25",
+   "rows": 4533
+  },
+  "KODK": {
+   "first": "2013-09-23",
+   "last": "2026-09-25",
+   "rows": 3272
+  },
+  "AGBK": {
+   "first": "2026-02-11",
+   "last": "2026-09-25",
+   "rows": 157
+  },
+  "PXED": {
+   "first": "2025-10-09",
+   "last": "2026-09-25",
+   "rows": 242
+  },
+  "SGP": {
+   "first": "2026-02-06",
+   "last": "2026-09-25",
+   "rows": 160
+  },
+  "REPX": {
+   "first": "1998-12-28",
+   "last": "2026-09-25",
+   "rows": 6979
+  },
+  "SBGI": {
+   "first": "1995-06-07",
+   "last": "2026-09-25",
+   "rows": 7878
+  },
+  "HELP": {
+   "first": "2019-09-13",
+   "last": "2026-09-25",
+   "rows": 1768
+  },
+  "KFRC": {
+   "first": "1995-08-15",
+   "last": "2026-09-25",
+   "rows": 7830
+  },
+  "BW": {
+   "first": "2015-06-16",
+   "last": "2026-09-25",
+   "rows": 2837
+  },
+  "BV": {
+   "first": "2018-06-28",
+   "last": "2026-09-25",
+   "rows": 2072
+  },
+  "MPB": {
+   "first": "1997-12-04",
+   "last": "2026-09-25",
+   "rows": 7246
+  },
+  "PLOW": {
+   "first": "2010-05-05",
+   "last": "2026-09-25",
+   "rows": 4124
+  },
+  "CBLL": {
+   "first": "2024-10-11",
+   "last": "2026-09-25",
+   "rows": 490
+  },
+  "NNE": {
+   "first": "2024-05-08",
+   "last": "2026-09-25",
+   "rows": 598
+  },
+  "SATL": {
+   "first": "2021-03-26",
+   "last": "2026-09-25",
+   "rows": 1382
+  },
+  "VPG": {
+   "first": "2010-06-23",
+   "last": "2026-09-25",
+   "rows": 4090
+  },
+  "QFIN": {
+   "first": "2018-12-14",
+   "last": "2026-09-25",
+   "rows": 1955
+  },
+  "FRBT": {
+   "first": "2026-06-11",
+   "last": "2026-09-25",
+   "rows": 74
+  },
+  "RMIX": {
+   "first": "2026-04-02",
+   "last": "2026-09-25",
+   "rows": 122
+  },
+  "FMNB": {
+   "first": "1999-01-04",
+   "last": "2026-09-25",
+   "rows": 6975
+  },
+  "ANGX": {
+   "first": "2025-09-11",
+   "last": "2026-09-25",
+   "rows": 262
+  },
+  "HIVE": {
+   "first": "2011-02-02",
+   "last": "2026-09-25",
+   "rows": 3935
+  },
+  "KOPN": {
+   "first": "1992-04-15",
+   "last": "2026-09-25",
+   "rows": 8672
+  },
+  "CRESY": {
+   "first": "1997-03-19",
+   "last": "2026-09-25",
+   "rows": 7427
+  },
+  "BBDC": {
+   "first": "2007-02-22",
+   "last": "2026-09-25",
+   "rows": 4930
+  },
+  "DJCO": {
+   "first": "1986-06-11",
+   "last": "2026-09-25",
+   "rows": 10151
+  },
+  "DC": {
+   "first": "2022-04-05",
+   "last": "2026-09-25",
+   "rows": 1123
+  },
+  "APMD": {
+   "first": "2026-07-31",
+   "last": "2026-09-25",
+   "rows": 40
+  },
+  "PDX": {
+   "first": "2019-01-30",
+   "last": "2026-09-25",
+   "rows": 1925
+  },
+  "JMIA": {
+   "first": "2019-04-12",
+   "last": "2026-09-25",
+   "rows": 1874
+  },
+  "FCBC": {
+   "first": "1994-04-08",
+   "last": "2026-09-25",
+   "rows": 8171
+  },
+  "ACEL": {
+   "first": "2017-08-24",
+   "last": "2026-09-25",
+   "rows": 2284
+  },
+  "RIGL": {
+   "first": "2000-11-29",
+   "last": "2026-09-25",
+   "rows": 6493
+  },
+  "THFF": {
+   "first": "1992-03-03",
+   "last": "2026-09-25",
+   "rows": 8703
+  },
+  "BRBR": {
+   "first": "2019-10-18",
+   "last": "2026-09-25",
+   "rows": 1743
+  },
+  "RZLV": {
+   "first": "2021-11-10",
+   "last": "2026-09-25",
+   "rows": 1223
+  },
+  "TTI": {
+   "first": "1990-04-03",
+   "last": "2026-09-25",
+   "rows": 9187
+  },
+  "BZH": {
+   "first": "1994-02-23",
+   "last": "2026-09-25",
+   "rows": 8202
+  },
+  "EVLV": {
+   "first": "2020-09-22",
+   "last": "2026-09-25",
+   "rows": 1510
+  },
+  "SANA": {
+   "first": "2021-02-04",
+   "last": "2026-09-25",
+   "rows": 1417
+  },
+  "NNNN": {
+   "first": "2025-02-19",
+   "last": "2026-09-25",
+   "rows": 403
+  },
+  "CADL": {
+   "first": "2021-07-27",
+   "last": "2026-09-25",
+   "rows": 1298
+  },
+  "CYRX": {
+   "first": "2005-08-22",
+   "last": "2026-09-25",
+   "rows": 5307
+  },
+  "MAKO": {
+   "first": "2012-02-03",
+   "last": "2026-09-25",
+   "rows": 3682
+  },
+  "FMN": {
+   "first": "2002-12-20",
+   "last": "2026-09-25",
+   "rows": 5978
+  },
+  "RJET": {
+   "first": "2018-08-10",
+   "last": "2026-09-25",
+   "rows": 2042
+  },
+  "SLBT": {
+   "first": "2025-02-05",
+   "last": "2026-09-25",
+   "rows": 412
+  },
+  "AEBI": {
+   "first": "2025-07-02",
+   "last": "2026-09-25",
+   "rows": 311
+  },
+  "CIM": {
+   "first": "2007-11-29",
+   "last": "2026-09-25",
+   "rows": 4735
+  },
+  "MCS": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "TBLA": {
+   "first": "2021-06-30",
+   "last": "2026-09-25",
+   "rows": 1316
+  },
+  "RPD": {
+   "first": "2015-07-17",
+   "last": "2026-09-25",
+   "rows": 2815
+  },
+  "BUUU": {
+   "first": "2025-08-14",
+   "last": "2026-09-25",
+   "rows": 281
+  },
+  "RERE": {
+   "first": "2021-06-18",
+   "last": "2026-09-25",
+   "rows": 1324
+  },
+  "ARDX": {
+   "first": "2014-06-19",
+   "last": "2026-09-25",
+   "rows": 3086
+  },
+  "SMBK": {
+   "first": "2003-10-07",
+   "last": "2026-09-25",
+   "rows": 5779
+  },
+  "GSBC": {
+   "first": "1989-12-15",
+   "last": "2026-09-25",
+   "rows": 9261
+  },
+  "KBDC": {
+   "first": "2024-05-22",
+   "last": "2026-09-25",
+   "rows": 588
+  },
+  "HQ": {
+   "first": "2026-03-20",
+   "last": "2026-09-25",
+   "rows": 131
+  },
+  "AIO": {
+   "first": "2019-10-29",
+   "last": "2026-09-25",
+   "rows": 1736
+  },
+  "GRPN": {
+   "first": "2011-11-04",
+   "last": "2026-09-25",
+   "rows": 3743
+  },
+  "INR": {
+   "first": "2025-01-31",
+   "last": "2026-09-25",
+   "rows": 415
+  },
+  "CODI": {
+   "first": "2006-05-18",
+   "last": "2026-09-25",
+   "rows": 5121
+  },
+  "PUBM": {
+   "first": "2020-12-09",
+   "last": "2026-09-25",
+   "rows": 1455
+  },
+  "CCBG": {
+   "first": "1994-06-06",
+   "last": "2026-09-25",
+   "rows": 8132
+  },
+  "AVTX": {
+   "first": "2015-10-14",
+   "last": "2026-09-25",
+   "rows": 2753
+  },
+  "HEPS": {
+   "first": "2021-07-01",
+   "last": "2026-09-25",
+   "rows": 1315
+  },
+  "HSHP": {
+   "first": "2023-03-31",
+   "last": "2026-09-25",
+   "rows": 875
+  },
+  "CVLG": {
+   "first": "1994-10-28",
+   "last": "2026-09-25",
+   "rows": 8030
+  },
+  "TIGR": {
+   "first": "2019-03-20",
+   "last": "2026-09-25",
+   "rows": 1891
+  },
+  "SVC": {
+   "first": "1995-08-17",
+   "last": "2026-09-25",
+   "rows": 7828
+  },
+  "MTAL": {
+   "first": "2026-04-15",
+   "last": "2026-09-25",
+   "rows": 114
+  },
+  "IMMX": {
+   "first": "2021-12-16",
+   "last": "2026-09-25",
+   "rows": 1198
+  },
+  "YALA": {
+   "first": "2020-09-30",
+   "last": "2026-09-25",
+   "rows": 1504
+  },
+  "BLZE": {
+   "first": "2021-11-11",
+   "last": "2026-09-25",
+   "rows": 1222
+  },
+  "OGG": {
+   "first": "2008-04-16",
+   "last": "2026-09-25",
+   "rows": 4641
+  },
+  "SIBN": {
+   "first": "2018-10-17",
+   "last": "2026-09-25",
+   "rows": 1995
+  },
+  "ATTO": {
+   "first": "2026-08-05",
+   "last": "2026-09-25",
+   "rows": 37
+  },
+  "SCZM": {
+   "first": "2012-10-02",
+   "last": "2026-09-25",
+   "rows": 3515
+  },
+  "DAKT": {
+   "first": "1994-02-10",
+   "last": "2026-09-25",
+   "rows": 8210
+  },
+  "LXRX": {
+   "first": "2000-04-07",
+   "last": "2026-09-25",
+   "rows": 6656
+  },
+  "OBX": {
+   "first": "2026-07-27",
+   "last": "2026-09-25",
+   "rows": 44
+  },
+  "PLTK": {
+   "first": "2021-01-19",
+   "last": "2026-09-25",
+   "rows": 1429
+  },
+  "SXC": {
+   "first": "2011-07-21",
+   "last": "2026-09-25",
+   "rows": 3818
+  },
+  "ACDC": {
+   "first": "2022-05-13",
+   "last": "2026-09-25",
+   "rows": 1096
+  },
+  "CAPL": {
+   "first": "2012-10-25",
+   "last": "2026-09-25",
+   "rows": 3498
+  },
+  "MFA": {
+   "first": "1998-04-13",
+   "last": "2026-09-25",
+   "rows": 7159
+  },
+  "ADSE": {
+   "first": "2021-03-10",
+   "last": "2026-09-25",
+   "rows": 1394
+  },
+  "ORRF": {
+   "first": "1999-05-13",
+   "last": "2026-09-25",
+   "rows": 6885
+  },
+  "DSP": {
+   "first": "2021-02-10",
+   "last": "2026-09-25",
+   "rows": 1413
+  },
+  "FBYD": {
+   "first": "2023-10-06",
+   "last": "2026-09-25",
+   "rows": 745
+  },
+  "HMH": {
+   "first": "2026-04-01",
+   "last": "2026-09-25",
+   "rows": 123
+  },
+  "GYRE": {
+   "first": "2006-04-12",
+   "last": "2026-09-25",
+   "rows": 5146
+  },
+  "INMD": {
+   "first": "2019-08-08",
+   "last": "2026-09-25",
+   "rows": 1793
+  },
+  "MITK": {
+   "first": "1989-01-03",
+   "last": "2026-09-25",
+   "rows": 9503
+  },
+  "MNTN": {
+   "first": "2025-05-22",
+   "last": "2026-09-25",
+   "rows": 338
+  },
+  "RPC": {
+   "first": "2021-10-21",
+   "last": "2026-09-25",
+   "rows": 1237
+  },
+  "LWLG": {
+   "first": "2006-05-16",
+   "last": "2026-09-25",
+   "rows": 5123
+  },
+  "FDMT": {
+   "first": "2020-12-11",
+   "last": "2026-09-25",
+   "rows": 1453
+  },
+  "BH": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "CRTO": {
+   "first": "2013-10-30",
+   "last": "2026-09-25",
+   "rows": 3245
+  },
+  "GERN": {
+   "first": "1996-07-31",
+   "last": "2026-09-25",
+   "rows": 7587
+  },
+  "ABX": {
+   "first": "2020-09-14",
+   "last": "2026-09-25",
+   "rows": 1516
+  },
+  "TRNS": {
+   "first": "1977-12-05",
+   "last": "2026-09-25",
+   "rows": 12303
+  },
+  "SPFI": {
+   "first": "2019-05-09",
+   "last": "2026-09-25",
+   "rows": 1856
+  },
+  "ACHV": {
+   "first": "1995-10-12",
+   "last": "2026-09-25",
+   "rows": 7789
+  },
+  "ALRS": {
+   "first": "2003-03-20",
+   "last": "2026-09-25",
+   "rows": 5918
+  },
+  "ARI": {
+   "first": "2009-09-24",
+   "last": "2026-09-25",
+   "rows": 4277
+  },
+  "SKYH": {
+   "first": "2020-12-08",
+   "last": "2026-09-25",
+   "rows": 1456
+  },
+  "SLDB": {
+   "first": "2018-01-26",
+   "last": "2026-09-25",
+   "rows": 2178
+  },
+  "HIPO": {
+   "first": "2021-01-11",
+   "last": "2026-09-25",
+   "rows": 1434
+  },
+  "NAK": {
+   "first": "2001-06-29",
+   "last": "2026-09-25",
+   "rows": 6347
+  },
+  "PGC": {
+   "first": "1999-04-27",
+   "last": "2026-09-25",
+   "rows": 6897
+  },
+  "SMBC": {
+   "first": "1994-04-12",
+   "last": "2026-09-25",
+   "rows": 8169
+  },
+  "BUR": {
+   "first": "2020-10-19",
+   "last": "2026-09-25",
+   "rows": 1491
+  },
+  "ACRS": {
+   "first": "2015-10-06",
+   "last": "2026-09-25",
+   "rows": 2759
+  },
+  "TXO": {
+   "first": "2023-01-27",
+   "last": "2026-09-25",
+   "rows": 919
+  },
+  "IBCP": {
+   "first": "1985-09-04",
+   "last": "2026-09-25",
+   "rows": 10344
+  },
+  "OLMA": {
+   "first": "2020-11-19",
+   "last": "2026-09-25",
+   "rows": 1468
+  },
+  "FISI": {
+   "first": "1999-06-25",
+   "last": "2026-09-25",
+   "rows": 6855
+  },
+  "WYFI": {
+   "first": "2025-08-07",
+   "last": "2026-09-25",
+   "rows": 286
+  },
+  "KELYB": {
+   "first": "1984-08-03",
+   "last": "2026-09-25",
+   "rows": 10618
+  },
+  "APEI": {
+   "first": "2007-11-09",
+   "last": "2026-09-25",
+   "rows": 4748
+  },
+  "NRGV": {
+   "first": "2021-03-29",
+   "last": "2026-09-25",
+   "rows": 1381
+  },
+  "VLRS": {
+   "first": "2013-09-18",
+   "last": "2026-09-25",
+   "rows": 3275
+  },
+  "LYTS": {
+   "first": "1985-03-12",
+   "last": "2026-09-25",
+   "rows": 10466
+  },
+  "WVE": {
+   "first": "2015-11-11",
+   "last": "2026-09-25",
+   "rows": 2733
+  },
+  "VREX": {
+   "first": "2017-01-23",
+   "last": "2026-09-25",
+   "rows": 2433
+  },
+  "WEST": {
+   "first": "2021-10-20",
+   "last": "2026-09-25",
+   "rows": 1238
+  },
+  "IMC": {
+   "first": "2026-07-29",
+   "last": "2026-09-25",
+   "rows": 42
+  },
+  "DQ": {
+   "first": "2010-10-07",
+   "last": "2026-09-25",
+   "rows": 4016
+  },
+  "MTW": {
+   "first": "1990-03-26",
+   "last": "2026-09-25",
+   "rows": 9193
+  },
+  "CSHR": {
+   "first": "2026-04-01",
+   "last": "2026-09-25",
+   "rows": 123
+  },
+  "CTO": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "IVA": {
+   "first": "2020-07-10",
+   "last": "2026-09-25",
+   "rows": 1561
+  },
+  "MLAB": {
+   "first": "1984-02-29",
+   "last": "2026-09-25",
+   "rows": 10727
+  },
+  "CGBD": {
+   "first": "2017-06-14",
+   "last": "2026-09-25",
+   "rows": 2334
+  },
+  "BBSI": {
+   "first": "1993-06-11",
+   "last": "2026-09-25",
+   "rows": 8380
+  },
+  "DSGN": {
+   "first": "2021-03-29",
+   "last": "2026-09-25",
+   "rows": 1381
+  },
+  "SHBI": {
+   "first": "2001-04-09",
+   "last": "2026-09-25",
+   "rows": 6404
+  },
+  "HDL": {
+   "first": "2024-05-17",
+   "last": "2026-09-25",
+   "rows": 591
+  },
+  "HTB": {
+   "first": "2012-07-11",
+   "last": "2026-09-25",
+   "rows": 3573
+  },
+  "PRAA": {
+   "first": "2002-11-08",
+   "last": "2026-09-25",
+   "rows": 6007
+  },
+  "SOC": {
+   "first": "2021-04-19",
+   "last": "2026-09-25",
+   "rows": 1367
+  },
+  "LINC": {
+   "first": "2005-06-23",
+   "last": "2026-09-25",
+   "rows": 5348
+  },
+  "WLKP": {
+   "first": "2014-07-30",
+   "last": "2026-09-25",
+   "rows": 3058
+  },
+  "GILT": {
+   "first": "1993-03-26",
+   "last": "2026-09-25",
+   "rows": 8433
+  },
+  "VBNK": {
+   "first": "2021-08-27",
+   "last": "2026-09-25",
+   "rows": 1275
+  },
+  "FTH": {
+   "first": "2021-02-04",
+   "last": "2026-09-25",
+   "rows": 1417
+  },
+  "OBE": {
+   "first": "2005-11-15",
+   "last": "2026-09-25",
+   "rows": 5247
+  },
+  "HYLN": {
+   "first": "2020-01-02",
+   "last": "2026-09-25",
+   "rows": 1692
+  },
+  "BLDP": {
+   "first": "1995-11-08",
+   "last": "2026-09-25",
+   "rows": 7770
+  },
+  "AVR": {
+   "first": "2024-12-13",
+   "last": "2026-09-25",
+   "rows": 446
+  },
+  "MOV": {
+   "first": "1993-09-30",
+   "last": "2026-09-25",
+   "rows": 8303
+  },
+  "CTKB": {
+   "first": "2021-07-23",
+   "last": "2026-09-25",
+   "rows": 1300
+  },
+  "GSM": {
+   "first": "2009-07-30",
+   "last": "2026-09-25",
+   "rows": 4316
+  },
+  "CSIQ": {
+   "first": "2006-11-09",
+   "last": "2026-09-25",
+   "rows": 4999
+  },
+  "ETRA": {
+   "first": "2026-09-18",
+   "last": "2026-09-25",
+   "rows": 6
+  },
+  "GOOS": {
+   "first": "2017-03-16",
+   "last": "2026-09-25",
+   "rows": 2396
+  },
+  "REF": {
+   "first": "2026-07-30",
+   "last": "2026-09-25",
+   "rows": 41
+  },
+  "ROOT": {
+   "first": "2020-10-28",
+   "last": "2026-09-25",
+   "rows": 1484
+  },
+  "MOMO": {
+   "first": "2014-12-11",
+   "last": "2026-09-25",
+   "rows": 2964
+  },
+  "NUAI": {
+   "first": "2022-01-06",
+   "last": "2026-09-25",
+   "rows": 1184
+  },
+  "FINV": {
+   "first": "2017-11-09",
+   "last": "2026-09-25",
+   "rows": 2230
+  },
+  "WASH": {
+   "first": "1987-06-08",
+   "last": "2026-09-25",
+   "rows": 9901
+  },
+  "BWMN": {
+   "first": "2021-05-07",
+   "last": "2026-09-25",
+   "rows": 1353
+  },
+  "PHAR": {
+   "first": "2020-12-23",
+   "last": "2026-09-25",
+   "rows": 1445
+  },
+  "GPRK": {
+   "first": "2010-10-15",
+   "last": "2026-09-25",
+   "rows": 4010
+  },
+  "THM": {
+   "first": "2007-05-01",
+   "last": "2026-09-25",
+   "rows": 4883
+  },
+  "GEMI": {
+   "first": "2025-09-12",
+   "last": "2026-09-25",
+   "rows": 261
+  },
+  "SWIM": {
+   "first": "2021-04-23",
+   "last": "2026-09-25",
+   "rows": 1363
+  },
+  "PAYS": {
+   "first": "2007-10-10",
+   "last": "2026-09-25",
+   "rows": 4770
+  },
+  "TASK": {
+   "first": "2021-06-11",
+   "last": "2026-09-25",
+   "rows": 1329
+  },
+  "MFIC": {
+   "first": "2004-04-06",
+   "last": "2026-09-25",
+   "rows": 5654
+  },
+  "GDOT": {
+   "first": "2010-07-22",
+   "last": "2026-09-25",
+   "rows": 4070
+  },
+  "ASC": {
+   "first": "2013-08-01",
+   "last": "2026-09-25",
+   "rows": 3308
+  },
+  "EVEX": {
+   "first": "2022-05-10",
+   "last": "2026-09-25",
+   "rows": 1099
+  },
+  "QVCG": {
+   "first": "2026-08-10",
+   "last": "2026-09-25",
+   "rows": 34
+  },
+  "LXU": {
+   "first": "1980-01-02",
+   "last": "2026-09-25",
+   "rows": 11779
+  },
+  "WHK": {
+   "first": "2026-06-09",
+   "last": "2026-09-25",
+   "rows": 76
+  },
+  "ELVR": {
+   "first": "2025-09-02",
+   "last": "2026-09-25",
+   "rows": 269
+  },
+  "FDUS": {
+   "first": "2011-06-21",
+   "last": "2026-09-25",
+   "rows": 3839
+  },
+  "GROY": {
+   "first": "2021-03-09",
+   "last": "2026-09-25",
+   "rows": 1395
+  },
+  "BCSF": {
+   "first": "2018-11-15",
+   "last": "2026-09-25",
+   "rows": 1974
+  },
+  "ANNX": {
+   "first": "2020-07-24",
+   "last": "2026-09-25",
+   "rows": 1551
+  },
+  "EVC": {
+   "first": "2000-08-02",
+   "last": "2026-09-25",
+   "rows": 6576
+  },
+  "VTS": {
+   "first": "2023-01-10",
+   "last": "2026-09-25",
+   "rows": 931
+  },
+  "RCBC": {
+   "first": "2008-01-30",
+   "last": "2026-09-25",
+   "rows": 4694
+  },
+  "ESRT": {
+   "first": "2013-10-02",
+   "last": "2026-09-25",
+   "rows": 3265
+  },
+  "CWBC": {
+   "first": "1999-03-08",
+   "last": "2026-09-25",
+   "rows": 6932
+  },
+  "TCBX": {
+   "first": "2021-11-09",
+   "last": "2026-09-25",
+   "rows": 1224
+  },
+  "AAC": {
+   "first": "2026-08-27",
+   "last": "2026-09-25",
+   "rows": 21
+  },
+  "BALY": {
+   "first": "2024-12-06",
+   "last": "2026-09-25",
+   "rows": 451
+  },
+  "PSTL": {
+   "first": "2019-05-15",
+   "last": "2026-09-25",
+   "rows": 1852
+  },
+  "LUCK": {
+   "first": "2021-04-23",
+   "last": "2026-09-25",
+   "rows": 1363
+  },
+  "INDI": {
+   "first": "2019-10-04",
+   "last": "2026-09-25",
+   "rows": 1753
+  },
+  "VSTM": {
+   "first": "2012-01-27",
+   "last": "2026-09-25",
+   "rows": 3687
+  },
+  "LPTH": {
+   "first": "1996-02-22",
+   "last": "2026-09-25",
+   "rows": 7698
+  },
+  "NVCT": {
+   "first": "2022-02-04",
+   "last": "2026-09-25",
+   "rows": 1164
+  },
+  "SOPH": {
+   "first": "2021-07-23",
+   "last": "2026-09-25",
+   "rows": 1300
+  },
+  "ABTC": {
+   "first": "2018-02-26",
+   "last": "2026-09-25",
+   "rows": 2158
+  },
+  "MPLT": {
+   "first": "2025-10-27",
+   "last": "2026-09-25",
+   "rows": 230
+  },
+  "TRON": {
+   "first": "2023-08-15",
+   "last": "2026-09-25",
+   "rows": 782
+  },
+  "CASS": {
+   "first": "1996-07-02",
+   "last": "2026-09-25",
+   "rows": 7607
+  },
+  "OABI": {
+   "first": "2021-09-30",
+   "last": "2026-09-25",
+   "rows": 1252
+  },
+  "BLMN": {
+   "first": "2012-08-08",
+   "last": "2026-09-25",
+   "rows": 3553
+  },
+  "NIE": {
+   "first": "2007-02-23",
+   "last": "2026-09-25",
+   "rows": 4929
+  },
+  "PFLT": {
+   "first": "2011-04-08",
+   "last": "2026-09-25",
+   "rows": 3889
+  },
+  "BCAL": {
+   "first": "2005-11-10",
+   "last": "2026-09-25",
+   "rows": 5250
+  },
+  "PFIS": {
+   "first": "2002-06-05",
+   "last": "2026-09-25",
+   "rows": 6117
+  },
+  "OFRM": {
+   "first": "2026-02-06",
+   "last": "2026-09-25",
+   "rows": 160
+  },
+  "IRWD": {
+   "first": "2010-02-03",
+   "last": "2026-09-25",
+   "rows": 4187
+  },
+  "LEGH": {
+   "first": "2018-12-14",
+   "last": "2026-09-25",
+   "rows": 1955
+  },
+  "AROW": {
+   "first": "1980-09-18",
+   "last": "2026-09-25",
+   "rows": 11598
+  },
+  "NGVC": {
+   "first": "2012-07-25",
+   "last": "2026-09-25",
+   "rows": 3563
+  },
+  "SSYS": {
+   "first": "1994-10-21",
+   "last": "2026-09-25",
+   "rows": 8035
+  },
+  "PSNYW": {
+   "first": "2025-10-10",
+   "last": "2026-09-25",
+   "rows": 241
+  },
+  "PKOH": {
+   "first": "1973-02-21",
+   "last": "2026-09-25",
+   "rows": 13513
+  },
+  "MSBI": {
+   "first": "2016-05-24",
+   "last": "2026-09-25",
+   "rows": 2600
+  },
+  "DBVT": {
+   "first": "2014-10-22",
+   "last": "2026-09-25",
+   "rows": 2999
+  },
+  "IVR": {
+   "first": "2009-07-01",
+   "last": "2026-09-25",
+   "rows": 4336
+  },
+  "MDXG": {
+   "first": "2008-02-12",
+   "last": "2026-09-25",
+   "rows": 4685
+  },
+  "XFLT": {
+   "first": "2017-10-09",
+   "last": "2026-09-25",
+   "rows": 2253
+  },
+  "FPH": {
+   "first": "2017-05-10",
+   "last": "2026-09-25",
+   "rows": 2358
+  },
+  "HNRG": {
+   "first": "1994-04-06",
+   "last": "2026-09-25",
+   "rows": 8173
+  },
+  "HELE": {
+   "first": "1976-07-08",
+   "last": "2026-09-25",
+   "rows": 12659
+  },
+  "UAMY": {
+   "first": "2000-02-24",
+   "last": "2026-09-25",
+   "rows": 6687
+  },
+  "CLYM": {
+   "first": "2021-08-10",
+   "last": "2026-09-25",
+   "rows": 1288
+  },
+  "MG": {
+   "first": "2009-10-08",
+   "last": "2026-09-25",
+   "rows": 4267
+  },
+  "SUPV": {
+   "first": "2016-05-19",
+   "last": "2026-09-25",
+   "rows": 2603
+  },
+  "VLGEA": {
+   "first": "1973-02-21",
+   "last": "2026-09-25",
+   "rows": 13513
+  },
+  "CNNE": {
+   "first": "2017-11-20",
+   "last": "2026-09-25",
+   "rows": 2223
+  },
+  "HOV": {
+   "first": "1983-09-07",
+   "last": "2026-09-25",
+   "rows": 10848
+  },
+  "TMS": {
+   "first": "2025-04-21",
+   "last": "2026-09-25",
+   "rows": 361
+  },
+  "MATV": {
+   "first": "1995-11-09",
+   "last": "2026-09-25",
+   "rows": 7769
+  },
+  "NFGC": {
+   "first": "2020-09-14",
+   "last": "2026-09-25",
+   "rows": 1516
+  },
+  "RGR": {
+   "first": "1973-05-03",
+   "last": "2026-09-25",
+   "rows": 13463
+  },
+  "ZVRA": {
+   "first": "2015-04-16",
+   "last": "2026-09-25",
+   "rows": 2879
+  },
+  "CCB": {
+   "first": "2018-07-19",
+   "last": "2026-09-25",
+   "rows": 2058
+  },
+  "BHB": {
+   "first": "1997-09-23",
+   "last": "2026-09-25",
+   "rows": 7297
+  },
+  "CARE": {
+   "first": "2007-03-15",
+   "last": "2026-09-25",
+   "rows": 4915
+  },
+  "IPX": {
+   "first": "2022-06-21",
+   "last": "2026-09-25",
+   "rows": 1071
+  },
+  "DGICA": {
+   "first": "2003-07-03",
+   "last": "2026-09-25",
+   "rows": 5845
+  },
+  "STLN": {
+   "first": "2020-06-04",
+   "last": "2026-09-25",
+   "rows": 1586
+  },
+  "NMFC": {
+   "first": "2011-05-20",
+   "last": "2026-09-25",
+   "rows": 3860
+  },
+  "DNA": {
+   "first": "2021-04-19",
+   "last": "2026-09-25",
+   "rows": 1367
+  },
+  "KE": {
+   "first": "2014-11-03",
+   "last": "2026-09-25",
+   "rows": 2991
+  },
+  "RRBI": {
+   "first": "2019-05-03",
+   "last": "2026-09-25",
+   "rows": 1860
+  },
+  "WOOF": {
+   "first": "2021-01-14",
+   "last": "2026-09-25",
+   "rows": 1431
+  },
+  "BSTZ": {
+   "first": "2019-06-26",
+   "last": "2026-09-25",
+   "rows": 1823
+  },
+  "SMWB": {
+   "first": "2021-05-12",
+   "last": "2026-09-25",
+   "rows": 1350
+  },
+  "TBLD": {
+   "first": "2021-07-28",
+   "last": "2026-09-25",
+   "rows": 1297
+  },
+  "KRNT": {
+   "first": "2015-04-02",
+   "last": "2026-09-25",
+   "rows": 2888
+  },
+  "OSPN": {
+   "first": "1998-05-21",
+   "last": "2026-09-25",
+   "rows": 7131
+  },
+  "AHG": {
+   "first": "2017-11-03",
+   "last": "2026-09-25",
+   "rows": 2234
+  },
+  "BLSM": {
+   "first": "2026-08-07",
+   "last": "2026-09-25",
+   "rows": 35
+  },
+  "BWMX": {
+   "first": "2019-01-03",
+   "last": "2026-09-25",
+   "rows": 1943
+  },
+  "ENVX": {
+   "first": "2021-01-05",
+   "last": "2026-09-25",
+   "rows": 1438
+  },
+  "CCSI": {
+   "first": "2021-09-30",
+   "last": "2026-09-25",
+   "rows": 1252
+  },
+  "BTBT": {
+   "first": "2018-03-20",
+   "last": "2026-09-25",
+   "rows": 2142
+  },
+  "DGICB": {
+   "first": "1986-10-29",
+   "last": "2026-09-25",
+   "rows": 10053
+  },
+  "FAC": {
+   "first": "2025-06-24",
+   "last": "2026-09-25",
+   "rows": 317
+  },
+  "ACNB": {
+   "first": "1994-04-04",
+   "last": "2026-09-25",
+   "rows": 8175
+  },
+  "PKE": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "DDI": {
+   "first": "2021-08-31",
+   "last": "2026-09-25",
+   "rows": 1273
+  },
+  "TROX": {
+   "first": "2010-12-01",
+   "last": "2026-09-25",
+   "rows": 3978
+  },
+  "CGNT": {
+   "first": "2021-02-08",
+   "last": "2026-09-25",
+   "rows": 1415
+  },
+  "PRTH": {
+   "first": "2016-12-06",
+   "last": "2026-09-25",
+   "rows": 2464
+  },
+  "YEXT": {
+   "first": "2017-04-13",
+   "last": "2026-09-25",
+   "rows": 2376
+  },
+  "AURA": {
+   "first": "2021-10-29",
+   "last": "2026-09-25",
+   "rows": 1231
+  },
+  "HIFS": {
+   "first": "1988-12-14",
+   "last": "2026-09-25",
+   "rows": 9515
+  },
+  "SLRC": {
+   "first": "2010-02-09",
+   "last": "2026-09-25",
+   "rows": 4183
+  },
+  "EVER": {
+   "first": "2018-06-28",
+   "last": "2026-09-25",
+   "rows": 2072
+  },
+  "HPP": {
+   "first": "2010-06-24",
+   "last": "2026-09-25",
+   "rows": 4089
+  },
+  "STTK": {
+   "first": "2020-10-09",
+   "last": "2026-09-25",
+   "rows": 1497
+  },
+  "WCCB": {
+   "first": "2005-02-17",
+   "last": "2026-09-25",
+   "rows": 5435
+  },
+  "ANGO": {
+   "first": "2004-06-01",
+   "last": "2026-09-25",
+   "rows": 5616
+  },
+  "SMC": {
+   "first": "2012-09-28",
+   "last": "2026-09-25",
+   "rows": 3517
+  },
+  "TIPT": {
+   "first": "2010-10-15",
+   "last": "2026-09-25",
+   "rows": 4010
+  },
+  "FWRG": {
+   "first": "2021-10-01",
+   "last": "2026-09-25",
+   "rows": 1251
+  },
+  "SWBI": {
+   "first": "1999-08-17",
+   "last": "2026-09-25",
+   "rows": 6819
+  },
+  "MAMA": {
+   "first": "2021-07-19",
+   "last": "2026-09-25",
+   "rows": 1304
+  },
+  "GLAS": {
+   "first": "2019-07-18",
+   "last": "2026-09-25",
+   "rows": 1808
+  },
+  "DLY": {
+   "first": "2020-02-26",
+   "last": "2026-09-25",
+   "rows": 1655
+  },
+  "HTZ": {
+   "first": "2021-07-01",
+   "last": "2026-09-25",
+   "rows": 1315
+  },
+  "RSVR": {
+   "first": "2021-01-05",
+   "last": "2026-09-25",
+   "rows": 1438
+  },
+  "EGY": {
+   "first": "1993-01-29",
+   "last": "2026-09-25",
+   "rows": 8472
+  },
+  "GDYN": {
+   "first": "2018-10-30",
+   "last": "2026-09-25",
+   "rows": 1986
+  },
+  "NGNE": {
+   "first": "2014-03-07",
+   "last": "2026-09-25",
+   "rows": 3158
+  },
+  "CLDT": {
+   "first": "2010-04-16",
+   "last": "2026-09-25",
+   "rows": 4137
+  },
+  "GAIN": {
+   "first": "2005-06-23",
+   "last": "2026-09-25",
+   "rows": 5348
+  },
+  "VTEX": {
+   "first": "2021-07-21",
+   "last": "2026-09-25",
+   "rows": 1302
+  },
+  "PHR": {
+   "first": "2019-07-18",
+   "last": "2026-09-25",
+   "rows": 1808
+  },
+  "RMT": {
+   "first": "1993-12-15",
+   "last": "2026-09-25",
+   "rows": 8250
+  },
+  "FWDI": {
+   "first": "1994-11-17",
+   "last": "2026-09-25",
+   "rows": 8016
+  },
+  "INN": {
+   "first": "2011-02-09",
+   "last": "2026-09-25",
+   "rows": 3930
+  },
+  "ISOU": {
+   "first": "2017-04-26",
+   "last": "2026-09-25",
+   "rows": 2368
+  },
+  "LMB": {
+   "first": "2014-08-08",
+   "last": "2026-09-25",
+   "rows": 3051
+  },
+  "MLR": {
+   "first": "1994-08-02",
+   "last": "2026-09-25",
+   "rows": 8092
+  },
+  "GOOD": {
+   "first": "2003-08-14",
+   "last": "2026-09-25",
+   "rows": 5816
+  },
+  "VEL": {
+   "first": "2020-01-17",
+   "last": "2026-09-25",
+   "rows": 1681
+  },
+  "VINP": {
+   "first": "2021-01-28",
+   "last": "2026-09-25",
+   "rows": 1422
+  },
+  "BAK": {
+   "first": "1999-01-13",
+   "last": "2026-09-25",
+   "rows": 6968
+  },
+  "CRMD": {
+   "first": "2010-05-13",
+   "last": "2026-09-25",
+   "rows": 4118
+  },
+  "CTGO": {
+   "first": "2010-12-21",
+   "last": "2026-09-25",
+   "rows": 3964
+  },
+  "AQST": {
+   "first": "2018-07-25",
+   "last": "2026-09-25",
+   "rows": 2054
+  },
+  "ARRY": {
+   "first": "2020-10-15",
+   "last": "2026-09-25",
+   "rows": 1493
+  },
+  "OOMA": {
+   "first": "2015-07-20",
+   "last": "2026-09-25",
+   "rows": 2814
+  },
+  "KRNY": {
+   "first": "2005-02-24",
+   "last": "2026-09-25",
+   "rows": 5431
+  },
+  "FOF": {
+   "first": "2006-11-28",
+   "last": "2026-09-25",
+   "rows": 4987
+  },
+  "RMR": {
+   "first": "2015-12-14",
+   "last": "2026-09-25",
+   "rows": 2711
+  },
+  "ELMT": {
+   "first": "2026-04-23",
+   "last": "2026-09-25",
+   "rows": 108
+  },
+  "NTGR": {
+   "first": "2003-07-31",
+   "last": "2026-09-25",
+   "rows": 5826
+  },
+  "TLRY": {
+   "first": "2018-07-19",
+   "last": "2026-09-25",
+   "rows": 2058
+  },
+  "BME": {
+   "first": "2005-03-29",
+   "last": "2026-09-25",
+   "rows": 5409
+  },
+  "CTMX": {
+   "first": "2015-10-08",
+   "last": "2026-09-25",
+   "rows": 2757
+  },
+  "GRNT": {
+   "first": "2020-11-06",
+   "last": "2026-09-25",
+   "rows": 1477
+  },
+  "MNPR": {
+   "first": "2019-12-19",
+   "last": "2026-09-25",
+   "rows": 1700
+  },
+  "MTC": {
+   "first": "2019-01-09",
+   "last": "2026-09-25",
+   "rows": 1939
+  },
+  "FLGT": {
+   "first": "2016-09-29",
+   "last": "2026-09-25",
+   "rows": 2511
+  },
+  "SWRD": {
+   "first": "2026-09-10",
+   "last": "2026-09-25",
+   "rows": 12
+  },
+  "RYAM": {
+   "first": "2014-06-16",
+   "last": "2026-09-25",
+   "rows": 3089
+  },
+  "ALOY": {
+   "first": "2016-08-01",
+   "last": "2026-09-25",
+   "rows": 2553
+  },
+  "ALT": {
+   "first": "2017-05-26",
+   "last": "2026-09-25",
+   "rows": 2346
+  },
+  "GCBC": {
+   "first": "1999-06-30",
+   "last": "2026-09-25",
+   "rows": 6852
+  },
+  "KIDS": {
+   "first": "2017-10-13",
+   "last": "2026-09-25",
+   "rows": 2249
+  },
+  "ONT": {
+   "first": "2020-07-23",
+   "last": "2026-09-25",
+   "rows": 1552
+  },
+  "SSII": {
+   "first": "2024-08-07",
+   "last": "2026-09-25",
+   "rows": 536
+  },
+  "VALN": {
+   "first": "2021-05-05",
+   "last": "2026-09-25",
+   "rows": 1355
+  },
+  "SPT": {
+   "first": "2019-12-13",
+   "last": "2026-09-25",
+   "rows": 1704
+  },
+  "FBIZ": {
+   "first": "2005-11-09",
+   "last": "2026-09-25",
+   "rows": 5251
+  },
+  "WEAV": {
+   "first": "2021-11-11",
+   "last": "2026-09-25",
+   "rows": 1222
+  },
+  "CBNK": {
+   "first": "2018-09-26",
+   "last": "2026-09-25",
+   "rows": 2010
+  },
+  "OIO": {
+   "first": "2022-04-07",
+   "last": "2026-09-25",
+   "rows": 1121
+  },
+  "WTI": {
+   "first": "2005-01-28",
+   "last": "2026-09-25",
+   "rows": 5449
+  },
+  "METC": {
+   "first": "2017-02-03",
+   "last": "2026-09-25",
+   "rows": 2424
+  },
+  "CLMB": {
+   "first": "1995-07-18",
+   "last": "2026-09-25",
+   "rows": 7850
+  },
+  "ENHA": {
+   "first": "2026-05-08",
+   "last": "2026-09-25",
+   "rows": 97
+  },
+  "GMRS": {
+   "first": "2026-05-13",
+   "last": "2026-09-25",
+   "rows": 94
+  },
+  "BXC": {
+   "first": "2004-12-14",
+   "last": "2026-09-25",
+   "rows": 5480
+  },
+  "VMO": {
+   "first": "1992-06-03",
+   "last": "2026-09-25",
+   "rows": 8639
+  },
+  "GOTU": {
+   "first": "2019-06-06",
+   "last": "2026-09-25",
+   "rows": 1837
+  },
+  "MAX": {
+   "first": "2020-10-28",
+   "last": "2026-09-25",
+   "rows": 1484
+  },
+  "NCDL": {
+   "first": "2024-01-25",
+   "last": "2026-09-25",
+   "rows": 670
+  },
+  "ALLO": {
+   "first": "2018-10-11",
+   "last": "2026-09-25",
+   "rows": 1999
+  },
+  "BWB": {
+   "first": "2018-03-14",
+   "last": "2026-09-25",
+   "rows": 2146
+  },
+  "PAR": {
+   "first": "1982-12-03",
+   "last": "2026-09-25",
+   "rows": 11040
+  },
+  "IBEX": {
+   "first": "2020-08-07",
+   "last": "2026-09-25",
+   "rows": 1541
+  },
+  "PHAT": {
+   "first": "2019-10-25",
+   "last": "2026-09-25",
+   "rows": 1738
+  },
+  "DDD": {
+   "first": "1988-03-10",
+   "last": "2026-09-25",
+   "rows": 9709
+  },
+  "KELYA": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "SFST": {
+   "first": "1999-10-28",
+   "last": "2026-09-25",
+   "rows": 6768
+  },
+  "CD": {
+   "first": "2015-04-08",
+   "last": "2026-09-25",
+   "rows": 2885
+  },
+  "CARS": {
+   "first": "2017-06-01",
+   "last": "2026-09-25",
+   "rows": 2343
+  },
+  "XMAX": {
+   "first": "2011-10-17",
+   "last": "2026-09-25",
+   "rows": 3757
+  },
+  "HNST": {
+   "first": "2021-05-04",
+   "last": "2026-09-25",
+   "rows": 1356
+  },
+  "ADTN": {
+   "first": "1994-08-10",
+   "last": "2026-09-25",
+   "rows": 8086
+  },
+  "BRBI": {
+   "first": "2025-09-19",
+   "last": "2026-09-25",
+   "rows": 256
+  },
+  "EBF": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "IIIN": {
+   "first": "1992-03-17",
+   "last": "2026-09-25",
+   "rows": 8693
+  },
+  "LOT": {
+   "first": "2021-05-06",
+   "last": "2026-09-25",
+   "rows": 1354
+  },
+  "CIVB": {
+   "first": "1994-04-06",
+   "last": "2026-09-25",
+   "rows": 8173
+  },
+  "JBI": {
+   "first": "2019-12-20",
+   "last": "2026-09-25",
+   "rows": 1699
+  },
+  "ENRD": {
+   "first": "2026-06-10",
+   "last": "2026-09-25",
+   "rows": 75
+  },
+  "SGMT": {
+   "first": "2023-07-14",
+   "last": "2026-09-25",
+   "rows": 804
+  },
+  "TMQ": {
+   "first": "2012-04-25",
+   "last": "2026-09-25",
+   "rows": 3626
+  },
+  "YB": {
+   "first": "2025-04-30",
+   "last": "2026-09-25",
+   "rows": 354
+  },
+  "DCBO": {
+   "first": "2020-12-03",
+   "last": "2026-09-25",
+   "rows": 1459
+  },
+  "DCTH": {
+   "first": "2018-05-03",
+   "last": "2026-09-25",
+   "rows": 2111
+  },
+  "KDK": {
+   "first": "2025-09-25",
+   "last": "2026-09-25",
+   "rows": 252
+  },
+  "ARQQ": {
+   "first": "2021-04-01",
+   "last": "2026-09-25",
+   "rows": 1378
+  },
+  "PRME": {
+   "first": "2022-10-20",
+   "last": "2026-09-25",
+   "rows": 986
+  },
+  "UNTY": {
+   "first": "1997-01-14",
+   "last": "2026-09-25",
+   "rows": 7472
+  },
+  "AGCC": {
+   "first": "2025-10-22",
+   "last": "2026-09-25",
+   "rows": 233
+  },
+  "HY": {
+   "first": "2012-10-01",
+   "last": "2026-09-25",
+   "rows": 3516
+  },
+  "TITN": {
+   "first": "2007-12-13",
+   "last": "2026-09-25",
+   "rows": 4725
+  },
+  "MSIF": {
+   "first": "2025-01-29",
+   "last": "2026-09-25",
+   "rows": 417
+  },
+  "CMDB": {
+   "first": "2025-05-01",
+   "last": "2026-09-25",
+   "rows": 353
+  },
+  "ITRG": {
+   "first": "2020-07-31",
+   "last": "2026-09-25",
+   "rows": 1546
+  },
+  "NRIM": {
+   "first": "1990-11-15",
+   "last": "2026-09-25",
+   "rows": 9029
+  },
+  "NVRI": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "BMM": {
+   "first": "2026-01-26",
+   "last": "2026-09-25",
+   "rows": 169
+  },
+  "SENS": {
+   "first": "2015-12-22",
+   "last": "2026-09-25",
+   "rows": 2705
+  },
+  "OCS": {
+   "first": "2021-05-18",
+   "last": "2026-09-25",
+   "rows": 1346
+  },
+  "EVO": {
+   "first": "2004-02-05",
+   "last": "2026-09-25",
+   "rows": 5696
+  },
+  "ITIC": {
+   "first": "1986-12-03",
+   "last": "2026-09-25",
+   "rows": 10029
+  },
+  "AUXX": {
+   "first": "2026-09-08",
+   "last": "2026-09-25",
+   "rows": 14
+  },
+  "EPRX": {
+   "first": "2024-04-05",
+   "last": "2026-09-25",
+   "rows": 621
+  },
+  "UHT": {
+   "first": "1986-12-26",
+   "last": "2026-09-25",
+   "rows": 10013
+  },
+  "CWH": {
+   "first": "2016-10-07",
+   "last": "2026-09-25",
+   "rows": 2505
+  },
+  "NOAH": {
+   "first": "2010-11-10",
+   "last": "2026-09-25",
+   "rows": 3992
+  },
+  "SLDP": {
+   "first": "2021-05-18",
+   "last": "2026-09-25",
+   "rows": 1346
+  },
+  "PANL": {
+   "first": "2013-12-19",
+   "last": "2026-09-25",
+   "rows": 3210
+  },
+  "SDHC": {
+   "first": "2024-01-11",
+   "last": "2026-09-25",
+   "rows": 679
+  },
+  "HBCP": {
+   "first": "2008-10-08",
+   "last": "2026-09-25",
+   "rows": 4519
+  },
+  "INDP": {
+   "first": "2015-08-04",
+   "last": "2026-09-25",
+   "rows": 2803
+  },
+  "DDL": {
+   "first": "2021-06-29",
+   "last": "2026-09-25",
+   "rows": 1317
+  },
+  "HUYA": {
+   "first": "2018-05-11",
+   "last": "2026-09-25",
+   "rows": 2105
+  },
+  "OPFI": {
+   "first": "2020-11-20",
+   "last": "2026-09-25",
+   "rows": 1467
+  },
+  "WRN": {
+   "first": "2006-05-19",
+   "last": "2026-09-25",
+   "rows": 5120
+  },
+  "ETD": {
+   "first": "1993-03-16",
+   "last": "2026-09-25",
+   "rows": 8441
+  },
+  "NPB": {
+   "first": "2025-02-18",
+   "last": "2026-09-25",
+   "rows": 404
+  },
+  "GFUZ": {
+   "first": "2025-09-30",
+   "last": "2026-09-25",
+   "rows": 249
+  },
+  "BWAY": {
+   "first": "2019-04-17",
+   "last": "2026-09-25",
+   "rows": 1871
+  },
+  "CBIO": {
+   "first": "2014-01-10",
+   "last": "2026-09-25",
+   "rows": 3196
+  },
+  "NDMO": {
+   "first": "2020-08-27",
+   "last": "2026-09-25",
+   "rows": 1527
+  },
+  "DRUG": {
+   "first": "2021-03-22",
+   "last": "2026-09-25",
+   "rows": 1386
+  },
+  "BSVN": {
+   "first": "2018-09-20",
+   "last": "2026-09-25",
+   "rows": 2014
+  },
+  "BWFG": {
+   "first": "2010-04-05",
+   "last": "2026-09-25",
+   "rows": 4146
+  },
+  "CERS": {
+   "first": "1997-01-31",
+   "last": "2026-09-25",
+   "rows": 7459
+  },
+  "SD": {
+   "first": "2016-10-04",
+   "last": "2026-09-25",
+   "rows": 2508
+  },
+  "SLN": {
+   "first": "2020-09-08",
+   "last": "2026-09-25",
+   "rows": 1520
+  },
+  "NRDS": {
+   "first": "2021-11-04",
+   "last": "2026-09-25",
+   "rows": 1227
+  },
+  "GAU": {
+   "first": "2008-01-02",
+   "last": "2026-09-25",
+   "rows": 4713
+  },
+  "AGMB": {
+   "first": "2026-02-06",
+   "last": "2026-09-25",
+   "rows": 160
+  },
+  "IIM": {
+   "first": "1993-02-19",
+   "last": "2026-09-25",
+   "rows": 8458
+  },
+  "RFI": {
+   "first": "1994-02-11",
+   "last": "2026-09-25",
+   "rows": 8209
+  },
+  "EOLS": {
+   "first": "2018-02-08",
+   "last": "2026-09-25",
+   "rows": 2169
+  },
+  "MEI": {
+   "first": "1982-10-20",
+   "last": "2026-09-25",
+   "rows": 11071
+  },
+  "TCMD": {
+   "first": "2016-07-28",
+   "last": "2026-09-25",
+   "rows": 2555
+  },
+  "BRSP": {
+   "first": "2018-02-01",
+   "last": "2026-09-25",
+   "rows": 2174
+  },
+  "DNUT": {
+   "first": "2021-07-01",
+   "last": "2026-09-25",
+   "rows": 1315
+  },
+  "LAES": {
+   "first": "2023-05-23",
+   "last": "2026-09-25",
+   "rows": 839
+  },
+  "ROMA": {
+   "first": "2024-01-09",
+   "last": "2026-09-25",
+   "rows": 681
+  },
+  "NVEC": {
+   "first": "1995-05-23",
+   "last": "2026-09-25",
+   "rows": 7888
+  },
+  "NB": {
+   "first": "2023-03-21",
+   "last": "2026-09-25",
+   "rows": 883
+  },
+  "BSRR": {
+   "first": "1994-04-18",
+   "last": "2026-09-25",
+   "rows": 8165
+  },
+  "KMDA": {
+   "first": "2013-05-31",
+   "last": "2026-09-25",
+   "rows": 3351
+  },
+  "ARVN": {
+   "first": "2018-09-27",
+   "last": "2026-09-25",
+   "rows": 2009
+  },
+  "AUTL": {
+   "first": "2018-06-22",
+   "last": "2026-09-25",
+   "rows": 2076
+  },
+  "CSV": {
+   "first": "1996-08-09",
+   "last": "2026-09-25",
+   "rows": 7580
+  },
+  "PROK": {
+   "first": "2021-06-30",
+   "last": "2026-09-25",
+   "rows": 1316
+  },
+  "SLI": {
+   "first": "2018-03-06",
+   "last": "2026-09-25",
+   "rows": 2152
+  },
+  "TRTX": {
+   "first": "2017-07-20",
+   "last": "2026-09-25",
+   "rows": 2309
+  },
+  "PBYI": {
+   "first": "2012-04-24",
+   "last": "2026-09-25",
+   "rows": 3627
+  },
+  "JKS": {
+   "first": "2010-05-14",
+   "last": "2026-09-25",
+   "rows": 4117
+  },
+  "BDN": {
+   "first": "1986-07-24",
+   "last": "2026-09-25",
+   "rows": 10121
+  },
+  "HBB": {
+   "first": "2017-09-26",
+   "last": "2026-09-25",
+   "rows": 2262
+  },
+  "ILPT": {
+   "first": "2018-01-12",
+   "last": "2026-09-25",
+   "rows": 2187
+  },
+  "ESEA": {
+   "first": "2006-05-05",
+   "last": "2026-09-25",
+   "rows": 5130
+  },
+  "NMCO": {
+   "first": "2019-09-17",
+   "last": "2026-09-25",
+   "rows": 1766
+  },
+  "OBT": {
+   "first": "2003-10-15",
+   "last": "2026-09-25",
+   "rows": 5773
+  },
+  "OIS": {
+   "first": "2001-02-09",
+   "last": "2026-09-25",
+   "rows": 6444
+  },
+  "TKNO": {
+   "first": "2021-06-25",
+   "last": "2026-09-25",
+   "rows": 1319
+  },
+  "YORW": {
+   "first": "1999-05-03",
+   "last": "2026-09-25",
+   "rows": 6893
+  },
+  "CAPR": {
+   "first": "2007-02-13",
+   "last": "2026-09-25",
+   "rows": 4936
+  },
+  "FWRD": {
+   "first": "1993-11-16",
+   "last": "2026-09-25",
+   "rows": 8270
+  },
+  "SPIR": {
+   "first": "2020-11-03",
+   "last": "2026-09-25",
+   "rows": 1480
+  },
+  "ETO": {
+   "first": "2004-05-26",
+   "last": "2026-09-25",
+   "rows": 5619
+  },
+  "AII": {
+   "first": "2025-05-08",
+   "last": "2026-09-25",
+   "rows": 348
+  },
+  "AMCX": {
+   "first": "2011-06-16",
+   "last": "2026-09-25",
+   "rows": 3842
+  },
+  "MCFT": {
+   "first": "2015-07-17",
+   "last": "2026-09-25",
+   "rows": 2815
+  },
+  "HQL": {
+   "first": "1992-05-01",
+   "last": "2026-09-25",
+   "rows": 8661
+  },
+  "NEXN": {
+   "first": "2021-06-18",
+   "last": "2026-09-25",
+   "rows": 1324
+  },
+  "WTBA": {
+   "first": "1999-05-03",
+   "last": "2026-09-25",
+   "rows": 6893
+  },
+  "COFS": {
+   "first": "2001-06-21",
+   "last": "2026-09-25",
+   "rows": 6353
+  },
+  "PBAM": {
+   "first": "2012-02-22",
+   "last": "2026-09-25",
+   "rows": 3670
+  },
+  "VGM": {
+   "first": "1992-02-19",
+   "last": "2026-09-25",
+   "rows": 8712
+  },
+  "OLP": {
+   "first": "1983-04-25",
+   "last": "2026-09-25",
+   "rows": 10942
+  },
+  "PACB": {
+   "first": "2010-10-27",
+   "last": "2026-09-25",
+   "rows": 4002
+  },
+  "KPLT": {
+   "first": "2019-12-31",
+   "last": "2026-09-25",
+   "rows": 1693
+  },
+  "PDLB": {
+   "first": "2017-10-02",
+   "last": "2026-09-25",
+   "rows": 2258
+  },
+  "SBC": {
+   "first": "2022-09-26",
+   "last": "2026-09-25",
+   "rows": 1004
+  },
+  "ENTX": {
+   "first": "2018-06-28",
+   "last": "2026-09-25",
+   "rows": 2072
+  },
+  "GLRE": {
+   "first": "2007-05-24",
+   "last": "2026-09-25",
+   "rows": 4866
+  },
+  "OVID": {
+   "first": "2017-05-05",
+   "last": "2026-09-25",
+   "rows": 2361
+  },
+  "SPCE": {
+   "first": "2017-09-29",
+   "last": "2026-09-25",
+   "rows": 2259
+  },
+  "TATT": {
+   "first": "1987-03-31",
+   "last": "2026-09-25",
+   "rows": 9948
+  },
+  "VKQ": {
+   "first": "1991-11-21",
+   "last": "2026-09-25",
+   "rows": 8772
+  },
+  "BBCP": {
+   "first": "2017-08-21",
+   "last": "2026-09-25",
+   "rows": 2287
+  },
+  "ASMB": {
+   "first": "2010-12-17",
+   "last": "2026-09-25",
+   "rows": 3966
+  },
+  "FMAO": {
+   "first": "2006-01-30",
+   "last": "2026-09-25",
+   "rows": 5197
+  },
+  "IPI": {
+   "first": "2008-04-22",
+   "last": "2026-09-25",
+   "rows": 4637
+  },
+  "MFI": {
+   "first": "2024-04-22",
+   "last": "2026-09-25",
+   "rows": 610
+  },
+  "TYG": {
+   "first": "2004-02-25",
+   "last": "2026-09-25",
+   "rows": 5683
+  },
+  "CLB": {
+   "first": "1995-09-21",
+   "last": "2026-09-25",
+   "rows": 7804
+  },
+  "NPCE": {
+   "first": "2021-04-22",
+   "last": "2026-09-25",
+   "rows": 1364
+  },
+  "RGNX": {
+   "first": "2015-09-17",
+   "last": "2026-09-25",
+   "rows": 2772
+  },
+  "SGHT": {
+   "first": "2021-07-15",
+   "last": "2026-09-25",
+   "rows": 1306
+  },
+  "ALTI": {
+   "first": "2021-04-27",
+   "last": "2026-09-25",
+   "rows": 1361
+  },
+  "GORO": {
+   "first": "2011-04-06",
+   "last": "2026-09-25",
+   "rows": 3891
+  },
+  "QUAD": {
+   "first": "2010-07-06",
+   "last": "2026-09-25",
+   "rows": 4082
+  },
+  "WNC": {
+   "first": "1991-11-08",
+   "last": "2026-09-25",
+   "rows": 8781
+  },
+  "MASS": {
+   "first": "2020-12-18",
+   "last": "2026-09-25",
+   "rows": 1448
+  },
+  "ARKO": {
+   "first": "2019-07-23",
+   "last": "2026-09-25",
+   "rows": 1805
+  },
+  "FTHY": {
+   "first": "2020-06-26",
+   "last": "2026-09-25",
+   "rows": 1570
+  },
+  "OPTU": {
+   "first": "2017-06-22",
+   "last": "2026-09-25",
+   "rows": 2328
+  },
+  "XRN": {
+   "first": "2016-06-30",
+   "last": "2026-09-25",
+   "rows": 2574
+  },
+  "IQI": {
+   "first": "1992-09-22",
+   "last": "2026-09-25",
+   "rows": 8562
+  },
+  "KRUS": {
+   "first": "2019-08-01",
+   "last": "2026-09-25",
+   "rows": 1798
+  },
+  "MTLS": {
+   "first": "2014-06-25",
+   "last": "2026-09-25",
+   "rows": 3082
+  },
+  "IDR": {
+   "first": "1999-10-27",
+   "last": "2026-09-25",
+   "rows": 6769
+  },
+  "TECX": {
+   "first": "2018-06-21",
+   "last": "2026-09-25",
+   "rows": 2077
+  },
+  "GTN": {
+   "first": "2002-08-30",
+   "last": "2026-09-25",
+   "rows": 6056
+  },
+  "CTNM": {
+   "first": "2024-04-05",
+   "last": "2026-09-25",
+   "rows": 621
+  },
+  "GRVY": {
+   "first": "2005-02-08",
+   "last": "2026-09-25",
+   "rows": 5442
+  },
+  "FPI": {
+   "first": "2014-04-11",
+   "last": "2026-09-25",
+   "rows": 3133
+  },
+  "SRTA": {
+   "first": "2019-11-05",
+   "last": "2026-09-25",
+   "rows": 1731
+  },
+  "CMCO": {
+   "first": "1996-02-23",
+   "last": "2026-09-25",
+   "rows": 7697
+  },
+  "CMCL": {
+   "first": "1984-11-19",
+   "last": "2026-09-25",
+   "rows": 10543
+  },
+  "IMSR": {
+   "first": "2024-10-10",
+   "last": "2026-09-25",
+   "rows": 491
+  },
+  "LXFR": {
+   "first": "2012-10-03",
+   "last": "2026-09-25",
+   "rows": 3514
+  },
+  "RWT": {
+   "first": "1995-08-04",
+   "last": "2026-09-25",
+   "rows": 7837
+  },
+  "MBUU": {
+   "first": "2014-01-31",
+   "last": "2026-09-25",
+   "rows": 3182
+  },
+  "DGXX": {
+   "first": "2021-01-08",
+   "last": "2026-09-25",
+   "rows": 1435
+  },
+  "JOUT": {
+   "first": "1987-10-09",
+   "last": "2026-09-25",
+   "rows": 9814
+  },
+  "CZNC": {
+   "first": "1994-04-05",
+   "last": "2026-09-25",
+   "rows": 8174
+  },
+  "TWI": {
+   "first": "1993-05-20",
+   "last": "2026-09-25",
+   "rows": 8395
+  },
+  "VHI": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "ZKH": {
+   "first": "2023-12-15",
+   "last": "2026-09-25",
+   "rows": 696
+  },
+  "ETB": {
+   "first": "2005-04-27",
+   "last": "2026-09-25",
+   "rows": 5388
+  },
+  "WEYS": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "AHRT": {
+   "first": "2013-05-08",
+   "last": "2026-09-25",
+   "rows": 3367
+  },
+  "ASPI": {
+   "first": "2022-11-10",
+   "last": "2026-09-25",
+   "rows": 971
+  },
+  "BMRC": {
+   "first": "1999-12-23",
+   "last": "2026-09-25",
+   "rows": 6729
+  },
+  "NRC": {
+   "first": "2013-05-23",
+   "last": "2026-09-25",
+   "rows": 3356
+  },
+  "URG": {
+   "first": "2008-07-25",
+   "last": "2026-09-25",
+   "rows": 4571
+  },
+  "ATNI": {
+   "first": "1991-11-14",
+   "last": "2026-09-25",
+   "rows": 8777
+  },
+  "EIKN": {
+   "first": "2026-02-05",
+   "last": "2026-09-25",
+   "rows": 161
+  },
+  "ADUR": {
+   "first": "2024-08-15",
+   "last": "2026-09-25",
+   "rows": 530
+  },
+  "CIX": {
+   "first": "1998-03-06",
+   "last": "2026-09-25",
+   "rows": 7184
+  },
+  "RBB": {
+   "first": "2017-07-26",
+   "last": "2026-09-25",
+   "rows": 2305
+  },
+  "CDRO": {
+   "first": "2021-01-27",
+   "last": "2026-09-25",
+   "rows": 1423
+  },
+  "CLPT": {
+   "first": "2012-05-22",
+   "last": "2026-09-25",
+   "rows": 3607
+  },
+  "CWCO": {
+   "first": "1995-01-25",
+   "last": "2026-09-25",
+   "rows": 7970
+  },
+  "FVR": {
+   "first": "2024-10-02",
+   "last": "2026-09-25",
+   "rows": 497
+  },
+  "NMG": {
+   "first": "2021-01-08",
+   "last": "2026-09-25",
+   "rows": 1435
+  },
+  "ORBS": {
+   "first": "2022-05-18",
+   "last": "2026-09-25",
+   "rows": 1093
+  },
+  "ASTL": {
+   "first": "2021-03-04",
+   "last": "2026-09-25",
+   "rows": 1398
+  },
+  "FRBA": {
+   "first": "2010-10-15",
+   "last": "2026-09-25",
+   "rows": 4010
+  },
+  "ASPN": {
+   "first": "2014-06-13",
+   "last": "2026-09-25",
+   "rows": 3090
+  },
+  "CBAN": {
+   "first": "1998-04-02",
+   "last": "2026-09-25",
+   "rows": 7165
+  },
+  "CYPH": {
+   "first": "2017-01-25",
+   "last": "2026-09-25",
+   "rows": 2431
+  },
+  "TRC": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "GLOO": {
+   "first": "2025-11-18",
+   "last": "2026-09-25",
+   "rows": 214
+  },
+  "MNRO": {
+   "first": "1991-07-30",
+   "last": "2026-09-25",
+   "rows": 8853
+  },
+  "XRX": {
+   "first": "1962-01-02",
+   "last": "2026-09-25",
+   "rows": 16292
+  },
+  "CBK": {
+   "first": "2025-10-02",
+   "last": "2026-09-25",
+   "rows": 247
+  },
+  "ADV": {
+   "first": "2020-01-02",
+   "last": "2026-09-25",
+   "rows": 1692
+  },
+  "GUT": {
+   "first": "1999-07-12",
+   "last": "2026-09-25",
+   "rows": 6845
+  },
+  "MRAM": {
+   "first": "2016-10-07",
+   "last": "2026-09-25",
+   "rows": 2505
+  },
+  "ULH": {
+   "first": "2005-02-11",
+   "last": "2026-09-25",
+   "rows": 5439
+  },
+  "GLAD": {
+   "first": "2002-08-02",
+   "last": "2026-09-25",
+   "rows": 6076
+  },
+  "VCV": {
+   "first": "1993-06-10",
+   "last": "2026-09-25",
+   "rows": 8381
+  },
+  "AVBC": {
+   "first": "2025-08-01",
+   "last": "2026-09-25",
+   "rows": 290
+  },
+  "HVT": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "VITL": {
+   "first": "2020-07-31",
+   "last": "2026-09-25",
+   "rows": 1546
+  },
+  "KYTX": {
+   "first": "2024-02-09",
+   "last": "2026-09-25",
+   "rows": 659
+  },
+  "LOCO": {
+   "first": "2014-07-25",
+   "last": "2026-09-25",
+   "rows": 3061
+  },
+  "CAL": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "PBFS": {
+   "first": "2019-07-18",
+   "last": "2026-09-25",
+   "rows": 1808
+  },
+  "NGS": {
+   "first": "2002-10-22",
+   "last": "2026-09-25",
+   "rows": 6020
+  },
+  "ACIC": {
+   "first": "2007-11-07",
+   "last": "2026-09-25",
+   "rows": 4750
+  },
+  "MEC": {
+   "first": "2019-05-09",
+   "last": "2026-09-25",
+   "rows": 1856
+  },
+  "PLBC": {
+   "first": "2002-12-11",
+   "last": "2026-09-25",
+   "rows": 5985
+  },
+  "PRTA": {
+   "first": "2012-12-21",
+   "last": "2026-09-25",
+   "rows": 3460
+  },
+  "ASIX": {
+   "first": "2016-09-15",
+   "last": "2026-09-25",
+   "rows": 2521
+  },
+  "MAGN": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "ALLT": {
+   "first": "2006-11-16",
+   "last": "2026-09-25",
+   "rows": 4994
+  },
+  "DMAC": {
+   "first": "2012-08-03",
+   "last": "2026-09-25",
+   "rows": 3556
+  },
+  "EDIT": {
+   "first": "2016-02-03",
+   "last": "2026-09-25",
+   "rows": 2677
+  },
+  "TRX": {
+   "first": "2005-05-12",
+   "last": "2026-09-25",
+   "rows": 5377
+  },
+  "ACTG": {
+   "first": "2002-12-16",
+   "last": "2026-09-25",
+   "rows": 5982
+  },
+  "ECX": {
+   "first": "2021-03-31",
+   "last": "2026-09-25",
+   "rows": 1379
+  },
+  "USCB": {
+   "first": "2021-07-23",
+   "last": "2026-09-25",
+   "rows": 1300
+  },
+  "CTRN": {
+   "first": "2005-05-18",
+   "last": "2026-09-25",
+   "rows": 5373
+  },
+  "EVGO": {
+   "first": "2020-11-20",
+   "last": "2026-09-25",
+   "rows": 1467
+  },
+  "GNE": {
+   "first": "2011-10-26",
+   "last": "2026-09-25",
+   "rows": 3750
+  },
+  "AVIR": {
+   "first": "2020-10-30",
+   "last": "2026-09-25",
+   "rows": 1482
+  },
+  "CLFD": {
+   "first": "1986-08-06",
+   "last": "2026-09-25",
+   "rows": 10112
+  },
+  "QNC": {
+   "first": "2026-02-24",
+   "last": "2026-09-25",
+   "rows": 149
+  },
+  "SGU": {
+   "first": "1995-12-15",
+   "last": "2026-09-25",
+   "rows": 7744
+  },
+  "BLW": {
+   "first": "2003-07-29",
+   "last": "2026-09-25",
+   "rows": 5828
+  },
+  "SPRY": {
+   "first": "2020-12-04",
+   "last": "2026-09-25",
+   "rows": 1458
+  },
+  "GMTL": {
+   "first": "2026-03-20",
+   "last": "2026-09-25",
+   "rows": 131
+  },
+  "BTQ": {
+   "first": "2025-09-26",
+   "last": "2026-09-25",
+   "rows": 251
+  },
+  "CHCT": {
+   "first": "2015-05-20",
+   "last": "2026-09-25",
+   "rows": 2855
+  },
+  "DDT": {
+   "first": "1998-10-14",
+   "last": "2026-09-25",
+   "rows": 7030
+  },
+  "MNTK": {
+   "first": "2021-01-22",
+   "last": "2026-09-25",
+   "rows": 1426
+  },
+  "BKKT": {
+   "first": "2020-11-19",
+   "last": "2026-09-25",
+   "rows": 1468
+  },
+  "FISN": {
+   "first": "2026-06-18",
+   "last": "2026-09-25",
+   "rows": 69
+  },
+  "LAND": {
+   "first": "2013-01-29",
+   "last": "2026-09-25",
+   "rows": 3436
+  },
+  "SCTX": {
+   "first": "2026-07-27",
+   "last": "2026-09-25",
+   "rows": 44
+  },
+  "PHOE": {
+   "first": "2025-04-25",
+   "last": "2026-09-25",
+   "rows": 357
+  },
+  "CYH": {
+   "first": "2000-06-09",
+   "last": "2026-09-25",
+   "rows": 6613
+  },
+  "RLMD": {
+   "first": "2014-06-20",
+   "last": "2026-09-25",
+   "rows": 3085
+  },
+  "BOC": {
+   "first": "2017-06-13",
+   "last": "2026-09-25",
+   "rows": 2335
+  },
+  "CARL": {
+   "first": "2025-07-23",
+   "last": "2026-09-25",
+   "rows": 297
+  },
+  "FRPH": {
+   "first": "1986-07-02",
+   "last": "2026-09-25",
+   "rows": 10136
+  },
+  "IRD": {
+   "first": "2005-11-10",
+   "last": "2026-09-25",
+   "rows": 5250
+  },
+  "ISTR": {
+   "first": "2014-07-01",
+   "last": "2026-09-25",
+   "rows": 3078
+  },
+  "ARCT": {
+   "first": "2013-05-22",
+   "last": "2026-09-25",
+   "rows": 3357
+  },
+  "NKLR": {
+   "first": "2025-10-06",
+   "last": "2026-09-25",
+   "rows": 245
+  },
+  "RLGT": {
+   "first": "2006-11-01",
+   "last": "2026-09-25",
+   "rows": 5005
+  },
+  "HCMA": {
+   "first": "2025-09-22",
+   "last": "2026-09-25",
+   "rows": 255
+  },
+  "RMNI": {
+   "first": "2015-08-28",
+   "last": "2026-09-25",
+   "rows": 2785
+  },
+  "GALT": {
+   "first": "2002-09-04",
+   "last": "2026-09-25",
+   "rows": 6054
+  },
+  "GRRR": {
+   "first": "2021-05-10",
+   "last": "2026-09-25",
+   "rows": 1352
+  },
+  "ZURA": {
+   "first": "2023-03-21",
+   "last": "2026-09-25",
+   "rows": 883
+  },
+  "EVH": {
+   "first": "2015-06-05",
+   "last": "2026-09-25",
+   "rows": 2844
+  },
+  "IIIV": {
+   "first": "2018-06-21",
+   "last": "2026-09-25",
+   "rows": 2077
+  },
+  "ACCO": {
+   "first": "2005-08-17",
+   "last": "2026-09-25",
+   "rows": 5310
+  },
+  "PKBK": {
+   "first": "2003-06-23",
+   "last": "2026-09-25",
+   "rows": 5853
+  },
+  "CHMG": {
+   "first": "1999-01-04",
+   "last": "2026-09-25",
+   "rows": 6975
+  },
+  "CTEV": {
+   "first": "2020-04-03",
+   "last": "2026-09-25",
+   "rows": 1628
+  },
+  "MYGN": {
+   "first": "1995-10-06",
+   "last": "2026-09-25",
+   "rows": 7793
+  },
+  "SRZN": {
+   "first": "2021-01-11",
+   "last": "2026-09-25",
+   "rows": 1434
+  },
+  "VGZ": {
+   "first": "1984-11-29",
+   "last": "2026-09-25",
+   "rows": 10536
+  },
+  "CPS": {
+   "first": "2010-05-25",
+   "last": "2026-09-25",
+   "rows": 4110
+  },
+  "FCBM": {
+   "first": "2026-06-18",
+   "last": "2026-09-25",
+   "rows": 69
+  },
+  "FSTR": {
+   "first": "1981-06-09",
+   "last": "2026-09-25",
+   "rows": 11417
+  },
+  "TTRX": {
+   "first": "2025-10-08",
+   "last": "2026-09-25",
+   "rows": 243
+  },
+  "CGC": {
+   "first": "2014-04-07",
+   "last": "2026-09-25",
+   "rows": 3137
+  },
   "IVV": {
    "first": "2000-05-19",
    "last": "2026-09-25",
@@ -9838,11 +14572,6 @@
    "first": "2017-06-19",
    "last": "2026-09-25",
    "rows": 2331
-  },
-  "IWC": {
-   "first": "2005-08-16",
-   "last": "2026-09-25",
-   "rows": 5311
   },
   "AVUV": {
    "first": "2019-09-26",
@@ -11009,11 +15738,6 @@
    "last": "2026-09-25",
    "rows": 6449
   },
-  "RWX": {
-   "first": "2006-12-19",
-   "last": "2026-09-25",
-   "rows": 4972
-  },
   "REM": {
    "first": "2007-05-04",
    "last": "2026-09-25",
@@ -11559,11 +16283,6 @@
    "last": "2026-09-25",
    "rows": 9135
   },
-  "VPACX": {
-   "first": "1990-06-18",
-   "last": "2026-09-25",
-   "rows": 9135
-  },
   "VTRIX": {
    "first": "1983-05-16",
    "last": "2026-09-25",
@@ -11978,11 +16697,6 @@
    "first": "1991-07-17",
    "last": "2026-09-25",
    "rows": 8862
-  },
-  "DFSCX": {
-   "first": "1986-01-02",
-   "last": "2026-09-25",
-   "rows": 10262
   },
   "DFSTX": {
    "first": "1992-03-19",
@@ -16548,6 +21262,16 @@
    "first": "1999-03-26",
    "last": "2026-09-25",
    "rows": 6918
+  },
+  "VEVIX": {
+   "first": "2010-03-01",
+   "last": "2026-09-25",
+   "rows": 4170
+  },
+  "HWLAX": {
+   "first": "2001-10-26",
+   "last": "2026-09-25",
+   "rows": 6268
   },
   "HWSIX": {
    "first": "1985-09-20",
@@ -22694,6 +27418,1846 @@
    "last": "2026-09-25",
    "rows": 8502
   },
+  "SMP": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "SMPL": {
+   "first": "2017-07-10",
+   "last": "2026-09-25",
+   "rows": 2317
+  },
+  "SNDR": {
+   "first": "2017-04-06",
+   "last": "2026-09-25",
+   "rows": 2381
+  },
+  "SNEX": {
+   "first": "1995-03-06",
+   "last": "2026-09-25",
+   "rows": 7943
+  },
+  "SONO": {
+   "first": "2018-08-02",
+   "last": "2026-09-25",
+   "rows": 2048
+  },
+  "SPHR": {
+   "first": "2020-04-09",
+   "last": "2026-09-25",
+   "rows": 1624
+  },
+  "SPNT": {
+   "first": "2013-08-15",
+   "last": "2026-09-25",
+   "rows": 3298
+  },
+  "SPSC": {
+   "first": "2010-04-22",
+   "last": "2026-09-25",
+   "rows": 4133
+  },
+  "SRPT": {
+   "first": "1997-06-04",
+   "last": "2026-09-25",
+   "rows": 7374
+  },
+  "STAA": {
+   "first": "1992-02-24",
+   "last": "2026-09-25",
+   "rows": 8709
+  },
+  "STBA": {
+   "first": "1992-04-21",
+   "last": "2026-09-25",
+   "rows": 8669
+  },
+  "STC": {
+   "first": "1973-02-21",
+   "last": "2026-09-25",
+   "rows": 13513
+  },
+  "STEP": {
+   "first": "2020-09-16",
+   "last": "2026-09-25",
+   "rows": 1514
+  },
+  "STRA": {
+   "first": "1996-07-25",
+   "last": "2026-09-25",
+   "rows": 7591
+  },
+  "SUPN": {
+   "first": "2012-05-01",
+   "last": "2026-09-25",
+   "rows": 3622
+  },
+  "SXI": {
+   "first": "1973-02-21",
+   "last": "2026-09-25",
+   "rows": 13513
+  },
+  "SXT": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "TALO": {
+   "first": "2018-05-10",
+   "last": "2026-09-25",
+   "rows": 2106
+  },
+  "TBBK": {
+   "first": "2004-02-03",
+   "last": "2026-09-25",
+   "rows": 5698
+  },
+  "TDC": {
+   "first": "2007-10-01",
+   "last": "2026-09-25",
+   "rows": 4777
+  },
+  "TDS": {
+   "first": "1981-12-15",
+   "last": "2026-09-25",
+   "rows": 11285
+  },
+  "TDW": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "TFIN": {
+   "first": "2014-11-07",
+   "last": "2026-09-25",
+   "rows": 2987
+  },
+  "TFX": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "TGTX": {
+   "first": "2010-05-03",
+   "last": "2026-09-25",
+   "rows": 4126
+  },
+  "THRM": {
+   "first": "1993-06-10",
+   "last": "2026-09-25",
+   "rows": 8381
+  },
+  "TILE": {
+   "first": "1983-04-14",
+   "last": "2026-09-25",
+   "rows": 10949
+  },
+  "TMDX": {
+   "first": "2019-05-02",
+   "last": "2026-09-25",
+   "rows": 1861
+  },
+  "TMP": {
+   "first": "1986-06-02",
+   "last": "2026-09-25",
+   "rows": 10158
+  },
+  "TNC": {
+   "first": "1973-02-22",
+   "last": "2026-09-25",
+   "rows": 13512
+  },
+  "TNDM": {
+   "first": "2013-11-14",
+   "last": "2026-09-25",
+   "rows": 3234
+  },
+  "TPC": {
+   "first": "1973-05-03",
+   "last": "2026-09-25",
+   "rows": 13463
+  },
+  "TR": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "TRMK": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "TRN": {
+   "first": "1973-05-03",
+   "last": "2026-09-25",
+   "rows": 13463
+  },
+  "TRNO": {
+   "first": "2010-02-10",
+   "last": "2026-09-25",
+   "rows": 4182
+  },
+  "TRST": {
+   "first": "1983-04-20",
+   "last": "2026-09-25",
+   "rows": 10945
+  },
+  "TRUP": {
+   "first": "2014-07-18",
+   "last": "2026-09-25",
+   "rows": 3066
+  },
+  "UA": {
+   "first": "2016-03-23",
+   "last": "2026-09-25",
+   "rows": 2643
+  },
+  "UAA": {
+   "first": "2005-11-18",
+   "last": "2026-09-25",
+   "rows": 5244
+  },
+  "UCB": {
+   "first": "2002-03-21",
+   "last": "2026-09-25",
+   "rows": 6169
+  },
+  "UCTT": {
+   "first": "2004-03-25",
+   "last": "2026-09-25",
+   "rows": 5662
+  },
+  "UE": {
+   "first": "2015-01-16",
+   "last": "2026-09-25",
+   "rows": 2940
+  },
+  "UFCS": {
+   "first": "1980-03-18",
+   "last": "2026-09-25",
+   "rows": 11726
+  },
+  "UFPT": {
+   "first": "1993-12-17",
+   "last": "2026-09-25",
+   "rows": 8248
+  },
+  "UNF": {
+   "first": "1984-01-16",
+   "last": "2026-09-25",
+   "rows": 10758
+  },
+  "UNFI": {
+   "first": "1996-11-01",
+   "last": "2026-09-25",
+   "rows": 7521
+  },
+  "UNIT": {
+   "first": "2015-04-20",
+   "last": "2026-09-25",
+   "rows": 2877
+  },
+  "UPBD": {
+   "first": "1995-01-25",
+   "last": "2026-09-25",
+   "rows": 7970
+  },
+  "UPWK": {
+   "first": "2018-10-03",
+   "last": "2026-09-25",
+   "rows": 2005
+  },
+  "USLM": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "USPH": {
+   "first": "1992-05-29",
+   "last": "2026-09-25",
+   "rows": 8642
+  },
+  "UTI": {
+   "first": "2003-12-18",
+   "last": "2026-09-25",
+   "rows": 5728
+  },
+  "UTL": {
+   "first": "1985-03-07",
+   "last": "2026-09-25",
+   "rows": 10469
+  },
+  "UVV": {
+   "first": "1973-02-21",
+   "last": "2026-09-25",
+   "rows": 13513
+  },
+  "VAC": {
+   "first": "2011-11-08",
+   "last": "2026-09-25",
+   "rows": 3741
+  },
+  "VCEL": {
+   "first": "1997-02-04",
+   "last": "2026-09-25",
+   "rows": 7457
+  },
+  "VCTR": {
+   "first": "2018-02-08",
+   "last": "2026-09-25",
+   "rows": 2169
+  },
+  "VCYT": {
+   "first": "2013-10-30",
+   "last": "2026-09-25",
+   "rows": 3245
+  },
+  "VECO": {
+   "first": "1994-11-29",
+   "last": "2026-09-25",
+   "rows": 8009
+  },
+  "VGNT": {
+   "first": "2026-03-27",
+   "last": "2026-09-25",
+   "rows": 126
+  },
+  "VIR": {
+   "first": "2019-10-11",
+   "last": "2026-09-25",
+   "rows": 1748
+  },
+  "VIRT": {
+   "first": "2015-04-16",
+   "last": "2026-09-25",
+   "rows": 2879
+  },
+  "VRRM": {
+   "first": "2017-03-24",
+   "last": "2026-09-25",
+   "rows": 2390
+  },
+  "VSAT": {
+   "first": "1996-12-03",
+   "last": "2026-09-25",
+   "rows": 7500
+  },
+  "VSEC": {
+   "first": "1982-10-22",
+   "last": "2026-09-25",
+   "rows": 11069
+  },
+  "VSH": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "VSNT": {
+   "first": "2025-12-15",
+   "last": "2026-09-25",
+   "rows": 196
+  },
+  "VSTS": {
+   "first": "2023-09-27",
+   "last": "2026-09-25",
+   "rows": 752
+  },
+  "VSXY": {
+   "first": "2021-07-21",
+   "last": "2026-09-25",
+   "rows": 1302
+  },
+  "VTOL": {
+   "first": "2013-01-22",
+   "last": "2026-09-25",
+   "rows": 3441
+  },
+  "VVX": {
+   "first": "2014-09-16",
+   "last": "2026-09-25",
+   "rows": 3025
+  },
+  "VYX": {
+   "first": "1996-12-11",
+   "last": "2026-09-25",
+   "rows": 7494
+  },
+  "WABC": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "WAFD": {
+   "first": "1982-11-09",
+   "last": "2026-09-25",
+   "rows": 11057
+  },
+  "WAY": {
+   "first": "2024-06-07",
+   "last": "2026-09-25",
+   "rows": 577
+  },
+  "WD": {
+   "first": "2010-12-15",
+   "last": "2026-09-25",
+   "rows": 3968
+  },
+  "WDFC": {
+   "first": "1973-05-03",
+   "last": "2026-09-25",
+   "rows": 13463
+  },
+  "WEN": {
+   "first": "1980-05-06",
+   "last": "2026-09-25",
+   "rows": 11692
+  },
+  "WERN": {
+   "first": "1986-06-20",
+   "last": "2026-09-25",
+   "rows": 10144
+  },
+  "WGO": {
+   "first": "1973-02-21",
+   "last": "2026-09-25",
+   "rows": 13513
+  },
+  "WHD": {
+   "first": "2018-02-08",
+   "last": "2026-09-25",
+   "rows": 2169
+  },
+  "WINA": {
+   "first": "1993-08-25",
+   "last": "2026-09-25",
+   "rows": 8328
+  },
+  "WKC": {
+   "first": "1986-08-28",
+   "last": "2026-09-25",
+   "rows": 10096
+  },
+  "WLY": {
+   "first": "1972-06-01",
+   "last": "2026-09-25",
+   "rows": 13693
+  },
+  "WOR": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "WRBY": {
+   "first": "2021-09-29",
+   "last": "2026-09-25",
+   "rows": 1253
+  },
+  "WRLD": {
+   "first": "1991-11-26",
+   "last": "2026-09-25",
+   "rows": 8769
+  },
+  "WS": {
+   "first": "2023-11-28",
+   "last": "2026-09-25",
+   "rows": 709
+  },
+  "WSBC": {
+   "first": "1987-05-08",
+   "last": "2026-09-25",
+   "rows": 9921
+  },
+  "WSC": {
+   "first": "2015-11-05",
+   "last": "2026-09-25",
+   "rows": 2737
+  },
+  "WSFS": {
+   "first": "1986-11-26",
+   "last": "2026-09-25",
+   "rows": 10033
+  },
+  "WT": {
+   "first": "1993-03-04",
+   "last": "2026-09-25",
+   "rows": 8449
+  },
+  "WU": {
+   "first": "2006-10-02",
+   "last": "2026-09-25",
+   "rows": 5027
+  },
+  "WWW": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "XHR": {
+   "first": "2015-02-04",
+   "last": "2026-09-25",
+   "rows": 2928
+  },
+  "XNCR": {
+   "first": "2013-12-03",
+   "last": "2026-09-25",
+   "rows": 3222
+  },
+  "XPEL": {
+   "first": "2019-07-01",
+   "last": "2026-09-25",
+   "rows": 1820
+  },
+  "YELP": {
+   "first": "2012-03-02",
+   "last": "2026-09-25",
+   "rows": 3663
+  },
+  "YOU": {
+   "first": "2021-06-30",
+   "last": "2026-09-25",
+   "rows": 1316
+  },
+  "ZD": {
+   "first": "1999-07-23",
+   "last": "2026-09-25",
+   "rows": 6836
+  },
+  "ZWS": {
+   "first": "2012-03-29",
+   "last": "2026-09-25",
+   "rows": 3644
+  },
+  "TSM": {
+   "first": "1997-10-09",
+   "last": "2026-09-25",
+   "rows": 7285
+  },
+  "SKHY": {
+   "first": "2026-07-10",
+   "last": "2026-09-25",
+   "rows": 55
+  },
+  "HSBC": {
+   "first": "1999-07-16",
+   "last": "2026-09-25",
+   "rows": 6841
+  },
+  "RY": {
+   "first": "1995-10-16",
+   "last": "2026-09-25",
+   "rows": 7787
+  },
+  "NVS": {
+   "first": "1996-11-07",
+   "last": "2026-09-25",
+   "rows": 7517
+  },
+  "SHEL": {
+   "first": "2026-09-25",
+   "last": "2026-09-25",
+   "rows": 1
+  },
+  "BABA": {
+   "first": "2014-09-19",
+   "last": "2026-09-25",
+   "rows": 3022
+  },
+  "MUFG": {
+   "first": "2001-04-02",
+   "last": "2026-09-25",
+   "rows": 6409
+  },
+  "SAP": {
+   "first": "1995-09-18",
+   "last": "2026-09-25",
+   "rows": 7807
+  },
+  "TM": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "BHP": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "SAN": {
+   "first": "1987-07-30",
+   "last": "2026-09-25",
+   "rows": 9864
+  },
+  "TTE": {
+   "first": "1991-10-25",
+   "last": "2026-09-25",
+   "rows": 8791
+  },
+  "TD": {
+   "first": "1996-08-30",
+   "last": "2026-09-25",
+   "rows": 7565
+  },
+  "SCCO": {
+   "first": "1996-01-05",
+   "last": "2026-09-25",
+   "rows": 7731
+  },
+  "NVO": {
+   "first": "1981-04-30",
+   "last": "2026-09-25",
+   "rows": 11444
+  },
+  "SMFG": {
+   "first": "2006-01-27",
+   "last": "2026-09-25",
+   "rows": 5198
+  },
+  "RIO": {
+   "first": "1990-06-28",
+   "last": "2026-09-25",
+   "rows": 9127
+  },
+  "BBVA": {
+   "first": "1988-12-15",
+   "last": "2026-09-25",
+   "rows": 9514
+  },
+  "BUD": {
+   "first": "2009-07-01",
+   "last": "2026-09-25",
+   "rows": 4336
+  },
+  "UBS": {
+   "first": "2000-05-16",
+   "last": "2026-09-25",
+   "rows": 6630
+  },
+  "SONY": {
+   "first": "1973-02-21",
+   "last": "2026-09-25",
+   "rows": 13513
+  },
+  "UL": {
+   "first": "1980-03-25",
+   "last": "2026-09-25",
+   "rows": 11721
+  },
+  "MFG": {
+   "first": "2006-11-08",
+   "last": "2026-09-25",
+   "rows": 5000
+  },
+  "PBR": {
+   "first": "2000-08-10",
+   "last": "2026-09-25",
+   "rows": 6570
+  },
+  "NET": {
+   "first": "2019-09-13",
+   "last": "2026-09-25",
+   "rows": 1768
+  },
+  "BMO": {
+   "first": "1994-10-27",
+   "last": "2026-09-25",
+   "rows": 8031
+  },
+  "BTI": {
+   "first": "1980-04-14",
+   "last": "2026-09-25",
+   "rows": 11708
+  },
+  "SNOW": {
+   "first": "2020-09-16",
+   "last": "2026-09-25",
+   "rows": 1514
+  },
+  "HDB": {
+   "first": "2001-07-20",
+   "last": "2026-09-25",
+   "rows": 6333
+  },
+  "BP": {
+   "first": "1962-01-02",
+   "last": "2026-09-25",
+   "rows": 16292
+  },
+  "BNS": {
+   "first": "2002-06-07",
+   "last": "2026-09-25",
+   "rows": 6115
+  },
+  "ENB": {
+   "first": "1984-03-15",
+   "last": "2026-09-25",
+   "rows": 10716
+  },
+  "CM": {
+   "first": "1997-11-13",
+   "last": "2026-09-25",
+   "rows": 7260
+  },
+  "ING": {
+   "first": "1994-05-18",
+   "last": "2026-09-25",
+   "rows": 8144
+  },
+  "EQNR": {
+   "first": "2001-06-18",
+   "last": "2026-09-25",
+   "rows": 6356
+  },
+  "IBN": {
+   "first": "2000-03-28",
+   "last": "2026-09-25",
+   "rows": 6664
+  },
+  "AEM": {
+   "first": "1973-02-21",
+   "last": "2026-09-25",
+   "rows": 13513
+  },
+  "GSK": {
+   "first": "1980-03-28",
+   "last": "2026-09-25",
+   "rows": 11718
+  },
+  "SNY": {
+   "first": "2002-07-01",
+   "last": "2026-09-25",
+   "rows": 6099
+  },
+  "CNQ": {
+   "first": "2000-07-31",
+   "last": "2026-09-25",
+   "rows": 6578
+  },
+  "ASX": {
+   "first": "2000-10-02",
+   "last": "2026-09-25",
+   "rows": 6534
+  },
+  "SOMN": {
+   "first": "2025-11-04",
+   "last": "2026-09-25",
+   "rows": 224
+  },
+  "ITUB": {
+   "first": "2002-02-25",
+   "last": "2026-09-25",
+   "rows": 6187
+  },
+  "LYG": {
+   "first": "2001-11-28",
+   "last": "2026-09-25",
+   "rows": 6246
+  },
+  "BN": {
+   "first": "1983-12-30",
+   "last": "2026-09-25",
+   "rows": 10768
+  },
+  "BCS": {
+   "first": "1986-09-09",
+   "last": "2026-09-25",
+   "rows": 10089
+  },
+  "E": {
+   "first": "1995-11-28",
+   "last": "2026-09-25",
+   "rows": 7757
+  },
+  "SU": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "EPD": {
+   "first": "1998-07-28",
+   "last": "2026-09-25",
+   "rows": 7085
+  },
+  "RACE": {
+   "first": "2015-10-21",
+   "last": "2026-09-25",
+   "rows": 2748
+  },
+  "CP": {
+   "first": "1983-12-30",
+   "last": "2026-09-25",
+   "rows": 10768
+  },
+  "NGG": {
+   "first": "2005-08-10",
+   "last": "2026-09-25",
+   "rows": 5315
+  },
+  "NWG": {
+   "first": "2007-10-18",
+   "last": "2026-09-25",
+   "rows": 4764
+  },
+  "CNI": {
+   "first": "1996-11-26",
+   "last": "2026-09-25",
+   "rows": 7504
+  },
+  "MFC": {
+   "first": "1999-09-24",
+   "last": "2026-09-25",
+   "rows": 6792
+  },
+  "BAM": {
+   "first": "2022-12-01",
+   "last": "2026-09-25",
+   "rows": 957
+  },
+  "B": {
+   "first": "1985-02-13",
+   "last": "2026-09-25",
+   "rows": 10484
+  },
+  "ET": {
+   "first": "2006-02-03",
+   "last": "2026-09-25",
+   "rows": 5193
+  },
+  "DB": {
+   "first": "1996-11-18",
+   "last": "2026-09-25",
+   "rows": 7510
+  },
+  "AMX": {
+   "first": "2001-02-12",
+   "last": "2026-09-25",
+   "rows": 6443
+  },
+  "NU": {
+   "first": "2021-12-09",
+   "last": "2026-09-25",
+   "rows": 1203
+  },
+  "WPM": {
+   "first": "2005-07-06",
+   "last": "2026-09-25",
+   "rows": 5340
+  },
+  "TRP": {
+   "first": "1982-09-20",
+   "last": "2026-09-25",
+   "rows": 11093
+  },
+  "SE": {
+   "first": "2017-10-20",
+   "last": "2026-09-25",
+   "rows": 2244
+  },
+  "UMC": {
+   "first": "2000-09-19",
+   "last": "2026-09-25",
+   "rows": 6543
+  },
+  "TAK": {
+   "first": "2010-01-05",
+   "last": "2026-09-25",
+   "rows": 4207
+  },
+  "ARGX": {
+   "first": "2017-05-18",
+   "last": "2026-09-25",
+   "rows": 2352
+  },
+  "NTRA": {
+   "first": "2015-07-01",
+   "last": "2026-09-25",
+   "rows": 2826
+  },
+  "IMO": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "NOK": {
+   "first": "1994-07-01",
+   "last": "2026-09-25",
+   "rows": 8113
+  },
+  "RELX": {
+   "first": "1994-10-06",
+   "last": "2026-09-25",
+   "rows": 8046
+  },
+  "VALE": {
+   "first": "2002-03-21",
+   "last": "2026-09-25",
+   "rows": 6169
+  },
+  "MPLX": {
+   "first": "2012-10-26",
+   "last": "2026-09-25",
+   "rows": 3497
+  },
+  "CVE": {
+   "first": "2009-11-17",
+   "last": "2026-09-25",
+   "rows": 4239
+  },
+  "LNG": {
+   "first": "1994-04-04",
+   "last": "2026-09-25",
+   "rows": 8175
+  },
+  "MT": {
+   "first": "1997-08-07",
+   "last": "2026-09-25",
+   "rows": 7329
+  },
+  "AU": {
+   "first": "1998-08-05",
+   "last": "2026-09-25",
+   "rows": 7079
+  },
+  "FNV": {
+   "first": "2007-12-07",
+   "last": "2026-09-25",
+   "rows": 4729
+  },
+  "CBRS": {
+   "first": "2026-05-14",
+   "last": "2026-09-25",
+   "rows": 93
+  },
+  "DEO": {
+   "first": "1991-03-14",
+   "last": "2026-09-25",
+   "rows": 8948
+  },
+  "STM": {
+   "first": "1994-12-08",
+   "last": "2026-09-25",
+   "rows": 8002
+  },
+  "MDLN": {
+   "first": "2025-12-17",
+   "last": "2026-09-25",
+   "rows": 194
+  },
+  "ABEV": {
+   "first": "1997-03-05",
+   "last": "2026-09-25",
+   "rows": 7437
+  },
+  "KB": {
+   "first": "2001-11-13",
+   "last": "2026-09-25",
+   "rows": 6256
+  },
+  "SLF": {
+   "first": "2000-03-23",
+   "last": "2026-09-25",
+   "rows": 6667
+  },
+  "RVMD": {
+   "first": "2020-02-13",
+   "last": "2026-09-25",
+   "rows": 1663
+  },
+  "HEI": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "IX": {
+   "first": "1998-09-16",
+   "last": "2026-09-25",
+   "rows": 7050
+  },
+  "HMC": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "WDS": {
+   "first": "1996-11-18",
+   "last": "2026-09-25",
+   "rows": 7510
+  },
+  "CLS": {
+   "first": "1998-06-30",
+   "last": "2026-09-25",
+   "rows": 7104
+  },
+  "ONC": {
+   "first": "2016-02-03",
+   "last": "2026-09-25",
+   "rows": 2677
+  },
+  "HLN": {
+   "first": "2022-07-25",
+   "last": "2026-09-25",
+   "rows": 1048
+  },
+  "CRDO": {
+   "first": "2022-01-27",
+   "last": "2026-09-25",
+   "rows": 1170
+  },
+  "WCN": {
+   "first": "1998-05-22",
+   "last": "2026-09-25",
+   "rows": 7130
+  },
+  "CCJ": {
+   "first": "1996-03-14",
+   "last": "2026-09-25",
+   "rows": 7683
+  },
+  "SHG": {
+   "first": "2003-09-17",
+   "last": "2026-09-25",
+   "rows": 5793
+  },
+  "FMX": {
+   "first": "1998-05-11",
+   "last": "2026-09-25",
+   "rows": 7139
+  },
+  "VIK": {
+   "first": "2024-05-01",
+   "last": "2026-09-25",
+   "rows": 603
+  },
+  "GFI": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "CHT": {
+   "first": "2003-07-18",
+   "last": "2026-09-25",
+   "rows": 5835
+  },
+  "ESLT": {
+   "first": "1996-11-27",
+   "last": "2026-09-25",
+   "rows": 7503
+  },
+  "NTR": {
+   "first": "2018-01-02",
+   "last": "2026-09-25",
+   "rows": 2195
+  },
+  "RKT": {
+   "first": "2020-08-06",
+   "last": "2026-09-25",
+   "rows": 1542
+  },
+  "BBD": {
+   "first": "2002-08-02",
+   "last": "2026-09-25",
+   "rows": 6076
+  },
+  "EC": {
+   "first": "2008-09-18",
+   "last": "2026-09-25",
+   "rows": 4533
+  },
+  "UI": {
+   "first": "2011-10-14",
+   "last": "2026-09-25",
+   "rows": 3758
+  },
+  "RPRX": {
+   "first": "2020-06-16",
+   "last": "2026-09-25",
+   "rows": 1578
+  },
+  "RBLX": {
+   "first": "2021-03-10",
+   "last": "2026-09-25",
+   "rows": 1394
+  },
+  "QSR": {
+   "first": "2014-12-11",
+   "last": "2026-09-25",
+   "rows": 2964
+  },
+  "TECK": {
+   "first": "2002-07-18",
+   "last": "2026-09-25",
+   "rows": 6087
+  },
+  "VG": {
+   "first": "2025-01-24",
+   "last": "2026-09-25",
+   "rows": 420
+  },
+  "ALC": {
+   "first": "2019-04-09",
+   "last": "2026-09-25",
+   "rows": 1877
+  },
+  "PUK": {
+   "first": "2000-06-29",
+   "last": "2026-09-25",
+   "rows": 6599
+  },
+  "SUNB": {
+   "first": "2026-03-02",
+   "last": "2026-09-25",
+   "rows": 145
+  },
+  "CQP": {
+   "first": "2007-03-21",
+   "last": "2026-09-25",
+   "rows": 4911
+  },
+  "BAP": {
+   "first": "1995-10-25",
+   "last": "2026-09-25",
+   "rows": 7780
+  },
+  "KGC": {
+   "first": "1981-03-17",
+   "last": "2026-09-25",
+   "rows": 11475
+  },
+  "NMR": {
+   "first": "2001-12-17",
+   "last": "2026-09-25",
+   "rows": 6233
+  },
+  "TS": {
+   "first": "2002-12-16",
+   "last": "2026-09-25",
+   "rows": 5982
+  },
+  "FTS": {
+   "first": "2010-01-05",
+   "last": "2026-09-25",
+   "rows": 4207
+  },
+  "SYM": {
+   "first": "2021-03-09",
+   "last": "2026-09-25",
+   "rows": 1395
+  },
+  "TSEM": {
+   "first": "1994-10-26",
+   "last": "2026-09-25",
+   "rows": 8032
+  },
+  "PBA": {
+   "first": "2010-10-06",
+   "last": "2026-09-25",
+   "rows": 4017
+  },
+  "CPNG": {
+   "first": "2021-03-11",
+   "last": "2026-09-25",
+   "rows": 1393
+  },
+  "BNTX": {
+   "first": "2019-10-10",
+   "last": "2026-09-25",
+   "rows": 1749
+  },
+  "LPLA": {
+   "first": "2010-11-18",
+   "last": "2026-09-25",
+   "rows": 3986
+  },
+  "PHG": {
+   "first": "1980-03-17",
+   "last": "2026-09-25",
+   "rows": 11727
+  },
+  "AFRM": {
+   "first": "2021-01-13",
+   "last": "2026-09-25",
+   "rows": 1432
+  },
+  "CIB": {
+   "first": "1995-07-26",
+   "last": "2026-09-25",
+   "rows": 7844
+  },
+  "ASTS": {
+   "first": "2019-11-01",
+   "last": "2026-09-25",
+   "rows": 1733
+  },
+  "GH": {
+   "first": "2018-10-04",
+   "last": "2026-09-25",
+   "rows": 2004
+  },
+  "FWONK": {
+   "first": "2014-07-08",
+   "last": "2026-09-25",
+   "rows": 3074
+  },
+  "TW": {
+   "first": "2019-04-04",
+   "last": "2026-09-25",
+   "rows": 1880
+  },
+  "FCNCA": {
+   "first": "1986-10-22",
+   "last": "2026-09-25",
+   "rows": 10058
+  },
+  "KOF": {
+   "first": "1993-09-14",
+   "last": "2026-09-25",
+   "rows": 8315
+  },
+  "IHG": {
+   "first": "2003-04-10",
+   "last": "2026-09-25",
+   "rows": 5903
+  },
+  "AER": {
+   "first": "2006-11-21",
+   "last": "2026-09-25",
+   "rows": 4991
+  },
+  "CRCL": {
+   "first": "2025-06-05",
+   "last": "2026-09-25",
+   "rows": 329
+  },
+  "RBRK": {
+   "first": "2024-04-25",
+   "last": "2026-09-25",
+   "rows": 607
+  },
+  "PS": {
+   "first": "2026-04-29",
+   "last": "2026-09-25",
+   "rows": 104
+  },
+  "IOT": {
+   "first": "2021-12-15",
+   "last": "2026-09-25",
+   "rows": 1199
+  },
+  "PAAS": {
+   "first": "1995-06-12",
+   "last": "2026-09-25",
+   "rows": 7875
+  },
+  "BCE": {
+   "first": "1982-11-15",
+   "last": "2026-09-25",
+   "rows": 11053
+  },
+  "BEP": {
+   "first": "2005-11-15",
+   "last": "2026-09-25",
+   "rows": 5247
+  },
+  "BEKE": {
+   "first": "2020-08-13",
+   "last": "2026-09-25",
+   "rows": 1537
+  },
+  "RCI": {
+   "first": "1996-01-11",
+   "last": "2026-09-25",
+   "rows": 7727
+  },
+  "MGA": {
+   "first": "1984-10-05",
+   "last": "2026-09-25",
+   "rows": 10574
+  },
+  "FUTU": {
+   "first": "2019-03-08",
+   "last": "2026-09-25",
+   "rows": 1899
+  },
+  "ZTO": {
+   "first": "2016-10-27",
+   "last": "2026-09-25",
+   "rows": 2491
+  },
+  "EMA": {
+   "first": "2010-01-05",
+   "last": "2026-09-25",
+   "rows": 4207
+  },
+  "AGI": {
+   "first": "2003-05-02",
+   "last": "2026-09-25",
+   "rows": 5888
+  },
+  "EQX": {
+   "first": "2019-01-02",
+   "last": "2026-09-25",
+   "rows": 1944
+  },
+  "GIB": {
+   "first": "1998-10-07",
+   "last": "2026-09-25",
+   "rows": 7035
+  },
+  "TME": {
+   "first": "2018-12-12",
+   "last": "2026-09-25",
+   "rows": 1957
+  },
+  "YUMC": {
+   "first": "2016-10-17",
+   "last": "2026-09-25",
+   "rows": 2499
+  },
+  "TU": {
+   "first": "1996-06-11",
+   "last": "2026-09-25",
+   "rows": 7622
+  },
+  "HTHT": {
+   "first": "2010-03-26",
+   "last": "2026-09-25",
+   "rows": 4151
+  },
+  "HBM": {
+   "first": "2009-02-13",
+   "last": "2026-09-25",
+   "rows": 4431
+  },
+  "LI": {
+   "first": "2020-07-30",
+   "last": "2026-09-25",
+   "rows": 1547
+  },
+  "IAG": {
+   "first": "2003-07-15",
+   "last": "2026-09-25",
+   "rows": 5838
+  },
+  "EGO": {
+   "first": "2003-01-23",
+   "last": "2026-09-25",
+   "rows": 5957
+  },
+  "TFII": {
+   "first": "2005-11-15",
+   "last": "2026-09-25",
+   "rows": 5247
+  },
+  "DRS": {
+   "first": "1985-06-24",
+   "last": "2026-09-25",
+   "rows": 10394
+  },
+  "BEPC": {
+   "first": "2020-07-24",
+   "last": "2026-09-25",
+   "rows": 1551
+  },
+  "PSO": {
+   "first": "1996-11-18",
+   "last": "2026-09-25",
+   "rows": 7510
+  },
+  "XPEV": {
+   "first": "2020-08-27",
+   "last": "2026-09-25",
+   "rows": 1527
+  },
+  "ENLT": {
+   "first": "2023-01-03",
+   "last": "2026-09-25",
+   "rows": 936
+  },
+  "GLXY": {
+   "first": "2025-05-16",
+   "last": "2026-09-25",
+   "rows": 342
+  },
+  "AG": {
+   "first": "2006-11-28",
+   "last": "2026-09-25",
+   "rows": 4987
+  },
+  "SIMO": {
+   "first": "2005-06-30",
+   "last": "2026-09-25",
+   "rows": 5343
+  },
+  "KYMR": {
+   "first": "2020-08-21",
+   "last": "2026-09-25",
+   "rows": 1531
+  },
+  "JAN": {
+   "first": "2026-03-20",
+   "last": "2026-09-25",
+   "rows": 131
+  },
+  "ESTC": {
+   "first": "2018-10-05",
+   "last": "2026-09-25",
+   "rows": 2003
+  },
+  "LINE": {
+   "first": "2024-07-25",
+   "last": "2026-09-25",
+   "rows": 545
+  },
+  "SNAP": {
+   "first": "2017-03-02",
+   "last": "2026-09-25",
+   "rows": 2406
+  },
+  "KT": {
+   "first": "1999-05-26",
+   "last": "2026-09-25",
+   "rows": 6876
+  },
+  "OSCR": {
+   "first": "2021-03-03",
+   "last": "2026-09-25",
+   "rows": 1399
+  },
+  "LLYVA": {
+   "first": "2023-08-04",
+   "last": "2026-09-25",
+   "rows": 789
+  },
+  "CAI": {
+   "first": "2025-06-18",
+   "last": "2026-09-25",
+   "rows": 320
+  },
+  "ELPC": {
+   "first": "2023-12-29",
+   "last": "2026-09-25",
+   "rows": 687
+  },
+  "NIO": {
+   "first": "2018-09-12",
+   "last": "2026-09-25",
+   "rows": 2020
+  },
+  "SSL": {
+   "first": "1982-04-26",
+   "last": "2026-09-25",
+   "rows": 11195
+  },
+  "IBRX": {
+   "first": "2015-07-28",
+   "last": "2026-09-25",
+   "rows": 2808
+  },
+  "GGB": {
+   "first": "1999-03-10",
+   "last": "2026-09-25",
+   "rows": 6930
+  },
+  "EDU": {
+   "first": "2006-09-15",
+   "last": "2026-09-25",
+   "rows": 5038
+  },
+  "RIOT": {
+   "first": "2016-03-31",
+   "last": "2026-09-25",
+   "rows": 2638
+  },
+  "AAOI": {
+   "first": "2013-09-26",
+   "last": "2026-09-25",
+   "rows": 3269
+  },
+  "TIMB": {
+   "first": "1998-11-16",
+   "last": "2026-09-25",
+   "rows": 7007
+  },
+  "YMM": {
+   "first": "2021-06-23",
+   "last": "2026-09-25",
+   "rows": 1321
+  },
+  "BVN": {
+   "first": "1996-05-15",
+   "last": "2026-09-25",
+   "rows": 7640
+  },
+  "PCVX": {
+   "first": "2020-06-12",
+   "last": "2026-09-25",
+   "rows": 1580
+  },
+  "ABVX": {
+   "first": "2023-10-20",
+   "last": "2026-09-25",
+   "rows": 735
+  },
+  "BOKF": {
+   "first": "1991-09-05",
+   "last": "2026-09-25",
+   "rows": 8827
+  },
+  "CAE": {
+   "first": "2002-07-29",
+   "last": "2026-09-25",
+   "rows": 6080
+  },
+  "HESM": {
+   "first": "2017-04-05",
+   "last": "2026-09-25",
+   "rows": 2382
+  },
+  "WULF": {
+   "first": "1994-04-05",
+   "last": "2026-09-25",
+   "rows": 8174
+  },
+  "PRAX": {
+   "first": "2020-10-16",
+   "last": "2026-09-25",
+   "rows": 1492
+  },
+  "GTLB": {
+   "first": "2021-10-14",
+   "last": "2026-09-25",
+   "rows": 1242
+  },
+  "S": {
+   "first": "2021-06-30",
+   "last": "2026-09-25",
+   "rows": 1316
+  },
+  "STN": {
+   "first": "2005-08-05",
+   "last": "2026-09-25",
+   "rows": 5318
+  },
+  "HNGE": {
+   "first": "2025-05-22",
+   "last": "2026-09-25",
+   "rows": 338
+  },
+  "CBC": {
+   "first": "2025-11-21",
+   "last": "2026-09-25",
+   "rows": 211
+  },
+  "APLD": {
+   "first": "2022-04-13",
+   "last": "2026-09-25",
+   "rows": 1117
+  },
+  "GIL": {
+   "first": "1998-06-19",
+   "last": "2026-09-25",
+   "rows": 7111
+  },
+  "LEVI": {
+   "first": "2019-03-21",
+   "last": "2026-09-25",
+   "rows": 1890
+  },
+  "SYRE": {
+   "first": "2016-04-07",
+   "last": "2026-09-25",
+   "rows": 2633
+  },
+  "VIST": {
+   "first": "2019-07-26",
+   "last": "2026-09-25",
+   "rows": 1802
+  },
+  "UGP": {
+   "first": "1999-10-07",
+   "last": "2026-09-25",
+   "rows": 6783
+  },
+  "SFD": {
+   "first": "2025-01-28",
+   "last": "2026-09-25",
+   "rows": 418
+  },
+  "PCOR": {
+   "first": "2021-05-20",
+   "last": "2026-09-25",
+   "rows": 1344
+  },
+  "SBSW": {
+   "first": "2013-02-11",
+   "last": "2026-09-25",
+   "rows": 3427
+  },
+  "VFS": {
+   "first": "2021-09-07",
+   "last": "2026-09-25",
+   "rows": 1269
+  },
+  "IONS": {
+   "first": "1991-05-17",
+   "last": "2026-09-25",
+   "rows": 8903
+  },
+  "ZETA": {
+   "first": "2021-06-10",
+   "last": "2026-09-25",
+   "rows": 1330
+  },
+  "CIFR": {
+   "first": "2020-10-20",
+   "last": "2026-09-25",
+   "rows": 1490
+  },
+  "SSRM": {
+   "first": "1996-08-01",
+   "last": "2026-09-25",
+   "rows": 7586
+  },
+  "ASR": {
+   "first": "2000-09-28",
+   "last": "2026-09-25",
+   "rows": 6536
+  },
+  "BTG": {
+   "first": "2008-06-24",
+   "last": "2026-09-25",
+   "rows": 4593
+  },
+  "NTSK": {
+   "first": "2025-09-18",
+   "last": "2026-09-25",
+   "rows": 257
+  },
+  "FIGR": {
+   "first": "2025-09-11",
+   "last": "2026-09-25",
+   "rows": 262
+  },
+  "COMP": {
+   "first": "2021-04-01",
+   "last": "2026-09-25",
+   "rows": 1378
+  },
+  "SOBO": {
+   "first": "2024-10-03",
+   "last": "2026-09-25",
+   "rows": 496
+  },
+  "OKLO": {
+   "first": "2021-07-08",
+   "last": "2026-09-25",
+   "rows": 1311
+  },
+  "PRMB": {
+   "first": "1992-06-16",
+   "last": "2026-09-25",
+   "rows": 8630
+  },
+  "CIG-C": {
+   "first": "2007-06-12",
+   "last": "2026-09-25",
+   "rows": 4854
+  },
+  "AUGO": {
+   "first": "2025-07-16",
+   "last": "2026-09-25",
+   "rows": 302
+  },
+  "AXS": {
+   "first": "2003-07-01",
+   "last": "2026-09-25",
+   "rows": 5847
+  },
+  "IMVT": {
+   "first": "2019-06-21",
+   "last": "2026-09-25",
+   "rows": 1826
+  },
+  "CAMT": {
+   "first": "2000-07-28",
+   "last": "2026-09-25",
+   "rows": 6579
+  },
+  "VIPS": {
+   "first": "2012-03-23",
+   "last": "2026-09-25",
+   "rows": 3648
+  },
+  "MBLY": {
+   "first": "2022-10-26",
+   "last": "2026-09-25",
+   "rows": 982
+  },
+  "MAAS": {
+   "first": "2019-03-29",
+   "last": "2026-09-25",
+   "rows": 1884
+  },
+  "RYTM": {
+   "first": "2017-10-09",
+   "last": "2026-09-25",
+   "rows": 2253
+  },
+  "NICE": {
+   "first": "1996-01-25",
+   "last": "2026-09-25",
+   "rows": 7717
+  },
+  "GLBE": {
+   "first": "2021-05-12",
+   "last": "2026-09-25",
+   "rows": 1350
+  },
+  "BLTE": {
+   "first": "2022-04-29",
+   "last": "2026-09-25",
+   "rows": 1106
+  },
+  "DSGX": {
+   "first": "1999-01-27",
+   "last": "2026-09-25",
+   "rows": 6959
+  },
+  "TAP": {
+   "first": "1975-06-12",
+   "last": "2026-09-25",
+   "rows": 12930
+  },
+  "OR": {
+   "first": "2016-07-06",
+   "last": "2026-09-25",
+   "rows": 2571
+  },
+  "TAL": {
+   "first": "2010-10-20",
+   "last": "2026-09-25",
+   "rows": 4007
+  },
+  "ICL": {
+   "first": "2005-03-22",
+   "last": "2026-09-25",
+   "rows": 5413
+  },
+  "TFPM": {
+   "first": "2022-08-30",
+   "last": "2026-09-25",
+   "rows": 1022
+  },
+  "GGAL": {
+   "first": "2000-07-25",
+   "last": "2026-09-25",
+   "rows": 6582
+  },
+  "OMF": {
+   "first": "2013-10-16",
+   "last": "2026-09-25",
+   "rows": 3255
+  },
+  "GDS": {
+   "first": "2016-11-02",
+   "last": "2026-09-25",
+   "rows": 2487
+  },
+  "PACS": {
+   "first": "2024-04-11",
+   "last": "2026-09-25",
+   "rows": 617
+  },
+  "GRFS": {
+   "first": "2011-06-02",
+   "last": "2026-09-25",
+   "rows": 3852
+  },
+  "TBBB": {
+   "first": "2024-02-09",
+   "last": "2026-09-25",
+   "rows": 659
+  },
+  "QBTS": {
+   "first": "2020-12-11",
+   "last": "2026-09-25",
+   "rows": 1453
+  },
+  "Z": {
+   "first": "2015-08-03",
+   "last": "2026-09-25",
+   "rows": 2804
+  },
+  "BLDR": {
+   "first": "2005-06-28",
+   "last": "2026-09-25",
+   "rows": 5345
+  },
+  "PL": {
+   "first": "2021-04-26",
+   "last": "2026-09-25",
+   "rows": 1362
+  },
+  "BZ": {
+   "first": "2021-06-11",
+   "last": "2026-09-25",
+   "rows": 1329
+  },
+  "OGC": {
+   "first": "2008-06-25",
+   "last": "2026-09-25",
+   "rows": 4592
+  },
+  "LB": {
+   "first": "2024-06-28",
+   "last": "2026-09-25",
+   "rows": 563
+  },
+  "JOBY": {
+   "first": "2020-11-09",
+   "last": "2026-09-25",
+   "rows": 1476
+  },
+  "BILI": {
+   "first": "2018-03-28",
+   "last": "2026-09-25",
+   "rows": 2136
+  },
+  "INGM": {
+   "first": "2024-10-24",
+   "last": "2026-09-25",
+   "rows": 481
+  },
+  "PAGP": {
+   "first": "2013-10-16",
+   "last": "2026-09-25",
+   "rows": 3255
+  },
+  "IFS": {
+   "first": "2019-07-01",
+   "last": "2026-09-25",
+   "rows": 1820
+  },
+  "NXE": {
+   "first": "2013-08-14",
+   "last": "2026-09-25",
+   "rows": 3299
+  },
+  "XE": {
+   "first": "2026-04-24",
+   "last": "2026-09-25",
+   "rows": 107
+  },
+  "DPC": {
+   "first": "2026-06-25",
+   "last": "2026-09-25",
+   "rows": 65
+  },
+  "LOAR": {
+   "first": "2024-04-25",
+   "last": "2026-09-25",
+   "rows": 607
+  },
   "AAPL": {
    "first": "1980-12-12",
    "last": "2026-09-25",
@@ -24838,6 +31402,26 @@
    "first": "2009-01-30",
    "last": "2026-09-25",
    "rows": 4441
+  },
+  "IWC": {
+   "first": "2005-08-16",
+   "last": "2026-09-25",
+   "rows": 5311
+  },
+  "DFSCX": {
+   "first": "1986-01-02",
+   "last": "2026-09-25",
+   "rows": 10262
+  },
+  "VPACX": {
+   "first": "1990-06-18",
+   "last": "2026-09-25",
+   "rows": 9135
+  },
+  "RWX": {
+   "first": "2006-12-19",
+   "last": "2026-09-25",
+   "rows": 4972
   },
   "JPM": {
    "first": "1980-03-17",

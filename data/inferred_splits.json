@@ -16,6 +16,20 @@
   }
  },
  "inferred": {
+  "ABUS": {
+   "2008-10-14": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.444444,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.00078,
+    "residual_sd": 0.052044,
+    "reference": "XLE",
+    "volume_ratio_after": null,
+    "why": "close 2.6 is 44% from the day before and 31% from the day after, which agree within 0.0%; replaced by their geometric mean 1.8"
+   }
+  },
   "ADMA": {
    "2020-03-18": {
     "kind": "bad_tick",
@@ -72,6 +86,20 @@
     "why": "the close moved -35.0% on 2015-09-17 with no split in the source data; a 3-for-2 split leaves -2.5% (no reference moves with it; its daily sd is 2.2%)"
    }
   },
+  "ALRS": {
+   "2012-01-31": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 1.285714,
+    "day_return_repaired": 0.014185,
+    "expected_from_reference": 0.000222,
+    "residual_sd": 0.024137,
+    "reference": "^VIX",
+    "volume_ratio_after": null,
+    "why": "close 20 is 129% from the day before and 55% from the day after, which agree within 2.9%; replaced by their geometric mean 8.87412"
+   }
+  },
   "ALTR": {
    "1997-01-07": {
     "kind": "inferred_split",
@@ -112,6 +140,20 @@
     "reference": "XLE",
     "volume_ratio_after": null,
     "why": "close 2.1 is 44% from the day before and 66% from the day after, which agree within 8.3%; replaced by their geometric mean 3.63211"
+   }
+  },
+  "AROW": {
+   "1986-06-02": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 1.000003,
+    "day_return_repaired": 0.025978,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.038521,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 11.5878 is 100% from the day before and 47% from the day after, which agree within 5.3%; replaced by their geometric mean 5.9444"
    }
   },
   "ARWR": {
@@ -164,6 +206,32 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "close 3 is 37% from the day before and 50% from the day after, which agree within 5.6%; replaced by their geometric mean 4.62331"
+   }
+  },
+  "ATNI": {
+   "2020-03-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.386295,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": -0.023713,
+    "residual_sd": 0.02157,
+    "reference": "XLP",
+    "volume_ratio_after": null,
+    "why": "close 38.51 is 39% from the day before and 63% from the day after, which agree within 0.0%; replaced by their geometric mean 62.75"
+   },
+   "2024-02-22": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.20533,
+    "day_return_repaired": 0.01462,
+    "expected_from_reference": 0.007211,
+    "residual_sd": 0.022053,
+    "reference": "IWM",
+    "volume_ratio_after": null,
+    "why": "close 28.33 is 21% from the day before and 30% from the day after, which agree within 2.9%; replaced by their geometric mean 36.1712"
    }
   },
   "AYA": {
@@ -302,6 +370,34 @@
     "why": "close 15.36 is 20% from the day before and 28% from the day after, which agree within 1.8%; replaced by their geometric mean 19.4593"
    }
   },
+  "BSRR": {
+   "1994-07-18": {
+    "kind": "phantom_split",
+    "ratio": 3.0,
+    "applied": "dropped",
+    "day_return_in_file": 2.000004,
+    "day_return_repaired": 1e-06,
+    "expected_from_reference": 0.002946,
+    "residual_sd": 0.003952,
+    "reference": "MSFT",
+    "volume_ratio_after": null,
+    "why": "a 3-for-1 split is booked on 1994-07-18 but the prices already moved by it (the earlier prices were adjusted for a split that did not happen then): split dropped, earlier prices restored"
+   }
+  },
+  "CAPL": {
+   "2020-03-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.429365,
+    "day_return_repaired": -0.0241,
+    "expected_from_reference": -0.053456,
+    "residual_sd": 0.024533,
+    "reference": "XOP",
+    "volume_ratio_after": null,
+    "why": "close 7.19 is 43% from the day before and 67% from the day after, which agree within 5.0%; replaced by their geometric mean 12.2963"
+   }
+  },
   "CFIMX": {
    "2025-05-12": {
     "kind": "unapplied_split",
@@ -314,6 +410,20 @@
     "reference": "SPY",
     "volume_ratio_after": null,
     "why": "a 10-for-1 split is booked on 2025-05-12 but the prices were never adjusted for it: earlier prices back-adjusted"
+   }
+  },
+  "CGBD": {
+   "2020-03-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.271057,
+    "day_return_repaired": 0.029429,
+    "expected_from_reference": -0.045688,
+    "residual_sd": 0.023083,
+    "reference": "DBC",
+    "volume_ratio_after": null,
+    "why": "close 4.76 is 27% from the day before and 45% from the day after, which agree within 6.0%; replaced by their geometric mean 6.72217"
    }
   },
   "CHCO": {
@@ -380,6 +490,20 @@
     "why": "close 9.1253 is 38% from the day before and 31% from the day after, which agree within 5.3%; replaced by their geometric mean 6.45178"
    }
   },
+  "CIVB": {
+   "1996-05-09": {
+    "kind": "inferred_split",
+    "ratio": 4.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.75,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.002668,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -75.0% on 1996-05-09 with no split in the source data; a 4-for-1 split leaves -0.0% (no reference moves with it; its daily sd is 0.3%)"
+   }
+  },
   "CMCSK": {
    "2004-08-02": {
     "kind": "bad_tick",
@@ -392,6 +516,20 @@
     "reference": "IWM",
     "volume_ratio_after": null,
     "why": "close 12.431 is 30% from the day before and 50% from the day after, which agree within 4.7%; replaced by their geometric mean 18.2822"
+   }
+  },
+  "COFS": {
+   "2011-01-12": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.428574,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.02869,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 18.1406 is 43% from the day before and 30% from the day after, which agree within 0.0%; replaced by their geometric mean 12.6984"
    }
   },
   "CPER": {
@@ -484,6 +622,34 @@
     "why": "close 0.0062 is 69% from the day before and 255% from the day after, which agree within 10.0%; replaced by their geometric mean 0.0209762"
    }
   },
+  "CTGO": {
+   "2012-09-19": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.297297,
+    "day_return_repaired": -0.027958,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.052741,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 6.5 is 30% from the day before and 34% from the day after, which agree within 5.8%; replaced by their geometric mean 8.99138"
+   }
+  },
+  "CTO": {
+   "1992-08-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.999997,
+    "day_return_repaired": -0.018019,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.042544,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 7.60043 is 100% from the day before and 52% from the day after, which agree within 3.7%; replaced by their geometric mean 3.73174"
+   }
+  },
   "DAC": {
    "2012-08-01": {
     "kind": "bad_tick",
@@ -498,6 +664,20 @@
     "why": "close 34.02 is 40% from the day before and 70% from the day after, which agree within 2.5%; replaced by their geometric mean 57.1157"
    }
   },
+  "DEC": {
+   "2023-12-05": {
+    "kind": "inferred_split",
+    "ratio": 0.05,
+    "applied": "recorded",
+    "day_return_in_file": 19.070423,
+    "day_return_repaired": 0.003521,
+    "expected_from_reference": -0.006828,
+    "residual_sd": 0.026416,
+    "reference": "EEM",
+    "volume_ratio_after": 0.1364,
+    "why": "the close moved +1907.0% on 2023-12-05 with no split in the source data; a 1-for-20 split leaves +0.4%, in line with EEM (-0.7% expected, residual sd 2.6%); volume x0.136 after"
+   }
+  },
   "DFEN": {
    "2024-06-03": {
     "kind": "bad_tick",
@@ -510,6 +690,34 @@
     "reference": "XLI",
     "volume_ratio_after": null,
     "why": "close 10.17 is 64% from the day before and 184% from the day after, which agree within 1.3%; replaced by their geometric mean 28.7444"
+   }
+  },
+  "DGICB": {
+   "2026-06-16": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.30022,
+    "day_return_repaired": 0.016062,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.03604,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 23.69 is 30% from the day before and 21% from the day after, which agree within 3.2%; replaced by their geometric mean 18.5126"
+   }
+  },
+  "DMAC": {
+   "2015-08-31": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.214286,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.019141,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 1.1 is 21% from the day before and 27% from the day after, which agree within 0.0%; replaced by their geometric mean 1.4"
    }
   },
   "DNTH": {
@@ -566,6 +774,20 @@
     "reference": "IWM",
     "volume_ratio_after": null,
     "why": "close 5.13 is 25% from the day before and 27% from the day after, which agree within 5.1%; replaced by their geometric mean 6.65295"
+   }
+  },
+  "ENLT": {
+   "2023-01-23": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.348485,
+    "day_return_repaired": 0.002522,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.002931,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 2.67 is 35% from the day before and 25% from the day after, which agree within 0.5%; replaced by their geometric mean 1.98499"
    }
   },
   "ERIC": {
@@ -658,6 +880,32 @@
     "why": "close 19.46 is 30% from the day before and 25% from the day after, which agree within 2.3%; replaced by their geometric mean 14.839"
    }
   },
+  "FDUS": {
+   "2020-03-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.343533,
+    "day_return_repaired": -0.02893,
+    "expected_from_reference": -0.084327,
+    "residual_sd": 0.023916,
+    "reference": "IWM",
+    "volume_ratio_after": null,
+    "why": "close 4.72 is 34% from the day before and 44% from the day after, which agree within 6.0%; replaced by their geometric mean 6.98199"
+   },
+   "2020-03-23": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.255673,
+    "day_return_repaired": -0.033073,
+    "expected_from_reference": 0.03224,
+    "residual_sd": 0.032531,
+    "reference": "MSTR",
+    "volume_ratio_after": null,
+    "why": "close 4.92 is 26% from the day before and 26% from the day after, which agree within 7.0%; replaced by their geometric mean 6.39138"
+   }
+  },
   "FER": {
    "2020-03-13": {
     "kind": "bad_tick",
@@ -670,6 +918,20 @@
     "reference": "BTC-USD",
     "volume_ratio_after": null,
     "why": "close 32.3487 is 43% from the day before and 30% from the day after, which agree within 0.0%; replaced by their geometric mean 22.5906"
+   }
+  },
+  "FET": {
+   "2020-03-13": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.791667,
+    "day_return_repaired": 0.020621,
+    "expected_from_reference": 0.157525,
+    "residual_sd": 0.044626,
+    "reference": "XOP",
+    "volume_ratio_after": null,
+    "why": "close 8.6 is 79% from the day before and 42% from the day after, which agree within 4.2%; replaced by their geometric mean 4.89898"
    }
   },
   "FMAGX": {
@@ -700,6 +962,62 @@
     "why": "close 13 is 31% from the day before and 38% from the day after, which agree within 4.2%; replaced by their geometric mean 18.3712"
    }
   },
+  "FMNB": {
+   "1999-10-04": {
+    "kind": "phantom_split",
+    "ratio": 2.0,
+    "applied": "dropped",
+    "day_return_in_file": 0.999997,
+    "day_return_repaired": -2e-06,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.033489,
+    "reference": null,
+    "volume_ratio_after": 0.1181,
+    "why": "a 2-for-1 split is booked on 1999-10-04 but the prices already moved by it (the earlier prices were adjusted for a split that did not happen then): split dropped, earlier prices restored"
+   }
+  },
+  "GALT": {
+   "2002-09-09": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.428571,
+    "day_return_repaired": -0.036376,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.05,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 12 is 43% from the day before and 62% from the day after, which agree within 7.7%; replaced by their geometric mean 20.2361"
+   }
+  },
+  "GLRE": {
+   "2008-09-30": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.281494,
+    "day_return_repaired": -0.001115,
+    "expected_from_reference": 0.024442,
+    "residual_sd": 0.017603,
+    "reference": "^VIX",
+    "volume_ratio_after": null,
+    "why": "close 22.99 is 28% from the day before and 22% from the day after, which agree within 0.2%; replaced by their geometric mean 17.92"
+   }
+  },
+  "GORO": {
+   "2023-10-04": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.666667,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.111278,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 0.04 is 67% from the day before and 200% from the day after, which agree within 0.0%; replaced by their geometric mean 0.12"
+   }
+  },
   "GRC": {
    "1981-05-06": {
     "kind": "bad_tick",
@@ -726,6 +1044,58 @@
     "reference": "XLF",
     "volume_ratio_after": null,
     "why": "close 7.05 is 104% from the day before and 49% from the day after, which agree within 4.3%; replaced by their geometric mean 3.5242"
+   }
+  },
+  "HIVE": {
+   "2014-12-02": {
+    "kind": "inferred_split",
+    "ratio": 1.5,
+    "applied": "recorded",
+    "day_return_in_file": -0.333333,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.001,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -33.3% on 2014-12-02 with no split in the source data; a 3-for-2 split leaves +0.0% (no reference moves with it; its daily sd is 0.1%)"
+   },
+   "2017-05-19": {
+    "kind": "inferred_split",
+    "ratio": 0.5,
+    "applied": "recorded",
+    "day_return_in_file": 1.0,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.022309,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved +100.0% on 2017-05-19 with no split in the source data; a 1-for-2 split leaves +0.0% (no reference moves with it; its daily sd is 2.2%)"
+   }
+  },
+  "HNRG": {
+   "2002-10-25": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 2.181818,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.085035,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 3.5 is 218% from the day before and 69% from the day after, which agree within 0.0%; replaced by their geometric mean 1.1"
+   },
+   "2003-12-30": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.6,
+    "day_return_repaired": -0.020204,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.062796,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 2 is 60% from the day before and 40% from the day after, which agree within 4.2%; replaced by their geometric mean 1.22474"
    }
   },
   "HOOD": {
@@ -782,6 +1152,20 @@
     "why": "2 bars in a row with no volume at 3.13..3.13, x6.28 or more away from the closes around them (19.642 and 21.03, which agree within 7.1%): quotes that never traded, replaced by the path between those closes"
    }
   },
+  "ING": {
+   "1995-09-27": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.952891,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.019256,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 22.8 is 95% from the day before and 49% from the day after, which agree within 0.0%; replaced by their geometric mean 11.675"
+   }
+  },
   "IOVA": {
    "2012-08-02": {
     "kind": "bad_tick",
@@ -834,6 +1218,70 @@
     "why": "3 bars in a row with no volume at 0.160494..0.160494, x2.31 or more away from the closes around them (0.401235 and 0.37037, which agree within 7.7%): quotes that never traded, replaced by the path between those closes; the 2-for-5 split booked on 1990-08-03 with it is dropped"
    }
   },
+  "IRD": {
+   "2006-06-27": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.425,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.08854,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 552 is 43% from the day before and 74% from the day after, which agree within 0.0%; replaced by their geometric mean 960"
+   },
+   "2006-11-22": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.428571,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 960..960, x1.43 or more away from the closes around them (672 and 672, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2006-11-24": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 960..960, x1.43 or more away from the closes around them (672 and 672, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2006-11-27": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 960..960, x1.43 or more away from the closes around them (672 and 672, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   }
+  },
+  "ISOU": {
+   "2017-12-26": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.448124,
+    "day_return_repaired": 0.017507,
+    "expected_from_reference": -0.015831,
+    "residual_sd": 0.066311,
+    "reference": "HYG",
+    "volume_ratio_after": null,
+    "why": "close 1 is 45% from the day before and 88% from the day after, which agree within 3.5%; replaced by their geometric mean 1.84372"
+   }
+  },
   "IVT": {
    "2021-08-06": {
     "kind": "phantom_split",
@@ -846,6 +1294,46 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "a 1-for-10 split is booked on 2021-08-06 but the prices already moved by it (the earlier prices were adjusted for a split that did not happen then): split dropped, earlier prices restored"
+   }
+  },
+  "JBIO": {
+   "2024-06-17": {
+    "kind": "inferred_split",
+    "ratio": 15.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.932981,
+    "day_return_repaired": 0.00528,
+    "expected_from_reference": -0.015694,
+    "residual_sd": 0.048599,
+    "reference": "XBI",
+    "volume_ratio_after": 7.7732,
+    "why": "the close moved -93.3% on 2024-06-17 with no split in the source data; a 15-for-1 split leaves +0.5%, in line with XBI (-1.6% expected, residual sd 4.9%); volume x7.77 after"
+   }
+  },
+  "KELYB": {
+   "2009-02-04": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.279699,
+    "day_return_repaired": 0.027443,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.045796,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 9.58 is 28% from the day before and 47% from the day after, which agree within 5.6%; replaced by their geometric mean 13.665"
+   },
+   "2016-10-04": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.543587,
+    "day_return_repaired": 0.040811,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.01734,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 27.8 is 54% from the day before and 30% from the day after, which agree within 8.3%; replaced by their geometric mean 18.745"
    }
   },
   "LCII": {
@@ -968,6 +1456,48 @@
     "why": "close 20.2 is 38% from the day before and 28% from the day after, which agree within 0.2%; replaced by their geometric mean 14.615"
    }
   },
+  "MLAB": {
+   "1987-10-07": {
+    "kind": "inferred_split",
+    "ratio": 2.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.5,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.031203,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -50.0% on 1987-10-07 with no split in the source data; a 2-for-1 split leaves +0.0% (no reference moves with it; its daily sd is 3.1%)"
+   }
+  },
+  "MPB": {
+   "2020-03-13": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.464861,
+    "day_return_repaired": 0.031421,
+    "expected_from_reference": 0.069661,
+    "residual_sd": 0.017153,
+    "reference": "IWM",
+    "volume_ratio_after": null,
+    "why": "close 22.72 is 46% from the day before and 27% from the day after, which agree within 6.4%; replaced by their geometric mean 15.9973"
+   }
+  },
+  "MTA": {
+   "2010-10-28": {
+    "kind": "inferred_split",
+    "ratio": 1.5,
+    "applied": "recorded",
+    "day_return_in_file": -0.348837,
+    "day_return_repaired": -0.023256,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.027211,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -34.9% on 2010-10-28 with no split in the source data; a 3-for-2 split leaves -2.3% (no reference moves with it; its daily sd is 2.7%)"
+   }
+  },
   "NGL": {
    "2020-03-09": {
     "kind": "inferred_split",
@@ -1010,6 +1540,20 @@
     "why": "close 0.328704 is 25% from the day before and 41% from the day after, which agree within 5.3%; replaced by their geometric mean 0.451241"
    }
   },
+  "NUAI": {
+   "2024-12-16": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.296188,
+    "day_return_repaired": -0.038879,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.049119,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 2.4 is 30% from the day before and 31% from the day after, which agree within 8.3%; replaced by their geometric mean 3.27742"
+   }
+  },
   "NVDS": {
    "2023-08-09": {
     "kind": "phantom_split",
@@ -1038,6 +1582,20 @@
     "why": "the close moved -66.7% on 2013-11-21 with no split in the source data; a 3-for-1 split leaves +0.0% (no reference moves with it; its daily sd is 1.5%)"
    }
   },
+  "NWG": {
+   "2009-01-20": {
+    "kind": "inferred_split",
+    "ratio": 3.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.693087,
+    "day_return_repaired": -0.079262,
+    "expected_from_reference": -0.101813,
+    "residual_sd": 0.089213,
+    "reference": "MSFT",
+    "volume_ratio_after": 2.984,
+    "why": "the close moved -69.3% on 2009-01-20 with no split in the source data; a 3-for-1 split leaves -7.9%, in line with MSFT (-10.2% expected, residual sd 8.9%); volume x2.98 after"
+   }
+  },
   "ODC": {
    "1983-07-28": {
     "kind": "phantom_split",
@@ -1050,6 +1608,32 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "a 2-for-1 split is booked on 1983-07-28 but the prices already moved by it (the earlier prices were adjusted for a split that did not happen then): split dropped, earlier prices restored"
+   }
+  },
+  "OGG": {
+   "2015-06-09": {
+    "kind": "inferred_split",
+    "ratio": 3.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.666667,
+    "day_return_repaired": -1e-06,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.001,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -66.7% on 2015-06-09 with no split in the source data; a 3-for-1 split leaves -0.0% (no reference moves with it; its daily sd is 0.1%)"
+   },
+   "2016-04-07": {
+    "kind": "inferred_split",
+    "ratio": 0.125,
+    "applied": "recorded",
+    "day_return_in_file": 7.000006,
+    "day_return_repaired": 1e-06,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.001,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved +700.0% on 2016-04-07 with no split in the source data; a 1-for-8 split leaves +0.0% (no reference moves with it; its daily sd is 0.1%)"
    }
   },
   "ONB": {
@@ -1078,6 +1662,20 @@
     "reference": "QQQ",
     "volume_ratio_after": null,
     "why": "the close moved -74.8% on 2024-10-14 with no split in the source data; a 4-for-1 split leaves +0.8%, in line with QQQ (+0.9% expected, residual sd 0.3%)"
+   }
+  },
+  "PAYS": {
+   "2009-01-20": {
+    "kind": "inferred_split",
+    "ratio": 3.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.666667,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.029784,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -66.7% on 2009-01-20 with no split in the source data; a 3-for-1 split leaves +0.0% (no reference moves with it; its daily sd is 3.0%)"
    }
   },
   "PCRAX": {
@@ -1174,6 +1772,20 @@
     "reference": "IWM",
     "volume_ratio_after": null,
     "why": "close 26.01 is 40% from the day before and 67% from the day after, which agree within 0.6%; replaced by their geometric mean 43.4848"
+   }
+  },
+  "PRTH": {
+   "2020-02-27": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.279279,
+    "day_return_repaired": -0.03671,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.044368,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 1.6 is 28% from the day before and 29% from the day after, which agree within 7.8%; replaced by their geometric mean 2.1385"
    }
   },
   "PSLDX": {
@@ -1294,6 +1906,118 @@
     "why": "the close moved -33.6% on 1984-09-07 with no split in the source data; a 3-for-2 split leaves -0.5% (no reference moves with it; its daily sd is 0.9%); volume x1.71 after"
    }
   },
+  "RCAT": {
+   "2008-10-08": {
+    "kind": "inferred_split",
+    "ratio": 0.5,
+    "applied": "recorded",
+    "day_return_in_file": 1.0,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.001,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved +100.0% on 2008-10-08 with no split in the source data; a 1-for-2 split leaves -0.0% (no reference moves with it; its daily sd is 0.1%)"
+   },
+   "2011-03-07": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.3,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 23400..25200, x1.3 or more away from the closes around them (18000 and 18000, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2011-03-08": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 23400..25200, x1.3 or more away from the closes around them (18000 and 18000, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2011-03-09": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.076923,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 23400..25200, x1.3 or more away from the closes around them (18000 and 18000, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2013-04-02": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.2,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 7200..7200, x1.25 or more away from the closes around them (9000 and 9000, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2013-04-03": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 7200..7200, x1.25 or more away from the closes around them (9000 and 9000, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2015-02-17": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 1.0,
+    "day_return_repaired": 0.03228,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 2400..2400, x1.82 or more away from the closes around them (1200 and 1320, which agree within 10.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2015-02-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": 0.03228,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 2400..2400, x1.82 or more away from the closes around them (1200 and 1320, which agree within 10.0%): quotes that never traded, replaced by the path between those closes"
+   }
+  },
+  "RCBC": {
+   "2020-03-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.262295,
+    "day_return_repaired": -0.022969,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.018791,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 13.5 is 26% from the day before and 29% from the day after, which agree within 4.8%; replaced by their geometric mean 17.8797"
+   }
+  },
   "RHI": {
    "1983-06-23": {
     "kind": "bad_tick",
@@ -1348,6 +2072,20 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "the close moved -49.2% on 1985-05-02 with no split in the source data; a 2-for-1 split leaves +1.6% (no reference moves with it; its daily sd is 0.8%)"
+   }
+  },
+  "SFST": {
+   "2002-04-23": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.499999,
+    "day_return_repaired": 0.040833,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.019242,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 8.19616 is 50% from the day before and 28% from the day after, which agree within 8.3%; replaced by their geometric mean 5.68722"
    }
   },
   "SKE": {
@@ -1616,42 +2354,404 @@
     "why": "close 44 is 27% from the day before and 29% from the day after, which agree within 6.4%; replaced by their geometric mean 58.6621"
    }
   },
-  "SZK": {
-   "2014-12-19": {
-    "kind": "bad_tick",
-    "ratio": null,
-    "applied": "replaced",
-    "day_return_in_file": -0.306614,
-    "day_return_repaired": -0.044107,
+  "SU": {
+   "1982-04-01": {
+    "kind": "inferred_split",
+    "ratio": 0.5,
+    "applied": "recorded",
+    "day_return_in_file": 1.0,
+    "day_return_repaired": 0.0,
     "expected_from_reference": 0.0,
-    "residual_sd": 0.043349,
+    "residual_sd": 0.044769,
     "reference": null,
     "volume_ratio_after": null,
-    "why": "close 154.32 is 31% from the day before and 32% from the day after, which agree within 9.4%; replaced by their geometric mean 212.744"
+    "why": "the close moved +100.0% on 1982-04-01 with no split in the source data; a 1-for-2 split leaves +0.0% (no reference moves with it; its daily sd is 4.5%)"
+   }
+  },
+  "SZK": {
+   "2014-12-15": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.233269,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2014-12-16": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2014-12-17": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2014-12-18": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2014-12-19": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2014-12-22": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2014-12-23": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2014-12-24": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2014-12-26": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2014-12-29": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2014-12-30": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2014-12-31": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-02": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-05": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-06": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-07": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-08": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-09": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-12": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-13": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-14": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-15": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-16": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-20": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-21": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
    },
    "2015-01-22": {
-    "kind": "bad_tick",
+    "kind": "level_junk",
     "ratio": null,
     "applied": "replaced",
-    "day_return_in_file": -0.256136,
-    "day_return_repaired": 0.015079,
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
     "expected_from_reference": NaN,
     "residual_sd": NaN,
     "reference": null,
     "volume_ratio_after": null,
-    "why": "2 bars in a row with no volume at 149.68..150.32, x1.34 or more away from the closes around them (202.08 and 211.36, which agree within 4.6%): quotes that never traded, replaced by the path between those closes"
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
    },
    "2015-01-23": {
-    "kind": "bad_tick",
+    "kind": "level_junk",
     "ratio": null,
     "applied": "replaced",
-    "day_return_in_file": -0.004258,
-    "day_return_repaired": 0.015079,
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
     "expected_from_reference": NaN,
     "residual_sd": NaN,
     "reference": null,
     "volume_ratio_after": null,
-    "why": "2 bars in a row with no volume at 149.68..150.32, x1.34 or more away from the closes around them (202.08 and 211.36, which agree within 4.6%): quotes that never traded, replaced by the path between those closes"
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-26": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-27": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-28": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-29": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
+   },
+   "2015-01-30": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": 0.00132,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2014-12-15..2015-01-30: the closes jump back and forth 10 times between two levels 1.39x apart (152.2 and 211.5) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (206.8 and 216) and never traded at"
    },
    "2015-02-13": {
     "kind": "bad_tick",
@@ -1764,6 +2864,20 @@
     "why": "close 32.77 is 46% from the day before and 37% from the day after, which agree within 7.9%; replaced by their geometric mean 21.6044"
    }
   },
+  "TECX": {
+   "2024-06-21": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.916667,
+    "day_return_repaired": -0.021055,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.02826,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 1.4 is 92% from the day before and 1050% from the day after, which agree within 4.3%; replaced by their geometric mean 16.4463"
+   }
+  },
   "TEMGX": {
    "1998-12-30": {
     "kind": "bad_tick",
@@ -1776,6 +2890,32 @@
     "reference": "SPY",
     "volume_ratio_after": null,
     "why": "close 5.42 is 22% from the day before and 30% from the day after, which agree within 1.2%; replaced by their geometric mean 6.97989"
+   }
+  },
+  "TGTX": {
+   "2010-11-24": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.5,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 84.375..84.375, x1.5 or more away from the closes around them (56.25 and 56.25, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2010-11-26": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 84.375..84.375, x1.5 or more away from the closes around them (56.25 and 56.25, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
    }
   },
   "THC": {
@@ -1792,6 +2932,60 @@
     "why": "the close moved -32.4% on 1980-11-05 with no split in the source data; a 3-for-2 split leaves +1.4% (no reference moves with it; its daily sd is 2.4%); volume x1.4 after"
    }
   },
+  "TMP": {
+   "1986-10-15": {
+    "kind": "inferred_split",
+    "ratio": 2.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.500001,
+    "day_return_repaired": -2e-06,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.026994,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -50.0% on 1986-10-15 with no split in the source data; a 2-for-1 split leaves -0.0% (no reference moves with it; its daily sd is 2.7%)"
+   },
+   "1989-06-02": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.5,
+    "day_return_repaired": 0.027912,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.031345,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 19.9098 is 50% from the day before and 30% from the day after, which agree within 5.7%; replaced by their geometric mean 13.6437"
+   }
+  },
+  "TRST": {
+   "1986-07-22": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.999991,
+    "day_return_repaired": 0.012959,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.017523,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 22.3341 is 100% from the day before and 49% from the day after, which agree within 2.6%; replaced by their geometric mean 11.3118"
+   }
+  },
+  "TRTX": {
+   "2020-03-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.332509,
+    "day_return_repaired": -0.037797,
+    "expected_from_reference": -0.049207,
+    "residual_sd": 0.029843,
+    "reference": "DBC",
+    "volume_ratio_after": null,
+    "why": "close 5.4 is 33% from the day before and 39% from the day after, which agree within 8.0%; replaced by their geometric mean 7.78422"
+   }
+  },
   "TSN": {
    "1983-04-18": {
     "kind": "inferred_split",
@@ -1806,6 +3000,20 @@
     "why": "the close moved -50.4% on 1983-04-18 with no split in the source data; a 2-for-1 split leaves -0.8% (no reference moves with it; its daily sd is 2.6%); volume x1.45 after"
    }
   },
+  "UBS": {
+   "2014-11-26": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.326927,
+    "day_return_repaired": 0.014367,
+    "expected_from_reference": 0.003417,
+    "residual_sd": 0.010275,
+    "reference": "SPY",
+    "volume_ratio_after": null,
+    "why": "close 23.2 is 33% from the day before and 22% from the day after, which agree within 2.9%; replaced by their geometric mean 17.7352"
+   }
+  },
   "UBSI": {
    "1988-02-16": {
     "kind": "bad_tick",
@@ -1818,6 +3026,1396 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "close 17.5 is 100% from the day before and 49% from the day after, which agree within 1.4%; replaced by their geometric mean 8.81228"
+   }
+  },
+  "UNTY": {
+   "2020-03-19": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.414485,
+    "day_return_repaired": 0.038105,
+    "expected_from_reference": -0.03682,
+    "residual_sd": 0.035762,
+    "reference": "INDA",
+    "volume_ratio_after": null,
+    "why": "close 16.21 is 41% from the day before and 24% from the day after, which agree within 7.8%; replaced by their geometric mean 11.8967"
+   }
+  },
+  "WFM": {
+   "1996-08-01": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.167463,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-02": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-05": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-06": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-07": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-08": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-09": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-12": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-13": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-14": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-15": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-16": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-19": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-20": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-21": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-22": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-23": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-26": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-27": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-28": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-29": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-30": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-03": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-04": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-05": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-06": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-09": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-10": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-11": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-12": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-13": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-16": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-17": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-18": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-19": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-20": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-23": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-24": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-25": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-26": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-27": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-30": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-01": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-02": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-03": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-04": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-07": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-08": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-09": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-10": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-11": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-14": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-15": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-16": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-17": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-18": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   }
+  },
+  "WFMI": {
+   "1996-08-01": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.167463,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-02": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-05": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-06": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-07": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-08": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-09": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-12": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-13": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-14": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-15": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-16": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-19": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-20": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-21": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-22": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-23": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-26": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-27": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-28": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-29": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-08-30": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-03": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-04": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-05": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-06": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-09": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-10": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-11": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-12": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-13": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-16": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-17": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-18": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-19": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-20": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-23": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-24": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-25": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-26": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-27": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-09-30": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-01": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-02": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-03": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-04": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-07": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-08": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-09": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-10": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-11": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-14": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-15": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-16": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-17": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   },
+   "1996-10-18": {
+    "kind": "level_junk",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": NaN,
+    "day_return_repaired": -0.004876,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "1996-08-01..1996-10-18: the closes jump back and forth 20 times between two levels 1.29x apart (3.2 and 4.141) - two sources mixed in blocks of a few days. Which level is right is unknown, so the stretch is replaced by the path between the closes around it (3.923 and 2.969) and never traded at"
+   }
+  },
+  "WOR": {
+   "1983-04-04": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.326502,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.01837,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 5.99383 is 33% from the day before and 25% from the day after, which agree within 0.0%; replaced by their geometric mean 4.51852"
+   }
+  },
+  "WT": {
+   "2004-01-07": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.75,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.083869,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 0.07 is 75% from the day before and 43% from the day after, which agree within 0.0%; replaced by their geometric mean 0.04"
    }
   },
   "WTRG": {
