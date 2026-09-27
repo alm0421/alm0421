@@ -429,7 +429,7 @@ def fetch_with_retry(t: str, tries: int = 3) -> pd.DataFrame | None:
 
 # ------------------------------------------------------------------ point-in-time membership
 
-MEMBERSHIP_PARSER = "3"
+MEMBERSHIP_PARSER = "4"   # 4: piped-link tickers ([[Apple Inc.|AAPL]]); every month is fetched again
 NOT_MEMBERS = {"NDX", "QQQ", "QQQQ", "TQQQ", "SQQQ", "QLD", "QID", "PSQ", "ONEQ", "NASDAQ", "ETF", "US", "USD", "CEO",
                "S", "P", "NQ", "ND", "RIC", "DJIA", "NYSE", "REIT", "II", "III", "IV", "A", "B", "C", "ADR", "ADS", "LLC", "INC"}
 
@@ -462,7 +462,10 @@ def wiki_tickers(wikitext: str) -> set[str]:
     for line in wikitext.splitlines():
         s = line.strip()
         if s.startswith(("#", "*")):
-            for m in re.finditer(r"\(\s*(?:NASDAQ:\s*|Nasdaq:\s*)?\[?\[?([A-Z]{1,5}(?:\.[A-Z])?)\]?\]?\s*\)", s):
+            # "([[AAPL]])", "(NASDAQ: AAPL)" and piped links "([[Apple Inc.|AAPL]])" (2006-2008 revisions wrote
+            # Apple, Akamai and Flextronics that way; parser 3 missed them)
+            s = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]|]*)\]\]", r"\1", s)
+            for m in re.finditer(r"\(\s*(?:NASDAQ:\s*|Nasdaq:\s*)?([A-Z]{1,5}(?:\.[A-Z])?)\s*\)", s):
                 found.add(m.group(1))
         if s.startswith("|") and not s.startswith(("|-", "|}", "|+")):
             # cells are separated by "||" (older revisions) or " | " (2025+); strip links first
@@ -614,6 +617,22 @@ def update_membership() -> pd.DataFrame:
         have = pd.concat([have[~have["month"].isin(new["month"])], new]).sort_values("month")
         have.to_csv(MEMBERSHIP, index=False)
     print(f"membership: {len(have)} monthly snapshots ({have['month'].min()} .. {have['month'].max()})")
+    # snapshots short of 100 companies are filled from their neighbours when the backtester loads them
+    # (backtester.data.repair_membership); log what that does and what is still short
+    try:
+        from backtester import data as bt_data
+        bt_data.membership.cache_clear()
+        bt_data.ndx_changes.cache_clear()
+        mem = bt_data.membership()
+        raw = {pd.Period(m, "M").to_timestamp(): set(t.split()) for m, t in zip(have["month"], have["tickers"])}
+        for d, row in mem.iterrows():
+            names = set(row.index[row.to_numpy()])
+            added = sorted(names - raw.get(d, set()))
+            n = bt_data.company_count(names)
+            if added or not 100 <= n <= 103:
+                MEMBERSHIP_LOG.append(f"{d:%Y-%m}\trepair\t{n} companies\tfilled={' '.join(added)}")
+    except Exception as e:  # noqa: BLE001 - the log is informational
+        print(f"membership repair log failed: {e}", file=sys.stderr)
     (ROOT / "data" / "membership_log.tsv").write_text("\n".join(MEMBERSHIP_LOG) + "\n")
     return have
 

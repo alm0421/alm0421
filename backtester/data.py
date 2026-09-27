@@ -227,7 +227,7 @@ IDENTITY_FROM = {
     "MNST": "2012-01-09",   # Monster Worldwide until 2011; the file is Monster Beverage (ex-HANS)
 }
 # the same company listed under two symbols in some revisions: keep the second
-DUPLICATES = {"KLA": "KLAC", "WFMI": "WFM", "ERTS": "EA"}
+DUPLICATES = {"KLA": "KLAC", "WFMI": "WFM", "ERTS": "EA", "NXP": "NXPI", "ANSYS": "ANSS"}   # a company name read as a ticker, or an old symbol
 
 # a member's series must look like a large Nasdaq stock: this catches recycled tickers (a small
 # company that later took over a former member's symbol) and junk series with no trading
@@ -583,7 +583,79 @@ def membership() -> pd.DataFrame | None:
     v = df.to_numpy(copy=True)
     blip = ~v[1:-1] & v[:-2] & v[2:]
     v[1:-1] |= blip
-    return pd.DataFrame(v, index=df.index, columns=df.columns)
+    out, _ = repair_membership(pd.DataFrame(v, index=df.index, columns=df.columns), ndx_changes())
+    return out
+
+
+MEMBERSHIP_GAP_MONTHS = 24
+
+
+def membership_unexplained(since: str = "2007-03-01") -> list[tuple[str, str]]:
+    """Snapshot-to-snapshot membership changes (from `since`, where the dated change table starts) that no dated
+    change within ~45 days and no symbol rename explains: [(month, "+TICKER" / "-TICKER")]. Mostly symbol changes the
+    table records under another spelling, and share classes; listed so each is a known, reviewed item."""
+    mem, ch = membership(), ndx_changes()
+    if mem is None or ch is None:
+        return []
+    ren = {**RENAMED, **{v: k for k, v in RENAMED.items()}}
+    out, prev = [], None
+    for d, row in mem.iterrows():
+        s = set(row.index[row.to_numpy()])
+        if prev is not None and d >= pd.Timestamp(since):
+            w = ch[(ch["date"] > d - pd.DateOffset(months=1) - pd.Timedelta(days=45)) & (ch["date"] <= d + pd.Timedelta(days=45))]
+            ok = set(w["added"]) | set(w["removed"])
+            out += [(f"{d:%Y-%m}", "+" + t) for t in sorted(s - prev) if t not in ok and ren.get(t) not in prev]
+            out += [(f"{d:%Y-%m}", "-" + t) for t in sorted(prev - s) if t not in ok and ren.get(t) not in s]
+        prev = s
+    return out
+
+
+def company_count(names) -> int:
+    groups = {t: g[0] for g in (list(SHARE_CLASSES) + [("CMCSA", "CMCSK")]) for t in g}
+    return len({groups.get(t, t) for t in names})
+
+
+def repair_membership(mem: pd.DataFrame, changes: pd.DataFrame | None) -> tuple[pd.DataFrame, list[str]]:
+    """Fill snapshots that lost members to a parsing slip (Wikipedia revisions of 2004-2008 wrote some entries as
+    piped links, "([[Apple Inc.|AAPL]])", which an older parser missed: AAPL, AKAM and FLEX vanished for months).
+
+    A name missing for up to MEMBERSHIP_GAP_MONTHS months between two snapshots that list it, with no dated change
+    of that name near the gap (ndx_changes), while the snapshots in the gap have fewer than 100 companies, was a
+    member throughout. (Carrying names over from the month before instead would also carry the annual
+    reconstitutions' removals, which the change table only dates from 2007.) Returns (membership, log lines)."""
+    if mem is None or not len(mem):
+        return mem, []
+    v = mem.to_numpy(copy=True)
+    cols = list(mem.columns)
+    idx = mem.index
+    log: list[str] = []
+    counts = np.array([company_count([cols[j] for j in np.flatnonzero(v[i])]) for i in range(len(idx))])
+    near: dict[str, list[pd.Timestamp]] = {}
+    if changes is not None:
+        for d, a, r in zip(changes["date"], changes["added"], changes["removed"]):
+            for t in (a, r):
+                if t:
+                    near.setdefault(t, []).append(pd.Timestamp(d))
+    w = pd.Timedelta(days=CHANGE_WINDOW_DAYS)
+    for j, t in enumerate(cols):
+        col = v[:, j]
+        on = np.flatnonzero(col)
+        if len(on) < 2:
+            continue
+        for a, b in zip(on[:-1], on[1:]):
+            if b - a <= 1 or b - a - 1 > MEMBERSHIP_GAP_MONTHS:
+                continue
+            gap = range(a + 1, b)
+            if not all(counts[i] < 100 for i in gap):
+                continue
+            lo, hi = idx[a + 1] - w, idx[b] + w
+            if any(lo <= d <= hi for d in near.get(t, [])):
+                continue
+            for i in gap:
+                v[i, j] = True
+            log.append(f"{t}: missing from the {idx[a + 1]:%Y-%m}..{idx[b - 1]:%Y-%m} snapshots (each short of 100 "
+                       "companies) with no dated change: filled")
+    return pd.DataFrame(v, index=idx, columns=cols), log
 
 
 @lru_cache(maxsize=1)
