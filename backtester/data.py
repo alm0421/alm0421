@@ -442,6 +442,14 @@ def corporate_action_days(ticker: str, threshold: float = 0.15) -> pd.DatetimeIn
     adj_tr = a / a.shift(1) - 1
     big = price_tr.abs() > threshold
     mismatch = (price_tr - adj_tr).abs() > 0.05
+    # a day reconcile_actions could not explain still counts after adj_close was aligned with the cash accounting
+    # (_reconcile_payouts' "unresolved_payout": HANS 1990-11-08, TJX 1989-06-15)
+    try:
+        fx = corporate_action_fixes(ticker)
+        bad = pd.DatetimeIndex(pd.to_datetime(fx.loc[fx["reading"].isin(["unresolved", "unresolved_payout"]), "date"]))
+    except Exception:  # noqa: BLE001 - synthetic ticker
+        bad = pd.DatetimeIndex([])
+    mismatch |= pd.Series(df.index.isin(bad), index=df.index)
     return df.index[(big & mismatch).fillna(False).to_numpy()]
 
 
@@ -1205,15 +1213,11 @@ CA_TOLERANCE = 0.02
 CA_MAX_GAP = 0.10          # a reconciled day must end within 10% (log) of the market's move that day
 CA_FIXES: dict[str, pd.DataFrame] = {}
 # days where the engine's (close + payout) / previous close legitimately differs from Yahoo's adjusted close by
-# more than CA_TOLERANCE: Yahoo's adjustment close / (prev_close - payout) overstates the move for a payout this
-# large, and the cash accounting is right (checked by tests/test_data_integrity.py)
-CA_WHITELIST = {
-    ("BKR", "2017-07-05"): "Baker Hughes / GE merger: $17.50 special dividend per share; cash accounting is right",
-    ("KDP", "2018-07-10"): "Dr Pepper Snapple / Keurig merger: $103.75 special dividend per share; cash accounting is right",
-    ("VIP", "2019-12-27"): "VEON ADR: a $48.31 payout on a thin (~4,000 shares/day) series; recorded as reported",
-    ("HANS", "1990-11-08"): "Hansen Natural 1990: sub-cent prices and a $0.0026 payout; too coarse to reconcile",
-    ("MNST", "1990-11-08"): "Monster Beverage (ex-Hansen) 1990: sub-cent prices and a $0.0026 payout; too coarse to reconcile",
-}
+# more than CA_TOLERANCE and no reading of _reconcile_payouts / reconcile_actions explains it, each with the evidence
+# (checked by tests/test_corporate_actions.py). Large special dividends, where Yahoo's adjustment close / (prev_close
+# - payout) misstates the move (BKR 2017-07-05, KDP 2018-07-10, VIP 2019-12-27, WY 2010-07-20), and the sub-cent
+# HANS / MNST payout of 1990-11-08 are now aligned by _reconcile_payouts rather than listed here.
+CA_WHITELIST: dict[tuple[str, str], str] = {}
 
 
 def _whole_ratio(r: float) -> bool:
@@ -1310,9 +1314,13 @@ def reconcile_actions(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
     a = pd.to_numeric(raw["adj_close"], errors="coerce")
     eng = (c + d) / c.shift(1)
     adj = a / a.shift(1)
-    cand_days = raw.index[((sp > 0) & ((sp - 1).abs() > 1e-9) & (d > 0) & ((eng - adj).abs() > CA_TOLERANCE)).to_numpy()]
+    has_split = (sp > 0) & ((sp - 1).abs() > 1e-9)
+    cand_days = raw.index[(has_split & (d > 0) & ((eng - adj).abs() > CA_TOLERANCE)).to_numpy()]
     spin_days = raw.index[((sp > 1 + 1e-9) & (d <= 0)).to_numpy() & np.array([not _split_like(x) for x in sp])]
-    if not len(cand_days) and not len(spin_days):
+    from .fund_lists import MUTUAL_FUNDS          # (their distribution mismatches are warned about instead)
+    pay_days = raw.index[(~has_split & (d > 0) & ((eng - adj).abs() > CA_TOLERANCE)).to_numpy()] \
+        if t not in MUTUAL_FUNDS else raw.index[:0]
+    if not len(cand_days) and not len(spin_days) and not len(pay_days):
         CA_FIXES[t] = empty
         return raw, empty
     raw = raw.copy()
@@ -1364,12 +1372,61 @@ def reconcile_actions(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
             raw.loc[before, "adj_close"] = raw.loc[before, "adj_close"] * (a_now / a_prev) / tr
         log.append((day, reading, r, r if keep_split else 1.0, dv, pay, float(eng.iloc[i]) - 1, tr - 1,
                     float(adj.iloc[i]) - 1, m))
+    log += _reconcile_payouts(raw, pay_days, mkt)
     if len(spin_days):     # last: a pure change of units for the bars before each (the readings above stand)
         raw, spun = _spinoffs_booked_as_splits(raw, spin_days)
         log = sorted(log + spun, key=lambda row: row[0])
     out = pd.DataFrame(log, columns=cols)
     CA_FIXES[t] = out
     return raw, out
+
+
+CA_FORMULA_TOL = 0.005     # adj_close's day ratio is Yahoo's close / (previous close - payout) within 0.5%
+
+
+def _reconcile_payouts(raw: pd.DataFrame, days, mkt: pd.Series) -> list:
+    """Payout days (no split) whose cash total return (close + payout) / previous close disagrees with adj_close by
+    more than CA_TOLERANCE, in place on `raw` (float columns). Two causes, told apart by the market's move that day:
+
+    - "no_payout": the payout is not this security's, or not on this day - the price shows no ex-dividend drop, so
+      the cash reading is off the market by more than CA_MAX_GAP while the price alone is within it. HR 2022-07-21
+      (the $4.82 special dividend HTA paid its own holders before the merger, booked on Healthcare Realty's series),
+      CTRE 2014-10-29 (CareTrust's $5.88 special dividend booked on its record date AND on its real ex-date,
+      2014-12-11, where the price does drop). The payout is dropped.
+    - "adj_payout": the payout is right and so is the cash accounting, but Yahoo's adjusted close divides the close
+      by (previous close - payout) - it reinvests the payout at a price that never traded - which for a payout this
+      large misstates the day's move (by payout / previous close x the move of the ex-dividend price): WY 2010-07-20 ($26.42 REIT-conversion special dividend, +1.3% in cash vs +3.4%
+      by adj_close), BKR 2017-07-05, KDP 2018-07-10. adj_close is aligned with the cash accounting. Only where
+      adj_close's ratio is exactly that formula (else something else is wrong, and it is left for the test to flag).
+      When even the cash reading is far off the market (a distribution recorded only in part - TJX 1989-06-15, the
+      Waban spin-off - or a day before the market series starts) the reading is "unresolved_payout": aligned the
+      same way, and backtests held over it are told.
+
+    adj_close is rescaled BEFORE the day (as in reconcile_actions), so no later bar changes. Returns log rows."""
+    log = []
+    for day in days:
+        i = raw.index.get_loc(day)
+        if i == 0:
+            continue
+        cc, pc, dv = float(raw["close"].iloc[i]), float(raw["close"].iloc[i - 1]), float(raw["dividend"].iloc[i])
+        a_prev, a_now = float(raw["adj_close"].iloc[i - 1]), float(raw["adj_close"].iloc[i])
+        if not (pc > 0 and dv > 0 and np.isfinite(a_prev) and a_prev > 0 and np.isfinite(a_now) and a_now > 0):
+            continue
+        adj_r, cash, bare = a_now / a_prev, (cc + dv) / pc, cc / pc
+        mv = mkt.get(day, np.nan) if len(mkt) else np.nan
+        known = bool(np.isfinite(mv))
+        m = float(mv) if known else 0.0
+        gap_cash, gap_bare = abs(np.log(cash) - np.log1p(m)), abs(np.log(bare) - np.log1p(m))
+        if known and gap_cash > CA_MAX_GAP and gap_bare <= CA_MAX_GAP and gap_bare < gap_cash:
+            reading, pay, tr = "no_payout", 0.0, bare
+        elif pc > dv and abs(np.log(adj_r) - np.log(cc / (pc - dv))) <= CA_FORMULA_TOL:
+            reading, pay, tr = ("adj_payout" if gap_cash <= CA_MAX_GAP else "unresolved_payout"), dv, cash
+        else:
+            continue
+        raw.iloc[i, raw.columns.get_loc("dividend")] = pay
+        raw.loc[raw.index < day, "adj_close"] = raw.loc[raw.index < day, "adj_close"] * adj_r / tr
+        log.append((day, reading, 0.0, 0.0, dv, pay, cash - 1, tr - 1, adj_r - 1, m if known else np.nan))
+    return log
 
 
 @lru_cache(maxsize=None)
@@ -1388,7 +1445,11 @@ def corporate_action_fixes(ticker: str) -> pd.DataFrame:
 _READING = {"per_presplit": "the payout was per pre-split share",
             "no_split": "the 'split' was the spin-off booked a second time as a price ratio (dropped)",
             "no_payout": "the split alone stands for the spin-off (payout dropped)",
-            "unresolved": "no consistent reading found; left as reported - trades held over it may be misstated"}
+            "unresolved": "no consistent reading found; left as reported - trades held over it may be misstated",
+            "no_payout": "the payout shows no ex-dividend drop in the price (another security's, or booked on the "
+                         "wrong day); dropped",
+            "unresolved_payout": "the payout does not account for the day's price drop (a distribution recorded only "
+                                 "in part?); left as reported - trades held over it may be misstated"}
 
 
 @lru_cache(maxsize=None)
@@ -1434,6 +1495,8 @@ def corporate_action_note(tickers, start=None, end=None) -> str | None:
         except Exception:  # noqa: BLE001 - synthetic ticker
             continue
         for _, r in fx.iterrows():
+            if r["reading"] == "adj_payout":
+                continue                    # the cash accounting stood; only adj_close was aligned with it
             day = pd.Timestamp(r["date"])
             if (start is not None and day < pd.Timestamp(start)) or (end is not None and day > pd.Timestamp(end)):
                 continue

@@ -1,7 +1,11 @@
 """The Funds page's unknown-expense-ratio handling and the Data page's ticker directory in headless Chromium, at desktop
 and phone width: no page errors, no failed requests, no horizontal page scroll.
 
-The server listens on 127.0.0.1:8871; a stale one left on that port is stopped with `fuser -k 8871/tcp`."""
+The server listens on 127.0.0.1:8871; a stale one left on that port is stopped with `fuser -k 8871/tcp`.
+
+The data job fills in expense ratios in batches, so whether any real mutual fund still lacks one depends on the day's
+data (after the 2026-09-27 refresh none did, and the unknown-ER path went untested). The site therefore serves the
+real fund table with the expense ratio of a few mutual funds (UNKNOWN_ER) blanked, so that path is always exercised."""
 import glob
 import shutil
 import subprocess
@@ -14,6 +18,22 @@ import pytest
 from backtester import data, funds, web
 
 PORT = 8871
+UNKNOWN_ER = 3      # mutual funds served without an expense ratio (the ones with the lowest ratios, after VFINX)
+
+
+def _with_unknown_er(real):
+    """api_funds with the expense ratio of UNKNOWN_ER low-cost mutual funds removed (a copy: the real table is kept)."""
+    def api_funds(query):
+        r = dict(real(query))
+        funds_ = [dict(f) for f in r["funds"]]
+        mf = sorted((f for f in funds_ if f.get("type") == "Mutual fund" and f.get("ticker") != "VFINX"
+                     and isinstance(f.get("expense_ratio"), (int, float))), key=lambda f: (f["expense_ratio"], f["ticker"]))
+        for f in mf[:UNKNOWN_ER]:
+            f["expense_ratio"] = None
+            f.pop("er_source", None)
+        r["funds"] = funds_
+        return r
+    return api_funds
 
 
 def _chromium():
@@ -30,9 +50,10 @@ pytestmark = pytest.mark.skipif(_chromium() is None or not {"VTI", "BND", "VFINX
 
 @pytest.fixture(scope="module")
 def site(tmp_path_factory):
-    old = (web.RUNS, funds.WARM, funds.CACHE_FILE)
+    old = (web.RUNS, funds.WARM, funds.CACHE_FILE, web.api_funds)
     tmp = tmp_path_factory.mktemp("funds_dir_site")
     web.RUNS, funds.WARM, funds.CACHE_FILE = tmp / "runs", False, tmp / "fund_stats.json"
+    web.api_funds = _with_unknown_er(web.api_funds)
     try:
         srv = ThreadingHTTPServer(("127.0.0.1", PORT), web.Handler)
     except OSError:
@@ -44,7 +65,7 @@ def site(tmp_path_factory):
     yield f"http://127.0.0.1:{PORT}"
     srv.shutdown()
     srv.server_close()
-    web.RUNS, funds.WARM, funds.CACHE_FILE = old
+    web.RUNS, funds.WARM, funds.CACHE_FILE, web.api_funds = old
 
 
 @pytest.mark.parametrize("width", [1280, 390])
@@ -65,13 +86,15 @@ def test_funds_unknowns_and_directory(site, width):
         # mutual funds under 0.2%: some pass, the ones without an expense ratio are counted, and can be included
         pg.select_option("#f_kind", "Mutual fund")
         pg.fill("#f_er", "0.2")
-        pg.wait_for_function("document.querySelector('#fUnknown').innerText.includes('no expense ratio yet')")
+        # (the per-filter count, "N funds have no expense ratio yet: left out ...", not the page-wide fallback line)
+        pg.wait_for_function("document.querySelector('#fUnknown').innerText.includes('left out by your filters')")
+        assert pg.inner_text("#fUnknown").startswith(f"{UNKNOWN_ER} funds have no expense ratio yet")
         n = int(pg.inner_text("#fTitle").split(":")[1].split(" of ")[0].replace(",", ""))
         assert n > 10
-        assert "VFINX" in pg.inner_text("#fTable") or "left out" in pg.inner_text("#fUnknown")
+        assert "VFINX" in pg.inner_text("#fTable")                          # 0.14%: passes the filter
         pg.check("#f_unk")
         n2 = int(pg.inner_text("#fTitle").split(":")[1].split(" of ")[0].replace(",", ""))
-        assert n2 > n and "shown" in pg.inner_text("#fUnknown")
+        assert n2 == n + UNKNOWN_ER and "shown" in pg.inner_text("#fUnknown")
         pg.click("#fReset")
         assert not pg.is_checked("#f_unk")
         # the directory on the Data page

@@ -105,6 +105,56 @@ def test_reconcile_synthetic_spinoff_booked_twice(monkeypatch):
     assert data.reconcile_actions("ZZSPLIT", raw2)[1].empty
 
 
+def _payout_day(close, adj, dividend, market=0.0, monkeypatch=None):
+    idx = pd.bdate_range("2021-03-01", periods=len(close))
+    raw = pd.DataFrame({"open": close, "high": close, "low": close, "close": close, "adj_close": adj,
+                        "volume": 1e6, "dividend": dividend, "split": 0.0}, index=idx)
+    monkeypatch.setattr(data, "_market_day_returns", lambda: pd.Series(market, index=idx))
+    return raw
+
+
+def test_reconcile_a_payout_the_price_never_paid(monkeypatch):
+    # HR 2022-07-21 / CTRE 2014-10-29: a $4.82 payout with no ex-dividend drop (the price +0.9%, the market +1%);
+    # the cash reading (+20.7%) is off the market, the price alone is not -> the payout is dropped
+    raw = _payout_day([24.4, 24.29, 24.51, 24.36], [14.9, 14.8344, 18.6745, 18.5602], [0, 0, 4.82, 0], 0.0102,
+                      monkeypatch)
+    out, log = data.reconcile_actions("ZZPAY", raw)
+    assert list(log["reading"]) == ["no_payout"] and out["dividend"].sum() == 0
+    a = out["adj_close"]
+    assert a.iloc[2] / a.iloc[1] == pytest.approx(24.51 / 24.29)            # adj_close agrees (rescaled before)
+    assert a.iloc[3] == raw["adj_close"].iloc[3] and a.iloc[2] == raw["adj_close"].iloc[2]   # later bars untouched
+
+
+def test_reconcile_a_large_special_dividend_keeps_the_cash_accounting(monkeypatch):
+    # WY 2010-07-20: $26.42 special dividend, 41.83 -> 15.94; Yahoo's adj_close ratio is 15.94 / (41.83 - 26.42)
+    # (+3.4%), the cash total return +1.3% (the market +1.1%): the payout stands, adj_close is aligned with it
+    adj2 = 8.66974 * 15.94 / (41.83 - 26.42)
+    raw = _payout_day([40.5, 41.83, 15.94, 15.5], [8.39409, 8.66974, adj2, adj2 * 15.5 / 15.94], [0, 0, 26.42, 0],
+                      0.011, monkeypatch)
+    out, log = data.reconcile_actions("ZZSPEC", raw)
+    assert list(log["reading"]) == ["adj_payout"] and out["dividend"].iloc[2] == 26.42
+    a = out["adj_close"]
+    assert a.iloc[2] / a.iloc[1] == pytest.approx((15.94 + 26.42) / 41.83)
+    monkeypatch.setattr(data, "corporate_action_fixes", lambda t: log)
+    assert data.corporate_action_note(["ZZSPEC"]) is None                  # the cash return stood: nothing to say
+    # an ordinary dividend is left alone
+    raw = _payout_day([50.0, 50.0, 49.8, 50.1], [49.0, 49.0, 49.0 * 50.3 / 50.0, 49.0 * 50.3 / 50.0 * 50.1 / 49.8],
+                      [0, 0, 0.5, 0], 0.0, monkeypatch)
+    assert data.reconcile_actions("ZZDIV", raw)[1].empty
+
+
+@have("HR", "CTRE", "WY", "SPY")
+def test_payouts_reconciled_in_the_data():
+    assert abs(one_day_tr("HR", "2022-07-21")) < 0.03                      # was +20.7%
+    assert abs(one_day_tr("CTRE", "2014-10-29")) < 0.03                    # was +40.3%
+    assert abs(one_day_tr("CTRE", "2014-12-11") - adj_tr("CTRE", "2014-12-11")) < 0.01   # the real ex-date stays
+    assert data.load("CTRE")["dividend"].loc["2014-12-11"] == pytest.approx(5.88)
+    assert one_day_tr("WY", "2010-07-20") == pytest.approx(adj_tr("WY", "2010-07-20"), abs=1e-6)
+    assert data.load("WY")["dividend"].loc["2010-07-20"] == pytest.approx(26.42)
+    r = runner.run(parser.parse("buy and hold HR from 2022-07-01 to 2022-08-31"))
+    assert any(n.startswith("Corporate actions:") and "HR 2022-07-21" in n for n in r.strategy.notes)
+
+
 def test_whole_ratio():
     assert all(data._whole_ratio(r) for r in (2, 3, 1.5, 0.5, 7, 4, 1 / 15, 1.25, 10))
     assert not any(data._whole_ratio(r) for r in (1.319, 1.128))
