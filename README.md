@@ -419,7 +419,13 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
       `ref(close, 2-1)` is an error everywhere, so the check and the calculation can't read a rule
       differently.
   - Rules written as Python functions (the Python API: `entry=lambda df, ns: ...`, also exits, rankings and
-    order levels) can't be checked statically, so they are probed: the function is run on the data cut at
+    order levels) are causal by construction: each is called on the data up to bar i (a copy; `ns['sym']` and
+    `data.load` are cut at the same bar) for every bar in order, and only the last value of each call is used,
+    so a function that caches the largest frame it has seen, or computes `shift(-1)`, never sees a later row.
+    Reading files or the network while it runs raises an error. A 5,000-bar series takes a few seconds; a
+    note gives the timing. A function whose whole-history answer differs from its bar-by-bar one is refused
+    (below). Mark one `f.vectorized_causal = True` to call it once on the whole history instead (faster, with a
+    warning note): only then does the empirical probe guard it: the function is run on the data cut at
     many dates chosen adversarially - the latest 40 bars one by one, every day an entry fires and the three
     days before it, every day its answer changes, every day of a short run window, then a dense random grid
     (up to 1,200 cuts, a few seconds) - and its output up to each cut must equal its output on the full data.
@@ -460,6 +466,17 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
 - **Spin-offs.** A "dividend" worth more than 15% of the price (the data books spun-off shares at their
   value, e.g. MDLZ on 2012-10-02) is paid in cash like a dividend but labelled a spin-off/special
   distribution in the notes and the portfolio ledger.
+- **Splits missing or booked wrongly, bad ticks.** Every price file passes an integrity gate on load
+  (`backtester/integrity.py`). A one-day level change by a common split ratio (2, 3, 1/4, 1/10, ...) that leaves a
+  day in line with the best-correlated reference (SPY, TLT, SOXX, NVDA, ...), holds for the following days, and
+  (where volume is reported) shifts the volume the same way is an unrecorded split: it is recorded and the earlier
+  prices back-adjusted (PGOVX, PCRAX and PSLDX 2023-03-27, PIMCO reverse splits; McDonald's 1968 and 1969
+  2-for-1s). A booked split that the prices already moved by is dropped (NVDS 2023-08-09). An isolated bar 25%+
+  from both neighbours, which agree, is replaced by their average (CPER 2014-12-04; DFEN on the NYSE's bad-print
+  day 2024-06-03). Real crashes stay (SVXY 2018-02-06, AAPL 2000-09-29): the ratio leaves no plausible day or the
+  volume burst says otherwise. `data/inferred_splits.json` holds manual overrides (SOXS 2026-05-26: prices 15x
+  too high before it, no split that day) and the data job's log of every repair with its evidence; a backtest
+  over a repaired day says so ("Data repaired: ..."); `data.price_repairs(ticker)` lists them.
 - **Corporate actions booked twice.** Yahoo sometimes records one event in two ways on its ex-date: DHR on
   2016-07-05 (Fortive spin-off) has both a $24.56 payout and a 1.319 "split", which together gave a phantom
   +39% day; EXPE 2011-12-21 (TripAdvisor) and TMUS 2013-05-01 (MetroPCS) pay per pre-split share on a
