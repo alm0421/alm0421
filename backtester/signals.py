@@ -21,6 +21,7 @@ import pandas as pd
 from . import data, expr, metrics, runner
 from .portfolio import Portfolio
 from .strategy import Strategy
+from .engine import strategy_namespace
 
 PAPER = data.ROOT / "paper"
 
@@ -82,7 +83,7 @@ def exit_instructions(spec: Strategy, res) -> tuple[list[dict], list[dict]]:
                              "valid": "next session (update after each close)", "oca": oca})
         for so in st.get("scale_out") or []:
             standing.append({**base, "order": "LIMIT", "price": round(so["level"], 4), "shares": round(st["shares"] * so["fraction"], 6),
-                             "reason": f"scale out {so['fraction']:.0%} at +{so['at']:.1%}", "valid": "next session", "oca": None})
+                             "reason": f"scale out {so['fraction']:.0%} at " + (f"{so['r']:g}R" if "r" in so else f"+{so['at']:.1%}"), "valid": "next session", "oca": None})
         if spec.exit_when and spec.exit_when_fill == "open" and isinstance(spec.exit_when, str):
             standing.append({**base, "order": "MOO if", "price": None, "reason": f"exit rule {spec.exit_when} (checked at the open)",
                              "valid": "next open", "oca": None})
@@ -131,10 +132,10 @@ def scan(spec) -> dict:
             if "open_ok" in df:
                 row["open_ok"] = True
             ext = pd.concat([df, pd.DataFrame([row], index=pd.DatetimeIndex([nxt]))])
-            ns = expr.Namespace(ext, ticker=t)
+            ns = strategy_namespace(spec, ext, t)
             assumed = assumed or bool({"open", "gap"} & expr.names_in(spec.entry if isinstance(spec.entry, str) else ""))
         else:
-            ns = expr.Namespace(df, ticker=t)
+            ns = strategy_namespace(spec, df, t)
         rules = [("long" if spec.side != "short" else "short", spec.entry)]
         if spec.side == "both":
             rules.append(("short", spec.short_entry))

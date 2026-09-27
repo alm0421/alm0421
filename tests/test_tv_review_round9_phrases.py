@@ -202,15 +202,15 @@ H = '//@version=5\nstrategy("x", overlay=true)\n'
 
 
 @pytest.mark.parametrize("body,line,msg", [
-    ("var float lvl = na\nif close > open\n    strategy.entry(\"L\", strategy.long)\n", 3, "var"),
+    # (var state, one-line functions, ternaries, limit entries, dynamic stops and ticks are supported since round 10)
+    ("varip float lvl = na\nif close > open\n    strategy.entry(\"L\", strategy.long)\n", 3, "varip"),
     ("x = 0.0\nx := close\nif close > x\n    strategy.entry(\"L\", strategy.long)\n", 4, "reassignment"),
-    ("f(x) => x * 2\nif close > open\n    strategy.entry(\"L\", strategy.long)\n", 3, "custom functions"),
-    ("c = close > open ? 1 : 0\nif c > 0\n    strategy.entry(\"L\", strategy.long)\n", 3, "ternary"),
+    ("f(x) =>\n    y = x * 2\n    y + 1\nif close > open\n    strategy.entry(\"L\", strategy.long)\n", 3, "several lines"),
     ("if close > open\n    strategy.order(\"L\", strategy.long)\n", 4, "strategy.order"),
-    ("if close > open\n    strategy.entry(\"L\", strategy.long, limit=close * 0.98)\n", 4, "limit"),
-    ("if close > open\n    strategy.entry(\"L\", strategy.long)\nstrategy.exit(\"X\", \"L\", stop=ta.lowest(low, 10))\n", 5, "stop"),
+    ("if close > open\n    strategy.entry(\"L\", strategy.long, limit=close * 0.98, stop=close * 1.02)\n", 4, "stop-limit"),
+    ("var float x = 0\nif strategy.position_size > 0\n    x := close\nif close > open\n    strategy.entry(\"L\", strategy.long)\n",
+     5, "depends on the position"),
     ("for i = 0 to 10\n    x = i\nif close > open\n    strategy.entry(\"L\", strategy.long)\n", 3, "for"),
-    ("if close > open\n    strategy.entry(\"L\", strategy.long)\nstrategy.exit(\"X\", \"L\", profit=100, loss=50)\n", 5, "ticks"),
 ])
 def test_pine_refuses_unsupported_with_line_number(body, line, msg):
     with pytest.raises(ParseError, match=rf"line {line}:.*{msg}"):

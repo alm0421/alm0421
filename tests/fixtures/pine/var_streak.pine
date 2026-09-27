@@ -1,0 +1,22 @@
+//@version=5
+// ticker: SPY
+strategy("Up streak with var state", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity,
+     default_qty_value=100)
+
+// consecutive up closes, counted bar by bar
+var int upDays = 0
+if close > close[1]
+    upDays := upDays + 1
+else
+    upDays := 0
+
+// the highest close since the streak began (resets with it)
+var float peak = na
+peak := upDays == 0 ? close : math.max(nz(peak, close), close)
+
+if upDays >= 3 and strategy.position_size == 0
+    strategy.entry("L", strategy.long)
+if upDays == 0
+    strategy.close("L")
+
+plot(peak)

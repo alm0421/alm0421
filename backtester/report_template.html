@@ -969,6 +969,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       PX.key = key; PX.P = P; PX.a = 0; PX.b = n; PX.sel = null; PX.pending = null;
       if (!P._t) P._t = P.dates.map(d => Date.parse(d));
       const idx = new Map(P.dates.map((d, i) => [d, i]));
+      PX.idx = idx;
       // trade prices are as traded; the chart is split-adjusted: divide by the later-split factor of each date
       const onChart = tr => { const f = +tr.entry_split_factor || 1, g = +tr.exit_split_factor || 1; if (f === 1 && g === 1) return tr;
         const o = { ...tr, entry_price: tr.entry_price / f, exit_price: tr.exit_price / g };
@@ -1154,12 +1155,26 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     PX.series.forEach(s => { if (s.pane === -1) strokeSeries(ctx, s.values, i0, i1, X, Yp, bpp, s.color, 1.6, s.step); });
     // each trade's stop (red), trailing stop (orange) and target (green) over its duration: levels from the engine
     // at the entry; the trailing stop steps with the best price since the entry, as the engine moves it
+    let lvDrawn = 0;
     if (!dense) {
       const spec = R().spec || {};
       ctx.setLineDash([4, 3]); ctx.lineWidth = 1.3;
       vis.forEach(x => {
         const tr = x.tr; if (x.ei == null) return;
         const xi = x.xi == null || x.xi > lim ? i1 : x.xi, xa = X(x.ei) - halfBar, xb = X(xi) + halfBar;
+        if (tr.lv && tr.lv.d) {
+          lvDrawn++;
+          // levels the engine moved bar by bar (dynamic levels, activation, the current ATR, TradingView's trailing
+          // stop): drawn as it recorded them at each bar's start (split-adjusted, like the chart)
+          const bars = tr.lv.d.map(d => PX.idx.get(d));
+          [[tr.lv.s, down], [tr.lv.t, up]].forEach(([vals, c]) => {
+            ctx.strokeStyle = c; ctx.beginPath(); let pen = false;
+            vals.forEach((v, n) => { const j = bars[n]; if (j == null || j > xi || !isNum(v)) { pen = false; return; }
+              const y = Yp(v); if (pen) ctx.lineTo(X(j) - halfBar, y); else ctx.moveTo(X(j) - halfBar, y); ctx.lineTo(X(j) + halfBar, y); pen = true; });
+            ctx.stroke();
+          });
+          return;
+        }
         [[tr.stop_level, down], [tr.target_level, up]].forEach(([v, c]) => {
           if (!isNum(v)) return; ctx.strokeStyle = c; ctx.beginPath(); ctx.moveTo(xa, Yp(v)); ctx.lineTo(xb, Yp(v)); ctx.stroke(); });
         if (!isNum(tr.trail_level)) return;
@@ -1267,7 +1282,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     PX.drawMs = performance.now() - tStart;
     const ds = pxBase.dataset;   // exposed for performance checks and tests
     ds.drawMs = PX.drawMs.toFixed(1); ds.panes = panes.length; ds.folded = regions.filter(r => r.fold).length;
-    ds.lastBar = i1; ds.markers = shown; ds.style = PX.style; ds.log = PX.log && !!scales[0].log; ds.height = H;
+    ds.lastBar = i1; ds.markers = shown; ds.lvPaths = lvDrawn; ds.style = PX.style; ds.log = PX.log && !!scales[0].log; ds.height = H;
     ds.regions = JSON.stringify(regions.map(r => [Math.round(r.y), Math.round(r.h)])); ds.plot = JSON.stringify([l, iw]);
   }
   // One path through the visible values; with more bars than pixels, each pixel column contributes its
