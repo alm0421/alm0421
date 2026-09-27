@@ -133,14 +133,19 @@ class Settings:
 
 def monthly_asset_returns(tickers: list[str], start=None, end=None) -> pd.DataFrame:
     """Monthly total returns (from adj_close month-ends) over the common history of the tickers."""
-    px = pd.concat({data.canonical(t): data.load(t)["adj_close"] for t in tickers}, axis=1).dropna()
-    if start:
-        px = px[px.index >= pd.Timestamp(start)]
+    px = pd.concat({data.canonical(t): data.load(t)["adj_close"] for t in tickers}, axis=1, sort=True).dropna()
     if end:
         px = px[px.index <= pd.Timestamp(end)]
     me = complete_months(px)
-    # the first month-end is the base of the first return (a partial first month has no return)
+    # the first month-end is the base of the first return (a partial first month has no return); a window that
+    # starts on or before a month's first session includes that month, measured from the month-end before it
+    # ("since 1972-01-01" starts with January 1972)
     r = me.pct_change().iloc[1:]
+    if start and len(r):
+        per = px.index.to_period("M")
+        first_day = pd.Series(px.index, index=px.index).groupby(per).min()
+        firsts = first_day.reindex(r.index.to_period("M")).to_numpy()
+        r = r[firsts >= np.datetime64(pd.Timestamp(start))]
     return r.dropna()
 
 
@@ -630,7 +635,8 @@ def run(s: Settings) -> dict:
                      "inflation": "historical CPI" if fixed_infl is None else fixed_infl,
                      "rebalance": s.rebalance, "sims": sims, "glide": glide,
                      "flows": [cf.describe() for cf in s.flows] or ["no cash flows"],
-                     "history_start": hist.index[0].date(), "history_end": hist.index[-1].date(),
+                     "history_start": hist.index[0].to_period("M").start_time.date(),   # the first month counted, from its start
+                     "history_end": hist.index[-1].date(),
                      "history_months": len(hist), "t_df": t_df, "success_target": s.success_target,
                      "age": s.age, "until_age": s.until_age, "stress": s.stress or None,
                      "horizon": s.horizon or "fixed", "sex": s.sex if s.horizon == "mortality" else None,
@@ -766,7 +772,7 @@ def settings_from_spec(spec, s: Settings) -> tuple[dict[str, float], str]:
     if w:
         if getattr(spec, "leverage", 1.0) == 1.0:
             rb = getattr(spec, "rebalance", "yearly")
-            s.rebalance = {"daily": "monthly", "weekly": "monthly"}.get(rb, rb)
+            s.rebalance = {"daily": "monthly", "weekly": "monthly"}.get(rb, "yearly" if str(rb).startswith("yearly_") else rb)
             if s.start is None and spec.start:
                 s.start = spec.start
             if s.end is None and spec.end:

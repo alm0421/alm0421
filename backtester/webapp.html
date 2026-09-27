@@ -424,6 +424,18 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     <h3>Search tickers</h3><input id="tkSearch" placeholder="type to filter"><div id="tkList" class="chips"></div>
     <h3>Add a ticker</h3><div class="row"><input id="tkAdd" placeholder="e.g. IBM, BRK-B, ^VIX3M"><button class="btn" id="tkAddBtn">Download history</button><span class="note" id="tkAddStatus"></span></div>
     <p class="note">Works on your own computer (it downloads from Yahoo Finance). Any ticker you mention in a strategy is also fetched automatically.</p>
+    <h3>Import your own series</h3>
+    <p class="note">A CSV of <code>date,value</code> rows: daily or monthly returns (in % or as decimals) or prices. It becomes a ticker you can use anywhere (portfolios, benchmarks, Monte Carlo, the optimiser, factors), stored in <code>data/custom/</code>. Monthly values step on the last trading day of each month.</p>
+    <div class="row" id="serForm">
+      <input id="serName" placeholder="name, e.g. MYFUND" maxlength="10" aria-label="series name" style="max-width:150px">
+      <input type="file" id="serFile" accept=".csv,.txt,text/csv,text/plain" aria-label="CSV file">
+      <select id="serKind" aria-label="values"><option value="auto">values: detect</option><option value="returns">returns</option><option value="prices">prices</option></select>
+      <select id="serFreq" aria-label="frequency"><option value="auto">frequency: detect</option><option value="daily">daily</option><option value="monthly">monthly</option></select>
+      <select id="serUnits" aria-label="units"><option value="auto">returns in: detect</option><option value="percent">percent (5 = 5%)</option><option value="decimal">decimals (0.05 = 5%)</option></select>
+      <button class="btn" id="serBtn">Import</button>
+    </div>
+    <div id="serStatus" class="note" role="status"></div>
+    <div id="serList"></div>
     <details style="margin-top:10px"><summary>Rule language reference</summary><pre class="help" id="helpExpr2"></pre></details>
   </div>
 </section>
@@ -1569,6 +1581,7 @@ window.addEventListener('blur', unpress);
 
   // ---------- data
   async function loadData() {
+    drawSeries();
     if (!STATUS) STATUS = await api('/api/status');
     const d = STATUS.data, box = $('dataStatus'); box.replaceChildren();
     [['Latest daily bar', d.last_bar || '—'], ['Last update', d.updated_utc], ['Tickers with price history', d.tickers], ['Current Nasdaq-100 members', d.nasdaq100_current],
@@ -1716,6 +1729,29 @@ window.addEventListener('blur', unpress);
   $('comSearch').addEventListener('input', () => { clearTimeout(comTimer); comTimer = setTimeout(loadCommunity, 250); });
   $('comSort').addEventListener('change', loadCommunity);
 
+  // ---- custom series (POST /api/series)
+  async function drawSeries() {
+    try {
+      const j = await api('/api/series', { action: 'list' });
+      $('serList').replaceChildren(...(j.series || []).map(x => {
+        const row = el('div', { class: 'row note' }), del = el('button', { class: 'btn small', title: 'delete ' + x.name }, 'Delete');
+        del.onclick = async () => { if (!confirm('Delete ' + x.name + '?')) return; await api('/api/series', { action: 'delete', name: x.name }); STATUS = null; drawSeries(); };
+        row.append(el('span', {}, x.about), del);
+        return row;
+      }));
+    } catch (e) { $('serList').textContent = e.message; }
+  }
+  $('serBtn').addEventListener('click', async () => {
+    const f = $('serFile').files[0];
+    if (!f) { $('serStatus').textContent = 'Choose a CSV file first.'; return; }
+    $('serStatus').textContent = '…';
+    try {
+      const j = await api('/api/series', { action: 'import', name: $('serName').value.trim(), csv: await f.text(), source: f.name,
+        kind: $('serKind').value, frequency: $('serFreq').value, units: $('serUnits').value });
+      $('serStatus').textContent = `Imported ${j.about} Try: "${j.example}".`;
+      STATUS = null; drawSeries();
+    } catch (e) { $('serStatus').textContent = e.message; }
+  });
   $('tkAddBtn').addEventListener('click', async () => { $('tkAddStatus').textContent = '…'; try { const j = await api('/api/fetch', { ticker: $('tkAdd').value }); $('tkAddStatus').textContent = `${j.ticker}: ${j.status}`; STATUS = null; } catch (e) { $('tkAddStatus').textContent = e.message; } });
 
   // ---------- init
@@ -2201,7 +2237,9 @@ window.addEventListener('blur', unpress);
       $('gStatus').textContent = ''; showMsgs([], false);
       $('gResult').classList.remove('hide'); $('gFrame').src = j.url; $('gOpenTab').href = j.url;
       $('gResultMeta').textContent = j.portfolios.map(x => x.name).join(' vs ');
-      $('gNotes').replaceChildren(...(j.notes || []).slice(0, 12).map(n => el('div', { class: 'note' }, 'Note: ' + n)));
+      $('gNotes').replaceChildren(...(j.notes || []).slice(0, 12).map(n => /^Warning:/.test(n)
+        ? el('div', { class: 'warn', role: 'alert' }, '⚠ ' + n.replace(/^Warning: /, ''))
+        : el('div', { class: 'note' }, 'Note: ' + n)));
       lastShare = j.share; history.replaceState(null, '', `#backtest?g=${j.share}`);
     } catch (e) { $('gStatus').textContent = ''; showMsgs(e.message.split(/(?<=\.) (?=Portfolio \d|Unknown|Cash flow|One |A \$)/), true); }
     $('gRun').disabled = false;

@@ -158,14 +158,14 @@ def parse_blend(b) -> list[tuple[str, float]] | None:
     percentages or fractions; they must add up to 100%."""
     import re
     if isinstance(b, dict):
-        pairs = [(str(t), float(w)) for t, w in b.items()]
+        pairs = [(_asset_class_or(str(t)), float(w)) for t, w in b.items()]
     else:
-        s = str(b or "").strip()
+        s = _blend_asset_classes(str(b or "").strip())
         m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s+([\w.^-]+)\s*/\s*([\w.^-]+)", s)
         if m:
             pairs = [(m.group(3), float(m.group(1))), (m.group(4), float(m.group(2)))]
         else:
-            toks = [t for t in re.split(r"[\s,/+:;=]+|(?<=\d)%", s) if t and t != "%"]
+            toks = [t for t in re.split(r"[\s,/+:;=]+|(?<=\d)%", s) if t and t != "%" and t.lower() not in ("and", "&")]
             if len(toks) < 4 and not any(re.fullmatch(r"\d+(\.\d+)?", t) for t in toks):
                 return None
             num = lambda t: re.fullmatch(r"\d+(\.\d+)?", t) is not None  # noqa: E731
@@ -199,11 +199,35 @@ def parse_blend(b) -> list[tuple[str, float]] | None:
     return list(out.items())
 
 
+def _asset_class_or(name: str) -> str:
+    """A Portfolio Visualizer asset-class name ("US Stock Market") -> its series (VTISIM); anything else as is."""
+    n = " ".join(name.split())
+    if " " not in n and n == n.upper():
+        return n
+    from . import parser as _parser        # (parser imports this module)
+    hit = _parser._asset_class_ticker(n)
+    return hit[0] if hit else n
+
+
+def _blend_asset_classes(s: str) -> str:
+    """Asset-class names after the weights of a blend -> their series: "60% US Stock Market 40% Total Bond Market"
+    -> "60% VTISIM 40% BNDSIM" (tickers are left alone)."""
+    import re
+    if not re.search(r"[a-z]", s):
+        return s
+
+    def fix(m):
+        hit = _asset_class_or(m.group(2))
+        return f"{m.group(1)} {hit}" if hit != " ".join(m.group(2).split()) else m.group(0)
+    return re.sub(r"(\d+(?:\.\d+)?\s*%?)\s+(?:in |of )?(?:the )?([A-Za-z][A-Za-z .&'-]*?[A-Za-z])"
+                  r"(?=\s*(?:[,/+;]|\band\b)?\s*(?:\d|$))", fix, s)
+
+
 def benchmark_label(b) -> str:
     """The benchmark as shown and stored: a ticker ("SPY") or a blend ("60% SPY / 40% AGG")."""
     parts = parse_blend(b)
     if parts is None:
-        return data.canonical(str(b).strip())
+        return data.canonical(_asset_class_or(str(b).strip()))
     return " / ".join(f"{round(w * 100, 2):g}% {t}" for t, w in parts)
 
 
@@ -814,6 +838,50 @@ def yearly_balances(equity: pd.Series, nav_: pd.Series, flows: pd.Series | None 
                    "end_balance": float(eq.iloc[-1]), "inflation": infl,
                    "real_return": (1 + ret) / (1 + infl) - 1 if _finite(ret) and _finite(infl) else np.nan}
     out = pd.DataFrame(rows).T
+    out.index.name = "year"
+    return out
+
+
+def income_yearly(equity: pd.Series, income: pd.DataFrame | None) -> pd.DataFrame:
+    """Per calendar year: the dividends (and other distributions) and the cash interest received, their total, the
+    balance at the start of the year (the previous year-end, or the starting balance) and the yield on it (Portfolio
+    Visualizer's annual income table). Interest paid on borrowing shows as negative interest."""
+    if income is None or not len(income) or not len(equity):
+        return pd.DataFrame()
+    inc = income.reindex(equity.index).fillna(0.0)
+    skip = _anchor_year(equity)
+    rows = {}
+    for y, eq in equity.groupby(equity.index.year):
+        if y == skip:
+            continue
+        prev = equity[equity.index.year < y]
+        start = float(prev.iloc[-1]) if len(prev) else float(eq.iloc[0])
+        iy = inc[inc.index.year == y]
+        d, i_ = float(iy["dividends"].sum()), float(iy["interest"].sum())
+        rows[y] = {"start_balance": start, "dividends": d, "interest": i_, "income": d + i_,
+                   "dividend_yield": d / start if start > 0 else np.nan,
+                   "yield": (d + i_) / start if start > 0 else np.nan}
+    out = pd.DataFrame(rows).T
+    out.index.name = "year"
+    return out
+
+
+def asset_yearly_returns(prices: dict, tickers: list[str], index: pd.DatetimeIndex) -> pd.DataFrame:
+    """Each holding's calendar-year total return (adjusted closes, dividends reinvested) over the run's dates: year-end
+    to year-end, the first year from the run's first day (or from the holding's first price when it starts later)."""
+    cols = {}
+    for t in tickers:
+        df = prices.get(t)
+        if df is None or not len(df):
+            continue
+        c = (df["adj_close"] if "adj_close" in df else df["close"]).dropna()
+        c = c[c.index <= index[-1]]
+        s = c.reindex(index.union(c.index)).ffill().reindex(index).dropna()
+        if len(s) > 1:
+            cols[t] = s
+    if not cols:
+        return pd.DataFrame()
+    out = yearly_returns(cols)
     out.index.name = "year"
     return out
 

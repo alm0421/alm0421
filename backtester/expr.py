@@ -278,10 +278,12 @@ def month_end_flags(idx: pd.DatetimeIndex) -> np.ndarray:
     return np.asarray(per != pd.DatetimeIndex(nxt).to_period("M"))
 
 
-def calendar_month_return(x: pd.Series, months: int) -> pd.Series:
+def calendar_month_return(x: pd.Series, months: int, skip: int = 0) -> pd.Series:
     """Return over `months` calendar months, month-end to month-end, as Portfolio Visualizer and Antonacci measure
     it: on every day, the change from the month-end `months` months before the last completed month-end (that day
-    itself when it is a month-end) to that month-end. Causal: a month's value is known on its last session."""
+    itself when it is a month-end) to that month-end. Causal: a month's value is known on its last session.
+    skip: end `skip` month-ends before the last completed one ("12 month return skipping the last month" in
+    calendar months = calendar_month_return(x, 11, 1): the month-end price 1 month ago / 12 months ago - 1)."""
     v = x.to_numpy(dtype=float)
     pos = np.flatnonzero(month_end_flags(x.index))
     out = np.full(len(v), np.nan)
@@ -290,8 +292,8 @@ def calendar_month_return(x: pd.Series, months: int) -> pd.Series:
     per = x.index[pos].to_period("M")
     me = pd.Series(v[pos], index=per)
     me = me[~me.index.duplicated(keep="last")]
-    prev = me.reindex(per - months).to_numpy()
-    r = v[pos] / prev - 1
+    prev = me.reindex(per - (months + skip)).to_numpy()
+    r = (me.reindex(per - skip).to_numpy() if skip else v[pos]) / prev - 1
     # each day carries its last completed month-end's value (NaN there stays NaN, it is not filled from before)
     last = np.full(len(v), -1)
     last[pos] = np.arange(len(pos))
@@ -475,6 +477,13 @@ class Namespace(dict):
             return (x - x.rolling(n).mean()) / x.rolling(n).std(ddof=0)
 
         def ref(x, n=1):
+            n0 = n
+            if isinstance(x, pd.Series) and id(x) in cal_made and cal_made[id(x)][0] is x:
+                # a calendar-month return lagged by whole months (12-1 momentum): month-ends, not sessions
+                nn = nonneg(n0)
+                if nn % MONTH_BARS == 0:
+                    _, src, months, skip = cal_made[id(x)]
+                    return calendar_month_return(src, months, skip + nn // MONTH_BARS)
             x = _s(x, c)
             n = nonneg(n)
             if x.dtype == bool:
@@ -482,11 +491,17 @@ class Namespace(dict):
             return x.shift(n)
 
         cal_months = self.month_lookbacks == "calendar"
+        cal_made: dict = {}     # id -> (series, source, months, skip) of the calendar-month returns made here
+
+        def cal_ret(x, months):
+            out = calendar_month_return(x, months)
+            cal_made[id(out)] = (out, x, months, 0)
+            return out
 
         def ret(*a):
             x, n = pick(a, c, 1)
             if cal_months and n % MONTH_BARS == 0:
-                return calendar_month_return(x, n // MONTH_BARS)
+                return cal_ret(x, n // MONTH_BARS)
             return x / x.shift(n) - 1
 
         rsi_memo: dict = {}
@@ -506,7 +521,7 @@ class Namespace(dict):
             """Total return (dividends reinvested) over n bars."""
             x, n = pick(a, trs, 1)
             if cal_months and n % MONTH_BARS == 0:
-                return calendar_month_return(x, n // MONTH_BARS)
+                return cal_ret(x, n // MONTH_BARS)
             return x / x.shift(n) - 1
 
         def tbill_ret(n=252):
@@ -517,7 +532,7 @@ class Namespace(dict):
             rr = r.reindex(c.index.union(r.index)).ffill().reindex(c.index).fillna(0.0)
             idx = (1 + rr / 252).cumprod()
             if cal_months and int(n) % MONTH_BARS == 0:
-                return calendar_month_return(idx, int(n) // MONTH_BARS)
+                return cal_ret(idx, int(n) // MONTH_BARS)
             return idx / idx.shift(int(n)) - 1
 
         def max_drawdown(*a):

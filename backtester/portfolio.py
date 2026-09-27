@@ -44,25 +44,57 @@ def every_n(freq) -> tuple[int, str] | None:
     """'every_2_days' -> (2, 'days'); None for the named frequencies."""
     m = _EVERY.fullmatch(str(freq))
     return (int(m.group(1)), m.group(2)) if m else None
+
+
+# plus "yearly_M": once a year, at the last trading day of month M (1-12): "rebalance every year in June" = yearly_6
+_ANNUAL_IN = re.compile(r"yearly_(\d{1,2})")
+MONTH_NAMES = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+               "November", "December")
+
+
+def annual_month(freq) -> int | None:
+    """'yearly_6' -> 6 (rebalanced at the end of June each year); None otherwise."""
+    m = _ANNUAL_IN.fullmatch(str(freq))
+    return int(m.group(1)) if m and 1 <= int(m.group(1)) <= 12 else None
 FLOW_FREQS = ("monthly", "quarterly", "semiannual", "yearly")
 NAV_WARMUP = 504   # trading days simulated before the start for the synthetic NAVs of groups
 _MONTH_RET = re.compile(r"\b(?:t?ret|tbill_ret)\((?:[^()]*?,\s*)?(\d+)\s*\)")
 
 
+_SKIP_RET = re.compile(r"\bref\(\s*(?:t?ret|tbill_ret)\((?:[^()]*?,\s*)?(\d+)\s*\)\s*,\s*(\d+)\s*\)")
+
+
 def month_lookback_line(p) -> str | None:
     """How the rules' month lookbacks are measured, for the interpretation and the report's notes; None when no
     rule has a return over whole months (a multiple of 21 sessions)."""
-    ns = {int(n) for n in _MONTH_RET.findall(json.dumps(getattr(p, "tree", {}), default=str))}
-    ns = sorted(n for n in ns if n % expr.MONTH_BARS == 0)
-    if not ns:
+    tree = json.dumps(getattr(p, "tree", {}), default=str)
+    M = expr.MONTH_BARS
+    skips = sorted({(int(a), int(b)) for a, b in _SKIP_RET.findall(tree) if int(a) % M == 0 and int(b) % M == 0})
+    plain = _SKIP_RET.sub(" ", tree)
+    ns = {int(n) for n in _MONTH_RET.findall(plain)}
+    ns = sorted(n for n in ns if n % M == 0)
+    if not ns and not skips:
         return None
-    ms = ", ".join(f"{n // expr.MONTH_BARS}" for n in ns)
-    if getattr(p, "month_lookbacks", "trading") == "calendar":
-        return (f"Month lookbacks ({ms} months): calendar months, month-end to month-end (from the last completed "
-                "month-end), as Portfolio Visualizer and Antonacci measure them")
-    return (f"Month lookbacks ({ms} months): {expr.MONTH_BARS} trading days a month (12 months = 252 sessions), "
-            "not month-end to month-end; say 'using calendar months' (or month_lookbacks: \"calendar\" in a spec) to "
-            "measure them month-end to month-end as Portfolio Visualizer does")
+    ms = ", ".join(f"{n // M}" for n in ns)
+    cal = getattr(p, "month_lookbacks", "trading") == "calendar"
+    sk = ", ".join(f"{(a + b) // M}-{b // M}" for a, b in skips)
+    if cal:
+        parts = []
+        if ns:
+            parts.append(f"Month lookbacks ({ms} months): calendar months, month-end to month-end (from the last "
+                         "completed month-end), as Portfolio Visualizer and Antonacci measure them")
+        if skips:
+            parts.append(f"{sk} month momentum on month-end prices: " + "; ".join(
+                f"the month-end price {b // M} month{'s' if b // M > 1 else ''} ago / the month-end price "
+                f"{(a + b) // M} months ago - 1" for a, b in skips) + " (completed month-ends, counted from the last one)")
+        return "; ".join(parts)
+    if skips and not ns:
+        return (f"{sk} month momentum: {M} trading days a month (the return over {', '.join(str(a) for a, _ in skips)} "
+                f"sessions ending {', '.join(str(b) for _, b in skips)} sessions ago), not month-end to month-end; say "
+                "'using calendar months' to measure it on month-end prices as Portfolio Visualizer does")
+    return (f"Month lookbacks ({', '.join(filter(None, [ms, sk]))} months): {M} trading days a month (12 months = 252 "
+            "sessions), not month-end to month-end; say 'using calendar months' (or month_lookbacks: \"calendar\" in a "
+            "spec) to measure them month-end to month-end as Portfolio Visualizer does")
 
 
 @dataclass
@@ -140,9 +172,9 @@ class Portfolio:
 
     def validate(self) -> None:
         ev = every_n(self.rebalance)
-        if self.rebalance not in FREQS and not (ev and ev[0] >= 1):
+        if self.rebalance not in FREQS and not (ev and ev[0] >= 1) and not annual_month(self.rebalance):
             raise ValueError(f"rebalance must be one of {FREQS}, or every_N_days / every_N_weeks / every_N_months "
-                             "(e.g. every_2_days)")
+                             "(e.g. every_2_days), or yearly_M (once a year at the end of month M, e.g. yearly_6 = June)")
         validate_node(self.tree)
         check_tree(self)
         if not (0 < self.leverage <= 10):
@@ -249,6 +281,9 @@ class Portfolio:
         rb = {"none": "never rebalanced (buy and hold)", "daily": "re-evaluated and rebalanced daily",
               "semiannual": "re-evaluated and rebalanced every six months (end of June and December)"}.get(
             self.rebalance, f"re-evaluated and rebalanced {self.rebalance}")
+        if annual_month(self.rebalance):
+            rb = (f"re-evaluated and rebalanced yearly, at the end of {MONTH_NAMES[annual_month(self.rebalance) - 1]} "
+                  "(its last trading day)")
         if every_n(self.rebalance):
             n_, u_ = every_n(self.rebalance)
             rb = (f"re-evaluated and rebalanced every {n_} trading days" if u_ == "days" else
@@ -295,7 +330,11 @@ class Portfolio:
                       + _window_text(self.withdrawal_start, self.withdrawal_end)
                       + (f", growing {self.withdrawal_growth:.1%} a year" if self.withdrawal_growth else ""))
         if self.withdrawal_pct:
-            cf.append(f"withdraw {self.withdrawal_pct:.1%} of the balance {self.withdrawal_freq}"
+            per_year = {"monthly": 12, "quarterly": 4, "semiannual": 2}.get(self.withdrawal_freq, 1)
+            pc = lambda x: f"{round(x * 100, 4):g}%"  # noqa: E731
+            cf.append((f"withdraw {pc(self.withdrawal_pct * per_year)}/yr of the balance ({pc(self.withdrawal_pct)} "
+                       f"{self.withdrawal_freq})" if per_year > 1 else
+                       f"withdraw {pc(self.withdrawal_pct)} of the balance yearly")
                       + ("" if self.withdrawal else _window_text(self.withdrawal_start, self.withdrawal_end)))
         if self.withdrawal:
             cf.append("a withdrawal is capped at the balance: the account stops at $0 if it runs out")
@@ -315,7 +354,9 @@ class Portfolio:
         if self.slippage_model == "volume":
             costs.append(f"volume slippage ({self.spread_bps / 2:g} bps + {self.impact_bps:g} bps x sqrt(shares/ADV20))")
         if self.expense_ratio:
-            costs.append(f"{self.expense_ratio:.2%}/yr expense ratio")
+            costs.append(f"{self.expense_ratio:.2%}/yr expense ratio"
+                         + (" (charged daily on the gross invested assets, including the borrowed or shorted part, not "
+                            "only on the equity)" if self.leverage > 1 or _has_short(self.tree) else ""))
         if self.leverage != 1:
             costs.append(f"{self.leverage:g}x leverage, borrowing at the T-bill rate"
                          + (f" + {self.margin_rate:.2%}" if self.margin_rate else ""))
@@ -1665,6 +1706,9 @@ def gone_bar(df: pd.DataFrame, cal: pd.DatetimeIndex) -> int | None:
 def _period_ids(idx: pd.DatetimeIndex, freq: str):
     if freq == "semiannual":
         return np.asarray(idx.year * 2 + (idx.month > 6).astype(int))
+    am = annual_month(freq)
+    if am:     # years that end with month am: the period changes after its last session
+        return np.asarray(idx.year + (idx.month > am).astype(int))
     code = {"weekly": "W-FRI", "monthly": "M", "quarterly": "Q", "yearly": "Y"}[freq]
     return idx.to_period(code)
 
@@ -1956,6 +2000,7 @@ def run(p: Portfolio) -> Result:
         late = [t for t in must if dfs[t].index[0] == first_common]
         p.notes.append(f"Start moved to {first_common.date()}, when {', '.join(late)} began trading.")
         start = first_common
+    floor = None     # the earliest day the portfolio may be bought (membership data, market caps, warm-up)
     if _has_ndx(p.tree) and p.point_in_time:
         mem = data.membership()
         if mem is not None and len(mem) and start < mem.index[0]:
@@ -1964,6 +2009,8 @@ def run(p: Portfolio) -> Result:
                            + (f" (you asked for {pd.Timestamp(p.start).date()})" if p.start else "")
                            + ": before it the filter would have no members to choose from.")
             start = m0
+        if mem is not None and len(mem):
+            floor = mem.index[0]
     cal = cal[cal >= start]
     if p.end:
         cal = cal[cal <= pd.Timestamp(p.end)]
@@ -1987,6 +2034,8 @@ def run(p: Portfolio) -> Result:
             p.notes.append(msg)
         if d is not None and d > cal[0]:
             cal = cal[cal >= d]
+        if d is not None:
+            floor = d if floor is None else max(floor, d)
     if _has_rules(p.tree):
         basis_note = ("Indicator prices: total return (dividends reinvested; price_basis \"adjusted\", as Composer and "
                       "Portfolio Visualizer). Trades and valuation use quoted prices plus cash dividends."
@@ -2001,6 +2050,8 @@ def run(p: Portfolio) -> Result:
     waited: dict = {}
     if len(cal) > 1:
         warm, _, waited = warmup_dates(p, dfs)
+        if warm is not None:
+            floor = warm if floor is None else max(floor, warm)
         if warm is not None and warm > cal[0]:
             slow = sorted(((t, d) for t, d in waited.items() if d > cal[0]), key=lambda kv: kv[1], reverse=True)
             who = ", ".join(f"{t} ({d.date()})" for t, d in slow[:6]) + (f" and {len(slow) - 6} more" if len(slow) > 6 else "")
@@ -2027,8 +2078,31 @@ def run(p: Portfolio) -> Result:
             cal = cal[int(np.argmax(both)):]
     if len(cal) < 2:
         raise ValueError("no price data in the requested period")
-    _short_history_warning(p, {t: dfs[t] for t in set(must) | set(waited) if t in dfs}, cal[0])
-    for n in data.gap_notes(names, cal[0], cal[-1]):
+    # Day 0, as Portfolio Visualizer starts from the prior period-end: the starting balance is invested at the
+    # close of the session before the first day, so the first day's return counts. Only when every fixed holding
+    # has a price that day and the rules could decide then (warm-up, membership and market-cap data); the initial
+    # allocation is decided on data up to that close. Otherwise the portfolio is bought at the first day's close
+    # and the session before only carries the starting capital (as before).
+    day0 = False
+    if p.capital > 0:
+        k = int(cal_all.searchsorted(cal[0])) - 1
+        no_prior = list(must)
+        if k >= 0:
+            a = cal_all[k]
+            no_prior = [t for t in must if not (a in dfs[t].index and np.isfinite(dfs[t].at[a, "close"]))]
+            if not no_prior and (floor is None or a >= floor):
+                cal = cal_all[k:k + 1].append(cal)
+                day0 = True
+        if not day0 and (no_prior or k < 0):
+            who = (", ".join(no_prior[:4]) + (f" and {len(no_prior) - 4} more" if len(no_prior) > 4 else "")) or "The data"
+            p.notes.append(f"First day: {who} {'has' if len(no_prior) <= 1 else 'have'} no price before {cal[0].date()}, "
+                           "so the starting balance is invested at that day's close and that day's return is not counted "
+                           f"(the balance is shown on the session before, {_cal.anchor_day(cal[0], cal_all).date()}). "
+                           "When every holding has a price the session before the start, the portfolio is bought at "
+                           "that close instead, so the first day's return counts, as Portfolio Visualizer starts from "
+                           "the prior period-end.")
+    _short_history_warning(p, {t: dfs[t] for t in set(must) | set(waited) if t in dfs}, cal[int(day0)])
+    for n in data.gap_notes(names, cal[0], cal[-1]) + data.custom_notes(names):
         if n not in p.notes:
             p.notes.append(n)
     # rule indicators come from each ticker's full history; synthetic NAVs of groups (filters or weightings
@@ -2110,15 +2184,20 @@ def run(p: Portfolio) -> Result:
     no_opens = {j for j in range(N) if has_px[:, j].any() and not OPEN_OK[has_px[:, j], j].any()}
     open_fallback: set = set()
 
-    no_flows = (np.zeros(T, bool), np.ones(T))
-    contrib_days, contrib_mult = (_flow_schedule(cal, p.contribution_freq, p.contribution_start, p.contribution_end,
+    # cash flows are scheduled on the backtest's days from its first day (day 0 only holds the starting balance)
+    fcal = cal[int(day0):]
+    no_flows = (np.zeros(len(fcal), bool), np.ones(len(fcal)))
+    contrib_days, contrib_mult = (_flow_schedule(fcal, p.contribution_freq, p.contribution_start, p.contribution_end,
                                                  p.contribution_growth, "contribution") if p.contribution else no_flows)
-    wd_days, wd_mult = (_flow_schedule(cal, p.withdrawal_freq, p.withdrawal_start, p.withdrawal_end,
+    wd_days, wd_mult = (_flow_schedule(fcal, p.withdrawal_freq, p.withdrawal_start, p.withdrawal_end,
                                        p.withdrawal_growth, "withdrawal") if (p.withdrawal or p.withdrawal_pct) else no_flows)
     if p.capital <= 0 and not contrib_days[0]:
         raise ValueError("Starting with $0 needs a contribution on the first day; the first one here is later.")
-    cinfl = _flow_cpi_index(p, cal, "contribution", contrib_days, contrib_mult, p.contribution)
-    winfl = _flow_cpi_index(p, cal, "withdrawal", wd_days, wd_mult, p.withdrawal)
+    cinfl = _flow_cpi_index(p, fcal, "contribution", contrib_days, contrib_mult, p.contribution)
+    winfl = _flow_cpi_index(p, fcal, "withdrawal", wd_days, wd_mult, p.withdrawal)
+    if day0:
+        contrib_days, wd_days = np.r_[False, contrib_days], np.r_[False, wd_days]
+        contrib_mult, wd_mult, cinfl, winfl = (np.r_[1.0, a_] for a_ in (contrib_mult, wd_mult, cinfl, winfl))
     # the flows as scheduled (before any cap at the balance): benchmarks and the Monte Carlo replay these
     req_flows = (np.where(contrib_days, p.contribution * cinfl * contrib_mult, 0.0)
                  - np.where(wd_days, p.withdrawal * winfl * wd_mult, 0.0))
@@ -2148,6 +2227,8 @@ def run(p: Portfolio) -> Result:
     turnover = 0.0
     n_rebal = 0
     vol_scale: list = []              # (date, exposure multiplier) of each volatility-target decision
+    inc_div = np.zeros(T)             # income received each day: dividends (and distributions), cash interest
+    inc_int = np.zeros(T)
 
     def px_now(prices):
         return np.where(np.isfinite(prices), prices, last_px)
@@ -2244,6 +2325,7 @@ def run(p: Portfolio) -> Result:
                 earned -= min(smv, cash) * min(r, p.short_rebate_spread / 252.0)
             cash += earned
             interest += earned
+            inc_int[i] = earned
             if smv > 0 and p.borrow_fee:
                 for j in np.flatnonzero(short_mv > 0):
                     fee = float(short_mv[j]) * p.borrow_fee / 252.0
@@ -2259,6 +2341,7 @@ def run(p: Portfolio) -> Result:
         got = float(np.nansum(div_cash))
         if got:
             cash += got
+            inc_div[i] = got
             for j in np.flatnonzero(div_cash != 0):
                 tcash[j] += div_cash[j]
                 tdiv[j] += div_cash[j]
@@ -2490,16 +2573,26 @@ def run(p: Portfolio) -> Result:
                        f"target {lev_peak[1]:.1f}x)" + (f"; margin calls cap it at {1 / mm:g}x." if mm else
                                                         " with margin calls turned off."))
 
-    start_day = _cal.anchor_day(cal[0], cal_all)   # the previous session, never a weekend or holiday
-    idx_all = pd.DatetimeIndex([start_day]).append(cal)
-    eq = pd.Series(np.concatenate([[p.capital], equity]), index=idx_all, name="equity")
-    fl = pd.Series(np.concatenate([[0.0], flows]), index=idx_all, name="flows")
     hw = pd.DataFrame(weights, index=cal, columns=tick)
     hw = hw.loc[:, (hw.abs() > 1e-9).any()]
     hw["cash"] = cashw
     gross = hw.drop(columns="cash").abs().sum(axis=1)
-    ex = pd.Series(np.concatenate([[0.0], gross.to_numpy()]), index=idx_all, name="exposure")
-    npos = pd.Series(np.concatenate([[0], (hw.drop(columns="cash").abs() > 1e-6).sum(axis=1).to_numpy()]), index=idx_all)
+    if day0:
+        # day 0: the starting balance at that close (bought then; any costs of the purchase show in the first
+        # day's return), the holdings as bought
+        idx_all = cal
+        equity[0] = p.capital
+        eq = pd.Series(equity, index=idx_all, name="equity")
+        fl = pd.Series(flows, index=idx_all, name="flows")
+        ex = pd.Series(gross.to_numpy(), index=idx_all, name="exposure")
+        npos = pd.Series((hw.drop(columns="cash").abs() > 1e-6).sum(axis=1).to_numpy(), index=idx_all)
+    else:
+        start_day = _cal.anchor_day(cal[0], cal_all)   # the previous session, never a weekend or holiday
+        idx_all = pd.DatetimeIndex([start_day]).append(cal)
+        eq = pd.Series(np.concatenate([[p.capital], equity]), index=idx_all, name="equity")
+        fl = pd.Series(np.concatenate([[0.0], flows]), index=idx_all, name="flows")
+        ex = pd.Series(np.concatenate([[0.0], gross.to_numpy()]), index=idx_all, name="exposure")
+        npos = pd.Series(np.concatenate([[0], (hw.drop(columns="cash").abs() > 1e-6).sum(axis=1).to_numpy()]), index=idx_all)
     if ev.thin:
         d0, c0, e0, n0, by0 = ev.thin[0]
         p.notes.append(f"Thin ranking: on {len(ev.thin)} rebalance date(s) a top/bottom-{n0} filter by {by0} ranked fewer "
@@ -2516,7 +2609,11 @@ def run(p: Portfolio) -> Result:
                  kind="allocation", orders=od)
     if depleted is not None:
         res.extras["depleted"] = depleted["date"]
-    res.extras["flows_requested"] = pd.Series(np.concatenate([[0.0], req_flows]), index=idx_all, name="flows")
+    res.extras["flows_requested"] = pd.Series(req_flows if day0 else np.concatenate([[0.0], req_flows]), index=idx_all,
+                                              name="flows")
+    res.extras["day0"] = day0          # bought at day 0's close (the first day's return counts); benchmarks follow
+    pad = (lambda a: a) if day0 else (lambda a: np.concatenate([[0.0], a]))
+    res.extras["income"] = pd.DataFrame({"dividends": pad(inc_div), "interest": pad(inc_int)}, index=idx_all)
     res.extras.update({"fees": fees, "flows": fl, "turnover_annual": turnover / max((cal[-1] - cal[0]).days / 365.25, 1e-9),
                        "rebalances": n_rebal,
                        "vol_scale": pd.Series([k for _, k in vol_scale], index=pd.DatetimeIndex([d for d, _ in vol_scale]), dtype=float),

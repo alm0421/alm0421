@@ -205,10 +205,12 @@ def cost_sensitivity(res: Result, levels=(0, 5, 10, 25), warm=None) -> list[dict
     return rows
 
 
-def _aligned_buy_and_hold(t: str, idx: pd.DatetimeIndex, cap: float) -> pd.Series | None:
+def _aligned_buy_and_hold(t: str, idx: pd.DatetimeIndex, cap: float, day0: bool = False) -> pd.Series | None:
     """Buy and hold bought at the close of the strategy's first real bar (idx[1]); the synthetic
-    day-before point idx[0] carries the starting capital, as it does for the strategy."""
-    if len(idx) < 2:
+    day-before point idx[0] carries the starting capital, as it does for the strategy. day0: the strategy was
+    bought at idx[0]'s close (a portfolio starting from the prior session, as Portfolio Visualizer does), so the
+    benchmark is too, when it has a price that day."""
+    if len(idx) < 2 or day0:
         return metrics.buy_and_hold(t, idx, cap)
     b = metrics.buy_and_hold(t, idx[1:], cap)
     if b is not None and len(b) and b.index[0] == idx[1]:
@@ -264,7 +266,7 @@ def benchmark_series(res: Result, nav_: pd.Series | None = None, skipped: dict |
             names.append(t)
     out = {}
     for t in names:
-        b = _aligned_buy_and_hold(t, idx, cap)
+        b = _aligned_buy_and_hold(t, idx, cap, bool(res.extras.get("day0")))
         if b is not None and len(b) > 30:
             if nav_ is not None and len(idx) > 1 and b.index[0] > idx[1]:
                 base = nav_.reindex(nav_.index.union(b.index[:1])).ffill().get(b.index[0])
@@ -1186,6 +1188,10 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
     if res.kind == "allocation":
         from . import risk
         A["risk_contributions"] = risk.risk_contributions(res, nv)
+        # Portfolio Visualizer's annual income table and each holding's calendar-year returns
+        A["income_yearly"] = metrics.income_yearly(res.equity, res.extras.get("income"))
+        held = [c for c in (res.holdings.columns if res.holdings is not None else []) if c != "cash"]
+        A["asset_yearly"] = metrics.asset_yearly_returns(res.prices or {}, held[:40], res.equity.index)
     A["withdrawal_rates"] = {}
     if res.kind == "allocation" and (getattr(s, "withdrawal", 0) or getattr(s, "withdrawal_pct", 0)):
         from . import montecarlo
@@ -1492,7 +1498,7 @@ def console_summary(A: dict) -> str:
     else:
         L.append(f"{'Year':8s} {'Strategy':>9s} {'MaxDD':>8s} {'Trades':>6s} " + head)
     for yr, row in y.iterrows():
-        lab = f"{yr}{'*' if row.get('partial') else ''}"
+        lab = f"{yr}{'*' if row.get('partial') else ''}"   # the footnote names the dates
         tail = " ".join(_fit(pct(row[c], 1) if pd.notna(row[c]) else '', w, right=True) for c, w in zip(cols, widths))
         if alloc:
             L.append(f"{lab:8s} {pct(row['return'], 1):>8s} {pct(row.get('real_return'), 1):>7s} {pct(row.get('inflation'), 1):>6s} "
@@ -1501,7 +1507,7 @@ def console_summary(A: dict) -> str:
         else:
             L.append(f"{lab:8s} {pct(row['return'], 1):>9s} {pct(row['max_drawdown'], 1):>8s} {int(row['trades']):>6d} " + tail)
     if y["partial"].any():
-        L.append("* partial year")
+        L.append("* partial year: " + ", ".join(_partial_text(yr, row) for yr, row in y[y["partial"].astype(bool)].iterrows()))
     if alloc and "inflation" in y:
         L.append("Infl. = CPI inflation over the calendar year (December to December; a partial year to the latest month "
                  "published). Real = the return after that inflation.")
@@ -1538,6 +1544,17 @@ def _trades_records(res: Result) -> list[dict]:
     return tr.reset_index().rename(columns={"index": "trade"}).to_dict("records")
 
 
+def _partial_text(year, row) -> str:
+    """'2010 (from Mar 3)', '2026 (to Sep 25)' or '2020 (from Mar 3, to Sep 25)' for a partial year of yearly_detail."""
+    bits = []
+    f, t = row.get("from"), row.get("to")
+    if f is not None and not pd.isna(f) and (pd.Timestamp(f).month > 1 or pd.Timestamp(f).day > 7):
+        bits.append(f"from {pd.Timestamp(f).strftime('%b')} {pd.Timestamp(f).day}")
+    if t is not None and not pd.isna(t) and (pd.Timestamp(t).month < 12 or pd.Timestamp(t).day < 24):
+        bits.append(f"to {pd.Timestamp(t).strftime('%b')} {pd.Timestamp(t).day}")
+    return f"{year}" + (f" ({', '.join(bits)})" if bits else "")
+
+
 def run_payload(A: dict, i: int, idx: pd.DatetimeIndex) -> dict:
     res = A["result"]
     s = A["strategy"]
@@ -1571,6 +1588,7 @@ def run_payload(A: dict, i: int, idx: pd.DatetimeIndex) -> dict:
         "holdings": holdings_payload(res),
         "prices": {},        # filled by build_payload (embedded charts) / chart files
         "universe_size": len(getattr(s, "universe", []) or []),
+        "universe": list(getattr(s, "universe", []) or [])[:500],
         # account value in dollars of the first day (CPI-deflated), for a real/nominal toggle
         "equity_real": _ser(A["equity_real"], idx, 2) if A.get("equity_real") is not None else None,
         # per-ticker P&L (allocation runs): sum(pnl) + interest - fees == end - start - net flows
@@ -1589,8 +1607,20 @@ def run_payload(A: dict, i: int, idx: pd.DatetimeIndex) -> dict:
         "depleted": A.get("depleted"),
         "return_basis": A.get("return_basis") or "daily",
         "stepped": A.get("stepped") or {},
+        "income_yearly": _frame_records(A.get("income_yearly")),
+        "asset_yearly": ({"tickers": [str(c) for c in A["asset_yearly"].columns],
+                          "rows": [{"year": int(y), "values": [None if pd.isna(v) else float(v) for v in row]}
+                                   for y, row in A["asset_yearly"].iterrows()]}
+                         if A.get("asset_yearly") is not None and len(A["asset_yearly"]) else {}),
     }
     return p
+
+
+def _frame_records(df) -> list:
+    """A year-indexed frame as [{"year": ..., column: value}] (NaN -> None)."""
+    if df is None or not len(df):
+        return []
+    return [{"year": int(y), **{k: (None if pd.isna(v) else float(v)) for k, v in row.items()}} for y, row in df.iterrows()]
 
 
 def _attribution_payload(A: dict) -> dict:
@@ -1660,11 +1690,12 @@ def build_payload(analyses: list[dict], out_dir: Path | None = None) -> dict:
 def export_frame(eq: pd.DataFrame, A: dict) -> pd.DataFrame:
     """The daily table as exported: without the synthetic starting point one calendar day before the first
     bar (often a weekend), which only carries the starting capital for the return calculations. A run
-    trimmed for an indicator warm-up starts on a real bar (the last warm-up day) and keeps it."""
+    trimmed for an indicator warm-up starts on a real bar (the last warm-up day) and keeps it, and so does a
+    portfolio bought at the close of the session before its first day (day 0: the starting balance)."""
     res, full = A["result"], A.get("result_full") or A["result"]
     idx = res.equity.index
     # both simulators prepend that point to the full result; a warm-up trim starts on a real bar instead
-    if len(idx) > 1 and idx[0] == full.equity.index[0]:
+    if len(idx) > 1 and idx[0] == full.equity.index[0] and not full.extras.get("day0"):
         return eq[eq.index != idx[0]]
     return eq
 
@@ -1879,6 +1910,10 @@ def _excel(A: dict, path: Path) -> None:
     rows += [(f"vs benchmark: {k}", v) for k, v in _clean(A["relative"]).items()]
     xw.put(pd.DataFrame(rows, columns=["metric", "value"]), sheet_name="Summary", index=False)
     xw.put(A["yearly"], sheet_name="Yearly")
+    if A.get("income_yearly") is not None and len(A["income_yearly"]):
+        xw.put(A["income_yearly"], sheet_name="Income")
+    if A.get("asset_yearly") is not None and len(A["asset_yearly"]):
+        xw.put(A["asset_yearly"], sheet_name="Asset returns by year")
     xw.put(A["monthly"], sheet_name="Monthly")
     xw.put(A["drawdowns"], sheet_name="Drawdowns", index=False)
     if res.trades is not None and not res.trades.empty:

@@ -16,7 +16,8 @@
     python -m backtester paper add "..." --name rsi2 ; python -m backtester paper report
     python -m backtester import-composer symphony.json [--out spec.json] [--run]
     python -m backtester composer-export spec.json|"sentence" [--out symphony.json]
-    python -m backtester web            # the backtesting site on http://localhost:8000
+    python -m backtester import-series MYFUND returns.csv [--returns|--prices] [--monthly]   (your own series)
+    python -m backtester web           # the backtesting site on http://localhost:8000
 """
 from __future__ import annotations
 
@@ -30,7 +31,8 @@ from . import data, expr, parser, report, runner
 from .montecarlo import parse_weights
 
 SUBCOMMANDS = {"run", "compare", "sweep", "walkforward", "optimize", "signals", "paper", "web", "tickers", "library", "montecarlo",
-               "factors", "style", "import-composer", "composer-export", "correlation", "correlations", "trade"}
+               "factors", "style", "import-composer", "composer-export", "correlation", "correlations", "trade",
+               "import-series"}
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -715,6 +717,49 @@ def cmd_composer_export(argv: list[str]) -> int:
     return 0
 
 
+def cmd_import_series(argv: list[str]) -> int:
+    """python -m backtester import-series NAME file.csv [--returns|--prices] [--monthly|--daily]
+    [--percent|--decimal] [--delete] [--list]: store your own return or price series as ticker NAME
+    (data/custom/NAME.csv), usable anywhere a ticker is."""
+    from . import custom_series
+    p = argparse.ArgumentParser(prog="backtester import-series",
+                                description="Import your own daily or monthly return or price series (CSV of date,value) "
+                                            "as a named ticker, stored in data/custom/ (commit it to keep it).")
+    p.add_argument("name", nargs="?")
+    p.add_argument("file", nargs="?")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--returns", action="store_true", help="the values are returns (default: detected)")
+    g.add_argument("--prices", action="store_true", help="the values are prices or index levels")
+    f = p.add_mutually_exclusive_group()
+    f.add_argument("--monthly", action="store_true", help="one value per month (default: detected from the dates)")
+    f.add_argument("--daily", action="store_true")
+    u = p.add_mutually_exclusive_group()
+    u.add_argument("--percent", action="store_true", help="returns in percent (5 = 5%%)")
+    u.add_argument("--decimal", action="store_true", help="returns as decimals (0.05 = 5%%)")
+    p.add_argument("--delete", action="store_true", help="remove the custom series NAME")
+    p.add_argument("--list", action="store_true", help="list the imported series")
+    a = p.parse_args(argv)
+    if a.list or not a.name:
+        rows = custom_series.list_series()
+        print("\n".join(custom_series.describe(x) for x in rows) if rows else "No custom series (data/custom/ is empty).")
+        return 0
+    if a.delete:
+        custom_series.delete_series(a.name)
+        print(f"Deleted the custom series {a.name.upper()}.")
+        return 0
+    if not a.file:
+        p.error("give the CSV file: import-series NAME file.csv")
+    text = Path(a.file).read_text()
+    info = custom_series.import_series(a.name, text, kind="returns" if a.returns else "prices" if a.prices else "auto",
+                                       monthly=True if a.monthly else False if a.daily else None,
+                                       units="percent" if a.percent else "decimal" if a.decimal else "auto",
+                                       source=Path(a.file).name)
+    print(f"Imported {custom_series.describe(info)}")
+    print(f"Stored in data/custom/{info['name']}.csv ({info['sessions']} sessions); use {info['name']} like any ticker, "
+          f"e.g. python -m backtester \"hold 60% {info['name']} and 40% AGG, rebalance yearly\"")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "--tickers-list":
@@ -754,6 +799,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if cmd == "import-composer":
             return cmd_import_composer(rest)
+        if cmd == "import-series":
+            return cmd_import_series(rest)
         if cmd == "composer-export":
             return cmd_composer_export(rest)
         if cmd == "web":

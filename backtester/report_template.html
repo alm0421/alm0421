@@ -192,6 +192,18 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     <p class="note" id="assetNote"></p>
   </div>
 
+  <div class="card hide" id="assetYrCard">
+    <h2>Holdings: returns by year <span class="pill runName"></span></h2>
+    <div class="xscroll"><table id="assetYrTbl"></table></div>
+    <p class="note" id="assetYrNote"></p>
+  </div>
+
+  <div class="card hide" id="incomeCard">
+    <h2>Income by year <span class="pill runName"></span></h2>
+    <div class="xscroll"><table id="incomeTbl"></table></div>
+    <p class="note" id="incomeNote"></p>
+  </div>
+
   <div class="grid2">
     <div class="card"><h2>Risk and return <span class="pill runName"></span></h2><div class="xscroll"><table class="kv" id="riskTbl"></table></div></div>
     <div class="card"><h2>Trades and exposure <span class="pill runName"></span></h2><div class="xscroll"><table class="kv" id="tradeTbl"></table></div></div>
@@ -280,7 +292,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   <div class="grid2">
     <div class="card"><h2>Robustness: Monte Carlo <span class="pill runName"></span></h2><div class="xscroll"><table class="kv" id="mcTbl"></table></div>
       <p class="note" id="mcNote"></p></div>
-    <div class="card"><h2>Robustness: transaction costs <span class="pill runName"></span></h2><div class="xscroll"><table id="costTbl"></table></div>
+    <div class="card" id="costCard"><h2>Robustness: transaction costs <span class="pill runName"></span></h2><div class="xscroll"><table id="costTbl"></table></div>
       <p class="note">The same rules re-run with slippage on every buy and sell. Short holding periods are very sensitive to this.</p></div>
   </div>
 
@@ -351,7 +363,11 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   }
   function header() {
     const r = R(), st = r.stats;
-    $('subtitle').textContent = `${st.start} → ${st.end} · ${st.years.toFixed(1)} years · ${r.kind === 'allocation' ? 'allocation portfolio' : 'signal strategy'}${r.universe_size ? ' · ' + r.universe_size + ' ticker' + (r.universe_size > 1 ? 's' : '') : ''} · generated ${D.generated}`;
+    // a comparison counts its runs and the distinct tickers across all of them (not the selected run's)
+    const nTick = multi ? new Set(D.runs.flatMap(x => x.universe || [])).size || r.universe_size : r.universe_size;
+    const what = multi ? `${D.runs.length} ${D.runs.every(x => x.kind === 'allocation') ? 'portfolios' : 'strategies'}`
+      : (r.kind === 'allocation' ? 'allocation portfolio' : 'signal strategy');
+    $('subtitle').textContent = `${st.start} → ${st.end} · ${st.years.toFixed(1)} years · ${what}${nTick ? ' · ' + nTick + ' ticker' + (nTick > 1 ? 's' : '') : ''} · generated ${D.generated}`;
     $('interp').textContent = (multi ? D.runs.map((x, i) => x.name + ': ' + x.interpretation.join('\n   ')).join('\n\n') : r.interpretation.join('\n'));
     $('notes').replaceChildren();
     const notes = multi ? D.runs.flatMap(x => x.notes.map(n => x.name + ': ' + n)) : r.notes;
@@ -1456,6 +1472,16 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   }
 
   // ---------- yearly
+  // a partial first or last year says so in its label: "2010 (from Mar 3)", "2026 (to Sep 25)"
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const mday = d => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || '')); return m ? [+m[2], +m[3]] : null; };
+  function yrLabel(y) {
+    if (!y || !y.partial) return String(y ? y.year : '');
+    const f = mday(y.from), t = mday(y.to), bits = [];
+    if (f && (f[0] > 1 || f[1] > 7)) bits.push('from ' + MON[f[0] - 1] + ' ' + f[1]);
+    if (t && (t[0] < 12 || t[1] < 24)) bits.push('to ' + MON[t[0] - 1] + ' ' + t[1]);
+    return String(y.year) + (bits.length ? ' (' + bits.join(', ') + ')' : '*');
+  }
   function drawYearly() {
     const years = [...new Set(D.runs.flatMap(r => r.yearly.map(y => y.year)))].sort();
     const ser = D.runs.map((r, i) => ({ name: multi ? r.name : 'Strategy', color: runColor(i), values: years.map(y => { const f = r.yearly.find(x => x.year === y); return f ? f.return : null; }) }))
@@ -1470,14 +1496,14 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       : ['Year', multi ? r.name : 'Strategy', 'Max DD', 'Closed trades', 'Win rate', 'P&L', 'Exposure', 'End value'];
     const head = own.concat(D.runs.length > 1 ? D.runs.filter((_, i) => i !== sel).map(x => x.name) : []).concat(bn.map(short));
     const ownCells = y => alloc
-      ? [String(y.year) + (y.partial ? '*' : ''), { t: pct(y.return, 1), c: signCls(y.return) }, { t: pct(y.real_return, 1), c: signCls(y.real_return) }, pct(y.inflation, 1),
+      ? [yrLabel(y), { t: pct(y.return, 1), c: signCls(y.return) }, { t: pct(y.real_return, 1), c: signCls(y.real_return) }, pct(y.inflation, 1),
          usd(y.start_balance), y.contributions ? usd(y.contributions) : '—', y.withdrawals ? usd(y.withdrawals) : '—', usd(y.end_balance), pct(y.max_drawdown, 1)]
-      : [String(y.year) + (y.partial ? '*' : ''), { t: pct(y.return, 1), c: signCls(y.return) }, pct(y.max_drawdown, 1), y.trades, y.trades ? pct(y.win_rate, 0) : '—', usd(y.pnl), pct(y.exposure, 0), usd(y.end_equity)];
+      : [yrLabel(y), { t: pct(y.return, 1), c: signCls(y.return) }, pct(y.max_drawdown, 1), y.trades, y.trades ? pct(y.win_rate, 0) : '—', usd(y.pnl), pct(y.exposure, 0), usd(y.end_equity)];
     table($('yrTbl'), head, r.yearly.map(y => ownCells(y)
       .concat(D.runs.filter((_, i) => i !== sel).map(o => { const f = o.yearly.find(x => x.year === y.year); return f ? { t: pct(f.return, 1), c: signCls(f.return) } : '—'; }))
       .concat(bn.map(n => { const v = D.benchmark_yearly[n][y.year]; return { t: pct(v, 1), c: signCls(v) }; }))));
     const parts = r.yearly.filter(y => y.partial);
-    $('partialNote').textContent = (parts.length ? '* partial year: ' + parts.map(y => `${y.year} (${y.from || ''} → ${y.to || ''})`).join(', ') + '. ' : '')
+    $('partialNote').textContent = (parts.length ? 'Partial year' + (parts.length > 1 ? 's' : '') + ': ' + parts.map(y => `${y.year} (${y.from || ''} → ${y.to || ''})`).join(', ') + ' (not annualised). ' : '')
       + (alloc ? 'Return is time-weighted (cash flows removed); balances are the account itself.' : 'Closed trades, win rate and P&L count trades by the year they closed.');
   }
 
@@ -1536,8 +1562,9 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       const tr = el('tr'); tr.append(el('td', {}, String(row.year)));
       row.values.concat([yearMap[row.year]]).forEach((v, i) => {
         const flat = isNum(v) && Math.abs(v) < 5e-5 && i < 12;
-        const td = el('td', {}, flat ? '·' : isNum(v) ? (v * 100).toFixed(1) : '');
-        if (flat) { td.className = 'muted'; tr.append(td); return; }
+        // a month that is flat to one decimal shows 0.0 (not a dot, which read as missing); empty = no data
+        const td = el('td', {}, flat ? '0.0' : isNum(v) ? (v * 100).toFixed(1).replace(/^-0\.0$/, '0.0') : '');
+        if (flat) { td.className = 'muted'; td.title = `${row.year} ${r.monthly.cols[i]}: ${(v * 100).toFixed(2)}%`; tr.append(td); return; }
         if (isNum(v) && i < 12) { const t = Math.min(1, Math.abs(v) / cap); td.style.background = mixc(mid, v >= 0 ? pos : neg, t * 0.9); td.style.color = t > 0.55 || isDark() ? '#fff' : '#0b0b0b'; td.title = `${row.year} ${r.monthly.cols[i]}: ${(v * 100).toFixed(2)}%`; }
         if (i === 12) { td.style.fontWeight = 600; td.className = signCls(v); }
         tr.append(td);
@@ -1587,6 +1614,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ['Chance of losing money', pct(mc.prob_loss, 1), '', ''],
     ].concat(isNum(mc.success_rate) ? [['Chance the money lasts', { t: pct(mc.success_rate, 1), c: mc.success_rate > 0.9 ? 'pos' : 'neg' }, '', '']] : []) : [['Not enough data', '', '', '']]);
     $('mcNote').textContent = mc.sims ? `${mc.sims.toLocaleString()} resampled histories built from ${mc.block_days}-day blocks of the strategy's own daily returns${isNum(mc.success_rate) ? ', replaying the same cash-flow schedule' : ''}. A wide range means the result depends on the order of events.` : '';
+    // a run analysed without the cost re-runs (the allocation grid) has no table: the card is hidden
+    $('costCard').classList.toggle('hide', !(r.sensitivity || []).length);
     table($('costTbl'), ['Slippage / side', 'Final value', 'CAGR', 'Sharpe', 'Max DD'],
       (r.sensitivity || []).map(x => [x.slippage_bps + ' bps' + (x.current ? ' (this run)' : ''), usd(x.final_equity), { t: pct(x.cagr), c: signCls(x.cagr) }, num(x.sharpe), pct(x.max_drawdown, 1)]));
   }
@@ -1611,6 +1640,26 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       A.map(a => [a.ticker, pct(a.avg_weight, 1), pct(a.time_held, 0), { t: pct(a.cagr), c: signCls(a.cagr) }, pct(a.volatility, 1), num(a.sharpe),
         { t: pct(a.max_drawdown, 1), c: 'neg' }, pct(a.best_year, 1), pct(a.worst_year, 1), a.from, a.data_from]));
     $('assetNote').textContent = "Each holding's own total return (dividends reinvested) from the run's first day, or from its first data when it starts later, to the end; Sharpe against T-bills. Average weight and time held are over the run.";
+  }
+
+  // ---------- each holding's calendar-year returns and the annual income (allocation runs, as Portfolio Visualizer)
+  function drawAssetYears() {
+    const r = R(), ay = r.asset_yearly || {}, rows = ay.rows || [];
+    $('assetYrCard').classList.toggle('hide', !(r.kind === 'allocation' && rows.length));
+    if (rows.length) {
+      const part = Object.fromEntries((r.yearly || []).map(y => [y.year, y]));
+      table($('assetYrTbl'), ['Year'].concat(ay.tickers).concat([multi ? r.name : 'Portfolio']),
+        rows.map(x => [yrLabel(part[x.year] || { year: x.year })].concat(x.values.map(v => ({ t: pct(v, 1), c: signCls(v) })))
+          .concat([(v => ({ t: pct(v, 1), c: signCls(v) }))((part[x.year] || {}).return)])));
+      $('assetYrNote').textContent = "Each holding's own total return in the calendar year (adjusted prices, dividends reinvested), year-end to year-end; the first year from the run's first day (or the holding's first price), the last to the latest date. The portfolio column is its time-weighted return.";
+    }
+    const inc = r.income_yearly || [];
+    $('incomeCard').classList.toggle('hide', !(r.kind === 'allocation' && inc.length));
+    if (!inc.length) return;
+    const part = Object.fromEntries((r.yearly || []).map(y => [y.year, y]));
+    table($('incomeTbl'), ['Year', 'Start balance', 'Dividends', 'Interest', 'Total income', 'Dividend yield', 'Income yield'],
+      inc.map(x => [yrLabel(part[x.year] || { year: x.year }), usd(x.start_balance), usd(x.dividends), usd(x.interest), usd(x.income), pct(x.dividend_yield, 2), pct(x.yield, 2)]));
+    $('incomeNote').textContent = 'Dividends and other distributions paid by the holdings, and interest earned on cash (negative when borrowing), received during each calendar year; the yields are on the balance at the start of the year (a partial year is not annualised).';
   }
 
   function drawTradeCharts() {
@@ -1696,7 +1745,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   $('tradeFilter').addEventListener('input', e => { tradeFilter = e.target.value; drawTrades(); });
   $('orderFilter').addEventListener('input', () => drawTrades());
 
-  function drawRun() { header(); tiles(); drawRiskTables(); drawTrailing(); drawAssets(); drawPrice(); drawAlloc(); drawRiskContrib(); drawAttribution(); drawYearly(); drawHeat(); drawRolling(); drawMisc(); drawTradeCharts(); drawTrades(); }
+  function drawRun() { header(); tiles(); drawRiskTables(); drawTrailing(); drawAssets(); drawAssetYears(); drawPrice(); drawAlloc(); drawRiskContrib(); drawAttribution(); drawYearly(); drawHeat(); drawRolling(); drawMisc(); drawTradeCharts(); drawTrades(); }
   function drawAll() { drawEquity(); drawCompare(); drawRun(); }
 
   const ds = D.data || {};
