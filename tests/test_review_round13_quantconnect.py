@@ -298,7 +298,7 @@ def test_few_trades_warning_counts_closed_and_open():
 
 def test_weights_above_100_percent_are_borrowed_in_branches():
     for text in ("if SPY is above its 200 day moving average hold 200% QQQ, otherwise hold TLT",
-                 "if SPY is above its 200 day moving average hold 2x QQQ, otherwise hold TLT"):
+                 "if SPY is above its 200 day moving average hold QQQ with 2x leverage, otherwise hold TLT"):
         p = parser.parse(text)
         then = p.tree["then"]
         assert then == {"weights": "specified", "w": [2.0, -1.0], "children": [{"asset": "QQQ"}, {"cash": True}]}
@@ -309,8 +309,18 @@ def test_weights_above_100_percent_are_borrowed_in_branches():
     assert p.tree["w"] == [1.5, 0.5, -1.0]
     with pytest.raises(parser.ParseError, match="not 100%"):
         parser.parse("hold 300% SPY and 200% TLT")          # beyond 4x: refused (a typo more likely than a plan)
+    # the leverage stays on its branch: the other branch and the portfolio are unlevered
+    p = parser.parse("if SPY is above its 200 day moving average hold TLT, otherwise hold QQQ with 2x leverage")
+    assert p.leverage == 1.0 and p.tree["then"] == {"asset": "TLT"} and p.tree["else"]["w"] == [2.0, -1.0]
+    # after a comma it is the whole portfolio's leverage
+    p = parser.parse("if SPY is above its 200 day moving average hold QQQ, otherwise hold TLT, with 2x leverage")
+    assert p.leverage == 2.0 and p.tree["then"] == {"asset": "QQQ"}
+    # "2x QQQ" may mean the 2x fund (QLD) or a margin position: asked, never guessed (Composer round 13)
+    with pytest.raises(parser.ParseError, match="ambiguous"):
+        parser.parse("if SPY is above its 200 day moving average hold 2x QQQ, otherwise hold TLT")
     # 3x of a named index is left alone (it may mean a leveraged fund)
     assert parser._times_leverage("3x S&P 500", []) == "3x S&P 500"
+    assert parser._times_leverage("2x QQQ", []) == "2x QQQ"
 
 
 def test_borrowed_branch_simulates_like_portfolio_leverage(fake):

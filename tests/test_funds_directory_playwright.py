@@ -4,8 +4,9 @@ and phone width: no page errors, no failed requests, no horizontal page scroll.
 The server listens on 127.0.0.1:8871; a stale one left on that port is stopped with `fuser -k 8871/tcp`.
 
 The data job fills in expense ratios in batches, so whether any real mutual fund still lacks one depends on the day's
-data (after the 2026-09-27 refresh none did, and the unknown-ER path went untested). The site therefore serves the
-real fund table with the expense ratio of a few mutual funds (UNKNOWN_ER) blanked, so that path is always exercised."""
+data (after one refresh none did, and the unknown-ER path went untested; after the next, one did). The site therefore
+serves the real fund table with the expense ratio of a few mutual funds (UNKNOWN_ER) blanked, so that path is always
+exercised, and the test counts the unknowns it served (SERVED) instead of assuming the real table has none."""
 import glob
 import shutil
 import subprocess
@@ -19,6 +20,7 @@ from backtester import data, funds, web
 
 PORT = 8871
 UNKNOWN_ER = 3      # mutual funds served without an expense ratio (the ones with the lowest ratios, after VFINX)
+SERVED = {}         # "unknown": mutual funds the site serves without an expense ratio (the blanked ones + the real ones)
 
 
 def _with_unknown_er(real):
@@ -31,6 +33,8 @@ def _with_unknown_er(real):
         for f in mf[:UNKNOWN_ER]:
             f["expense_ratio"] = None
             f.pop("er_source", None)
+        # a real fund may still lack one on the day's data (the data job fills them in batches): counted, not assumed
+        SERVED["unknown"] = sum(1 for f in funds_ if f.get("type") == "Mutual fund" and f.get("expense_ratio") is None)
         r["funds"] = funds_
         return r
     return api_funds
@@ -88,13 +92,15 @@ def test_funds_unknowns_and_directory(site, width):
         pg.fill("#f_er", "0.2")
         # (the per-filter count, "N funds have no expense ratio yet: left out ...", not the page-wide fallback line)
         pg.wait_for_function("document.querySelector('#fUnknown').innerText.includes('left out by your filters')")
-        assert pg.inner_text("#fUnknown").startswith(f"{UNKNOWN_ER} funds have no expense ratio yet")
+        unknown = SERVED["unknown"]
+        assert unknown >= UNKNOWN_ER
+        assert pg.inner_text("#fUnknown").startswith(f"{unknown} funds have no expense ratio yet")
         n = int(pg.inner_text("#fTitle").split(":")[1].split(" of ")[0].replace(",", ""))
         assert n > 10
         assert "VFINX" in pg.inner_text("#fTable")                          # 0.14%: passes the filter
         pg.check("#f_unk")
         n2 = int(pg.inner_text("#fTitle").split(":")[1].split(" of ")[0].replace(",", ""))
-        assert n2 == n + UNKNOWN_ER and "shown" in pg.inner_text("#fUnknown")
+        assert n2 == n + unknown and "shown" in pg.inner_text("#fUnknown")
         pg.click("#fReset")
         assert not pg.is_checked("#f_unk")
         # the directory on the Data page

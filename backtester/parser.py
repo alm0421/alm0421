@@ -977,7 +977,9 @@ def find_tickers(text: str, strict: bool = False) -> list[str]:
     found: list[tuple[int, str]] = []
     unknown: list[str] = []
     stripped = re.sub(r"`[^`]*`", " ", text)
-    for m in re.finditer(r"(?<![\w^])(\$|\^)?([A-Z]{1,5}(?:SIM|-USD|[.-][A-Z](?![\w-]))?)\b", stripped):
+    # a letter joined by '&' is part of a name, never a ticker: 'S&P 500' (not P), 'AT&T', 'P&L', 'R&D'; nor is
+    # one after '%' ('%K crosses above %D': the stochastic lines, not Dominion Energy)
+    for m in re.finditer(r"(?<![\w^%])(?<![A-Za-z]&)(\$|\^)?([A-Z]{1,5}(?:SIM|-USD|[.-][A-Z](?![\w-]))?)\b(?!&[A-Za-z])", stripped):
         sym = m.group(2)
         pre = m.group(1) or ""
         if pre == "^":
@@ -1035,14 +1037,55 @@ bar bars rest risk trail cloud candle
 """.split())
 
 
-def _lowercase_tickers(text: str) -> str:
-    """'if tqqq 10 day rsi is above 79 then uvxy else tqqq' -> the same with TQQQ / UVXY: a lowercase word
-    is read as a ticker only when it is 3+ letters, has price data and is not an English or vocabulary
-    word ('spy' is accepted). Text inside backticks is left alone. Adds a note listing what was read."""
-    known = _known()
+# lowercase words the parser's own phrases read as that ticker ("... that beat bil"), so still a ticker
+_VOCAB_TICKERS = {"bil"}
+_VOCAB_CACHE: list[frozenset] = []
+
+
+def _vocabulary() -> frozenset:
+    """Every lowercase word of the parser's vocabulary: the hand lists (STOP, NOT_TICKERS, ENGLISH_TICKERS,
+    numbers, days, months, company names) plus every 3-5 letter lowercase word written in a phrase pattern
+    or table of this module and index_universes (docstrings and message f-strings aside), plus the names of
+    the rule language (expr). A word the parser itself understands ('band', 'mean', 'cross', 'rsi') is never
+    a lowercase ticker, however many ticker files the data refresh adds (BAND, MEAN, ...)."""
+    if _VOCAB_CACHE:
+        return _VOCAB_CACHE[0]
+    import pathlib
     words = set(STOP) | {w.lower() for w in NOT_TICKERS} | ENGLISH_TICKERS | set(WORD_NUMS) | set(DOW) | set(MONTHS)
     for name in COMPANIES:
         words.update(name.split())
+    here = pathlib.Path(__file__).parent
+    for fn, idents in (("parser.py", False), ("index_universes.py", False), ("expr.py", True)):
+        try:
+            tree = ast.parse((here / fn).read_text())
+        except (OSError, SyntaxError):
+            continue
+        skip = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant):
+                skip.add(id(n.value))                      # docstrings
+            elif isinstance(n, ast.JoinedStr):
+                skip.update(id(v) for v in n.values)       # f-strings: messages naming example tickers
+        for n in ast.walk(tree):
+            if not (isinstance(n, ast.Constant) and isinstance(n.value, str)) or id(n) in skip:
+                continue
+            if idents:   # the rule language: identifier strings only ('bb_lower' -> bb, lower)
+                if re.fullmatch(r"[a-z_][a-z0-9_]*", n.value):
+                    words.update(w for w in n.value.split("_") if w)
+            else:
+                words.update(re.findall(r"(?<![A-Za-z])[a-z]{2,6}(?![A-Za-z])", re.sub(r"\\[A-Za-z]", " ", n.value)))
+    out = frozenset(w for w in words if w not in _VOCAB_TICKERS)
+    _VOCAB_CACHE.append(out)
+    return out
+
+
+def _lowercase_tickers(text: str) -> str:
+    """'if tqqq 10 day rsi is above 79 then uvxy else tqqq' -> the same with TQQQ / UVXY: a lowercase word
+    is read as a ticker only when it is 3+ letters, has price data and is not an English or vocabulary
+    word ('spy' is accepted; 'band', 'mean', 'cross' never are, see _vocabulary). Text inside backticks is
+    left alone. Adds a note listing what was read."""
+    known = _known()
+    words = _vocabulary()
     done: list[str] = []
 
     def fix(m):
@@ -6382,10 +6425,11 @@ def _whole_universe_node(s: str, notes: list[str]) -> dict | None:
 
 
 def _times_leverage(s: str, notes: list[str]) -> str:
-    """'2x QQQ' / 'QQQ with 2x leverage' / 'QQQ at 2x' (one ticker, stated leverage) -> '200% QQQ' (the extra 100%
-    borrowed, see _levered_weights). A ticker only: '3x S&P 500' may mean a leveraged ETF (UPRO), so it is left alone."""
-    m = (re.fullmatch(r"(?i)(?P<k>\d+(?:\.\d+)?)\s*x\s+(?:leveraged\s+|leverage (?:on|in)\s+)?(?P<t>[\^$]?[A-Z][A-Z0-9.\-]{0,9})", s)
-         or re.fullmatch(r"(?i)(?P<t>[\^$]?[A-Z][A-Z0-9.\-]{0,9})\s+(?:with|at|using)\s+(?P<k>\d+(?:\.\d+)?)\s*x(?:\s+leverage)?", s))
+    """'QQQ with 2x leverage' / 'QQQ at 2x' (one ticker, stated leverage; in a branch, see _branch_leverage) ->
+    '200% QQQ' (the extra 100% borrowed, see _levered_weights). '2x QQQ' is not read here: leverage written before a
+    ticker may mean the leveraged fund (QLD), so _review_phrases refuses it and asks. A ticker only: '3x S&P 500' is
+    left alone."""
+    m = re.fullmatch(r"(?i)(?P<t>[\^$]?[A-Z][A-Z0-9.\-]{0,9})\s+(?:with|at|using)\s+(?P<k>\d+(?:\.\d+)?)\s*x(?:\s+leverage)?", s)
     if not m or not m.group("t").isupper():
         return s
     k = float(m.group("k"))
@@ -6397,6 +6441,21 @@ def _times_leverage(s: str, notes: list[str]) -> str:
     if note not in notes:
         notes.append(note)
     return f"{k * 100:g}% {tk}"
+
+
+def _branch_leverage(rest: str, m) -> bool:
+    """'hold QQQ with 2x leverage' written inside a branch of a conditional allocation ('if ... hold QQQ with 2x
+    leverage, otherwise hold TLT'), attached to one ticker with no comma between: that branch's position is levered
+    (read by _times_leverage as 200% QQQ, the excess borrowed), not every weight of the portfolio. Written after a
+    comma, or on a sentence with no if/otherwise, it is the portfolio's leverage as before."""
+    said = m.group(0)
+    if said[:1] in ",;" or not re.match(r"\s?(?:with|using|at)\b", said, flags=re.I):
+        return False
+    if not re.search(r"(?i)\b(?:if|when|whenever|while|unless)\b", rest[: m.start()]) \
+            or not re.search(r"(?i)\b(?:otherwise|else|then)\b", rest):
+        return False
+    before = re.search(r"(?:^|\b(?:hold|buy|own|in|into|to|then|else|otherwise)\s+)([\^$]?[A-Z][A-Z0-9.\-]{0,9})\s*$", rest[: m.start()])
+    return bool(before) and before.group(1).lstrip("$") not in NOT_TICKERS and data.canonical(before.group(1).lstrip("$")) in _known()
 
 
 def _levered_weights(ws: list[float], kids: list[dict], s: str, notes: list[str]) -> dict:
@@ -7356,7 +7415,13 @@ def parse_allocation(text: str) -> Portfolio:
                          "available for signal strategies ('buy ... when ..., no dividends').")
 
     extra: dict = {}
-    m = T.find(rf",? ?(?:(?:with|using|at|and) )?{NUM}(?:x| ?times) (?:leverage|leveraged)|,? ?(?:with |using )?(?:a )?leverage (?:of )?{NUM}(?:x| ?times)?|,? ?(?:levered|leveraged) {NUM}(?:x| ?times)")
+    lev_rx = (rf",? ?(?:(?:with|using|at|and) )?{NUM}(?:x| ?times) (?:leverage|leveraged)|,? ?(?:with |using )?(?:a )?leverage "
+              rf"(?:of )?{NUM}(?:x| ?times)?|,? ?(?:levered|leveraged) {NUM}(?:x| ?times)")
+    m = T.find(lev_rx, consume=False)
+    if m and _branch_leverage(T.rest, m):
+        m = None      # "if ... hold QQQ with 2x leverage, otherwise TLT": that branch's weight (200% QQQ), not the portfolio's
+    elif m:
+        m = T.find(lev_rx)
     if m:
         extra["leverage"] = float(m.group(1) or m.group(2) or m.group(3))
         notes.append(f"Leverage {extra['leverage']:g}x: every weight is scaled up and the difference is borrowed at the T-bill rate"

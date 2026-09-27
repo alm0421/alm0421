@@ -259,8 +259,15 @@ def test_fetch_job_keeps_files_when_downloads_fail(tmp_path, monkeypatch):
             return frame([pd.Timestamp("2026-08-04")], [209.7])   # Yahoo's reset history
         return None
     monkeypatch.setattr(fd, "fetch_with_retry", fake_fetch)
-    for name in ("fetch_macro", "fetch_factors"):
+    # the rotating batches (funds, index members, the US listing) download through fetch_one: mocked too, so the
+    # job never reaches the network (offline, each symbol would be retried with sleeps: hours for the full lists)
+    monkeypatch.setattr(fd, "fetch_one", lambda t, tries=3, rotating=False: (
+        (fake_fetch(t), "ok") if fake_fetch(t) is not None else (None, "no data")))
+    for name in ("fetch_macro", "fetch_factors", "fetch_shiller", "update_changes"):
         monkeypatch.setattr(fd, name, lambda: None)
+    monkeypatch.setattr(fd, "index_constituents", lambda: {})
+    monkeypatch.setattr(fd, "refresh_listing", lambda: {"symbols": {}})
+    monkeypatch.setattr(fd, "fetch_funds_meta", lambda universe: {})
     monkeypatch.setattr(fd, "fetch_shares", lambda ts: None)
     monkeypatch.setattr(fd, "fetch_sec_shares", lambda ts: None)
     monkeypatch.setattr(fd, "build_sims", lambda: [])
