@@ -48,6 +48,12 @@ def site(tmp_path_factory):
     web.RUNS = old
 
 
+# Chromium's own background calls (component updates, Google services) can hang behind a proxy and keep
+# "networkidle" from arriving; the site itself makes no outside calls
+_QUIET = ["--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps",
+          "--no-first-run", "--disable-domain-reliability", "--disable-features=OptimizationHints,Translate"]
+
+
 PAGES = ["backtest", "library", "gallery", "community", "build", "compare", "research", "montecarlo", "factors",
          "correlations", "signals", "history", "data"]
 
@@ -56,7 +62,7 @@ def test_every_page_and_main_controls_without_errors(site):
     from playwright.sync_api import sync_playwright
     errs: list[str] = []
     with sync_playwright() as p:
-        b = p.chromium.launch(executable_path=_chromium())
+        b = p.chromium.launch(executable_path=_chromium(), args=_QUIET)
         pg = b.new_page(viewport={"width": 1280, "height": 900})
         pg.on("pageerror", lambda e: errs.append(f"pageerror: {e}"))
         pg.on("console", lambda m: errs.append(f"console {m.type}: {m.text}") if m.type == "error" else None)
@@ -164,7 +170,7 @@ def test_reports_with_steps_depletion_and_late_benchmarks_render_without_errors(
              report.write_outputs(A, tmp_path / "both", excel=False)]
     errs: list[str] = []
     with sync_playwright() as p:
-        b = p.chromium.launch(executable_path=_chromium())
+        b = p.chromium.launch(executable_path=_chromium(), args=_QUIET)
         pg = b.new_page(viewport={"width": 1280, "height": 900})
         pg.on("pageerror", lambda e: errs.append(f"pageerror: {e}"))
         pg.on("console", lambda m: errs.append(f"console {m.type}: {m.text}") if m.type == "error" else None)
