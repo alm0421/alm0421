@@ -363,7 +363,15 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     <p class="note">Simulate thousands of possible futures for a portfolio: the range of balances over time, the chance the money lasts, and the highest safe withdrawal rate.</p>
     <div class="tabs2" id="mcSrc"><button data-v="weights" class="on">Tickers &amp; weights</button><button data-v="text">Sentence</button><button data-v="run">Saved run</button></div>
     <div id="mcSrcWeights"><label class="f">Tickers and weights<input id="mc_weights" class="w" value="SPY 60, TLT 40"></label>
-      <div class="note" id="mcSims" style="margin-top:4px"></div></div>
+      <div class="note" id="mcSims" style="margin-top:4px"></div>
+      <details id="mcGlide" style="margin-top:8px"><summary>Glide path (shift the mix over time)</summary>
+        <p class="note">The weights above are the start mix; the target moves once a year to the end mix and the portfolio is rebalanced to it every year (e.g. 90/10 → 40/60 over 30 years holds 40/60 in year 30).</p>
+        <div class="grid">
+          <label style="grid-column:1/-1">End mix (tickers and weights; empty = no glide path)<input id="mc_glide_to" class="w" placeholder="e.g. SPY 40, TLT 60"></label>
+          <label>Over (years)<input id="mc_glide_years" type="number" min="1" max="100" placeholder="the horizon"></label>
+          <label>Schedule<select id="mc_glide"><option value="linear">linear</option><option value="target_date">target-date (slow, then faster near the end)</option><option value="custom">custom points</option></select></label>
+          <label>Custom points (year:% of the way)<input id="mc_glide_points" placeholder="0:0, 10:0, 20:50, 30:100" disabled></label>
+        </div></details></div>
     <div id="mcSrcText" class="hide"><textarea id="mc_text" style="min-height:48px">hold 60% SPY and 40% AGG, rebalance annually</textarea>
       <p class="note">A fixed-weight portfolio is simulated from its assets. Anything with rules (switches, rotations, signals) is simulated by resampling the strategy's own monthly returns.</p></div>
     <div id="mcSrcRun" class="hide"><select id="mc_run" style="max-width:100%"></select></div>
@@ -1636,6 +1644,7 @@ window.addEventListener('blur', unpress);
     tks.forEach(t => { ['ret', 'vol'].forEach(k => { const id = `mcf_${t}_${k}`; const l = el('label'); const i = el('input', { id, type: 'number', step: '0.1', placeholder: 'historical' }); i.value = keep[id] || ''; l.append(document.createTextNode(`${t} ${k === 'ret' ? 'return' : 'volatility'} (%/yr)`), i); g.append(l); }); });
   }
   $('mc_model').addEventListener('change', () => afterPress(drawForecast)); $('mc_weights').addEventListener('change', () => afterPress(drawForecast));
+  $('mc_glide').addEventListener('change', () => { $('mc_glide_points').disabled = $('mc_glide').value !== 'custom'; });
   $('mcRun').addEventListener('click', async () => {
     spin($('mcStatus'), 'simulating…'); $('mcRun').disabled = true;
     const body = { balance: +$('mc_balance').value, years: +$('mc_years').value, model: $('mc_model').value, block_months: +$('mc_block').value,
@@ -1646,6 +1655,10 @@ window.addEventListener('blur', unpress);
       horizon: $('mc_horizon').value, sex: $('mc_sex').value, age2: $('mc_age2').value === '' ? null : +$('mc_age2').value,
       flows: mcFlowsBody() };
     if (!body.flows.length) body.flows = [{ type: 'none' }];   // no cash flows (not the saved portfolio's)
+    if (mcSrc === 'weights' && $('mc_glide_to').value.trim()) {
+      body.glide_to = $('mc_glide_to').value; body.glide_years = $('mc_glide_years').value === '' ? null : +$('mc_glide_years').value;
+      body.glide = $('mc_glide').value === 'custom' ? 'linear' : $('mc_glide').value; if ($('mc_glide').value === 'custom') body.glide_points = $('mc_glide_points').value;
+    }
     if (mcSrc === 'weights') body.weights = $('mc_weights').value; else if (mcSrc === 'text') { body.text = $('mc_text').value; delete body.rebalance; } else { body.run_id = $('mc_run').value; delete body.rebalance; }
     if (body.model === 'forecast') { body.forecast = {}; mcTickers().forEach(tk => { const r = $(`mcf_${tk}_ret`), v = $(`mcf_${tk}_vol`); if (r && v && r.value !== '' && v.value !== '') body.forecast[tk] = { ret: +r.value / 100, vol: +v.value / 100 }; }); }
     try { MC = await api('/api/montecarlo', body); $('mcStatus').textContent = ''; drawMC(); }
@@ -1683,6 +1696,13 @@ window.addEventListener('blur', unpress);
     const model = { historical: `historical block bootstrap (${st.block_months}-month blocks)`, normal: 'multivariate normal', t: `multivariate Student-t (fitted df ${num(st.t_df, 1)})`, forecast: 'forecast returns with historical correlations' }[st.model];
     n.append(el('p', { class: 'note' }, `${st.sims.toLocaleString()} paths of ${st.years} years from ${usd(st.start_balance)}: ${who}. Model: ${model}, fitted on ${st.history_start} → ${st.history_end} (${st.history_months} complete months). Inflation: ${typeof st.inflation === 'number' ? pct(st.inflation, 1) + '/yr' : st.inflation}. Cash flows: ${st.flows.join('; ')} (the first at the start, as in the backtest).`));
     R.notes.forEach(x => n.append(el('div', { class: 'warn' }, x)));
+    if (st.glide && st.glide.path && st.glide.path.length) {   // the target mix at a few years of the glide path
+      const tk = Object.keys(st.glide.path[0].weights).filter(t => st.glide.path.some(p => p.weights[t] > 1e-9));
+      const last = st.glide.path.length, show = [...new Set([1, 5, 10, 15, 20, 25, 30, 40, 50, st.glide.years, last].filter(y => y >= 1 && y <= last))].sort((a, b) => a - b);
+      const tb = el('table', { id: 'mcGlideTbl' }), hr = el('tr'); ['Year'].concat(tk).forEach(h => hr.append(el('th', {}, h))); tb.append(hr);
+      show.forEach(y => { const p = st.glide.path[y - 1], tr = el('tr'); tr.append(el('td', {}, String(y))); tk.forEach(t => tr.append(el('td', { class: 'n' }, pct(p.weights[t] || 0, 1)))); tb.append(tr); });
+      const box = el('div', { class: 'xscroll', style: 'margin-top:8px' }); box.append(el('div', { class: 'note' }, `Glide path target by year (${st.glide.schedule.replace('_', '-')}, over ${st.glide.years} years):`), tb); n.append(box);
+    }
     if (R.settings.history_months < 240) n.append(el('div', { class: 'warn' }, `Only ${Math.round(R.settings.history_months / 12)} years of history feed the simulation. Long-history series (SPYSIM, TLTSIM, IEFSIM, SHYSIM, BILSIM) give a wider range of markets when they are available.`));
     drawFan();
     const sser = [{ name: 'Money left', color: css('--s1'), values: R.success_by_year }];

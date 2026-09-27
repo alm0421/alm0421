@@ -701,6 +701,23 @@ def api_montecarlo(body):
             s.forecast[data.canonical(t)] = (float(v["ret"]), float(v["vol"]))
     w = _weights(body)
     spec = None if w else _target_spec(body)
+    if body.get("glide_to"):
+        if not w:
+            raise ClientError("A glide path needs tickers with weights (the start mix), not a sentence or a saved run.")
+        s.glide_to = _weights({"weights": body["glide_to"]})
+        s.glide = str(body.get("glide") or "linear")
+        if s.glide not in mc.GLIDES:
+            raise ClientError(f"glide must be one of {', '.join(mc.GLIDES)}")
+        try:
+            s.glide_years = int(body["glide_years"]) if body.get("glide_years") not in (None, "") else None
+        except (TypeError, ValueError):
+            raise ClientError(f"Bad number of glide-path years: {body.get('glide_years')!r}")
+        if body.get("glide_points"):
+            try:
+                s.glide_points = mc.parse_glide_points(body["glide_points"]) if isinstance(body["glide_points"], str) \
+                    else [(float(a), float(b)) for a, b in body["glide_points"]]
+            except (TypeError, ValueError) as e:
+                raise ClientError(str(e))
     if w:
         s.weights = w
     elif spec is not None:
