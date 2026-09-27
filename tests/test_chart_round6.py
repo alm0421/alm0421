@@ -212,6 +212,8 @@ def test_price_chart_tools_in_the_browser(fake, tmp_path):
         pg.click("#rpPlay")
         pg.wait_for_function("+document.querySelector('#pxChart canvas').dataset.lastBar > %d" % (k0 + 10))
         pg.click("#rpPlay")                                   # pause
+        # the canvas's lastBar is written on the next animation frame: let a frame already queued draw first
+        pg.evaluate("new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
         k1 = int(_ds(pg, "lastBar"))
         pg.wait_for_timeout(300)
         assert int(_ds(pg, "lastBar")) == k1
