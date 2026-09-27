@@ -183,10 +183,10 @@
    "model_until": "2004-11-19"
   },
   "HYGSIM": {
-   "drag": 0.017819333670886506,
+   "drag": 0.01775701506772598,
    "expense_ratio": 0.0023,
    "fund": "VWEHX",
-   "gap": 0.017819333670886506,
+   "gap": 0.01775701506772598,
    "overlap": "1980-02..2026-07",
    "months": 558,
    "basis": "overlap gap",
@@ -211,6 +211,16 @@
    "months": 235,
    "basis": "expense ratio (the model did not beat the fund)",
    "model_until": "2007-01-12"
+  },
+  "IWCSIM": {
+   "drag": 0.006,
+   "expense_ratio": 0.006,
+   "fund": "IWC",
+   "gap": 0.003362968944557343,
+   "overlap": "2005-09..2026-07",
+   "months": 251,
+   "basis": "expense ratio (the model did not beat the fund)",
+   "model_until": "2005-08-17"
   },
   "LQDSIM": {
    "drag": 0.008744712807639665,
@@ -303,20 +313,20 @@
    "model_until": "1998-05-22"
   },
   "VBSIM": {
-   "drag": 0.013726702656038592,
+   "drag": 0.013130856111201572,
    "expense_ratio": 0.0017,
    "fund": "NAESX",
-   "gap": 0.013726702656038592,
+   "gap": 0.013130856111201572,
    "overlap": "1989-11..2026-07",
    "months": 441,
    "basis": "overlap gap",
    "model_until": "1989-10-02"
   },
   "VCLTSIM": {
-   "drag": 0.010561922784317002,
+   "drag": 0.010338696125894442,
    "expense_ratio": 0.0021,
    "fund": "VWESX",
-   "gap": 0.010561922784317002,
+   "gap": 0.010338696125894442,
    "overlap": "1980-02..2026-08",
    "months": 559,
    "basis": "overlap gap",
@@ -352,6 +362,16 @@
    "basis": "overlap gap",
    "model_until": "2006-08-28"
   },
+  "VOOSIM": {
+   "drag": 0.002452652404004274,
+   "expense_ratio": 0.0014,
+   "fund": "VFINX",
+   "gap": 0.002452652404004274,
+   "overlap": "1980-02..2026-07",
+   "months": 558,
+   "basis": "overlap gap",
+   "model_until": "1980-01-03"
+  },
   "VOTSIM": {
    "drag": 0.0164462312820417,
    "expense_ratio": 0.0007,
@@ -362,21 +382,41 @@
    "basis": "overlap gap",
    "model_until": "2006-08-28"
   },
+  "VPLSIM": {
+   "drag": 0.0023,
+   "expense_ratio": 0.0023,
+   "fund": "VPACX",
+   "gap": 0.0011975847523688632,
+   "overlap": "1990-07..2026-07",
+   "months": 433,
+   "basis": "expense ratio (the model did not beat the fund)",
+   "model_until": "1990-06-19"
+  },
   "VTISIM": {
-   "drag": 0.002445460070353178,
+   "drag": 0.002478722705308689,
    "expense_ratio": 0.0014,
    "fund": "VTSMX",
-   "gap": 0.002445460070353178,
+   "gap": 0.002478722705308689,
    "overlap": "1992-05..2026-07",
    "months": 411,
    "basis": "overlap gap",
    "model_until": "1992-04-28"
   },
+  "VTSIM": {
+   "drag": 0.0006,
+   "expense_ratio": 0.0006,
+   "fund": "VT",
+   "gap": 0.0,
+   "overlap": "2008-07..2026-07",
+   "months": 217,
+   "basis": "expense ratio (the model did not beat the fund)",
+   "model_until": "2008-06-27"
+  },
   "VTVSIM": {
-   "drag": 0.010095513500760767,
+   "drag": 0.010095082813750045,
    "expense_ratio": 0.0017,
    "fund": "VIVAX",
-   "gap": 0.010095513500760767,
+   "gap": 0.010095082813750045,
    "overlap": "1992-12..2026-07",
    "months": 404,
    "basis": "overlap gap",

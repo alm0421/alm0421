@@ -69,6 +69,9 @@ def build_run_parser() -> argparse.ArgumentParser:
                         "target touched on the same bar follow TradingView's open-high-low-close path")
     p.add_argument("--benchmark", help="benchmark ticker for alpha/beta (default SPY)")
     p.add_argument("--name", help="label for this run")
+    p.add_argument("--raw-fund-history", action="store_true",
+                   help="use mutual funds' early free (Yahoo) history even where it misses distributions and cannot be "
+                        "repaired (by default such a fund starts at its first reliable date; see README)")
     _common(p)
     p.add_argument("--out", help="output folder (default reports/<slug>)")
     p.add_argument("--no-sensitivity", action="store_true", help="skip the transaction-cost re-runs")
@@ -130,6 +133,8 @@ def make_spec(text: str | None, a, spec_path: str | None = None):
                 setattr(spec, k, v)
     else:
         raise parser.ParseError("Give a strategy in plain English, --spec FILE, or --tickers with --entry.")
+    if getattr(a, "raw_fund_history", False):
+        spec.raw_fund_history = True
     spec.validate()
     return spec
 

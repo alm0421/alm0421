@@ -6,7 +6,8 @@ index membership since 2004), QQQ, SPY, about 60 ETFs (leveraged, bond, gold, se
 indexes, and - filled in by the daily data job in rotating batches - the S&P 1500, every US-listed ETF and
 ETN, every US stock worth $250M or more and about 1,100 mutual funds (see [Data](#data); any other symbol is
 one request away). History goes as far back as each ticker's: AAPL from 1980, MSFT from 1986, the Nasdaq-100
-index from 1985, mutual funds from 1980 at the earliest (Yahoo's limit).
+index from 1985, mutual funds from 1980 at the earliest (Yahoo's limit; where Yahoo's early fund history misses
+distributions it is matched to the published returns or cut, see [Mutual-fund histories](#mutual-fund-histories)).
 
 ```bash
 pip install -r requirements.txt
@@ -327,11 +328,12 @@ never quietly drops them or swaps in a different ticker.
   60/40 blend rebalanced yearly; never rebalanced = buy and hold), or monthly for signal strategies, drift
   bands and rules re-evaluated daily; a note says which. State another one after the blend: "vs 60/40 SPY/AGG
   rebalanced monthly" (`"benchmark_rebalance": "monthly"` in a JSON spec).
-- Holdings that move in **monthly steps** (EFASIM/EFVSIM/VGKSIM/VXUSSIM before mid-1990, the other country
+- Holdings that move in **monthly steps** (EFASIM/EFVSIM/VGKSIM/VXUSSIM/VTSIM/VPLSIM before mid-1990, the other country
   SIMs before 1996, EEMSIM before 2003, VWOSIM before 1994, VNQSIM before mid-1996, TIPSIM before mid-2000,
   DBCSIM before 2006, BWXSIM before late 2007, BNDXSIM before 1993, LQDSIM before 1986, VCLTSIM before 1980;
   detected from the data by
-  `data.stepped_ranges`): when one is held with a material weight (5% on average over its stepped stretch),
+  `data.stepped_ranges`, which counts a day as a move only beyond the price file's rounding - a model net of a
+  small daily fee drag stored to 6 decimals once split TIPSIM's stretch at 1975-09): when one is held with a material weight (5% on average over its stepped stretch),
   volatility, Sharpe, Sortino, skew, kurtosis, beta/alpha and the factor regression are computed from
   monthly returns for the whole run, daily figures (best/worst day, positive days, daily VaR/CVaR) are
   blank, and a warning says so. The Correlations page switches daily returns to monthly (with a note) when a
@@ -1001,6 +1003,9 @@ close and commits updates, so `git pull` gets fresh data. It downloads:
   monthly averages, legacy euro-area currencies 1971-2001, for the unhedged international bond model)
 - Robert Shiller's monthly S&P data with the CAPE (`data/macro/shiller.csv`, from `ie_data.xls` on
   shillerdata.com: price, dividend, earnings, CPI, 10-year yield, CAPE, total-return CAPE, from 1871)
+- published quarterly total returns of mutual funds with a pre-2000 history (`data/fund_returns.json`, 40 new funds
+  a run, see [Mutual-fund histories](#mutual-fund-histories)) and the World Bank's year-end market caps of listed
+  companies by country (`data/factors/world_market_caps.csv`, the weights of VTSIM and VPLSIM)
 - fund metadata for every ETF and mutual fund of the universe (`data/funds_meta.json`: name, category,
   family, expense ratio, inception, net assets, yield, turnover, top 10 holdings, asset classes, sectors), from
   Yahoo via yfinance's `Ticker.info` and `Ticker.funds_data`, up to 900 funds a run (the most-used funds first,
@@ -1205,6 +1210,44 @@ The **Daily signals** Action then scans the paper-trading strategies (`paper/*.j
 `signals/latest.md`. It also posts to a webhook if you add a repository secret `ALERT_WEBHOOK_URL`
 (for example a Slack or Discord incoming webhook).
 
+### Mutual-fund histories
+
+Yahoo's free daily history of many mutual funds is wrong in its early years: capital-gain distributions (and some
+income distributions) are missing, so the NAV falls on the ex-date and neither the dividend column nor the adjusted
+close makes up for it. The Vanguard 500 Index fund (VFINX) returns 22.6% in 1985 in that data against the published
+31.2%, and 11.7% a year over 1980-87 against the US market's 15.1%; Fidelity Magellan shows -14.7% for 1984Q2
+against the published -4.6%. How
+long it lasts depends on the family: Vanguard, Fidelity and Dodge & Cox are right from about 1987 (a few Vanguard
+funds into the early 1990s), American Funds and T. Rowe Price from about 1996, some small funds into the 2000s.
+`backtester/fund_history.py` handles it when a fund (a five-letter symbol ending in X) is loaded:
+
+- **Repaired from published returns.** `data/fund_returns.json` holds 92 funds' published quarterly total returns
+  (Morningstar's, NAV-based, distributions reinvested, net of fees, before loads; each entry names its source and
+  retrieval date: Yahoo Finance's performance page, "Past Quarterly Returns"). Every quarter whose total return is off
+  the published one by more than 0.15% is matched to it: the missing growth is booked as a distribution on the day
+  the price shows it (the quarter's largest drop the US market does not explain), else spread over the quarter; a
+  distribution booked on the wrong side of a quarter end (drop in one quarter, reinvestment in the next) is moved
+  back. About 650 quarters are repaired; VFINX 1985 is 31.2% and 1986 18.1% as published, and the 1980-87 CAGR
+  15.8%. A backtest that holds a repaired fund says so ("Fund history repaired: ...", with the largest quarter).
+- **Cut when nothing is on file.** For other funds the early history is screened for the same signature: two-day
+  drops beyond what the fund's betas to US stocks and Treasuries explain, never given back, recurring at the same
+  time of year (a fund pays its distributions on about the same date every year), starting within 5 years of the
+  fund's first price and before 2000. Checked against 66 funds with published returns, it found most that need a
+  repair (34 of 46) and flagged 2 of 20 that do not. A flagged fund is used only from the session after its
+  last such drop (DFCSX from 1991-12, FBGRX 1995-01, MALOX 1995-12, SPHIX 1995-11, PRMTX 1996-12, PTTAX 1997-01,
+  SMCWX 1997-11, FSHCX 1998-04): the backtest starts there with a Warning ("fund history cut: ..."). Say
+  **"using raw fund history"** (JSON `"raw_fund_history": true`, command line `--raw-fund-history`) to use the
+  raw history anyway; the Warning then says the early returns are understated.
+- `python -m backtester.fund_history [TICKER ...]` lists each fund's repaired quarters or usable start.
+- The data job adds published returns for funds with a pre-2000 history that have none yet (40 a run, from Yahoo's
+  quoteSummary `fundPerformance` module; `fetch_fund_returns`), before it builds the SIMs; entries already in the
+  file are never replaced. The SIMs that splice a fund in (VOOSIM, VTISIM, VBSIM, VTVSIM, HYGSIM, VCLTSIM, MUBSIM,
+  VPLSIM ...) use the repaired history.
+
+The tests check that every fund with published returns matches them year by year, that none trails its published
+returns by more than 0.25%/yr over any 3-year window (and that its raw history, where it does, carries a flag),
+and that VFINX tracks Ken French's largest-30% portfolio and VTSMX his market return within 3% and 1.5% a year.
+
 ### Long-history series (SIMs)
 
 The data job also builds simulated total-return indexes that extend funds back before they
@@ -1214,8 +1257,10 @@ failed to build and, for each one, how the model compares with the real fund whe
 
 | Series | Before the fund (start) | Then |
 |---|---|---|
-| SPYSIM | US stock market: Fama-French market return (1926, daily) | SPY |
-| VTISIM | US total market: Fama-French market return (1926, daily) | the Vanguard Total Stock Market Index fund VTSMX (April 1992), then VTI (2001) |
+| SPYSIM | US stock market: Fama-French market return - all US stocks, not only large caps (1926, daily) | SPY (1993) |
+| VOOSIM | US large caps (S&P 500): Fama-French portfolio of the largest 30% of NYSE stocks by market cap (1926, daily; the candidate - top 10 / 20 / 30% - that tracks VFINX best: tracking error 1.0%/yr against VFINX, 1.3% against SPY) | the Vanguard 500 Index fund VFINX (1980; its quarters matched to the published returns), then VOO (2010) |
+| VTISIM | US total market: Fama-French market return (1926, daily) | the Vanguard Total Stock Market Index fund VTSMX (April 1992; its quarters matched to the published returns), then VTI (2001) |
+| IWCSIM | US micro caps: Fama-French portfolio of the smallest 20% of NYSE stocks (1926, daily; the candidate - bottom 10%, 20%, or half each of the two lowest deciles - that tracks IWC best: 3.2%/yr) | IWC (2005) |
 | VBSIM | US small caps: Fama-French small-cap model (1926, daily; the candidate that tracks the fund best) | the Vanguard Small-Cap Index fund NAESX (from late 1989, when it became an index fund), then VB |
 | VBRSIM | US small-cap value: the best-tracking of Fama-French small / high B/M, small high + neutral, or the 25-portfolio size quintiles 2-3 x top two B/M quintiles (1926, daily) | the Vanguard Small-Cap Value Index fund VISVX (1998), then VBR |
 | VBKSIM | US small-cap growth: the same choice on the growth side (1926, daily) | the Vanguard Small-Cap Growth Index fund VISGX (1998), then VBK |
@@ -1225,6 +1270,8 @@ failed to build and, for each one, how the model compares with the real fund whe
 | VTVSIM | US large-cap value: the best-tracking of Fama-French big / high B/M, 1/3 big-high + 2/3 big-neutral B/M, or the 25-portfolio large-cap top B/M quintiles (1926, daily) | the Vanguard Value Index fund VIVAX (1992), then VTV |
 | VUGSIM | US large-cap growth: Fama-French big / low book-to-market or a 25-portfolio blend (1926, daily) | the Vanguard Growth Index fund VIGRX (1992), then VUG |
 | VXUSSIM | International stocks: 80% developed ex-US (EFASIM's model) + 20% emerging (EEMSIM's, from 1989), rebalanced daily (1975) | the Vanguard Total International Stock Index fund VGTSX (1996), then VXUS (2011) |
+| VTSIM | Global stocks (ACWI / FTSE All-World): the US market, developed ex-US (EFASIM's model) and emerging markets (EEMSIM's, from 1989), cap-weighted: reset every January to the World Bank's year-end market caps of listed companies (`data/factors/world_market_caps.csv`, WDI CM.MKT.LCAP.CD: the US was 63% of the developed world in 1976, 30% in 1990, 46% in 2000; emerging markets' full market cap halved for free float, the factor - 0.5, 0.75 or 1 - that tracks VT best) and drifting with returns in between (1975; monthly steps until mid-1990) | VT (2008) |
+| VPLSIM | Developed Pacific (Japan, Australia, Hong Kong, Singapore, New Zealand): Fama-French Japan, Australia and Hong Kong indexes (1975, monthly steps), Japan + Asia-Pacific ex Japan (1990, daily), weighted by the World Bank's year-end market caps (Japan 79% in 1980, 94% in 1990) | the Vanguard Pacific Stock Index fund VPACX (1990), then VPL (2005) |
 | VWOSIM | Emerging markets: Fama-French (1989, monthly steps) | the Vanguard Emerging Markets Stock Index fund VEIEX (1994), then VWO |
 | EWJSIM, EWUSIM, EWGSIM, EWCSIM, EWASIM, EWQSIM, EWLSIM, EWHSIM | Japan, UK, Germany, Canada, Australia, France, Switzerland, Hong Kong: Fama-French country indexes in USD with dividends (1975, Canada 1977, monthly steps; Japan daily from 1990) | the iShares country ETF |
 | EFASIM | Developed ex-US: Fama-French EAFE index (1975, monthly steps), Fama-French developed ex-US market (1990, daily) | EFA |
@@ -1234,6 +1281,7 @@ failed to build and, for each one, how the model compares with the real fund whe
 | VGKSIM | Europe: Fama-French Europe index (1975, monthly steps), Fama-French Europe market (1990, daily) | VGK |
 | EEMSIM | Emerging markets: Fama-French emerging market return (1989, monthly steps) | EEM |
 | VNQSIM | US REITs: FTSE Nareit All Equity REITs total return (1972, monthly steps) | the Vanguard REIT Index fund VGSIX (1996), then VNQ |
+| VNQISIM | International (ex-US) REITs: the SPDR Dow Jones International Real Estate ETF RWX (Dec 2006); no model before it | VNQI (2010) |
 | BILSIM | 1-month T-bills: Fama-French RF (1926, daily) | BIL |
 | SHYSIM | 2-year Treasuries priced from the FRED 2-year yield (1-year before 1976) (1962, daily) | SHY |
 | IEISIM | 5-year Treasuries from the 5-year yield (1962, daily) | IEI |
@@ -1306,17 +1354,17 @@ description, and validated on the overlap in `data/sims_log.txt`):
 - Emerging markets before 1989 (EEMSIM, VWOSIM): French's emerging-market files start in July 1989 and MSCI's
   Emerging Markets index itself starts at the end of 1987; an earlier "emerging market" series would have to be
   invented.
-- Global / international REITs (RWO, REET, VNQI): no free ex-US listed real-estate total-return index goes back
-  before the funds (FTSE EPRA Nareit and S&P global property indexes are licensed; French's international
-  files have no industry split). A blend of VNQSIM and a developed-market *stock* index would be a stock
-  proxy, not real estate, so none is built: these funds start with their own history.
-- VTSMX's early distributions: Yahoo's VTSMX misses part of some 1993-1996 distributions (its dividend column
-  and its adj_close, which Yahoo derives from it, agree to 0.03%/yr, so adj_close is no better: 1993 10.34%,
-  1994 -0.43%, 1995 34.97% against Vanguard's published 10.62%, -0.17%, 35.79%). On an ex-dividend day where
-  VTSMX trails the Fama-French market by more than max(3 robust daily deviations, 0.10%), VTISIM uses the
-  market's return for that day (4 days: 1993-12-29, 1994-12-28, 1995-12-22, 1996-03-26), giving 10.55%,
-  -0.21%, 35.88%, 21.04% (1996 published 20.96%); the data job logs the days and the years. VTSMX's own file
-  is unchanged.
+- International REITs before RWX (Dec 2006; VNQISIM is RWX, then VNQI): no free ex-US listed real-estate
+  total-return index goes back further (FTSE EPRA Nareit and S&P global property indexes are licensed; French's
+  international files have no industry split). A blend of VNQSIM and a developed-market *stock* index would be
+  a stock proxy, not real estate, so none is built.
+- The mutual funds the SIMs splice in (VFINX, VTSMX, NAESX, VIVAX, VWEHX, VWESX, VWITX, VPACX ...) are used as the
+  backtester sees them: their quarters matched to the published returns where Yahoo misses distributions, or
+  from their first reliable date (see [Mutual-fund histories](#mutual-fund-histories); the data job logs each
+  fund's repaired quarters in `data/sims_log.txt`). VTSMX's 1993-1996 years, which Yahoo understates (1993
+  10.34%, 1994 -0.43%, 1995 34.97% against the published 10.62%, -0.17%, 35.78%), now match the published
+  returns in VTISIM; the earlier fix (the market's return on 4 ex-dates) is used only when a fund has no
+  published returns on file.
 - VBSIM is validated against NAESX from 1990 only (NAESX was an actively managed small-cap fund until late
   1989; before, it was no benchmark for an index model).
 
@@ -1337,7 +1385,7 @@ condition on it is false and `tbill_ret` stops) and a note names the last availa
 repeating the last value for years. The data job reads Shiller's file from shillerdata.com (whose page serves
 the download link JSON-escaped; an older job fell back to the Yale copy, which stops at 2023-09).
 
-**Fund-exact series.** VTISIM, VXUSSIM, VWOSIM, VNQSIM, BNDSIM, VBSIM, VBRSIM, VBKSIM, VTVSIM and VUGSIM
+**Fund-exact series.** VOOSIM, VTISIM, VXUSSIM, VWOSIM, VPLSIM, VNQSIM, BNDSIM, VBSIM, VBRSIM, VBKSIM, VTVSIM and VUGSIM
 become the named fund as soon as it or its Vanguard mutual-fund twin (same index, same manager) exists, so a
 named portfolio run from 1972 holds, for example, the US market model until April 1992, VTSMX until
 mid-2001 and VTI after that. Named portfolios use these first and fall back to the older series (SPYSIM,
@@ -1356,8 +1404,10 @@ since 1972" holds GLDSIM (gold before GLD, then GLD itself), and "60% stocks and
 A lowercase word is never read as an unrelated stock: "gold" is gold, "GOLD" Barrick Gold, and a Warning names
 both readings whenever the word is also a ticker. "Treasuries" with no maturity is intermediate-term (IEF), with a
 Warning naming the long- and short-term readings. Recognised: (US / total) stock market, stocks; US large / mid / small cap,
-each with value or growth; international stocks, international developed, international small cap (value),
-international value, emerging markets, European stocks, Japan; REITs / real estate; gold; commodities; total
+each with value or growth ("US large cap" is VOOSIM, large caps only; the US stock market is VTISIM); US micro cap
+(IWCSIM); global / world / all-world stocks, ACWI (VTSIM); international stocks, international developed,
+international small cap (value), international value, emerging markets, European stocks, Japan, (developed)
+Pacific / Asia-Pacific (VPLSIM); REITs / real estate; international / ex-US REITs (VNQISIM); gold; commodities; total
 bond / bonds / aggregate bonds; short, intermediate and long term Treasuries; TIPS; corporate bonds;
 long-term corporate bonds; high yield; municipal bonds; international bonds (hedged: BNDXSIM; "unhedged international bonds": BWXSIM); emerging market bonds;
 T-bills; silver; Treasuries. Name a fund (VTI, BND, ...) to use the fund alone; "cash" stays cash earning the

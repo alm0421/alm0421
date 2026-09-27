@@ -206,6 +206,9 @@ class Portfolio:
                                                  # "60 SPY 40 AGG" / {"SPY": 0.6, "AGG": 0.4} (see benchmark_rebalance)
     # a blend's rebalancing: "monthly", "quarterly", "yearly", "none"... (None: the portfolio's own calendar schedule)
     benchmark_rebalance: str | None = None
+    # "using raw fund history": use a mutual fund's early free history even where it misses distributions and
+    # has no published returns to repair it (backtester/fund_history.py); by default such a fund starts later
+    raw_fund_history: bool = False
     name: str = ""
     description: str = ""
     notes: list[str] = field(default_factory=list)

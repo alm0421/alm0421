@@ -181,6 +181,7 @@ CWEB RETL MIDU DFEN PILL DUSL UYG SPDN SPUU FNGO BNKU TPOR WANT
 SIM_FUNDS = """
 VTSMX VGTSX VGSIX VIVAX VIGRX NAESX VISVX VISGX VWESX VWITX VWLTX FNMIX PCRIX VEIEX
 EWJ EWU EWG EWC EWA EWQ EWL EWH VCLT MUB EMB VOE VOT BWX IGOV HYG VIPSX TIP
+VFINX VOO IWC DFSCX VT ACWI VPACX VPL RWX VNQI
 """.split()
 ETFS = list(dict.fromkeys(ETFS + SIM_FUNDS))
 # large US stocks outside the Nasdaq-100 (stocks, not ETFs: kept separate so they are never mistaken
@@ -1406,8 +1407,38 @@ def _real_returns(real: str) -> pd.Series:
         return pd.Series(dtype=float)
     df = pd.read_csv(p, parse_dates=["date"], index_col="date").sort_index()
     df = df[~df.index.duplicated(keep="last")]
+    df, start = _fund_history(real, df)
     adj = pd.to_numeric(df["adj_close"], errors="coerce")
+    if start is not None:
+        adj = adj[adj.index >= start]
     return adj.where(adj > 0).dropna().pct_change().dropna()
+
+
+_FUND_HISTORY_MEMO: dict = {}
+
+
+def _fund_history(real: str, df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Timestamp | None]:
+    """A mutual fund's bars as the backtester uses them (backtester/fund_history.py): quarters whose free history
+    misses distributions matched to the published returns (data/fund_returns.json), or the usable start date when
+    the early history is unreliable and nothing is on file to repair it. (bars, first usable date or None)"""
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from backtester import fund_history
+    if not fund_history.is_mutual_fund(real):
+        return df, None
+    key = (real, len(df), str(df.index[-1]) if len(df) else "", float(pd.to_numeric(df["adj_close"], errors="coerce").sum()))
+    if key in _FUND_HISTORY_MEMO:
+        return _FUND_HISTORY_MEMO[key]
+    out, events, cut = fund_history.process(real, df)
+    _FUND_HISTORY_MEMO[key] = (out, pd.Timestamp(cut["usable_from"]) if cut else None)
+    if len(events):
+        _simnote(f"{real} fund history (for the SIMs): {len(events)} quarter(s) matched to published returns ("
+                 + ", ".join(f"{e.quarter} {e.yahoo:+.2%}->{e.published:+.2%}" for e in events.itertuples()) + ")")
+    if cut:
+        _simnote(f"{real} fund history (for the SIMs): used from {pd.Timestamp(cut['usable_from']).date()} (the free "
+                 f"data misses distributions before)")
+        return out, pd.Timestamp(cut["usable_from"])
+    return out, None
 
 
 def _splice_returns(sim_ret: pd.Series, *reals: str) -> pd.Series:
@@ -1455,6 +1486,10 @@ SIM_EXPENSE_RATIOS = {
     # added with the TIPS / high-yield / unhedged-bond models (Vanguard, iShares, SPDR fund pages; BWX checked
     # on ssga.com and Morningstar 2026-09: 0.35%)
     "VIPSX": 0.0020, "TIP": 0.0018, "VWEHX": 0.0023, "HYG": 0.0049, "BWX": 0.0035, "IGOV": 0.0035,
+    # added with VOOSIM / IWCSIM / VTSIM / VPLSIM / VNQISIM (issuer figures as in data/fund_reference.json and
+    # data/funds_meta.json, 2026-09)
+    "VFINX": 0.0014, "VOO": 0.0003, "IWC": 0.0060, "DFSCX": 0.0041, "VT": 0.0006, "ACWI": 0.0032, "VPACX": 0.0023,
+    "VPL": 0.0007, "RWX": 0.0059, "VNQI": 0.0012,
 }
 SIM_DRAG_CAP = 0.03          # a larger gap is model error, not costs: never haircut more than 3% a year
 SIM_DRAG: dict[str, dict] = {}   # ticker -> the drag applied this run (written to data/sims_drag.json)
@@ -1764,6 +1799,76 @@ def _pick_model(name: str, cands: dict, targets: tuple[str, ...], since=None) ->
     return first, cands[first]
 
 
+def rebalanced_blend(rets: dict, weights: pd.DataFrame) -> pd.Series:
+    """Daily returns of a mix of markets reset to `weights` (rows: the date each set applies from; columns: the keys of
+    `rets`) and drifting with each market's return in between (cap-weighted between resets). A market without a return
+    series yet has weight 0 (the others are scaled up); the first row also applies before its date."""
+    df = pd.DataFrame({k: pd.to_numeric(v, errors="coerce") for k, v in rets.items()}).sort_index()
+    df = df[~df.index.duplicated(keep="last")]
+    started = df.notna().cummax().to_numpy()
+    r = df.fillna(0.0).to_numpy()
+    wt = weights.reindex(columns=df.columns).fillna(0.0).sort_index()
+    at = np.searchsorted(pd.DatetimeIndex(wt.index).values, df.index.values, side="right") - 1
+    seg = np.maximum(at, 0)
+    out = np.zeros(len(df))
+    hold = None
+    for i in range(len(df)):
+        if i == 0 or seg[i] != seg[i - 1] or (started[i] & ~started[i - 1]).any():
+            base = wt.iloc[seg[i]].to_numpy(dtype=float) * started[i]
+            if base.sum() <= 0:
+                base = started[i].astype(float)
+            hold = base / base.sum()
+        out[i] = float(hold @ r[i])
+        hold = hold * (1 + r[i])
+        s = hold.sum()
+        hold = hold / s if s > 0 else hold
+    return pd.Series(out, index=df.index)
+
+
+WB_MARKET_CAP_URL = ("https://api.worldbank.org/v2/country/{codes}/indicator/CM.MKT.LCAP.CD?format=json&per_page=1000"
+                     "&date=1975:{year}")
+WB_MARKET_CAP_CODES = ("USA", "WLD", "HIC", "LMY", "JPN", "AUS", "HKG", "SGP", "NZL")
+
+
+def parse_world_bank(doc) -> pd.DataFrame:
+    """The World Bank API's JSON ([paging, [records]]) as a year x ISO3 code table (aggregates by their id: HIC for
+    'High income')."""
+    rows: dict = {}
+    for rec in (doc[1] if isinstance(doc, list) and len(doc) > 1 and doc[1] else []):
+        code = rec.get("countryiso3code") or {"XD": "HIC"}.get((rec.get("country") or {}).get("id"), "")
+        if code and rec.get("value") is not None:
+            rows.setdefault(int(rec["date"]), {})[code] = float(rec["value"])
+    return pd.DataFrame.from_dict(rows, orient="index").sort_index()
+
+
+def world_market_caps() -> pd.DataFrame:
+    """Year-end market capitalisation of listed domestic companies (current USD; World Bank WDI CM.MKT.LCAP.CD) of the
+    US, the world, high-income and low & middle-income countries and the developed Pacific markets, from 1975:
+    downloaded (and saved to data/factors/world_market_caps.csv), else the saved file."""
+    path = FACTORS / "world_market_caps.csv"
+    try:
+        url = WB_MARKET_CAP_URL.format(codes=";".join(WB_MARKET_CAP_CODES), year=datetime.now().year)
+        t = parse_world_bank(requests.get(url, headers=UA, timeout=60).json())
+        if len(t) < 30 or "USA" not in t or "WLD" not in t:
+            raise RuntimeError(f"World Bank market caps: {len(t)} years")
+        t.index.name = "year"
+        t.reindex(columns=list(WB_MARKET_CAP_CODES)).to_csv(path, float_format="%.0f")
+    except Exception as e:  # noqa: BLE001 - the saved copy
+        _simnote(f"World Bank market caps download failed ({e}); using {path.name}")
+    return pd.read_csv(path, index_col="year").sort_index()
+
+
+def year_start_weights(table: pd.DataFrame, first_complete: int | None = None) -> pd.DataFrame:
+    """Rows of year-end weights (one row per year Y) as weights from the first session of year Y + 1 (the first row
+    also before), for rebalanced_blend."""
+    t = table.dropna(how="all")
+    if first_complete is not None:
+        t = t[t.index >= first_complete]
+    t = t.div(t.sum(axis=1), axis=0)
+    t.index = pd.DatetimeIndex([pd.Timestamp(f"{int(y) + 1}-01-01") for y in t.index])
+    return t
+
+
 def _fred(sid: str) -> pd.Series:
     d = pd.read_csv(MACRO / f"{sid}.csv", parse_dates=["date"], index_col="date")["value"]
     return pd.to_numeric(d, errors="coerce").dropna().sort_index()
@@ -1834,7 +1939,11 @@ def build_sims(only: set[str] | None = None) -> list[str]:
                 "Index fund (VTSMX), then VTI from June 2001")
         try:
             # Yahoo's VTSMX misses part of some early distributions: repair those ex-dates against the market
-            # (see repair_missed_distributions) for its use here only
+            # (see repair_missed_distributions) for its use here only - unless its published quarterly returns are
+            # on file (data/fund_returns.json), which _real_returns already matches quarter by quarter
+            from backtester import fund_history
+            if fund_history.published("VTSMX") is not None:
+                raise LookupError("published returns on file")
             p = pd.read_csv(PRICES / "VTSMX.csv", parse_dates=["date"], index_col="date").sort_index()
             p = p[~p.index.duplicated(keep="last")]
             raw = _real_returns("VTSMX")
@@ -1850,8 +1959,13 @@ def build_sims(only: set[str] | None = None) -> list[str]:
                     f"{d.date()} fund {f:+.2%} vs market {m:+.2%}" for d, f, m in days)
                     + " -> calendar years " + ", ".join(f"{y} {a[y]:.2%} -> {b[y]:.2%}" for y in years))
                 note += " (early VTSMX ex-dates whose distribution Yahoo understates repaired, see data/sims_log.txt)"
+        except LookupError:
+            note += " (VTSMX's quarters matched to its published total returns, data/fund_returns.json)"
         except Exception as e:  # noqa: BLE001 - the unrepaired fund
             _simlog(f"VTSMX distribution repair failed: {e}")
+        if "mkt" not in ff:
+            f = _factor_file("ff3_daily")
+            ff["mkt"] = (f["Mkt-RF"] + f["RF"]).dropna()
         build("VTISIM", ff["mkt"], ("VTSMX", "VTI"), note, "VTSMX")
     attempt("VTISIM", total_market)
 
@@ -2166,6 +2280,129 @@ def build_sims(only: set[str] | None = None) -> list[str]:
         build("EMBSIM", r, ("EMB",), "emerging-market USD bonds: Fidelity New Markets Income fund (FNMIX) from 1993, "
               "then EMB (no model before)", model=False)
     attempt("EMBSIM", em_bonds)
+
+    # ---- asset classes added with the fund-history review (series named after the ETF they splice into)
+
+    def need(key: str) -> pd.Series:
+        """A model another group computes (the US market, developed ex-US, emerging), computed here when that group
+        was not run (build_sims(only=...))."""
+        if key not in ff:
+            if key == "mkt":
+                f = _factor_file("ff3_daily")
+                ff["mkt"] = (f["Mkt-RF"] + f["RF"]).dropna()
+            elif key == "efa":
+                dev = _factor_file("dev_ff3_daily")
+                daily = (dev["Mkt-RF"] + dev["RF"]).dropna()
+                eafe = _monthly_steps(french_international_index("all"))
+                ff["efa"] = pd.concat([eafe[eafe.index < daily.index[0]], daily])
+            elif key == "eem":
+                em = _factor_file("em_ff5_monthly")
+                ff["eem"] = _monthly_steps((em["Mkt-RF"] + em["RF"]).dropna())
+        return ff[key]
+
+    def large_caps():
+        # US large caps (S&P 500): SPYSIM is the whole US market before SPY (1993); this is the large-cap part of it -
+        # Ken French's value-weighted portfolio of the stocks above the 70th (80th, 90th) NYSE size percentile, the
+        # one that tracks the Vanguard 500 Index fund best - then the fund itself (VFINX, Yahoo history from 1980, its
+        # quarters matched to the published total returns, backtester/fund_history.py), then VOO (Sept 2010)
+        me = _factor_file("me_daily")
+        cands = {"top 30% of NYSE market caps": me[_col(me, "HI30")], "top 20% of NYSE market caps": me[_col(me, "HI20")],
+                 "top 10% of NYSE market caps": me[_col(me, "HI10")]}
+        label, model = _pick_model("VOOSIM", cands, ("VFINX", "SPY"))
+        build("VOOSIM", model, ("VFINX", "VOO"),
+              f"US large caps (S&P 500): Fama-French {label} (value-weighted, daily) from 1926, then the Vanguard 500 "
+              "Index fund (VFINX) from 1980, then VOO from 2010", "VFINX")
+        _validate("VOOSIM", model, "SPY")
+    attempt("VOOSIM", large_caps)
+
+    def micro_caps():
+        # US micro caps: Ken French's smallest NYSE size decile(s) (value-weighted, daily from 1926; the model that
+        # tracks the iShares Micro-Cap ETF best), then IWC (Aug 2005). Also checked against the DFA US Micro Cap
+        # fund (DFSCX, 1986) in the log.
+        me = _factor_file("me_daily")
+        lo10, d2 = me[_col(me, "LO10")], me[_col(me, "DEC2")]
+        cands = {"bottom 10% of NYSE market caps": lo10, "bottom 20% of NYSE market caps": me[_col(me, "LO20")],
+                 "1/2 bottom decile + 1/2 second decile": (lo10 + d2) / 2}
+        label, model = _pick_model("IWCSIM", cands, ("IWC",))
+        build("IWCSIM", model, ("IWC",),
+              f"US micro caps: Fama-French {label} (value-weighted, daily) from 1926, then IWC from 2005", "IWC")
+        _validate("IWCSIM", model, "DFSCX")
+    attempt("IWCSIM", micro_caps)
+
+    def global_stocks():
+        # global stocks (MSCI ACWI / FTSE All-World): the US market (Fama-French), developed ex-US (EAFE: monthly steps
+        # 1975-90, daily after) and emerging markets (monthly steps from 1989), weighted by their market caps - reset
+        # every January to the World Bank's year-end market capitalisation of listed companies (US / high-income ex-US /
+        # the rest, world_market_caps) and drifting with returns in between. The World Bank counts emerging markets'
+        # whole market cap (state-held and closed shares, China A-shares), several times what global indexes can hold,
+        # so their share is scaled by an investability factor: the candidate that tracks VT best. Then VT (June 2008).
+        us, dev, em = need("mkt"), need("efa"), need("eem")
+        # before the daily developed-market series (July 1990) EAFE moves once a month: the US leg too, so the mix is
+        # a clean monthly-stepped series there (the backtester then takes its statistics from monthly returns)
+        d0 = (lambda f: (f["Mkt-RF"] + f["RF"]).dropna().index[0])(_factor_file("dev_ff3_daily"))
+        pre = us[us.index < d0]
+        us = pd.concat([_monthly_steps((1 + pre).groupby(pre.index.to_period("M")).prod() - 1), us[us.index >= d0]])
+        us = us[~us.index.duplicated(keep="last")]
+        caps = world_market_caps()
+        full_em = (caps["WLD"] - caps["HIC"]).clip(lower=0)
+        cands = {}
+        for k in (0.5, 0.75, 1.0):   # (about half of emerging markets' market cap is free float open to foreigners)
+            t = pd.DataFrame({"us": caps["USA"], "dev": caps["HIC"] - caps["USA"], "em": k * full_em}).dropna()
+            cands[f"World Bank year-end market caps, emerging markets x {k:g}"] = rebalanced_blend(
+                {"us": us, "dev": dev, "em": em}, year_start_weights(t))
+        label, model = _pick_model("VTSIM", cands, ("VT", "ACWI"))
+        model = model[model.index >= dev.index[0]]
+        w = year_start_weights(pd.DataFrame({"us": caps["USA"], "dev": caps["HIC"] - caps["USA"]}).dropna())
+        _simnote("VTSIM US weight among developed markets (World Bank year-end market caps): " + ", ".join(
+            f"{d.year}: {r.us:.0%}" for d, r in w.iterrows() if d.year in (1976, 1980, 1985, 1990, 1995, 2000, 2005, 2008)))
+        build("VTSIM", model, ("VT",),
+              f"global stocks: US + developed ex-US + emerging (Fama-French; emerging from 1989), {label}, from 1975, "
+              "then VT from 2008", "VT")
+        _validate("VTSIM", model, "ACWI")
+    attempt("VTSIM", global_stocks)
+
+    def pacific():
+        # developed Pacific stocks (VPL: Japan, Australia, Hong Kong, Singapore, New Zealand; Korea since 2013): Ken
+        # French's Japan and Asia-Pacific ex Japan markets (daily from July 1990; before, monthly steps of his Japan,
+        # Australia and Hong Kong indexes), weighted by the World Bank's year-end market caps (Japan against Australia +
+        # Hong Kong + Singapore + New Zealand; Australia against Hong Kong before 1990), reset every January and drifting
+        # with returns in between. Then the Vanguard Pacific Stock Index fund (VPACX, June 1990), then VPL (March 2005).
+        j = _factor_file("japan_ff3_daily")
+        a = _factor_file("asia_pacific_ex_japan_ff3_daily")
+        jd, ad = (j["Mkt-RF"] + j["RF"]).dropna(), (a["Mkt-RF"] + a["RF"]).dropna()
+        caps = world_market_caps()
+        full = int(caps[["AUS", "HKG", "JPN"]].dropna().index.min())   # the first year with Australia's market cap
+        note = "developed Pacific stocks: Fama-French Japan + Asia-Pacific ex Japan (daily from 1990)"
+        try:
+            jm = _monthly_steps(french_country_index("Japan.Dat"))
+            au = _monthly_steps(french_country_index("Austrlia.Dat"))
+            hk = _monthly_steps(french_country_index("HongKong.Dat"))
+            apxj = rebalanced_blend({"AUS": au, "HKG": hk}, year_start_weights(caps[["AUS", "HKG"]], full))
+            jd = pd.concat([jm[jm.index < jd.index[0]], jd])
+            ad = pd.concat([apxj[apxj.index < ad.index[0]], ad])
+            note = ("developed Pacific stocks: Fama-French Japan, Australia and Hong Kong indexes (monthly steps) from "
+                    "1975, Japan + Asia-Pacific ex Japan daily from 1990")
+        except Exception as e:  # noqa: BLE001 - daily from 1990 only
+            _simlog(f"Pacific monthly country indexes failed: {e}")
+        t = pd.DataFrame({"jp": caps["JPN"], "apxj": caps[["AUS", "HKG", "SGP", "NZL"]].sum(axis=1, min_count=1)})
+        w = year_start_weights(t.dropna(), full)
+        model = rebalanced_blend({"jp": jd, "apxj": ad}, w)
+        _simnote("VPLSIM Japan weight (World Bank year-end market caps): " + ", ".join(
+            f"{d.year}: {r.jp:.0%}" for d, r in w.iterrows() if d.year in (1980, 1985, 1990, 1995, 2000, 2005)))
+        build("VPLSIM", model, ("VPACX", "VPL"),
+              f"{note}, weighted by World Bank year-end market caps, then the Vanguard Pacific Stock Index fund (VPACX) "
+              "from 1990, then VPL from 2005", "VPACX")
+        _validate("VPLSIM", model, "VPL")
+    attempt("VPLSIM", pacific)
+
+    def intl_reits():
+        # international (ex-US) REITs: no free long index, so real funds only - the SPDR Dow Jones International
+        # Real Estate ETF (RWX, Dec 2006), then the Vanguard Global ex-U.S. Real Estate ETF (VNQI, Nov 2010)
+        r = _real_returns("RWX")
+        _validate("VNQISIM (RWX)", r, "VNQI")
+        build("VNQISIM", r, ("VNQI",), "international (ex-US) REITs: SPDR Dow Jones International Real Estate ETF "
+              "(RWX) from 2006, then VNQI from 2010 (no model before)", model=False)
+    attempt("VNQISIM", intl_reits)
 
     # single countries: Fama-French country indexes (USD, value-weighted, dividends; monthly from 1975),
     # Japan daily from 1990, then the iShares country ETF
@@ -2742,6 +2979,108 @@ def repair_missed_distributions(fund_ret: pd.Series, ref_ret: pd.Series, dividen
 REAL_OVERRIDES: dict[str, pd.Series] = {}   # fund -> repaired daily returns, used by _real_returns in the SIMs
 
 
+# ------------------------------------------------------------------ published fund returns (data/fund_returns.json)
+#
+# Yahoo's free daily history of older mutual funds misses capital-gain distributions (backtester/fund_history.py); the
+# fix needs the funds' published quarterly total returns, which Yahoo's quoteSummary 'fundPerformance' module has
+# (Morningstar's 'Past Quarterly Returns', as on each fund's Yahoo performance page). A few funds per run: the funds
+# with a price history from before 2000 that have no entry yet. Curated values already in the file are never replaced.
+
+FUND_RETURNS_PER_RUN = 40
+FUND_RETURNS_SOURCE = ("Yahoo Finance quoteSummary fundPerformance.pastQuarterlyReturns (Morningstar total returns), "
+                       "https://finance.yahoo.com/quote/{t}/performance/")
+
+
+def _ret_value(v) -> float | None:
+    """A quarterly return from the payload as a fraction: {'raw': x} / x (fractions) or '5.23%' (percent)."""
+    if isinstance(v, dict):
+        v = v.get("raw", v.get("fmt"))
+    if isinstance(v, str):
+        s = v.strip().replace(",", "")
+        if not s or s in ("-", "--", "N/A"):
+            return None
+        try:
+            return float(s[:-1]) / 100 if s.endswith("%") else float(s)
+        except ValueError:
+            return None
+    if isinstance(v, (int, float)) and np.isfinite(v):
+        return float(v)
+    return None
+
+
+def parse_fund_performance(payload) -> dict[str, list]:
+    """{year: [q1, q2, q3, q4] in percent (None where missing)} from a quoteSummary fundPerformance payload (the
+    pastQuarterlyReturns rows, wherever they sit in the document); only whole years."""
+    rows = []
+
+    def walk(x):
+        if isinstance(x, dict):
+            if "year" in x and any(k in x for k in ("q1", "q2", "q3", "q4")):
+                rows.append(x)
+            else:
+                for v in x.values():
+                    walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+    walk(payload)
+    out = {}
+    for r in rows:
+        y = r["year"]
+        y = y.get("raw", y.get("fmt")) if isinstance(y, dict) else y
+        try:
+            y = str(int(float(y)))
+        except (TypeError, ValueError):
+            continue
+        q = [_ret_value(r.get(f"q{i}")) for i in range(1, 5)]
+        if all(v is not None for v in q):
+            out[y] = [round(v * 100, 4) for v in q]
+    return dict(sorted(out.items()))
+
+
+def fund_returns_batch(candidates: list[str], have: set, budget: int = FUND_RETURNS_PER_RUN) -> list[str]:
+    """The next funds to look up: mutual funds (Nasdaq's fifth-letter X) with no entry yet, in the given order."""
+    from backtester import fund_history
+    return [t for t in candidates if fund_history.is_mutual_fund(t) and t not in have][:budget]
+
+
+def fetch_fund_returns(candidates: list[str], path: Path | None = None, today: str | None = None, get=None) -> dict:
+    """Add published quarterly returns for a batch of funds to data/fund_returns.json. `get(ticker)` returns the
+    quoteSummary JSON (default: yfinance's session; tests pass a stub)."""
+    from backtester import fund_history
+    path = path or (ROOT / "data" / fund_history.FILE_NAME)
+    today = today or str(pd.Timestamp.today().date())
+    try:
+        doc = json.loads(path.read_text())
+    except (OSError, ValueError):
+        doc = {"units": "percent", "funds": {}}
+    funds = doc.setdefault("funds", {})
+
+    def default_get(t):
+        from yfinance.scrapers.quote import _QUOTE_SUMMARY_URL_
+        tk = yf.Ticker(t)
+        return tk._data.get_raw_json(_QUOTE_SUMMARY_URL_ + f"/{t}", params={
+            "modules": "fundPerformance", "formatted": "false", "symbol": t, "corsDomain": "finance.yahoo.com"})
+    get = get or default_get
+    added = []
+    for t in fund_returns_batch(candidates, set(funds)):
+        try:
+            q = parse_fund_performance(get(t))
+        except Exception as e:  # noqa: BLE001 - one fund never stops the batch
+            if rate_limited(e):
+                break
+            continue
+        if not q:
+            continue
+        funds[t] = {"source": FUND_RETURNS_SOURCE.format(t=t), "retrieved": today, "quarterly": q}
+        added.append(t)
+    doc["funds"] = dict(sorted(funds.items()))
+    if added:
+        path.write_text(json.dumps(doc, indent=1) + "\n")
+    print(f"fund returns: {len(added)} funds added ({', '.join(added)})")
+    return doc
+
+
 # ------------------------------------------------------------------ fund research metadata
 
 FUNDS_META_FILE = ROOT / "data" / "funds_meta.json"
@@ -3177,6 +3516,22 @@ def main() -> None:
         fetch_sec_shares(sorted(set(ndx) | set(former_ok) | set(kept) | set(hist_members) & set(p.stem for p in PRICES.glob("*.csv"))))
     except Exception as e:  # noqa: BLE001 - share counts are optional
         print(f"sec shares failed: {e}", file=sys.stderr)
+    try:
+        # published quarterly returns of mutual funds whose early free history misses distributions (before the SIMs,
+        # which splice some of those funds in): the funds the SIMs use first, then every fund with a pre-2000 file
+        early = []
+        for p in sorted(PRICES.glob("*.csv")):
+            try:
+                with p.open() as fh:
+                    fh.readline()
+                    first = fh.readline()[:10]
+            except OSError:
+                continue
+            if first and first < "2000-01-01":
+                early.append(p.stem)
+        fetch_fund_returns([t for t in SIM_FUNDS if t in early] + [t for t in early if t not in SIM_FUNDS])
+    except Exception as e:  # noqa: BLE001 - optional: fund_history detects and cuts what it cannot repair
+        print(f"fund returns failed: {e}", file=sys.stderr)
     sims = build_sims()
 
     # every broad symbol with a file: this run's download, else what the last run recorded, else the file

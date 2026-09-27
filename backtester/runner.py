@@ -18,13 +18,41 @@ def run(spec: Spec, notes: bool = True) -> Result:
     from .strategy import check_date
     check_date(getattr(spec, "start", None), "start")
     check_date(getattr(spec, "end", None), "end")
-    if isinstance(spec, Portfolio):
-        res = portfolio.run(spec)
-    else:
-        res = engine.run(spec)
-    if notes:
-        _identity_notes(spec, res)
+    from . import data
+    raw = bool(getattr(spec, "raw_fund_history", False))
+    token = data.RAW_FUND_HISTORY.set(raw)
+    try:
+        if isinstance(spec, Portfolio):
+            res = portfolio.run(spec)
+        else:
+            res = engine.run(spec)
+        if notes:
+            _identity_notes(spec, res)
+            _fund_history_notes(spec, res, raw)
+    finally:
+        data.RAW_FUND_HISTORY.reset(token)
     return res
+
+
+def _fund_history_notes(spec: Spec, res: Result, raw: bool) -> None:
+    """Mutual funds repaired from published returns, or used only from their first reliable date (or, opted in, with
+    their raw early history): backtester/fund_history.py."""
+    from . import fund_history
+    try:
+        names = sorted(set(_run_tickers(spec)))
+        hw = res.holdings
+        eq = res.equity
+        held = [t for t in hw.columns if (hw[t] != 0).any()] if hw is not None and not hw.empty else []
+        start, end = (eq.index[0], eq.index[-1]) if len(eq) else (spec.start, spec.end)
+        n = fund_history.repair_note(sorted(set(held) | set(names)), start, end)
+        if n and n not in spec.notes:
+            spec.notes.append(n)
+        # a run asking for (or, with no start, defaulting to) dates before a fund's usable history
+        n = fund_history.cut_note([t for t in names if t in held or not raw], getattr(spec, "start", None), raw=raw)
+        if n and n not in spec.notes:
+            spec.notes.append(n)
+    except Exception:  # noqa: BLE001 - a note must never break a backtest
+        pass
 
 
 def _identity_notes(spec: Spec, res: Result) -> None:

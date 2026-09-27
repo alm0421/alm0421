@@ -99,6 +99,9 @@ def clear_caches() -> None:
     _SPLITS.clear()
     _CA_FIXES_OF.clear()
     _BREAK_MEMO.clear()
+    _FUND_EVENTS.clear()
+    _FUND_CUT.clear()
+    _USABLE_MEMO.clear()
     for fn in (load, stepped_ranges, data_gaps, quality):
         try:
             fn.cache_clear()
@@ -164,7 +167,8 @@ def funds() -> list[str]:
 # the fund existed and the real fund's total return after. Every model period is net of an estimated fee/cost
 # drag (the fund's expense ratio, or the model's excess return over the fund on their overlap, capped at 3%/yr;
 # data/sims_drag.json): sim_about() appends each series' figure to these descriptions.
-SIMS = {"SPYSIM": "US stock market (Fama-French market return) from 1926, spliced into SPY",
+SIMS = {"SPYSIM": "US stock market (Fama-French market return: all US stocks, not only large caps) from 1926, spliced "
+                  "into SPY (S&P 500) from 1993; VOOSIM is the large-cap (S&P 500) series",
         "TLTSIM": "20-year Treasuries priced from FRED yields from 1962, spliced into TLT",
         "IEFSIM": "~9-year Treasuries from the 10-year yield from 1962, spliced into IEF",
         "SHYSIM": "2-year Treasuries from the 2-year yield from 1962, spliced into SHY",
@@ -210,8 +214,8 @@ SIMS = {"SPYSIM": "US stock market (Fama-French market return) from 1926, splice
                   "see data/sims_log.txt)",
         # "fund-exact": the named fund as soon as it or its mutual-fund twin exists
         "VTISIM": "US total stock market: Fama-French market return from 1926, the Vanguard Total Stock Market Index fund "
-                  "(VTSMX, with the 1993-96 ex-dates whose distribution Yahoo understates repaired) from April 1992, then "
-                  "VTI from 2001",
+                  "(VTSMX, its 1993-96 quarters matched to the published total returns where Yahoo misses part of a "
+                  "distribution) from April 1992, then VTI from 2001",
         "VXUSSIM": "Total international stocks: 80% developed ex-US (Fama-French EAFE) + 20% emerging markets (from 1989) "
                    "from 1975, the Vanguard Total International Stock Index fund (VGTSX) from 1996, then VXUS from 2011",
         "VWOSIM": "Emerging markets (Fama-French, monthly steps) from 1989, the Vanguard Emerging Markets Stock Index fund "
@@ -232,6 +236,21 @@ SIMS = {"SPYSIM": "US stock market (Fama-French market return) from 1926, splice
         "EWQSIM": "French stocks: Fama-French France index (monthly steps) from 1975, spliced into EWQ",
         "EWLSIM": "Swiss stocks: Fama-French Switzerland index (monthly steps) from 1975, spliced into EWL",
         "EWHSIM": "Hong Kong stocks: Fama-French Hong Kong index (monthly steps) from 1975, spliced into EWH",
+        # added with the fund-history review (data/sims_log.txt has each model choice and validation)
+        "VOOSIM": "US large caps (S&P 500): Fama-French portfolio of the largest 30% of NYSE stocks (value-weighted, daily) "
+                  "from 1926, the Vanguard 500 Index fund (VFINX, its quarters matched to the published total returns) "
+                  "from 1980, then VOO from 2010",
+        "IWCSIM": "US micro caps: Fama-French portfolio of the smallest 20% of NYSE stocks (value-weighted, daily) from 1926, "
+                  "spliced into IWC (2005)",
+        "VTSIM": "Global stocks (all-world, like ACWI / FTSE All-World): the US market, developed ex-US (EAFE) and emerging "
+                 "markets (from 1989), Fama-French, from 1975 (monthly steps until 1990), weighted by the World Bank's "
+                 "year-end market caps of listed companies (US 63% in 1976, 30% in 1990, 46% in 2000; emerging markets' "
+                 "share halved for free float), reset each January and drifting with returns in between - then VT from 2008",
+        "VPLSIM": "Developed Pacific stocks: Fama-French Japan, Australia and Hong Kong (monthly steps) from 1975, Japan + "
+                  "Asia-Pacific ex Japan daily from 1990, weighted by the World Bank's year-end market caps (Japan 79% in "
+                  "1980, 94% in 1990), the Vanguard Pacific Stock Index fund (VPACX) from 1990, then VPL from 2005",
+        "VNQISIM": "International (ex-US) REITs: the SPDR Dow Jones International Real Estate ETF (RWX) from Dec 2006, then "
+                   "VNQI from 2010 (no model before)",
         }
 
 
@@ -1154,6 +1173,8 @@ def load(ticker: str) -> pd.DataFrame:
         PRICE_REPAIRS[t] = entry["events"]      # (as the integrity gate records them when it runs)
     _SPLITS[(t, str(path))] = entry["splits"]
     _CA_FIXES_OF[(t, str(path))] = entry["ca_fixes"]
+    _FUND_EVENTS[(t, str(path))] = entry.get("fund_events")
+    _FUND_CUT[(t, str(path))] = entry.get("fund_cut")
     return entry["df"]
 
 
@@ -1174,6 +1195,10 @@ def _load_file(t: str, path: Path) -> dict:
     sp_after_gate = _splits_of(raw)
     gate_ev = events if PRICE_REPAIRS.get(t) is events else None   # (None: the gate failed; price_repairs retries)
     raw, repaired = repair_bars(t, raw)
+    # mutual funds whose free history misses distributions: repaired from published returns, or found and cut
+    # (backtester/fund_history.py)
+    from . import fund_history as _fh
+    raw, fund_events, fund_cut = _fh.process(t, raw)
     if len(events):
         # a replaced bad tick is an estimate, not a quote: its open is not traded at either
         ticks = pd.DatetimeIndex(events.loc[events["kind"] == "bad_tick", "date"])
@@ -1222,7 +1247,8 @@ def _load_file(t: str, path: Path) -> dict:
     if repaired.any():
         # a repaired open is an estimate, not a quote: no fills at it
         df.loc[repaired.reindex(df.index, fill_value=False).to_numpy(), "open_ok"] = False
-    return {"df": df, "splits": sp_after_gate, "events": gate_ev, "ca_fixes": ca_fixes}
+    return {"df": df, "splits": sp_after_gate, "events": gate_ev, "ca_fixes": ca_fixes, "fund_events": fund_events,
+            "fund_cut": fund_cut}
 
 
 # While a Python-function rule is evaluated bar by bar (expr.evaluate), data.load returns each ticker only up to the
@@ -1235,11 +1261,59 @@ _load_cached = load
 def load(ticker: str) -> pd.DataFrame:  # noqa: F811 - the cached loader above, cut at LOAD_CUTOFF when one is set
     cut = LOAD_CUTOFF.get()
     if cut is None:
-        return _load_cached(ticker)
+        return _usable(ticker, _load_cached(ticker))
     from . import expr as _expr
     with _expr.io_allowed():
-        df = _load_cached(ticker)
+        df = _usable(ticker, _load_cached(ticker))
     return df.loc[:cut].copy()
+
+
+# A mutual fund whose early free history misses distributions and has no published returns to repair it is used only
+# from its first reliable session (fund_history.detect_unreliable), unless the run opts in to the raw history
+# ("using raw fund history": runner.run sets RAW_FUND_HISTORY for the run).
+RAW_FUND_HISTORY: _cv.ContextVar = _cv.ContextVar("backtester_raw_fund_history", default=False)
+_FUND_EVENTS: dict = {}     # (ticker, price file) -> fund_history.repair's events, filled by load
+_FUND_CUT: dict = {}        # (ticker, price file) -> fund_history.detect_unreliable's finding (or None)
+_USABLE_MEMO: dict = {}     # (ticker, price file, id(full frame)) -> the frame from the usable date
+
+
+def _usable(ticker: str, df: pd.DataFrame) -> pd.DataFrame:
+    if RAW_FUND_HISTORY.get():
+        return df
+    t = canonical(ticker)
+    key = (t, str(price_path(t)))
+    f = _FUND_CUT.get(key)
+    if not f:
+        return df
+    mk = key + (id(df),)
+    hit = _USABLE_MEMO.get(mk)
+    if hit is not None and hit[0] is df:
+        return hit[1]
+    out = df.loc[pd.Timestamp(f["usable_from"]):]
+    if out.empty:
+        return df
+    _USABLE_MEMO[mk] = (df, out)
+    return out
+
+
+def fund_repairs(ticker: str) -> pd.DataFrame | None:
+    """The quarters of a mutual fund's history matched to its published returns (fund_history.repair), or None."""
+    t = canonical(ticker)
+    try:
+        _load_cached(t)
+    except Exception:  # noqa: BLE001 - unknown ticker
+        return None
+    return _FUND_EVENTS.get((t, str(price_path(t))))
+
+
+def fund_unreliable(ticker: str) -> dict | None:
+    """A mutual fund's early stretch that misses distributions (fund_history.detect_unreliable), or None."""
+    t = canonical(ticker)
+    try:
+        _load_cached(t)
+    except Exception:  # noqa: BLE001
+        return None
+    return _FUND_CUT.get((t, str(price_path(t))))
 
 
 load.cache_clear = _load_cached.cache_clear
@@ -2628,6 +2702,21 @@ STEP_MIN_JUMP = 1e-4      # ... by at least this much (0.01%) on one of them is 
 STEP_MIN_MONTHS = 3       # a stepped stretch has at least this many such months
 
 
+def _price_quantum(px: pd.Series) -> float:
+    """The rounding step of the stored prices: 10**-d for the fewest decimals d (0-10) that every value (a sample)
+    has, else 0."""
+    v = pd.to_numeric(px, errors="coerce").dropna().to_numpy(dtype=float)
+    if not len(v):
+        return 0.0
+    if len(v) > 4000:
+        v = v[:: len(v) // 4000 + 1]
+    for d in range(0, 11):
+        s = v * 10.0 ** d
+        if np.all(np.abs(s - np.round(s)) <= 1e-6 + 1e-12 * np.abs(s)):
+            return 10.0 ** -d
+    return 0.0
+
+
 def _stepped_months(px: pd.Series) -> pd.Series:
     """Per calendar month: "j" (moves on 1-3 sessions only: a monthly step), "f" (flat or a constant daily accrual)
     or "d" (moves on most days: a daily series). A day "moves" when its return per calendar day differs from the
@@ -2643,7 +2732,10 @@ def _stepped_months(px: pd.Series) -> pd.Series:
     per = r.index.to_period("M")
     med = rate.groupby(per).transform("median")
     dev = (rate - med).abs() * gap
-    moved = dev > 1e-9 + 1e-3 * (med.abs() * gap)
+    # the price file's rounding (e.g. 6 decimals: 1e-6 on a level of 143 is 7e-9 of a day's return, as large as a
+    # small daily fee accrual) is no move: TIPSIM's 1975-09 once counted as a daily month from rounding noise alone
+    noise = _price_quantum(px) / px.shift(1).iloc[1:]
+    moved = dev > 1e-9 + 1e-3 * (med.abs() * gap) + 1.5 * noise
     g = pd.DataFrame({"moved": moved, "dev": dev.where(moved, 0.0)}).groupby(per)
     cnt, big = g["moved"].sum(), g["dev"].max()
     return pd.Series(np.where(cnt > STEP_MAX_MOVES, "d", np.where(big >= STEP_MIN_JUMP, "j", "f")), index=cnt.index)

@@ -196,13 +196,15 @@ def test_new_lazy_portfolios(text, n, first):
     assert any(":" in x and "%" in x for x in p.notes)
 
 
-@needs("SPYSIM", "VTVSIM", "VBSIM", "VBRSIM", "EWJSIM")
+@needs("SPYSIM", "VTVSIM", "VBSIM", "VBRSIM", "VPLSIM")
 def test_lazy_portfolio_early_start_uses_long_series():
     p = port("Merriman 4-fund combo since 1970")
     assert [c["asset"] for c in p.tree["children"]] == ["SPYSIM", "VTVSIM", "VBSIM", "VBRSIM"]
     p = port("aronson family taxable since 1995")
-    assert "EWJSIM" in [c["asset"] for c in p.tree["children"]]      # the Pacific sleeve's proxy, noted
-    assert any("EWJSIM for VPL" in x for x in p.notes)
+    # the Pacific sleeve's long series: VPLSIM (Japan + Asia-Pacific ex Japan, then VPACX) since the fund-history
+    # review; before it, Japan alone (EWJSIM) stood in
+    assert "VPLSIM" in [c["asset"] for c in p.tree["children"]]
+    assert any("VPLSIM for VPL" in x for x in p.notes)
 
 
 # ------------------------------------------------------------------ 4. correlation tool: one frequency
