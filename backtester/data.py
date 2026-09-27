@@ -888,7 +888,8 @@ def apply_changes(out: np.ndarray, tickers: list[str], index: pd.DatetimeIndex,
     for t, lst in ev.items():
         j = col[t]
         d0, joined0 = lst[0]
-        out[(index >= d0 - w) & (index < d0), j] = not joined0
+        if not (joined0 and _member_long_before(t, d0, w)):
+            out[(index >= d0 - w) & (index < d0), j] = not joined0
         for n, (d, joined) in enumerate(lst):
             nxt = lst[n + 1][0] if n + 1 < len(lst) else None
             pos = np.flatnonzero((index >= d) if nxt is None else ((index >= d) & (index < nxt)))
@@ -912,6 +913,19 @@ def apply_changes(out: np.ndarray, tickers: list[str], index: pd.DatetimeIndex,
 
 
 ADDITION_TRUST_SESSIONS = 126     # half a year of snapshots without a dated addition's name: they win again
+LONG_MEMBER_DAYS = 90             # snapshots listing a name this long before its window: an "addition" is not a join
+
+
+def _member_long_before(t: str, d0: pd.Timestamp, w: pd.Timedelta) -> bool:
+    """Was `t` in every monthly snapshot for LONG_MEMBER_DAYS before the window of its first dated change? Then a
+    dated addition is a share-class event on a symbol that already stood for a member (2014-04-03: the new class C
+    took the GOOG symbol while old GOOG - class A - became GOOGL; the price file's GOOG history before that day is
+    the old Google, an index member throughout), so the days before it are not blanked."""
+    mem = membership()
+    if mem is None or t not in mem:
+        return False
+    s = mem[t][(mem.index >= d0 - w - pd.Timedelta(days=LONG_MEMBER_DAYS)) & (mem.index < d0 - w)]
+    return len(s) >= 2 and bool(s.all())
 
 
 TODAY_MEMBERS_WARNING = "Warning: survivorship bias - the universe is TODAY'S Nasdaq-100 members ({n} stocks, the latest membership list), traded over the whole period with no membership filter. They were chosen because they are in the index now (they survived and grew), which past-you could not know: results are biased upward, often strongly. Drop 'using today's members only' for point-in-time membership."
@@ -1199,7 +1213,7 @@ def _load_file(t: str, path: Path) -> dict:
     raw, repaired = repair_bars(t, raw)
     if len(events):
         # a replaced bad tick is an estimate, not a quote: its open is not traded at either
-        ticks = pd.DatetimeIndex(events.loc[events["kind"] == "bad_tick", "date"])
+        ticks = pd.DatetimeIndex(events.loc[events["kind"].isin(["bad_tick", "level_junk"]), "date"])
         repaired = repaired | pd.Series(raw.index.isin(ticks), index=raw.index)
     df = pd.DataFrame(index=raw.index)
     opn = raw["open"].where(raw["open"] > 0, raw["close"]).fillna(raw["close"])
@@ -1602,7 +1616,9 @@ _REPAIR_TEXT = {"inferred_split": "{r} split inferred from prices, not in the so
                 "basis_change": "the prices before it were on another basis ({r} apart; no split that day), rescaled",
                 "phantom_split": "a {r} split booked that day that the prices show did not happen, dropped",
                 "unapplied_split": "a {r} split booked that day that the prices were never adjusted for, applied",
-                "bad_tick": "an isolated bad price replaced by the average of the days around it"}
+                "bad_tick": "an isolated bad price replaced by the average of the days around it",
+                "level_junk": "closes flipping between two price levels (two sources mixed) replaced by the path "
+                              "between the closes around the stretch; never traded at"}
 
 
 @lru_cache(maxsize=1)
@@ -1674,6 +1690,12 @@ def integrity_note(tickers, start=None, end=None) -> str | None:
             ev = price_repairs(t)
         except Exception:  # noqa: BLE001 - a note must never break a backtest
             continue
+        junk = ev[(ev["kind"] == "level_junk") & (pd.to_datetime(ev["date"]) >= s) & (pd.to_datetime(ev["date"]) <= e)]
+        if len(junk):
+            # one entry per stretch (its bars are one event)
+            parts.append(f"{t} {pd.Timestamp(junk['date'].min()).date()}..{pd.Timestamp(junk['date'].max()).date()}: "
+                         + _REPAIR_TEXT["level_junk"] + f" ({len(junk)} bars; which level was real is unknown)")
+        ev = ev[ev["kind"] != "level_junk"]
         for _, row in ev.iterrows():
             d = pd.Timestamp(row["date"])
             if not (s <= d <= e):
@@ -2294,6 +2316,130 @@ def _shares_from(folder: Path, t: str) -> pd.Series:
     return s
 
 
+def _class_sibling_shares(folder: Path, t: str) -> pd.Series:
+    """A share class without its own count file takes a sibling class's (SHARE_CLASSES): both report the whole
+    company's count (DISCK from DISCA/WBD's)."""
+    for grp in SHARE_CLASSES:
+        if t in grp:
+            for g in grp:
+                if g != t:
+                    s = _shares_from(folder, g)
+                    if len(s):
+                        return s
+    return pd.Series(dtype=float)
+
+
+# Share-count validation (see clean_share_counts). A count this far (x) from its neighbours' level, with no split
+# near it to explain the move, is an error; within 10% of a power of 1000 away it is a units error (thousands
+# reported as units) and is rescaled, otherwise dropped. A count whose implied market cap (the close as quoted that
+# day x the count) is outside SHARE_MCAP_BOUNDS belongs to another entity (a shell's 100 shares) or is garbage.
+SHARE_JUMP = 8.0
+SHARE_MCAP_BOUNDS = (1e5, 6e12)
+SHARE_NEIGHBOURS = 3
+
+
+def clean_share_counts(ticker: str, raw: pd.Series) -> tuple[pd.Series, list[tuple[pd.Timestamp, float, str]]]:
+    """(cleaned counts, problems) for one ticker's reported share counts (as reported, point in time).
+
+    Checks each count against the median of up to SHARE_NEIGHBOURS counts on either side (on the split-adjusted
+    basis, so a split is never mistaken for a jump): a jump of SHARE_JUMP x or more is a units error when it is a
+    power of 1000 (rescaled: MXIM's 2011 10-Qs in thousands, 296,476,075,000 shares) and dropped otherwise; a
+    count implying a market cap outside SHARE_MCAP_BOUNDS is dropped (WBA's 100 shell shares before the 2014
+    reorganisation). Each problem is (date, value as reported, what was done)."""
+    raw = raw[raw > 0].sort_index()
+    if len(raw) == 0:
+        return raw, []
+    t = canonical(ticker)
+    has_prices = price_path(t).exists()
+    try:
+        fac = split_factor_after(t, raw.index) if has_prices else np.ones(len(raw))
+    except Exception:  # noqa: BLE001 - no price file: counts are checked on their own basis
+        fac = np.ones(len(raw))
+    v = raw.to_numpy(dtype=float)
+    adj = np.log10(v * fac)
+    out = v.copy()
+    keep = np.ones(len(v), bool)
+    problems: list[tuple[pd.Timestamp, float, str]] = []
+    n = len(v)
+    try:
+        sp = splits(t) if has_prices else pd.Series(dtype=float)
+    except Exception:  # noqa: BLE001
+        sp = pd.Series(dtype=float)
+    lim = np.log10(SHARE_JUMP)
+
+    def split_explains(i: int, dev: float) -> bool:
+        # a count reported around a split on the other basis (shares_adjusted puts it right)
+        near = [np.log10(float(r)) for sd, r in sp.items() if abs((sd - raw.index[i]).days) <= 190 and r > 0]
+        return any(abs(abs(dev) - abs(m) * k) < 0.1 for m in near for k in (1, 2))
+
+    done = np.zeros(n, bool)
+    while True:
+        # the worst remaining count first, against the median of up to SHARE_NEIGHBOURS usable counts on each side
+        # (so a run of bad counts does not make a good neighbour look bad)
+        best, best_dev = -1, 0.0
+        kept = np.flatnonzero(keep)
+        m = len(kept)
+        if m < 3:
+            break
+        vals = adj[kept]
+        offs = [o for o in range(-SHARE_NEIGHBOURS, SHARE_NEIGHBOURS + 1) if o]
+        pos = np.arange(m)[:, None] + np.array(offs)[None, :]
+        ok = (pos >= 0) & (pos < m)
+        nb = np.where(ok, vals[np.clip(pos, 0, m - 1)], np.nan)
+        with np.errstate(invalid="ignore"):
+            devs = vals - np.nanmedian(nb, axis=1)
+        for p in np.argsort(-np.abs(np.nan_to_num(devs))):
+            i, dev = int(kept[p]), float(devs[p])
+            if not np.isfinite(dev) or abs(dev) < lim:
+                break
+            if done[i] or ok[p].sum() < 2 or split_explains(i, dev):
+                continue
+            best, best_dev = i, dev
+            break
+        if best < 0:
+            break
+        i, dev = best, best_dev
+        done[i] = True
+        k = round(dev / 3.0)
+        if k != 0 and abs(dev - 3.0 * k) < 0.05:
+            out[i] = v[i] / 1000.0 ** k
+            adj[i] -= 3.0 * k
+            problems.append((raw.index[i], float(v[i]), f"rescaled by 1/{1000 ** k:g} (units error)" if k > 0
+                             else f"rescaled by {1000 ** -k:g} (units error)"))
+        else:
+            keep[i] = False
+            problems.append((raw.index[i], float(v[i]), f"dropped ({10 ** dev:.3g}x its neighbours, no split explains it)"))
+    try:
+        q = quoted_close(t) if price_path(t).exists() else None   # (never an on-demand download request)
+    except Exception:  # noqa: BLE001
+        q = None
+    if q is not None and len(q):
+        px = q.reindex(q.index.union(raw.index)).ffill().reindex(raw.index).to_numpy()
+        lo, hi = SHARE_MCAP_BOUNDS
+        with np.errstate(invalid="ignore"):
+            outside = keep & np.isfinite(px) & ~((px * out >= lo) & (px * out <= hi))
+        for i in np.flatnonzero(outside):
+            # a count reported just before a split on the post-split basis (or after it on the old one) is fine
+            near = [float(r) for sd, r in sp.items() if abs((sd - raw.index[i]).days) <= 190 and r > 0]
+            caps = [px[i] * out[i]] + [px[i] * out[i] * f for r in near for f in (r, 1.0 / r)]
+            if not any(lo <= c <= hi for c in caps):
+                keep[i] = False
+                problems.append((raw.index[i], float(v[i]), f"dropped (implied market cap ${px[i] * out[i]:,.0f})"))
+    s = pd.Series(out, index=raw.index, dtype=float)[keep]
+    return s, sorted(problems)
+
+
+def share_count_problems(ticker: str) -> list[tuple[str, pd.Timestamp, float, str]]:
+    """Problems clean_share_counts finds in the count files (source, date, value, action): [] for clean files."""
+    t = canonical(ticker)
+    out = []
+    for src, folder in (("yahoo", DATA / "shares"), ("sec", SHARES_SEC)):
+        s = _read_shares(folder, t)
+        if len(s):
+            out += [(src, d, val, what) for d, val, what in clean_share_counts(t, s)[1]]
+    return out
+
+
 @lru_cache(maxsize=None)
 def shares_outstanding(ticker: str) -> pd.Series:
     """Shares outstanding as reported (point in time: each count on the date it became known, in the share units
@@ -2302,10 +2448,17 @@ def shares_outstanding(ticker: str) -> pd.Series:
     Two sources: Yahoo (data/shares, mostly from late 2015) and SEC EDGAR XBRL company facts (data/shares_sec,
     from ~2009, dated by the filing date; scripts/fetch_data.py fetch_sec_shares). Yahoo's counts are used where
     they exist; an SEC count fills in before Yahoo's first count and wherever Yahoo has none in the previous
-    SEC_GAP_DAYS days."""
+    SEC_GAP_DAYS days. Each source is validated first (clean_share_counts: units errors rescaled, unexplained
+    jumps and implausible counts dropped)."""
     t = canonical(ticker)
     y = _shares_from(DATA / "shares", t)
     sec = _shares_from(SHARES_SEC, t)
+    if y.empty and sec.empty:
+        y, sec = _class_sibling_shares(DATA / "shares", t), _class_sibling_shares(SHARES_SEC, t)
+    if len(y):
+        y = clean_share_counts(t, y)[0]
+    if len(sec):
+        sec = clean_share_counts(t, sec)[0]
     if sec.empty:
         return y
     if y.empty:
@@ -2486,7 +2639,7 @@ def mcap_notes(tickers: list[str], start, end=None, max_named: int = 5) -> tuple
     """(notes, funds) for rules that read market_cap on explicitly named tickers: the funds among them (no market
     cap at all) and, per stock, the first day it has a market cap when that is after `start` (share counts from
     Yahoo start around late 2015; the SEC filing history that would reach back to ~2009 is fetched by
-    scripts/fetch_data.py but GitHub Actions is currently blocked by the SEC, so data/shares_sec is empty)."""
+    scripts/fetch_data.py; GitHub Actions is blocked by the SEC, so data/shares_sec is kept by hand)."""
     start = pd.Timestamp(start) if start is not None else None
     end = pd.Timestamp(end) if end is not None else None
     fund_list = [canonical(t) for t in tickers if is_fund(t)]
@@ -2514,29 +2667,142 @@ def mcap_notes(tickers: list[str], start, end=None, max_named: int = 5) -> tuple
         else:
             notes.append(f"Market cap: market_cap has no value before {first.date()} for {t} (share counts start "
                          f"{first.date()}): a market_cap rule is false before then. Yahoo's share counts start around "
-                         "late 2015; the SEC history that would reach back to ~2009 can't currently be downloaded.")
+                         "late 2015 and SEC filings' around 2009 (a company's first XBRL filing); earlier dates have none.")
     if len(late) > max_named:
         notes.append(f"Market cap: {len(late) - max_named} more ticker(s) have no market cap for part of the period.")
     return notes, fund_list
 
 
+# Size-aware coverage: a market-cap ranking of the index also needs the LARGEST members. Each member's size is
+# estimated (estimated_market_cap) even where no point-in-time count exists; the test starts only where the members
+# with a market cap hold MCAP_MIN_CAP_COVERAGE of the estimated total and every member in the top MCAP_TOP_SHARE by
+# estimated size has one.
+MCAP_MIN_CAP_COVERAGE = 0.95
+MCAP_TOP_SHARE = 0.2
+MCAP_VOLUME_TURNOVER = 0.008   # a large stock trades about 0.8% of its value a day: the size of a member with no count
+
+
+@lru_cache(maxsize=None)
+def estimated_market_cap(ticker: str) -> pd.Series:
+    """A size ESTIMATE for coverage checks and warnings only (never for ranking, weighting or signals): the close as
+    quoted x the NEAREST share count in time (earlier or later; a sibling share class's when the class has none), else
+    the 60-day median dollar volume / MCAP_VOLUME_TURNOVER. It uses later data, so it only decides where a run can
+    start and which gaps to warn about."""
+    t = canonical(ticker)
+    try:
+        df = load(t)
+    except DataError:
+        return pd.Series(dtype=float)
+    sh = shares_adjusted(t)
+    if sh.empty:
+        for grp in SHARE_CLASSES:
+            if t in grp:
+                for g in grp:
+                    if g != t and (PRICES / f"{g}.csv").exists() and len(shares_adjusted(g)):
+                        sh = shares_adjusted(g)
+                        break
+    if len(sh):
+        pos = sh.index.get_indexer(df.index, method="nearest")
+        near = pd.Series(sh.to_numpy()[pos], index=df.index)
+        est = df["close"] * near / _class_divisor(t)
+        if t in IDENTITY_FROM:
+            est[df.index < pd.Timestamp(IDENTITY_FROM[t])] = np.nan
+    else:
+        est = (df["close"] * df["volume"]).rolling(60, min_periods=20).median() / MCAP_VOLUME_TURNOVER
+    return est.reindex(df.index)
+
+
+def _mcap_frames(eligible: np.ndarray, tickers: list[str], index: pd.DatetimeIndex):
+    if not tickers:
+        return np.zeros((len(index), 0), bool), np.zeros((len(index), 0))
+    known = np.column_stack([market_cap(t).reindex(index).notna().to_numpy() for t in tickers])
+    est = np.column_stack([estimated_market_cap(t).reindex(index).to_numpy(dtype=float) for t in tickers])
+    est = np.where(eligible & np.isfinite(est), est, 0.0)
+    return known, est
+
+
+def _top_ranks(est: np.ndarray) -> np.ndarray:
+    """Per day, each column's rank by estimated size (1 = largest; names with no estimate get a huge rank)."""
+    order = np.argsort(-est, axis=1, kind="stable")
+    ranks = np.empty_like(order)
+    rows = np.arange(est.shape[0])[:, None]
+    ranks[rows, order] = np.arange(1, est.shape[1] + 1)[None, :]
+    return np.where(est > 0, ranks, 10 ** 9)
+
+
+def mcap_size_coverage(eligible: np.ndarray, tickers: list[str], index: pd.DatetimeIndex) -> dict:
+    """Per day: 'count' (share of the eligible names with a market cap), 'cap' (their share of the estimated total
+    size) and 'top_missing' (T x N bool: a member in the top MCAP_TOP_SHARE by estimated size without a market cap)."""
+    known, est = _mcap_frames(eligible, tickers, index)
+    n = eligible.sum(axis=1)
+    tot = est.sum(axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        count = np.where(n > 0, (eligible & known).sum(axis=1) / np.maximum(n, 1), 0.0)
+        # no size estimate at all (names without price files): the count criterion decides alone
+        cap = np.where(tot > 0, np.where(known, est, 0.0).sum(axis=1) / np.where(tot > 0, tot, 1.0), 1.0)
+    k_top = np.ceil(MCAP_TOP_SHARE * n)[:, None]
+    top_missing = eligible & ~known & (_top_ranks(est) <= k_top) & (est > 0)
+    return {"count": count, "cap": cap, "top_missing": top_missing}
+
+
 def mcap_start(eligible: np.ndarray, tickers: list[str], index: pd.DatetimeIndex,
                threshold: float = MCAP_MIN_COVERAGE) -> tuple[pd.Timestamp | None, str | None]:
-    """(first day market caps cover `threshold` of the eligible names, note). The first day is None when that is
-    never reached (the note then says so and the run keeps its start)."""
+    """(first day market caps cover the universe well enough to rank it, note). Size-aware: on that day at least
+    `threshold` of the eligible names have a market cap, those names hold MCAP_MIN_CAP_COVERAGE of the estimated total
+    (estimated_market_cap), and none of the largest MCAP_TOP_SHARE by estimated size is missing. The first day is None
+    when that is never reached (the note then says so and the run keeps its start)."""
     if not len(index):
         return None, None
-    cov = mcap_coverage(eligible, tickers, index)
-    ok = np.flatnonzero(cov >= threshold)
+    c = mcap_size_coverage(eligible, tickers, index)
+    ok = np.flatnonzero((c["count"] >= threshold) & (c["cap"] >= MCAP_MIN_CAP_COVERAGE)
+                        & ~c["top_missing"].any(axis=1))
     if not len(ok):
-        return None, (f"Market cap: share counts cover at most {cov.max():.0%} of the universe on any day of this "
-                      f"period (below {threshold:.0%}), so market-cap rankings pick from a subset throughout.")
+        return None, (f"Market cap: share counts never cover enough of the universe in this period (at most "
+                      f"{c['count'].max():.0%} of the names and {c['cap'].max():.0%} of its estimated value on any "
+                      "day), so market-cap rankings pick from a subset throughout.")
     if ok[0] == 0:
         return index[0], None
     d = index[ok[0]]
-    return d, (f"Market cap: market-cap data covers too little of the universe before {d.date()} (under {threshold:.0%} "
-               f"of the members have a share count; {cov[0]:.0%} on {index[0].date()}), so the test starts on "
-               f"{d.date()}.")
+    i0 = ok[0] - 1
+    why = []
+    if c["count"][i0] < threshold:
+        why.append(f"under {threshold:.0%} of the members have a share count")
+    if c["cap"][i0] < MCAP_MIN_CAP_COVERAGE:
+        why.append(f"the members with one hold under {MCAP_MIN_CAP_COVERAGE:.0%} of the index's estimated value")
+    miss = [tickers[j] for j in np.flatnonzero(c["top_missing"][i0])]
+    if miss:
+        why.append(f"large members have none: {', '.join(miss[:5])}")
+    return d, (f"Market cap: market-cap data covers too little of the universe before {d.date()} ({'; '.join(why)}; "
+               f"{c['count'][0]:.0%} of the members and {c['cap'][0]:.0%} of the estimated value on "
+               f"{index[0].date()}), so the test starts on {d.date()}.")
+
+
+def mcap_gap_warning(eligible: np.ndarray, tickers: list[str], index: pd.DatetimeIndex, n: int,
+                     days=None) -> str | None:
+    """A warning when a member that is probably among the top `n` by market cap (estimated_market_cap) has no
+    point-in-time market cap on ranking days (`days`: a bool mask over index, default every day): the ranking cannot
+    see it, so a top-n-by-market-cap selection holds a smaller company in its place."""
+    if not len(index) or not tickers or n < 1:
+        return None
+    known, est = _mcap_frames(eligible, tickers, index)
+    miss = eligible & ~known & (_top_ranks(est) <= n) & (est > 0)
+    if days is not None:
+        miss &= np.asarray(days, bool)[:, None]
+    cols = np.flatnonzero(miss.any(axis=0))
+    if not len(cols):
+        return None
+    parts = []
+    for j in sorted(cols, key=lambda j: -miss[:, j].sum()):
+        dd = index[miss[:, j]]
+        parts.append(f"{tickers[j]} ({dd[0]:%Y-%m-%d}..{dd[-1]:%Y-%m-%d}, {int(miss[:, j].sum())} day(s), about "
+                     f"${float(np.max(est[miss[:, j], j])) / 1e9:,.0f}B)")
+    more = f"; and {len(parts) - 6} more" if len(parts) > 6 else ""
+    return (f"Warning: Market cap: probable top-{n} members have no point-in-time share count on some ranking days, so "
+            f"the ranking could not see them and held smaller companies instead: {'; '.join(parts[:6])}{more}. Their "
+            "size is estimated from a share count reported at another time (or from trading volume); on those days "
+            f"the selection is not a true top {n}.")
+
+
 MCAP_NOTE = ("Market cap: the close as quoted that day x the shares outstanding last reported before it (Yahoo "
              "share counts from about 2015, SEC EDGAR filings from about 2009, each used from the day after it became "
              "public; dates and tickers without a count have no market cap). Share classes of one company "
@@ -2562,6 +2828,87 @@ def delisted() -> dict:
         return json.loads(DELISTED_FILE.read_text()) if DELISTED_FILE.exists() else {}
     except ValueError:
         return {}
+
+
+SOURCES_FILE = DATA / "delisted_sources.json"
+
+
+def rebuilt_sources() -> dict:
+    """data/delisted_sources.json: provenance of the histories rebuilt from public archives (cached per file state)."""
+    return _json_file(str(SOURCES_FILE), _mtime(SOURCES_FILE))
+
+
+def price_only_ranges(ticker: str) -> list[dict]:
+    """Stretches of a rebuilt history with no dividends though the company paid them: [{"from", "to", "yield",
+    "basis"}] ("yield": the annual dividend yield missing, where it could be measured, else None)."""
+    rec = rebuilt_sources().get(canonical(ticker)) or {}
+    return list(rec.get("price_only") or [])
+
+
+def price_only_note(tickers, start=None, end=None) -> str | None:
+    """'Price-only history: ...' for held tickers whose rebuilt history lacks dividends inside [start, end]."""
+    s = pd.Timestamp(start) if start is not None else pd.Timestamp.min
+    e = pd.Timestamp(end) if end is not None else pd.Timestamp.max
+    parts = []
+    for t in dict.fromkeys(canonical(x) for x in tickers):
+        for r in price_only_ranges(t):
+            a, b = max(s, pd.Timestamp(r["from"])), min(e, pd.Timestamp(r["to"]))
+            if a > b:
+                continue
+            y = r.get("yield")
+            size = (f"total return understated by about {y:.1%}/yr while held" if y else
+                    "total return understated by the missing yield while held")
+            parts.append(f"{t} {a:%Y-%m}..{b:%Y-%m} ({size}; {r.get('basis', '')})")
+    if not parts:
+        return None
+    return ("Price-only history: dividends missing - " + "; ".join(parts) + ". The public archives these histories "
+            "were rebuilt from carry no dividends there, though the companies paid them.")
+
+
+DATA_ENDS_DAYS = 10   # a file ending more than this before the listing really ended stops at a source boundary
+
+
+def end_of_data(ticker: str) -> dict | None:
+    """Why a price history ends, from data/delisted.json: {"kind": "data_ends" | "delisted", "last": its last bar,
+    "ended": the day the listing really ended (or None), "event": what happened (acquisition terms...)}.
+
+    "data_ends": the file stops at a source boundary well before the company stopped trading (a rebuilt history whose
+    archive ends in 2006 - AMLN traded until Bristol-Myers Squibb bought it in 2012). A position is then closed at the
+    last price with a 'data ends' note, not a 'delisted/acquired' one, and the months after count as missing coverage.
+    None for a ticker without a record."""
+    t = canonical(ticker)
+    info = delisted().get(t)
+    if not info or not info.get("last_date"):
+        return None
+    last = pd.Timestamp(info["last_date"])
+    ended = pd.Timestamp(info["listing_ended"]) if info.get("listing_ended") else None
+    kind = "data_ends" if info.get("data_ends") or (ended is not None and (ended - last).days > DATA_ENDS_DAYS) \
+        else "delisted"
+    when = info.get("listing_ended_text") or (str(ended.date()) if ended is not None else "later")
+    return {"kind": kind, "last": last, "ended": ended, "when": when,
+            "event": info.get("event") or info.get("reason") or ""}
+
+
+def end_label(ticker: str) -> str:
+    """The trade / order reason when a position is closed on a history's last bar: 'data ends' or 'delisted'."""
+    e = end_of_data(ticker)
+    return "data ends" if e and e["kind"] == "data_ends" else "delisted"
+
+
+def end_note_text(ticker: str, day) -> str:
+    """'AMLN delisted/acquired on D' or, for a truncated history, 'AMLN's data ends on D (it kept trading until ...)'."""
+    t = canonical(ticker)
+    e = end_of_data(t)
+    if e and e["kind"] == "data_ends":
+        return (f"{t}'s data ends on {pd.Timestamp(day).date()} (a source boundary: it kept trading until "
+                f"{e['when']}{', ' + e['event'] if e['event'] else ''})")
+    return f"{t} delisted/acquired on {pd.Timestamp(day).date()}"
+
+
+DATA_ENDS_NOTE = ("Data ends: {items}; the price history stops before the company stopped trading (the archive it was "
+                  "rebuilt from ends there), so the position was closed at that last price (trades marked 'data ends') "
+                  "and the proceeds were held in cash. This is not a delisting: the real exit came later, at the terms "
+                  "named, and the member-months after the data ends count as missing coverage.")
 
 
 def identity_notes(ticker: str, start=None, end=None) -> list[str]:
@@ -2598,7 +2945,8 @@ def identity_notes(ticker: str, start=None, end=None) -> list[str]:
                        f"{f0.date()}: most likely a later company that reused the symbol, not that member.")
         elif overlap:
             q = quality(t)
-            covered = [m for m in months if m >= f0.to_period("M").to_timestamp()]
+            # member months the file covers (not the months after a truncated history ends: no data is not junk data)
+            covered = [m for m in months if f0.to_period("M").to_timestamp() <= m <= f1]
             if covered and not q.empty:
                 per = q.groupby(q.index.to_period("M")).mean()
                 bad = sum(1 for m in covered if per.get(m.to_period("M"), 0.0) < 0.5)
@@ -2626,8 +2974,15 @@ def identity_notes(ticker: str, start=None, end=None) -> list[str]:
                    f"it is a different security (no continuous series), so it is not joined to {t}.")
     info = delisted().get(t)
     if info and info.get("last_date") and pd.Timestamp(info["last_date"]) < e:
-        why = f" ({info['reason']})" if info.get("reason") else ""
-        out.append(f"Delisted: {t} stopped trading on {info['last_date']}{why}; the data ends there.")
+        end = end_of_data(t)
+        if end and end["kind"] == "data_ends":
+            out.append(f"Data ends: {t}'s price history ends on {info['last_date']}, where the archive it was rebuilt "
+                       f"from stops - not a delisting: it kept trading until {end['when']}"
+                       f"{' (' + end['event'] + ')' if end['event'] else ''}. Dates after {info['last_date']} have no "
+                       "price.")
+        else:
+            why = f" ({end['event']})" if end and end["event"] else ""
+            out.append(f"Delisted: {t} stopped trading on {info['last_date']}{why}; the data ends there.")
     return out
 
 

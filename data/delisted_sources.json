@@ -1,5 +1,5 @@
 {
- "_about": "Where each history in data/prices that Yahoo no longer serves came from (former Nasdaq-100 members), how it was assembled and the checks it passed. Method: each source is read into the repo's schema; only continuous stretches that overlap the index membership with a median dollar volume of $2M or more are used (a reused symbol is another company); sources must agree on 90% of overlapping days' total returns within 2%; the base is the source with dividends and the best cover, older and newer sources are joined on overlapping days by price ratio; split events come from every source whose prices agree that day; dividends are derived from the adjusted close; days where one source moves over 30% and another under 15% take the consensus. The data job never replaces these files with a Yahoo download (a reused symbol may now be another company). Former companies of reused symbols are stored as <SYMBOL>-<YEAR> (backtester/data.py FORMER_LISTINGS).",
+ "_about": "Where each history in data/prices that Yahoo no longer serves came from (former Nasdaq-100 members), how it was assembled and the checks it passed. Method: each source is read into the repo's schema; only continuous stretches that overlap the index membership with a median dollar volume of $2M or more are used (a reused symbol is another company); sources must agree on 90% of overlapping days' total returns within 2%; the base is the source with dividends and the best cover, older and newer sources are joined on overlapping days by price ratio; split events come from every source whose prices agree that day; dividends are derived from the adjusted close; days where one source moves over 30% and another under 15% take the consensus. The data job never replaces these files with a Yahoo download (a reused symbol may now be another company). Former companies of reused symbols are stored as <SYMBOL>-<YEAR> (backtester/data.py FORMER_LISTINGS). Later checks (QuantConnect data review): each history's true end is recorded ('listing_ended', 'event', 'end_reason'; a file ending at a source boundary is 'data ends', not a delisting), dividends missing from a source were filled from Intrader's cash dividends ('dividends_added') or the dates marked 'price_only', and every file was scanned for multi-bar level-shift junk ('level_junk').",
  "_sources": {
   "bdi": {
    "url": "https://github.com/bdi2357/DirectIndexing/tree/main/data/PriceVolume",
@@ -78,7 +78,17 @@
   ],
   "splits": {
    "2000-08-11": 2.0
-  }
+  },
+  "event": "acquired by Intel for $54.00 per share in cash",
+  "end_reason": "delisted",
+  "price_only": [
+   {
+    "from": "2007-01-01",
+    "to": "2015-12-24",
+    "yield": 0.008,
+    "basis": "QSTK's Yahoo adjusted close, 2007-2012 (0.5-1.1%/yr); later years not measured"
+   }
+  ]
  },
  "ALXN": {
   "member": "2011-05..2021-07",
@@ -164,7 +174,9 @@
    "1998-04-28": 1.5,
    "2001-02-06": 1.5,
    "2002-04-26": 1.5
-  }
+  },
+  "event": "taken private (Apollo Global, Vistria) for $10.00 per share in cash",
+  "end_reason": "delisted"
  },
  "ATVI": {
   "member": "2006-01..2023-07",
@@ -231,7 +243,9 @@
     "dividends": "derived"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "taken private (Bain Capital, Golden Gate) for $46.25 per share in cash",
+  "end_reason": "delisted"
  },
  "BRCM": {
   "member": "2004-03..2015-12",
@@ -251,6 +265,15 @@
    "1999-02-18": 2.0,
    "2000-02-14": 2.0,
    "2006-02-22": 1.5
+  },
+  "event": "acquired by Avago (Broadcom Ltd.): cash or Broadcom Ltd. shares",
+  "end_reason": "delisted",
+  "dividends_added": {
+   "source": "intrader",
+   "ex_dates": 25,
+   "from": "2010-02-17",
+   "to": "2015-11-25",
+   "check": "closes match the file on 100.0% of overlapping days (split-adjusted, within 2%); adj_close recomputed from them"
   }
  },
  "CA": {
@@ -280,6 +303,15 @@
    "1995-09-06": 1.5,
    "1996-07-16": 1.5,
    "1997-11-28": 1.5
+  },
+  "event": "acquired by Broadcom for $44.50 per share in cash",
+  "end_reason": "delisted",
+  "dividends_added": {
+   "source": "intrader",
+   "ex_dates": 78,
+   "from": "1990-06-12",
+   "to": "2018-08-22",
+   "check": "closes match the file on 95.1% of overlapping days (split-adjusted, within 2%); adj_close recomputed from them"
   }
  },
  "CECO-2019": {
@@ -303,7 +335,11 @@
    }
   ],
   "splits": {},
-  "stands_for": "CECO before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+  "stands_for": "CECO before its symbol was reused (backtester/data.py FORMER_LISTINGS)",
+  "event": "Career Education renamed Perdoceo Education (symbol PRDO); it kept trading",
+  "listing_ended": "2020-01-01",
+  "listing_ended_text": "January 2020",
+  "end_reason": "data ends (source boundary)"
  },
  "CELG": {
   "member": "2005-11..2019-11",
@@ -336,7 +372,9 @@
    "2004-10-25": 2.0,
    "2006-02-27": 2.0,
    "2014-06-26": 2.0
-  }
+  },
+  "event": "acquired by Bristol-Myers Squibb for $50.00 in cash, 1 BMY share and a CVR per share",
+  "end_reason": "delisted"
  },
  "CEPH": {
   "member": "2004-03..2011-07",
@@ -352,7 +390,9 @@
     "dividends": "derived"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "acquired by Teva for $81.50 per share in cash",
+  "end_reason": "delisted"
  },
  "CERN": {
   "member": "2009-10..2021-12",
@@ -407,6 +447,13 @@
    "1994-02-03": 1.5,
    "1999-05-06": 2.0,
    "2007-02-22": 1.5
+  },
+  "dividends_added": {
+   "source": "intrader",
+   "ex_dates": 67,
+   "from": "1990-06-01",
+   "to": "2015-10-05",
+   "check": "closes match the file on 100.0% of overlapping days (split-adjusted, within 2%); adj_close recomputed from them"
   }
  },
  "CPWR-2014": {
@@ -460,7 +507,9 @@
    "2006-06-14": 0.25,
    "2010-09-20": 2.0,
    "2012-10-02": 2.0
-  }
+  },
+  "event": "acquired by UnitedHealth for $61.50 per share in cash",
+  "end_reason": "delisted"
  },
  "CTXS": {
   "member": "2004-03..2020-12",
@@ -499,7 +548,10 @@
    }
   ],
   "splits": {},
-  "stands_for": "DELL before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+  "stands_for": "DELL before its symbol was reused (backtester/data.py FORMER_LISTINGS)",
+  "event": "taken private by Michael Dell and Silver Lake for $13.75 per share in cash plus a $0.13 special dividend",
+  "listing_ended": "2013-10-29",
+  "end_reason": "data ends (source boundary)"
  },
  "DISCK": {
   "member": "2014-12..2017-12",
@@ -571,7 +623,9 @@
     "dividends": "derived"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "acquired by AT&T for $28.50 in cash plus 1.892 T shares per share",
+  "end_reason": "delisted"
  },
  "EA": {
   "member": "2012-01..2026-08",
@@ -683,7 +737,9 @@
    "2005-06-27": 2.0,
    "2007-06-25": 2.0,
    "2010-06-08": 2.0
-  }
+  },
+  "event": "acquired by Cigna for $48.75 in cash plus 0.2434 CI shares per share",
+  "end_reason": "delisted"
  },
  "FLIR": {
   "member": "2008-10..2011-12",
@@ -793,7 +849,9 @@
    "2001-05-08": 0.5,
    "2001-06-04": 2.0
   },
-  "stands_for": "GENZ before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+  "stands_for": "GENZ before its symbol was reused (backtester/data.py FORMER_LISTINGS)",
+  "event": "acquired by Sanofi for $74.00 per share in cash plus a contingent value right",
+  "end_reason": "delisted"
  },
  "GMCR": {
   "member": "2011-06..2015-12",
@@ -820,6 +878,15 @@
    "2007-07-30": 3.0,
    "2009-06-09": 1.5,
    "2010-05-18": 3.0
+  },
+  "event": "Keurig Green Mountain taken private by JAB for $92.00 per share in cash",
+  "end_reason": "delisted",
+  "dividends_added": {
+   "source": "intrader",
+   "ex_dates": 9,
+   "from": "2014-01-15",
+   "to": "2016-01-13",
+   "check": "closes match the file on 100.0% of overlapping days (split-adjusted, within 2%); adj_close recomputed from them"
   }
  },
  "GOLD-2019": {
@@ -840,7 +907,11 @@
    "2003-03-11": 2.0,
    "2004-06-15": 2.0
   },
-  "stands_for": "GOLD before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+  "stands_for": "GOLD before its symbol was reused (backtester/data.py FORMER_LISTINGS)",
+  "event": "Randgold Resources merged with Barrick Gold (6.1280 Barrick shares per Randgold share)",
+  "listing_ended": "2019-01-01",
+  "listing_ended_text": "January 2019",
+  "end_reason": "data ends (source boundary)"
  },
  "HOLX": {
   "member": "2008-01..2018-12",
@@ -903,7 +974,11 @@
   "splits": {
    "1998-03-27": 2.0,
    "2000-02-25": 2.0
-  }
+  },
+  "event": "IAC spun off HSN, Interval Leisure, Ticketmaster and Tree.com and made a 1-for-2 reverse split on 2008-08-20; IACI kept trading (the sources book the spin-off inconsistently, so the rebuilt history stops before it)",
+  "listing_ended_text": "after its 2008-08-20 spin-offs",
+  "end_reason": "data ends (source boundary)",
+  "data_ends": true
  },
  "ISIL": {
   "member": "2004-03..2005-12",
@@ -919,7 +994,9 @@
     "dividends": "derived"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "acquired by Renesas for $22.50 per share in cash",
+  "end_reason": "delisted"
  },
  "JAVA-2010": {
   "member": "2007-09..2009-09",
@@ -941,7 +1018,9 @@
   "repaired_splits": {
    "2007-11-12": 0.25
   },
-  "stands_for": "JAVA before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+  "stands_for": "JAVA before its symbol was reused (backtester/data.py FORMER_LISTINGS)",
+  "event": "acquired by Oracle for $9.50 per share in cash",
+  "end_reason": "delisted"
  },
  "JNPR": {
   "member": "2004-03..2009-10",
@@ -988,7 +1067,16 @@
     "dividends": "derived"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "merged with H.J. Heinz to form Kraft Heinz (KHC): 1 KHC share and a $16.50 special dividend per share",
+  "end_reason": "delisted",
+  "dividends_added": {
+   "source": "intrader",
+   "ex_dates": 10,
+   "from": "2012-12-27",
+   "to": "2015-04-08",
+   "check": "closes match the file on 100.0% of overlapping days (split-adjusted, within 2%); adj_close recomputed from them"
+  }
  },
  "LIFE-2014": {
   "member": "2009-01..2013-09",
@@ -1007,7 +1095,10 @@
   "splits": {
    "2008-05-28": 2.0
   },
-  "stands_for": "LIFE before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+  "stands_for": "LIFE before its symbol was reused (backtester/data.py FORMER_LISTINGS)",
+  "event": "acquired by Thermo Fisher Scientific for $76.13 per share in cash",
+  "listing_ended": "2014-02-03",
+  "end_reason": "data ends (source boundary)"
  },
  "LINTA": {
   "member": "2006-11..2014-11",
@@ -1053,6 +1144,15 @@
    "1995-09-05": 2.0,
    "1999-02-22": 2.0,
    "2000-03-28": 2.0
+  },
+  "event": "acquired by Analog Devices for $46.00 in cash plus 0.2321 ADI shares per share",
+  "end_reason": "delisted",
+  "dividends_added": {
+   "source": "intrader",
+   "ex_dates": 98,
+   "from": "1992-11-19",
+   "to": "2017-02-22",
+   "check": "closes match the file on 100.0% of overlapping days (split-adjusted, within 2%); adj_close recomputed from them"
   }
  },
  "LVLT": {
@@ -1113,7 +1213,17 @@
   ],
   "splits": {
    "2000-03-07": 1.25
-  }
+  },
+  "event": "acquired by Koch Industries for $38.50 per share in cash",
+  "end_reason": "delisted",
+  "price_only": [
+   {
+    "from": "1997-12-31",
+    "to": "2013-12-06",
+    "yield": 0.014,
+    "basis": "QSTK's Yahoo adjusted close, 2000-2012 (0.2-3.6%/yr)"
+   }
+  ]
  },
  "MXIM": {
   "member": "2004-03..2021-08",
@@ -1173,7 +1283,9 @@
     "dividends": "derived"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "acquired by Lam Research for 1.125 LRCX shares per share",
+  "end_reason": "delisted"
  },
  "NWSA-2013": {
   "member": "2009-02..2013-07",
@@ -1250,6 +1362,15 @@
   "splits": {
    "1995-05-02": 1.5,
    "1996-07-22": 2.0
+  },
+  "event": "taken private (BC Partners) for $83.00 per share in cash",
+  "end_reason": "delisted",
+  "dividends_added": {
+   "source": "intrader",
+   "ex_dates": 45,
+   "from": "2003-10-29",
+   "to": "2014-10-29",
+   "check": "closes match the file on 100.0% of overlapping days (split-adjusted, within 2%); adj_close recomputed from them"
   }
  },
  "QLGC": {
@@ -1381,7 +1502,11 @@
    }
   ],
   "splits": {},
-  "stands_for": "SHLD before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+  "stands_for": "SHLD before its symbol was reused (backtester/data.py FORMER_LISTINGS)",
+  "event": "Sears Holdings filed for Chapter 11 on 2018-10-15 and was delisted",
+  "listing_ended": "2018-10-15",
+  "listing_ended_text": "October 2018",
+  "end_reason": "data ends (source boundary)"
  },
  "SHPG": {
   "member": "2016-12..2018-12",
@@ -1423,6 +1548,15 @@
    "1991-01-03": 2.0,
    "1997-01-03": 2.0,
    "2007-01-03": 2.0
+  },
+  "event": "acquired by Merck KGaA for $140.00 per share in cash",
+  "end_reason": "delisted",
+  "dividends_added": {
+   "source": "intrader",
+   "ex_dates": 85,
+   "from": "1990-05-25",
+   "to": "2015-08-28",
+   "check": "closes match the file on 100.0% of overlapping days (split-adjusted, within 2%); adj_close recomputed from them"
   }
  },
  "SNDK-2016": {
@@ -1449,7 +1583,15 @@
    "2000-02-23": 2.0,
    "2004-02-19": 2.0
   },
-  "stands_for": "SNDK before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+  "stands_for": "SNDK before its symbol was reused (backtester/data.py FORMER_LISTINGS)",
+  "price_only": [
+   {
+    "from": "2013-01-01",
+    "to": "2016-05-11",
+    "yield": null,
+    "basis": "SanDisk paid quarterly dividends from 2013; no free source with them was found"
+   }
+  ]
  },
  "SPLK": {
   "member": "2020-01..2024-03",
@@ -1497,7 +1639,17 @@
    "1999-01-29": 1.5,
    "2005-04-18": 1.5
   },
-  "stands_for": "SPLS before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+  "stands_for": "SPLS before its symbol was reused (backtester/data.py FORMER_LISTINGS)",
+  "event": "taken private by Sycamore Partners for $10.25 per share in cash",
+  "end_reason": "delisted",
+  "price_only": [
+   {
+    "from": "2004-01-01",
+    "to": "2017-09-12",
+    "yield": 0.014,
+    "basis": "QSTK's Yahoo adjusted close, 2004-2012 (0.8-2.6%/yr); later years not measured"
+   }
+  ]
  },
  "SRCL": {
   "member": "2008-01..2016-12",
@@ -1555,7 +1707,9 @@
   },
   "repaired_splits": {
    "2007-11-12": 0.25
-  }
+  },
+  "event": "Sun Microsystems: changed its symbol to JAVA (2007-08), acquired by Oracle on 2010-01-26",
+  "end_reason": "delisted"
  },
  "TLAB": {
   "member": "2004-03..2008-05",
@@ -1571,7 +1725,17 @@
     "dividends": "derived"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "acquired by Marlin Equity for $2.45 per share in cash",
+  "end_reason": "delisted",
+  "price_only": [
+   {
+    "from": "2010-01-01",
+    "to": "2013-12-03",
+    "yield": 0.015,
+    "basis": "QSTK's Yahoo adjusted close, 2010-2012 (1.1-1.8%/yr)"
+   }
+  ]
  },
  "VIAB": {
   "member": "2012-06..2017-12",
@@ -1587,7 +1751,14 @@
     "dividends": "derived"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "dividends_added": {
+   "source": "intrader",
+   "ex_dates": 18,
+   "from": "2015-06-11",
+   "to": "2019-09-13",
+   "check": "closes match the file on 100.0% of overlapping days (split-adjusted, within 2%); adj_close recomputed from them"
+  }
  },
  "WBA": {
   "member": "2015-04..2024-07",
@@ -1648,7 +1819,17 @@
    "2001-06-05": 2.0,
    "2005-12-28": 2.0,
    "2013-05-30": 2.0
-  }
+  },
+  "event": "acquired by Amazon for $42.00 per share in cash",
+  "end_reason": "delisted",
+  "dividends_added": {
+   "source": "intrader",
+   "ex_dates": 47,
+   "from": "2004-01-02",
+   "to": "2017-06-28",
+   "check": "closes match the file on 100.0% of overlapping days (split-adjusted, within 2%); adj_close recomputed from them"
+  },
+  "level_junk": "1996-07-31..1996-10-21: the Intrader source flips between two levels ~1.3x apart in blocks of 2-3 days (another stretch's prices mixed in); no other source covers 1996, so the integrity gate (integrity.level_junk_stretches) replaces the stretch by the path between the closes around it and never trades at it"
  },
  "WFMI": {
   "member": "2004-03..2011-05",
@@ -1676,7 +1857,17 @@
    "2005-12-28": 2.0,
    "2013-05-30": 2.0
   },
-  "copy_of": "WFM"
+  "copy_of": "WFM",
+  "event": "acquired by Amazon for $42.00 per share in cash (symbol WFM from 2011)",
+  "end_reason": "delisted",
+  "dividends_added": {
+   "source": "intrader",
+   "ex_dates": 47,
+   "from": "2004-01-02",
+   "to": "2017-06-28",
+   "check": "closes match the file on 100.0% of overlapping days (split-adjusted, within 2%); adj_close recomputed from them"
+  },
+  "level_junk": "1996-07-31..1996-10-21: the Intrader source flips between two levels ~1.3x apart in blocks of 2-3 days (another stretch's prices mixed in); no other source covers 1996, so the integrity gate (integrity.level_junk_stretches) replaces the stretch by the path between the closes around it and never trades at it"
  },
  "XLNX": {
   "member": "2004-03..2022-02",
@@ -1696,7 +1887,9 @@
    "1995-08-14": 3.0,
    "1999-03-12": 2.0,
    "1999-12-28": 2.0
-  }
+  },
+  "event": "acquired by AMD for 1.7234 AMD shares per share",
+  "end_reason": "delisted"
  },
  "YHOO": {
   "member": "2004-03..2017-06",
@@ -1731,7 +1924,10 @@
     "dividends": "none (price return)"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "acquired by Bristol-Myers Squibb for $31.00 per share in cash",
+  "listing_ended": "2012-08-08",
+  "end_reason": "data ends (source boundary)"
  },
  "APCC": {
   "member": "2004-03..2007-02",
@@ -1747,7 +1943,18 @@
     "dividends": "none (price return)"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "acquired by Schneider Electric for $31.00 per share in cash",
+  "listing_ended": "2007-02-14",
+  "end_reason": "data ends (source boundary)",
+  "price_only": [
+   {
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "yield": null,
+    "basis": "the CMU archive has no dividends; APC paid dividends from 2003"
+   }
+  ]
  },
  "BEAS": {
   "member": "2004-03..2008-04",
@@ -1763,7 +1970,10 @@
     "dividends": "none (price return)"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "acquired by Oracle for $19.375 per share in cash",
+  "listing_ended": "2008-04-29",
+  "end_reason": "data ends (source boundary)"
  },
  "BMET": {
   "member": "2004-03..2007-07",
@@ -1779,7 +1989,18 @@
     "dividends": "none (price return)"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "taken private by a private-equity consortium (LVB Acquisition) for $46.00 per share in cash; the tender offer ran from June 2007",
+  "listing_ended": "2007-09-25",
+  "end_reason": "data ends (source boundary)",
+  "price_only": [
+   {
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "yield": null,
+    "basis": "the CMU archive has no dividends; Biomet paid an annual dividend"
+   }
+  ]
  },
  "CDWC": {
   "member": "2004-03..2007-10",
@@ -1795,7 +2016,18 @@
     "dividends": "none (price return)"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "taken private by Madison Dearborn and Providence Equity for $87.75 per share in cash",
+  "listing_ended": "2007-10-12",
+  "end_reason": "data ends (source boundary)",
+  "price_only": [
+   {
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "yield": null,
+    "basis": "the CMU archive has no dividends; CDW paid an annual dividend from 2003"
+   }
+  ]
  },
  "CHIR": {
   "member": "2004-03..2006-10",
@@ -1811,7 +2043,10 @@
     "dividends": "none (price return)"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "acquired by Novartis for $48.00 per share in cash",
+  "listing_ended": "2006-04-19",
+  "end_reason": "data ends (source boundary)"
  },
  "CKFR": {
   "member": "2006-01..2007-12",
@@ -1827,7 +2062,10 @@
     "dividends": "none (price return)"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "acquired by Fiserv for $48.00 per share in cash",
+  "listing_ended": "2007-12-03",
+  "end_reason": "data ends (source boundary)"
  },
  "CMVT": {
   "member": "2004-03..2007-01",
@@ -1843,7 +2081,10 @@
     "dividends": "none (price return)"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "delisted from Nasdaq for late filings (options-backdating restatement); it traded over the counter afterwards",
+  "listing_ended": "2007-02-01",
+  "end_reason": "data ends (source boundary)"
  },
  "IVGN": {
   "member": "2004-03..2005-12",
@@ -1859,7 +2100,11 @@
     "dividends": "none (price return)"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "merged with Applied Biosystems and renamed Life Technologies (symbol LIFE); the same company's later history is LIFE-2014",
+  "listing_ended": "2008-11-21",
+  "listing_ended_text": "November 2008",
+  "end_reason": "data ends (source boundary)"
  },
  "LNCR": {
   "member": "2004-03..2006-12",
@@ -1880,7 +2125,11 @@
   },
   "repaired_splits": {
    "2001-06-25": 2.0
-  }
+  },
+  "event": "acquired by Linde for $41.50 per share in cash",
+  "listing_ended": "2012-08-01",
+  "listing_ended_text": "August 2012",
+  "end_reason": "data ends (source boundary)"
  },
  "MEDI-2006": {
   "source": "keyed"
@@ -1899,7 +2148,11 @@
     "dividends": "none (price return)"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "acquired by Takeda for $25.00 per share in cash",
+  "listing_ended": "2008-05-01",
+  "listing_ended_text": "May 2008",
+  "end_reason": "data ends (source boundary)"
  },
  "NIHD": {
   "member": "2006-01..2011-12",
@@ -1922,7 +2175,10 @@
   "repaired_splits": {
    "2004-03-23": 3.0,
    "2005-11-22": 2.0
-  }
+  },
+  "event": "filed for Chapter 11 on 2014-09-15; the old shares were cancelled when it emerged in June 2015",
+  "listing_ended": "2014-09-15",
+  "end_reason": "data ends (source boundary)"
  },
  "NTLI": {
   "member": "2005-11..2007-08",
@@ -1938,7 +2194,11 @@
     "dividends": "none (price return)"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "renamed Virgin Media (symbol VMED), acquired by Liberty Global on 2013-06-07 for $17.50 in cash plus Liberty Global shares",
+  "listing_ended": "2007-02-08",
+  "listing_ended_text": "February 2007",
+  "end_reason": "data ends (source boundary)"
  },
  "SEPR": {
   "member": "2005-09..2007-12",
@@ -1954,7 +2214,10 @@
     "dividends": "none (price return)"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "acquired by Dainippon Sumitomo Pharma for $23.00 per share in cash",
+  "listing_ended": "2009-10-20",
+  "end_reason": "data ends (source boundary)"
  },
  "XMSR": {
   "member": "2005-11..2007-12",
@@ -1970,7 +2233,10 @@
     "dividends": "none (price return)"
    }
   ],
-  "splits": {}
+  "splits": {},
+  "event": "merged with Sirius Satellite Radio: 4.6 SIRI shares per XMSR share",
+  "listing_ended": "2008-07-28",
+  "end_reason": "data ends (source boundary)"
  },
  "MEDI-2007": {
   "member": "2004-03..2007-05",
@@ -1987,7 +2253,10 @@
    }
   ],
   "splits": {},
-  "stands_for": "MEDI before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+  "stands_for": "MEDI before its symbol was reused (backtester/data.py FORMER_LISTINGS)",
+  "event": "acquired by AstraZeneca for $58.00 per share in cash",
+  "listing_ended": "2007-06-18",
+  "end_reason": "data ends (source boundary)"
  },
  "FNGU-2025": {
   "first": "2018-01-23",

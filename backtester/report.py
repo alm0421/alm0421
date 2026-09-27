@@ -1266,7 +1266,11 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
                                "size costs more than the account can pay (see the warning below).")
     # notes that reinterpret the user's words ("it" resolved to the entry's indicator...) are shown as warnings
     for n in s.notes:
-        if isinstance(n, str) and n.startswith("Warning:"):
+        if isinstance(n, str) and n.startswith("Warning: Market cap:"):
+            # a market-cap ranking that could not see probable top members (data.mcap_gap_warning)
+            warnings.append({"code": "mcap_gap", "level": "warn", "message": "Market-cap ranking misses large members",
+                             "detail": n[len("Warning:"):].strip()})
+        elif isinstance(n, str) and n.startswith("Warning:"):
             warnings.append({"code": "interpretation", "level": "warn", "message": "Check the interpretation",
                              "detail": n[len("Warning:"):].strip()})
     # Nasdaq-100 point-in-time universes: the survivorship coverage belongs in the headline, not only in the notes

@@ -861,6 +861,18 @@ def _ndx_by_mcap(n) -> bool:
     return any(_ndx_by_mcap(k) for k in _kids(n))
 
 
+def _ndx_mcap_top_n(n) -> int:
+    """The largest n of the Nasdaq-100 filters that select the top n by market cap (0 when there is none)."""
+    if not isinstance(n, dict):
+        return 0
+    out = 0
+    if "filter" in n and n.get("universe") in ("NDX", "nasdaq100"):
+        f = n["filter"] if isinstance(n["filter"], dict) else {}
+        if re.sub(r"\s+", "", str(f.get("by") or "")) == "market_cap" and f.get("select", "top") == "top":
+            out = int(f.get("n", 1) or 1)
+    return max([out] + [_ndx_mcap_top_n(k) for k in _kids(n)])
+
+
 def _book_text(tree, lev: float = 1.0) -> str | None:
     """'200% TQQQ, -100% SQQQ' for a tree of fixed weights over several assets (the positions a margin message
     describes), else None."""
@@ -2080,7 +2092,9 @@ class _Evaluator:
                 return {t: 1.0}
             if i >= self.off:
                 if self.ended(t, i):
-                    self.note(f"{t}'s data ends on {self.dfs[t].index[-1].date()} (delisted or acquired): its slice was "
+                    why = ("a source boundary, not a delisting" if data.end_label(t) == "data ends"
+                           else "delisted or acquired")
+                    self.note(f"{t}'s data ends on {self.dfs[t].index[-1].date()} ({why}): its slice was "
                               "held in cash after that.")
                 else:
                     self.note(f"{t} had no price yet on some rebalance dates (before its history starts); its slice was "
@@ -2918,6 +2932,13 @@ def run(p: Portfolio) -> Result:
             cal = cal[cal >= d]
         if d is not None:
             floor = d if floor is None else max(floor, d)
+        top_n = _ndx_mcap_top_n(p.tree)
+        if top_n and len(cal):
+            # size-aware: a probable top-n member the ranking cannot see (no share count then) is warned about loudly
+            keep = elig[len(elig) - len(cal):] if len(elig) >= len(cal) else elig
+            w = data.mcap_gap_warning(keep, names, cal, top_n)
+            if w and w not in p.notes:
+                p.notes.append(w)
     if _has_rules(p.tree):
         basis_note = ("Indicator prices: total return (dividends reinvested; price_basis \"adjusted\", as Composer and "
                       "Portfolio Visualizer). Trades and valuation use quoted prices plus cash dividends."
@@ -3027,7 +3048,7 @@ def run(p: Portfolio) -> Result:
     for j, g in enumerate(gone.tolist()):
         gone_on.setdefault(g, []).append(j)
     div_day = (DIV != 0).any(axis=1).tolist() if N else [False] * T   # a day with any dividend (or NaN) at all
-    delisted: list[str] = []
+    delisted: list[tuple[str, str]] = []   # (trade reason, note text)
     spun: list[str] = []
     # security breaks inside the run (not on its first day: nothing is held before it)
     brk_on: dict[int, list[int]] = {}
@@ -3432,8 +3453,8 @@ def run(p: Portfolio) -> Result:
                 turnover += abs(q) * fill / eq_d if eq_d > 0 else 0.0
                 orders.append({"date": cal[i].date(), "ticker": tick[j], "side": "buy" if q > 0 else "sell",
                                "shares": abs(q) / SF[i, j], "price": fill * SF[i, j], "value": abs(q) * fill, "commission": com,
-                               "reason": "delisted"})
-                delisted.append(f"{tick[j]} delisted/acquired on {cal[i].date()}")
+                               "reason": data.end_label(tick[j])})
+                delisted.append((data.end_label(tick[j]), data.end_note_text(tick[j], cal[i])))
             target.pop(tick[j], None)
             if pending_target:
                 pending_target.pop(tick[j], None)
@@ -3572,12 +3593,17 @@ def run(p: Portfolio) -> Result:
     bn = data.break_note(broken)
     if bn and bn not in p.notes:
         p.notes.append(bn)
-    if delisted:
-        more = f" and {len(delisted) - 5} more" if len(delisted) > 5 else ""
-        p.notes.append(f"Delisted: {', '.join(delisted[:5])}{more}; the position was closed at its last price (the final "
+    gone = [x for lab, x in delisted if lab == "delisted"]
+    cut = [x for lab, x in delisted if lab != "delisted"]
+    if gone:
+        more = f" and {len(gone) - 5} more" if len(gone) > 5 else ""
+        p.notes.append(f"Delisted: {', '.join(gone[:5])}{more}; the position was closed at its last price (the final "
                        "close in the data; orders marked 'delisted') and the proceeds were held in cash. From the next "
                        "rebalance on, the portfolio's rules treat it as no longer trading: a fixed slice of it stays in "
                        "cash, a filter or weighting chooses among the remaining assets.")
+    if cut:
+        more = f" and {len(cut) - 5} more" if len(cut) > 5 else ""
+        p.notes.append(data.DATA_ENDS_NOTE.format(items="; ".join(cut[:5]) + more))
     if spun:
         p.notes.append(f"Distributions: {', '.join(spun[:5])}{' and more' if len(spun) > 5 else ''} paid a spin-off or "
                        "special distribution (more than 15% of the price; e.g. shares of a spun-off company booked at their "

@@ -31,6 +31,8 @@ def _identity_notes(spec: Spec, res: Result) -> None:
     """Warn when a ticker the user named is probably not the company they mean in the period (a recycled
     symbol or junk series), or stopped trading within it. Index universes are skipped: their
     point-in-time membership already excludes such series."""
+    import pandas as pd
+
     from . import data
     try:
         if isinstance(spec, Portfolio):
@@ -41,6 +43,10 @@ def _identity_notes(spec: Spec, res: Result) -> None:
             names = list(spec.universe)
         eq = res.equity
         start, end = (eq.index[0], eq.index[-1]) if len(eq) else (spec.start, spec.end)
+        if len(eq) and getattr(spec, "end", None) and pd.Timestamp(spec.end) > end:
+            end = pd.Timestamp(spec.end)     # the period asked for: a history that ends inside it is named
+        elif len(eq) and not getattr(spec, "end", None):
+            end = max(end, pd.Timestamp.today().normalize())
         for t in names:
             for n in data.identity_notes(t, start, end):
                 if n not in spec.notes:
@@ -65,6 +71,12 @@ def _corporate_action_note(spec: Spec, res: Result) -> None:
         n = data.distribution_note(held, eq.index[0], eq.index[-1])
         if n and n not in spec.notes:
             spec.notes.append(n)
+        # rebuilt histories without dividends (data/delisted_sources.json "price_only"), over the days they were held
+        held_days = {t: hw.index[(hw[t] != 0).to_numpy()] for t in held}
+        for t, days in held_days.items():
+            n = data.price_only_note([t], days[0], days[-1]) if len(days) else None
+            if n and n not in spec.notes:
+                spec.notes.append(n)
         # days nothing explains in the data of a ticker the run held across them (backtester/price_flags.py)
         from . import price_flags
         n = price_flags.flag_note(hw[held])
