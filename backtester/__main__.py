@@ -618,6 +618,9 @@ def cmd_trade(argv: list[str]) -> int:
                                                          "(needed for a dry run without keys)")
     p.add_argument("--whole-shares", action="store_true", help="whole shares only (keeps market-on-close/-open timing)")
     p.add_argument("--keep-open-orders", action="store_true", help="don't cancel orders this tool placed earlier")
+    p.add_argument("--catch-up", choices=["skip", "market"], default="skip",
+                   help="a position the backtest already holds but the account doesn't: skip (default: no order, "
+                        "wait for the next tested entry) or market (buy the difference with a day market order)")
     a = p.parse_args(argv)
     if not (a.text or a.spec):
         p.error("give the strategy sentence or --spec")
@@ -637,10 +640,10 @@ def cmd_trade(argv: list[str]) -> int:
         print(f"No Alpaca keys: dry run for a ${value:,.0f} account with no positions.")
     else:
         raise ValueError(f"Alpaca keys are not set: export {broker.KEY_ENV} and {broker.SECRET_ENV}, or use --dry-run.")
-    pl = broker.plan(spec, value, positions, fractional=not a.whole_shares)
+    pl = broker.plan(spec, value, positions, fractional=not a.whole_shares, catch_up=a.catch_up)
     print(f"As of {pl.as_of}: {len(pl.orders)} order(s) for a ${value:,.0f} account")
     for n in pl.notes:
-        print("Note:", n)
+        print(("*** " if "CATCH-UP" in n else "Note: ") + n)
     if client.live and not a.dry_run:
         print("*** LIVE ACCOUNT: these orders use real money ***")
     res = broker.submit(client, pl, dry_run=a.dry_run, cancel_stale=not a.keep_open_orders)

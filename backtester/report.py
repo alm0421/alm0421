@@ -442,7 +442,8 @@ def warmup(res: Result) -> tuple[pd.Timestamp | None, list[str]]:
                         + (" Set warmup to \"first\" to start once enough assets can fill the slots." if slow else ""))
     else:
         notes.insert(0, f"Warm-up: stats start on {wd.date()}, after the {bars}-day warm-up (the first day every rule's "
-                        f"indicators have values; the simulation starts {first.date()}).")
+                        f"indicators have values; the simulation starts {first.date()}). No interest is earned during "
+                        "the warm-up, so the statistics start with the starting capital, as a portfolio's do.")
     return wd, notes
 
 
@@ -1400,7 +1401,8 @@ def headline(A: dict) -> dict:
     summary.json: every headline figure (final value, total return, CAGR, Sharpe, drawdown) is measured from the
     first day of the statistics, and the start value is the account value on that day. An allocation portfolio
     starts trading after its warm-up, so it starts with the starting capital; a signal strategy's statistics start
-    after its rules' warm-up with the cash (plus interest) it held then."""
+    after its rules' warm-up, during which its cash earns no interest (engine._warmup_bar), so with the starting
+    capital as well."""
     st = A["stats"]
     res = A.get("result_full") or A["result"]
     cap = float(res.equity.iloc[0]) if len(res.equity) else None

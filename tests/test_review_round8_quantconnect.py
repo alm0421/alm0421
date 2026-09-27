@@ -220,11 +220,16 @@ def test_submit_cancels_the_open_legs_of_our_earlier_brackets():
 @needs_data
 def test_market_entry_dry_run_shows_the_exit_orders(monkeypatch):
     s = parser.parse("buy SPY at the next open when `change > -1`, hold 3 days, 3% stop loss, 5% take profit")
-    pl = broker.plan(s, 100_000, {}, fractional=False)
-    e = [o for o in pl.orders if o["client_order_id"].endswith("entry")]
+    # (the backtest may already hold SPY from an earlier open: a catch-up, sent only when asked, with its bracket)
+    pl = broker.plan(s, 100_000, {}, fractional=False, catch_up="market")
+    e = [o for o in pl.orders if o["client_order_id"].endswith(("entry", "catchup"))]
     assert e and e[0]["order_class"] == "bracket" and e[0]["time_in_force"] == "day"
     s = parser.parse("buy SPY at the close when `change > -1`, hold 3 days, 3% stop loss, 5% take profit")
-    pl = broker.plan(s, 100_000, {}, fractional=False)
+    pl = broker.plan(s, 100_000, {}, fractional=False, catch_up="market")
+    cu = [o for o in pl.orders if o["client_order_id"].endswith("catchup")]
+    if cu:      # held since an earlier close: a day market catch-up, which can carry the bracket itself
+        assert cu[0]["order_class"] == "bracket" and cu[0]["time_in_force"] == "day"
+        return
     out = []
     broker.submit(broker.AlpacaClient(None, None), pl, dry_run=True, log=out.append)
     assert pl.after_fill and any("AFTER THE ENTRY FILLS" in x and '"oco"' in x for x in out)

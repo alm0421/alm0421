@@ -123,6 +123,8 @@ class Strategy:
     min_order: float = 1.0                       # orders worth less than this ($) are skipped (no dust trades)
     point_in_time: bool = True                   # only enter index stocks while they were members
     universe_name: str | None = None             # e.g. "NDX" when the universe is an index
+    share_classes: Literal["company", "separate"] = "company"   # GOOG/GOOGL, FOX/FOXA, ...: "company" = one position
+                                                 # per company (a second class's entry is skipped while one is held)
     benchmark: str | None = None                 # comparison ticker for alpha/beta (default SPY)
 
     # costs and financing
@@ -317,6 +319,8 @@ class Strategy:
         if not 0 <= self.maintenance_margin < 1:
             raise ValueError("maintenance_margin must be at least 0 and below 1")
         self._check_margin()
+        if self.share_classes not in ("company", "separate"):
+            raise ValueError("share_classes must be 'company' (one position per company) or 'separate'")
         if self.position_size is None:
             per = self.leverage / self.max_positions
             if (self.pyramiding or 1) > 1 and self.sizing == "percent":
@@ -428,25 +432,32 @@ class Strategy:
     MAX_LEVERAGE = {"reg_t": 2.0, "portfolio": 4.0}
 
     def _check_margin(self, why: str = "") -> None:
-        """Leverage a broker would allow: Regulation T lends at most 2x overnight on US stocks (50% initial margin);
-        a portfolio-margin account up to 4x. The maintenance margin must be below the initial margin (1/leverage):
-        at or above it, the first close at or below the entry price is a margin call (4x with the default 25%
-        maintenance cut positions on nearly every down day)."""
-        if self.margin_account not in self.MAX_LEVERAGE:
-            raise ValueError("margin_account must be 'reg_t' (at most 2x overnight) or 'portfolio' (portfolio margin, up to 4x)")
-        cap = self.MAX_LEVERAGE[self.margin_account]
-        if self.leverage > cap + 1e-12:
-            if self.margin_account == "reg_t":
-                raise ValueError(f"{why}{self.leverage:g}x leverage is more than Regulation T allows overnight on stocks "
-                                 "(2x: 50% initial margin). With a portfolio-margin account up to 4x is possible: say "
-                                 "'with portfolio margin' (margin_account 'portfolio') and a maintenance margin below "
-                                 f"{1 / self.leverage:.0%}, e.g. 'a 15% maintenance margin'.")
-            raise ValueError(f"{why}{self.leverage:g}x leverage is more than a portfolio-margin account allows (4x).")
-        if self.leverage > 1 + 1e-12 and self.maintenance_margin >= 1 / self.leverage - 1e-12:
+        """Leverage a broker would allow (backtester/margin.py, shared with portfolios): Regulation T lends at most 2x
+        overnight on US stocks (50% initial margin); a portfolio-margin account up to 4x. Leveraged ETFs need the
+        maintenance margin times their leverage factor (FINRA 4210: 75% for a 3x fund), to open as well as to hold.
+        With borrowing, the maintenance requirement at the full target exposure must be below the equity: at or
+        above it, the first close at or below the entry price is a margin call."""
+        from . import margin as _m
+        _m.check_account(self.margin_account)
+        lev = float(self.leverage)
+        tick = [t for t in (self.universe or []) if isinstance(t, str)]
+        worst = max(tick, key=lambda t: _m.factor(t)) if tick else None
+        init = lev * (_m.initial(worst, self.maintenance_margin, self.margin_account) if worst
+                      else 1.0 / _m.MAX_LEVERAGE[self.margin_account])
+        maint = lev * (_m.maintenance(worst, self.maintenance_margin) if worst else self.maintenance_margin)
+        why = why or ""
+        if init > 1 + 1e-9:
+            _m.refuse(why, init, maint, lev, self.maintenance_margin, self.margin_account, worst)
+        if lev > 1 + 1e-12 and self.maintenance_margin and maint >= 1 - 1e-12:
+            if worst and _m.factor(worst) > 1:
+                _m.refuse(why, init, maint, lev, self.maintenance_margin, self.margin_account, worst)
             raise ValueError(f"{why or 'T'}{'t' if why else ''}he {self.maintenance_margin:.0%} maintenance margin is not below the initial margin of "
                              f"{self.leverage:g}x leverage ({1 / self.leverage:.0%}): every close below the entry price would "
                              f"be a margin call. Use a maintenance margin below {1 / self.leverage:.0%} (e.g. 'a "
                              f"{max(1, int(100 / self.leverage * 0.6))}% maintenance margin'), less leverage, or 'no margin calls'.")
+        note = _m.leveraged_note(tick) if lev > 1 + 1e-12 else None
+        if note and note not in self.notes:
+            self.notes.append(note)
 
     def enters_before_close(self) -> bool:
         """True when entries fill before the close of their bar (at the open or intraday)."""

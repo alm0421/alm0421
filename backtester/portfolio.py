@@ -33,6 +33,7 @@ import pandas as pd
 from . import calendar as _cal
 from . import costs as _costs
 from . import data, expr
+from . import margin as _margin
 from .engine import Result, _daily_rate
 
 FREQS = ("daily", "weekly", "monthly", "quarterly", "semiannual", "yearly", "none")
@@ -142,8 +143,13 @@ class Portfolio:
     withdrawal_dollars: str | None = None
     leverage: float = 1.0                        # scale every target weight; the excess is borrowed
     margin_rate: float = 0.0                     # extra annual rate paid on borrowed cash (above T-bills)
-    maintenance_margin: float = 0.25             # with leverage or shorts: equity / gross exposure below this at
-                                                 # a close -> margin call, cut pro rata back to target leverage
+    maintenance_margin: float = 0.25             # with borrowing or shorts: equity below this x gross exposure (x the
+                                                 # leverage factor for leveraged ETFs) at a close -> margin call
+    # listed share classes of one company (GOOG/GOOGL, FOX/FOXA, ...): "company" = a ranking counts the company once
+    # and holds its more liquid class; "separate" = each class is ranked as its own name
+    share_classes: Literal["company", "separate"] = "company"
+    margin_account: Literal["reg_t", "portfolio"] = "reg_t"   # the same margin model as signal strategies
+                                                 # (backtester/margin.py): Reg T at most 2x, portfolio margin 4x
     expense_ratio: float = 0.0                   # annual fee on invested assets, charged daily
     short_rebate_spread: float = 0.0025          # short sale proceeds earn the cash rate minus this (floored at 0)
     borrow_fee: float = 0.0                      # annual fee on the market value of short positions, charged daily
@@ -174,6 +180,39 @@ class Portfolio:
     notes: list[str] = field(default_factory=list)
     kind: str = "allocation"
 
+    def _check_margin(self) -> None:
+        """The signal engine's margin model (backtester/margin.py): Regulation T lends at most 2x gross overnight,
+        portfolio margin 4x; a leveraged ETF needs the maintenance margin times its leverage factor (FINRA 4210:
+        75% for a 3x fund), to open as well as to hold; with borrowing or shorts, the maintenance requirement at the
+        largest target exposure must be below the equity. Leveraged ETFs are checked through the tree's weights."""
+        from . import margin as _m
+        _m.check_account(self.margin_account)
+        mm, acct, lev = float(self.maintenance_margin), self.margin_account, float(self.leverage)
+        init = lev * max_requirement(self.tree, lambda t: _m.initial(t, mm, acct) if t else 1 / _m.MAX_LEVERAGE[acct])
+        maint = lev * max_requirement(self.tree, lambda t: _m.maintenance(t, mm) if t else mm)
+        gross = max_gross(self.tree) * lev
+        worst = max(tickers_in(self.tree, index_universes=False), key=_m.factor, default=None)
+        if init > 1 + 1e-9:
+            if not (worst and _m.factor(worst) > 1):
+                raise ValueError(f"The portfolio's gross exposure can reach {gross:.3g}x its equity (the sum of the absolute "
+                                 f"weights, longs plus shorts{', times the leverage' if lev != 1 else ''}), more than "
+                                 + ("Regulation T allows overnight (2x: 50% initial margin). With a portfolio-margin "
+                                    "account up to 4x is possible: say 'with portfolio margin' (margin_account "
+                                    "'portfolio') and a maintenance margin below 1/leverage, e.g. 'a 15% maintenance margin'."
+                                    if acct == "reg_t" else "a portfolio-margin account allows (4x)."))
+            _m.refuse("", init, maint, lev, mm, acct, worst)
+        borrowing = gross > 1 + 1e-9 or _has_short(self.tree)
+        if borrowing and mm and maint >= 1 - 1e-9:
+            if worst and _m.factor(worst) > 1:
+                _m.refuse("", init, maint, lev, mm, acct, worst)
+            raise ValueError(f"The portfolio's gross exposure can reach {gross:.3g}x its equity, and the {mm:.0%} "
+                             f"maintenance_margin allows less than {1 / mm:.3g}x: every close below the entry would be a "
+                             "margin call. Use smaller weights or less leverage, or a lower maintenance_margin (0 turns "
+                             "margin calls off).")
+        note = _m.leveraged_note(tickers_in(self.tree, index_universes=False)) if borrowing else None
+        if note and note not in self.notes:
+            self.notes.append(note)
+
     def validate(self) -> None:
         ev = every_n(self.rebalance)
         if self.rebalance not in FREQS and not (ev and ev[0] >= 1) and not annual_month(self.rebalance):
@@ -199,18 +238,9 @@ class Portfolio:
                 raise ValueError("target_vol is an annual fraction above 0 (0.10 = 10% a year)")
             if int(self.target_vol_lookback) < 5:
                 raise ValueError("target_vol_lookback must be at least 5 days")
-        if self.maintenance_margin > 1 / self.leverage + 1e-12:
-            raise ValueError(f"maintenance_margin ({self.maintenance_margin:.0%}) is above the initial margin of "
-                             f"{self.leverage:g}x leverage ({1 / self.leverage:.0%}): every close would be a margin call. "
-                             f"Use at most {1 / self.maintenance_margin:g}x, or a lower maintenance_margin "
-                             "(0 turns margin calls off).")
-        gross = max_gross(self.tree) * self.leverage
-        if self.maintenance_margin and gross > 0 and self.maintenance_margin > 1 / gross + 1e-12:
-            raise ValueError(f"The portfolio's gross exposure can reach {gross:.3g}x its equity (the sum of the absolute "
-                             f"weights, longs plus shorts{', times the leverage' if self.leverage != 1 else ''}), above the "
-                             f"{1 / self.maintenance_margin:.3g}x that a {self.maintenance_margin:.0%} maintenance margin "
-                             "allows, so every close would be a margin call. Use smaller weights or less leverage, or a "
-                             "lower maintenance_margin (0 turns margin calls off).")
+        self._check_margin()
+        if self.share_classes not in ("company", "separate"):
+            raise ValueError("share_classes must be 'company' (one slot per company) or 'separate'")
         if self.benchmark not in (None, ""):
             from . import metrics
             self.benchmark = metrics.benchmark_label(self.benchmark)
@@ -579,6 +609,35 @@ def _ndx_by_mcap(n) -> bool:
         if any("market_cap" in str(f.get(k) or "") for k in ("by", "require")) or f.get("weights") == "market_cap":
             return True
     return any(_ndx_by_mcap(k) for k in _kids(n))
+
+
+def max_requirement(n, req) -> float:
+    """Like max_gross, with each asset's weight multiplied by req(ticker) (its margin requirement per $ held): the
+    largest requirement, as a fraction of equity before leverage, that any branch of the tree can ask for."""
+    if not isinstance(n, dict):
+        return req(None)
+    kind = _node_type(n)
+    if kind == "cash":
+        return 0.0
+    if kind == "asset":
+        return req(n.get("asset"))
+    if kind == "weights":
+        kids = n.get("children") or []
+        if n["weights"] == "specified":
+            return float(sum(abs(float(w)) * max_requirement(k, req) for w, k in zip(n.get("w") or [], kids)))
+        return max([max_requirement(k, req) for k in kids] or [req(None)])
+    if kind == "if":
+        return max(max_requirement(n.get("then"), req), max_requirement(n.get("else"), req))
+    if kind == "filter":
+        u = n.get("universe", "children")
+        if u == "children":
+            out = max([max_requirement(k, req) for k in (n.get("children") or [])] or [req(None)])
+        elif isinstance(u, list):
+            out = max([req(t) for t in u] or [req(None)])
+        else:
+            out = req(None)
+        return max(out, max_requirement(n["fallback"], req)) if n.get("fallback") else out
+    return req(None)
 
 
 def max_gross(n) -> float:
@@ -1378,6 +1437,7 @@ class _Evaluator:
         self._rate = None
         self._quiet = 0            # > 0 while simulating a NAV: no notes (the real evaluation adds its own)
         self.thin: list = []       # (date, candidates, eligible, n, by): filters that picked from too few names
+        self.share_class_days: dict = {}   # share-class group -> days two of its classes competed in a ranking
 
     # ------------------------------------------------------------ data
     def series(self, rule: str, t: str, kind: str) -> np.ndarray:
@@ -1458,7 +1518,10 @@ class _Evaluator:
             m, _ = data.member_mask(names, self.cal)
             self.members = {n: m[:, j] for j, n in enumerate(names)}
             self._no_member = np.zeros(len(self.cal), bool)
-            cov = data.coverage_note(str(self.cal[min(self.off, len(self.cal) - 1)].date()), str(self.cal[-1].date()))
+            # from the run's first real session: the day-0 bar (the purchase at the close before it) is not a period
+            # of the run, so it does not count towards coverage (a start in 2006 has no "lowest year 2005")
+            first = getattr(self, "first_real", self.off)
+            cov = data.coverage_note(str(self.cal[min(first, len(self.cal) - 1)].date()), str(self.cal[-1].date()))
             if cov:
                 self.note(cov)
         return self.members.get(t, self._no_member)
@@ -1789,9 +1852,50 @@ class _Evaluator:
         fin = np.isfinite(v)
         n_elig = len(live)
         live, v = live[fin], v[fin]
+        if getattr(self.p, "share_classes", "company") == "company" and len(live) > 1:
+            live, v = self._one_class_per_company(mem, by, live, v, i)
         self._rank_counts = (len(live), n_elig)      # candidates with a value, eligible members (thin-ranking note)
         order = np.argsort(-v if top else v, kind="stable")[:k]
         return [mem[j] for j in live[order]]
+
+    def _one_class_per_company(self, mem: list, by: str, live: np.ndarray, v: np.ndarray, i: int):
+        """Listed share classes of one company (data.SHARE_CLASSES: GOOG/GOOGL, FOX/FOXA, ...) compete for one slot:
+        the company is ranked once and held through its most liquid class that day (highest 20-day average dollar
+        volume over 63 sessions, known at that close). Ranked by market cap, the company counts at its full value (each class's
+        market_cap is the company's divided by its number of listed classes)."""
+        grp = {t: g for g in data.SHARE_CLASSES for t in g}
+        by_s = re.sub(r"\s+", "", str(by))
+        best: dict = {}
+        keep = np.ones(len(live), bool)
+        v = v.astype(float).copy()
+        for pos, j in enumerate(live):
+            t = mem[j]
+            g = grp.get(t)
+            if g is None:
+                continue
+            if by_s == "market_cap":
+                v[pos] = v[pos] * data._class_divisor(t)
+            liq = self._dollar_volume(t)[i]
+            liq = liq if np.isfinite(liq) else -1.0
+            if g in best:
+                q, lq = best[g]
+                if liq > lq:
+                    keep[q] = False
+                    best[g] = (pos, liq)
+                else:
+                    keep[pos] = False
+                self.share_class_days.setdefault(g, set()).add(self.cal[i])
+            else:
+                best[g] = (pos, liq)
+        return live[keep], v[keep]
+
+    def _dollar_volume(self, t: str) -> np.ndarray:
+        dv = self.cache.get(("dv20", t))
+        if dv is None:
+            df = self.dfs[t]
+            dv = (df["close"] * df["volume"]).rolling(63, min_periods=1).mean().reindex(self.cal).ffill().to_numpy()
+            self.cache[("dv20", t)] = dv
+        return dv
 
 
 DELIST_GAP_DAYS = 7
@@ -2394,6 +2498,8 @@ def run(p: Portfolio) -> Result:
         if _REUSE["on"]:
             _REUSE["key"], _REUSE["ev"] = key, ev
     base = off - lo
+    # the first real session (after the day-0 purchase bar, when there is one): survivorship coverage counts from it
+    ev.first_real = min(base + int(day0), len(ev.cal) - 1)
     T = len(cal)
     tick = list(dfs)
     idx = {t: j for j, t in enumerate(tick)}
@@ -2477,6 +2583,7 @@ def run(p: Portfolio) -> Result:
                  - np.where(wd_days, p.withdrawal * winfl * wd_mult, 0.0))
     depleted = None
     mm = p.maintenance_margin
+    mreq = np.array([_margin.maintenance(t, mm) for t in tick]) if N else np.zeros(0)   # per $ held (margin.py)
     margin_days: list = []
     lev_peak = (0.0, 0.0, None)       # (gross/equity, target gross, date): worst drift above target between rebalances
 
@@ -2782,16 +2889,17 @@ def run(p: Portfolio) -> Result:
                 pending_target = dict(target)
         # maintenance margin (leverage or shorts): equity must cover `mm` of gross exposure at the close,
         # otherwise every position is cut pro rata at the close back to the target gross exposure
-        if (p.leverage > 1 or (shares < 0).any()) and not rebalanced_at_close:
+        if (p.leverage > 1 or (shares < 0).any() or cash < -1e-9) and not rebalanced_at_close:
             g = gross_now(c)
             eq_now = value(c)
-            tgt_gross = sum(abs(w) for w in target.values()) or p.leverage
-            if mm:
-                tgt_gross = min(tgt_gross, 1 / mm)
+            tgt_gross = sum(abs(w) for t_, w in target.items() if t_ != "cash" and w == w) or p.leverage
             if g > 0 and eq_now > 0:
-                if mm and eq_now / g < mm - 1e-12:
-                    pv = np.nan_to_num(px_now(c))
-                    k = tgt_gross * eq_now / g
+                pv = np.nan_to_num(px_now(c))
+                need = float(np.abs(shares * pv) @ mreq) if mm else 0.0
+                if mm and eq_now < need * (1 - 1e-12):
+                    # de-risk with a cushion (margin.call_scale): to the lower of the target exposure and the one at
+                    # which equity is 125% of the maintenance requirement, so the next down close is not a call again
+                    k = _margin.call_scale(eq_now, g, need, tgt_gross)
                     trade_to({tick[j]: shares[j] * pv[j] * k / eq_now for j in range(N) if shares[j]}, c, i,
                              "margin call", min_trade=False)
                     margin_days.append(cal[i].date())
@@ -2835,8 +2943,10 @@ def run(p: Portfolio) -> Result:
     if margin_days:
         more = f" and {len(margin_days) - 5} more" if len(margin_days) > 5 else ""
         p.notes.append(f"Margin call on {', '.join(str(d) for d in margin_days[:5])}{more}: equity fell below "
-                       f"{mm:.0%} of gross exposure, so every position was cut pro rata at the close back to the "
-                       "target leverage (orders marked 'margin call').")
+                       f"its maintenance requirement ({mm:.0%} of gross exposure; the leverage factor times that for a "
+                       "leveraged ETF), so every position was cut pro rata at the close to the lower of the target "
+                       f"leverage and the exposure at which equity is {_margin.MARGIN_CALL_CUSHION:.0%} of the "
+                       "requirement (orders marked 'margin call').")
     if vol_scale:
         ks = np.array([k for _, k in vol_scale if np.isfinite(k)])
         if len(ks):
@@ -2845,7 +2955,7 @@ def run(p: Portfolio) -> Result:
                            + (" or borrowed" if ks.max() > 1 + 1e-9 else "") + ".")
     if lev_peak[2] is not None:
         p.notes.append(f"Between rebalances leverage drifted up to {lev_peak[0]:.1f}x gross exposure (on {lev_peak[2]}; "
-                       f"target {lev_peak[1]:.1f}x)" + (f"; margin calls cap it at {1 / mm:g}x." if mm else
+                       f"target {lev_peak[1]:.1f}x)" + (f"; margin calls cap it at {1 / (mreq.max() if len(mreq) else mm):.3g}x." if mm else
                                                         " with margin calls turned off."))
 
     hw = pd.DataFrame(weights, index=cal, columns=tick)
@@ -2868,6 +2978,15 @@ def run(p: Portfolio) -> Result:
         fl = pd.Series(np.concatenate([[0.0], flows]), index=idx_all, name="flows")
         ex = pd.Series(np.concatenate([[0.0], gross.to_numpy()]), index=idx_all, name="exposure")
         npos = pd.Series(np.concatenate([[0], (hw.drop(columns="cash").abs() > 1e-6).sum(axis=1).to_numpy()]), index=idx_all)
+    if ev.share_class_days:
+        live = {g: [d for d in ds if d >= cal[max(ev.off, 0)]] for g, ds in ev.share_class_days.items()}
+        live = {g: ds for g, ds in live.items() if ds}
+        if live:
+            p.notes.append("Share classes: " + ", ".join("/".join(g) for g in live) + " are classes of one company, so a "
+                           "ranking counted each company once (at its full market cap when ranking by market cap) and "
+                           "held it through its more liquid class that day (higher 3-month average dollar volume), not "
+                           "two slots of the same company. Set share_classes 'separate' in the JSON spec to rank each "
+                           "class on its own.")
     if ev.thin:
         d0, c0, e0, n0, by0 = ev.thin[0]
         p.notes.append(f"Thin ranking: on {len(ev.thin)} rebalance date(s) a top/bottom-{n0} filter by {by0} ranked fewer "
