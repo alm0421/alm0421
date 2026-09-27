@@ -371,7 +371,7 @@ def test_gtaa_library_entry_is_timed():
     ("buy QQQ when the close breaks above the highest high of the last 20 days, hold 5 days", "(close > ref(highest(high, 20), 1))", None),
     ("buy QQQ at the open when it opens above yesterday's high, sell at the close", "(open > ref(high, 1))", None),
     ("buy QQQ when %K crosses above %D below 20, hold 5 days",
-     "(crossover(stoch_k(14, 3), stoch_d(14, 3, 3)) and (stoch_k(14, 3) < 20))", None),
+     "(crossover(stoch_k(14, 1), stoch_d(14, 1, 3)) and (stoch_k(14, 1) < 20))", None),
     ("buy QQQ when they gap down, hold 1 day", "(gap < 0)", None),
     ("buy QQQ when it fell on Friday, hold 1 day", "(dow == 4) and (change < 0)", None),
 ])

@@ -47,7 +47,8 @@ from . import calendar as _cal
 from . import costs, data, expr
 from .strategy import Strategy
 
-INTRADAY_REASONS = ("stop loss", "ATR stop", "trailing stop", "chandelier stop", "breakeven stop", "take profit", "scale out")
+INTRADAY_REASONS = ("stop loss", "ATR stop", "trailing stop", "chandelier stop", "breakeven stop", "stop level", "take profit",
+                    "scale out")
 
 
 @dataclass
@@ -58,6 +59,8 @@ class Lot:
     at_open: bool
     commission: float
     income: float = 0.0     # dividends received (paid, for shorts) and borrow fees, allocated to the lot
+    fill_kind: str = ""     # how the entry filled when not a plain close/open fill: "limit" / "stop" (at the order's
+                            # level during the bar) or "open" (the open had already crossed the level)
 
 
 @dataclass
@@ -77,6 +80,8 @@ class Position:
     init_stop: float = np.nan            # fixed stop (stop loss / ATR stop) when the position opened
     init_trail: float = np.nan           # trailing / chandelier stop when the position opened
     init_tgt: float = np.nan             # take-profit level when the position opened
+    lvl_stop: float = np.nan             # stop_level, evaluated when the position opened (fixed)
+    lvl_tgt: float = np.nan              # target_level / target_r, evaluated when the position opened (fixed)
 
     @property
     def shares(self) -> float:
@@ -259,7 +264,16 @@ def _prepare(strat: Strategy):
     # series only some settings read are skipped otherwise (a Nasdaq-100 run computes hundreds of them)
     need_atr = bool(strat.stop_atr or strat.take_profit_atr or strat.trailing_atr or strat.sizing == "risk"
                     or strat.stop_loss or strat.take_profit or strat.trailing_stop or strat.scale_out
-                    or strat.breakeven_after)          # any stop: the trades report the ATR at entry
+                    or strat.breakeven_after or strat.stop_level or strat.target_level
+                    or strat.target_r)                 # any stop: the trades report the ATR at entry
+    # stop_level / target_level: a price expression evaluated when the position opens. Without entry_price /
+    # stop_price it is the same series for every trade: computed once, as known at the close (NOW) and at the open
+    # (PREV: the previous bar's value, or today's when the expression is open-safe)
+    LVL = {}
+    for name in ("stop_level", "target_level"):
+        rule = getattr(strat, name)
+        if rule and not (expr.names_in(rule) & {"entry_price", "stop_price"}):
+            LVL[name] = (np.full((T, N), np.nan), np.full((T, N), np.nan))
     need_vol = strat.sizing == "volatility"
     need_adv = strat.slippage_model == "volume"
     for j, t in enumerate(tick):
@@ -303,6 +317,11 @@ def _prepare(strat: Strategy):
             exit_[:, j] = on_cal_bool(strat.exit_when)
         if strat.entry_level:
             LEVEL[:, j] = expr.evaluate_value(strat.entry_level, ns).reindex(cal)
+        for name, (now, prev) in LVL.items():
+            rule = getattr(strat, name)
+            lv = expr.evaluate_value(rule, ns)
+            now[:, j] = on_cal(lv.to_numpy())
+            prev[:, j] = on_cal((lv if expr.open_safe(rule) else lv.shift(1)).to_numpy())
         if strat.rank_by:
             r = expr.evaluate_value(strat.rank_by, ns).reindex(cal)
         else:  # default preference: most liquid (20-day average dollar volume)
@@ -380,7 +399,7 @@ def _prepare(strat: Strategy):
                 f"Coverage: until {cal[thin[-1]].date()} fewer than half of the {N} tickers had price history, "
                 f"so early results come from a small subset. Add 'since <year>' to focus on the period with full coverage.")
     return dict(dfs=dfs, cal=cal, tick=tick, O=O, H=H, L=L, C=C, V=V, DIV=DIV, ATR=ATR, VOL=VOL, ADV=ADV, SF=SF,
-                LEVEL=LEVEL, long_sig=long_sig, short_sig=short_sig, exit_sig=exit_, rank=rank,
+                LEVEL=LEVEL, LVL=LVL, long_sig=long_sig, short_sig=short_sig, exit_sig=exit_, rank=rank,
                 per_trade_exit=per_trade_exit, namespaces=namespaces, delist=delist, traded=traded)
 
 
@@ -404,7 +423,8 @@ def run(strat: Strategy) -> Result:
     delisted: list[str] = []
     last_close = np.full(N, np.nan)
 
-    S = dict(cash=strat.capital, interest=0.0, halted=False, small=0, addon_skipped=0, nofunds=0, nofunds_days=[])
+    S = dict(cash=strat.capital, interest=0.0, halted=False, small=0, addon_skipped=0, nofunds=0, nofunds_days=[],
+             entry_stop=np.nan, no_risk=0, wrong_side=0, lvl_nan=0)
     slot_days: set = set()                          # days an entry signal found no free position slot
     positions: dict[int, Position] = {}
     pending_mkt_open: list[tuple[int, int]] = []    # (k, sign) market orders for the next open
@@ -473,6 +493,8 @@ def run(strat: Strategy) -> Result:
         elif strat.sizing == "risk":
             if strat.stop_loss or strat.stop_atr:
                 dist = fill * strat.stop_loss if strat.stop_loss else strat.stop_atr * ATR[ib, k]
+            elif strat.stop_level:   # the distance to the stop level evaluated for this entry
+                dist = sgn * (fill - S["entry_stop"])
             else:   # only a trailing stop: its starting distance is the risk per share
                 dist = fill * strat.trailing_stop if strat.trailing_stop else strat.trailing_atr * ATR[ib, k]
             if not np.isfinite(dist) or dist <= 0:
@@ -547,9 +569,18 @@ def run(strat: Strategy) -> Result:
         eq = mark(prices)
         if eq <= 0:
             return False
+        new = k not in positions
+        lv = entry_levels(i, k, fill, at_open, sgn) if new and levels_used else (np.nan, np.nan)
+        if new and ((strat.stop_level and not np.isfinite(lv[0])) or (strat.target_level and not np.isfinite(lv[1]))):
+            S["lvl_nan"] += 1   # the level is not defined yet (an indicator still warming up): no entry without it
+            return False
+        S["entry_stop"] = lv[0] if new else (positions[k].lvl_stop if k in positions else np.nan)
         shares = size_shares(i, k, fill, eq, prices, sgn, at_open)
         if shares > 0 and strat.slippage_model != "fixed":
             fill = px * (1 + sgn * slip_for(i, k, shares))  # impact of the order size, then re-size at that price
+            if new and levels_used and level_dyn:
+                lv = entry_levels(i, k, fill, at_open, sgn)
+                S["entry_stop"] = lv[0]
             shares = size_shares(i, k, fill, eq, prices, sgn, at_open)
         if shares < 0:   # a fixed size the account could not pay for: skipped, as TradingView does
             S["nofunds"] += 1
@@ -577,6 +608,19 @@ def run(strat: Strategy) -> Result:
             due, due_open = i + hb, strat.hold_exit_fill == "open"
         atr_ref = ATR[i - 1, k] if at_open and i > 0 else ATR[i, k]
         p = Position(k, sgn, [lot], i, px, atr_ref, due, due_open)
+        if levels_used:
+            p.lvl_stop = lv[0]
+            p.lvl_tgt = lv[1]
+            if strat.target_r:    # R-multiple: the initial risk is the distance from the entry to the initial stop
+                stop0 = initial_stop(p, fill)
+                risk = sgn * (fill - stop0) if np.isfinite(stop0) else np.nan
+                if np.isfinite(risk) and risk > 0:
+                    r_tgt = fill + sgn * float(strat.target_r) * risk
+                    p.lvl_tgt = r_tgt if not np.isfinite(p.lvl_tgt) else (min(p.lvl_tgt, r_tgt) if sgn == 1 else max(p.lvl_tgt, r_tgt))
+                else:
+                    S["no_risk"] += 1
+            if np.isfinite(p.lvl_stop) and (fill - p.lvl_stop) * sgn <= 0:
+                S["wrong_side"] += 1
         if P["per_trade_exit"]:
             ns = namespaces[tick[k]]
             dfk = ns.df
@@ -620,7 +664,8 @@ def run(strat: Strategy) -> Result:
                 mfe, mae = 1 - lo / lot.price, 1 - hi / lot.price
             trades.append({
                 "ticker": tick[p.k], "side": "long" if p.sign == 1 else "short",
-                "entry_date": cal[lot.bar].date(), "entry_fill": "open" if lot.at_open else "close",
+                "entry_date": cal[lot.bar].date(),
+                "entry_fill": lot.fill_kind or ("open" if lot.at_open else "close"),
                 # shares and prices as traded (not adjusted for later splits); a split while held changes the
                 # count: exit_shares x exit_price = shares x entry_price x (1 + price return)
                 "entry_price": lot.price * SF[lot.bar, p.k],
@@ -692,16 +737,69 @@ def run(strat: Strategy) -> Result:
         return len(p.lots) < strat.pyramiding
 
     stops_used = any([strat.stop_loss, strat.stop_atr, strat.trailing_stop, strat.trailing_atr,
-                      strat.take_profit, strat.take_profit_atr, strat.scale_out, strat.breakeven_after])
+                      strat.take_profit, strat.take_profit_atr, strat.scale_out, strat.breakeven_after,
+                      strat.stop_level, strat.target_level, strat.target_r])
+    levels_used = bool(strat.stop_level or strat.target_level or strat.target_r)
+    LVL = P["LVL"]
+    level_dyn = any(getattr(strat, n) and n not in LVL for n in ("stop_level", "target_level"))
+    level_open_safe = {n: bool(getattr(strat, n)) and expr.open_safe(getattr(strat, n)) for n in ("stop_level", "target_level")}
+
+    def level_value(name: str, i: int, k: int, at_open: bool, extra: dict) -> float:
+        """stop_level / target_level for an entry filled on bar i: with the data known at the fill - the bar itself for
+        a fill at the close, the previous bar for a fill at (or after) the open unless the expression is open-safe."""
+        rule = getattr(strat, name)
+        if not rule:
+            return np.nan
+        if name in LVL:
+            v = LVL[name][1 if at_open else 0][i, k]
+            return float(v) if np.isfinite(v) else np.nan
+        ns = namespaces[tick[k]]
+        dfk = ns.df
+        pos_i = dfk.index.get_indexer([cal[i]])[0]
+        if pos_i < 0:
+            return np.nan
+        rb = pos_i - 1 if at_open and not level_open_safe[name] else pos_i
+        if rb < 0:
+            return np.nan
+        v = expr.evaluate_value(rule, expr.Namespace(dfk.iloc[: pos_i + 1], dict(extra), ticker=tick[k])).iloc[rb]
+        return float(v) if np.isfinite(v) else np.nan
+
+    def initial_stop(p: Position, e: float) -> float:
+        """The stop a new position starts with: the tightest fixed stop (stop loss, ATR stop, stop level), else the
+        trailing stop's starting distance. NaN when there is none."""
+        s = p.sign
+        fixed = [x for x in ((e * (1 - s * strat.stop_loss)) if strat.stop_loss else None,
+                             (e - s * strat.stop_atr * p.atr_at_entry) if strat.stop_atr and np.isfinite(p.atr_at_entry) else None,
+                             p.lvl_stop if np.isfinite(p.lvl_stop) else None) if x is not None]
+        if not fixed:
+            fixed = [x for x in ((e * (1 - s * strat.trailing_stop)) if strat.trailing_stop else None,
+                                 (e - s * strat.trailing_atr * p.atr_at_entry) if strat.trailing_atr and np.isfinite(p.atr_at_entry) else None)
+                     if x is not None]
+        if not fixed:
+            return np.nan
+        return max(fixed) if s == 1 else min(fixed)
+
+    def entry_levels(i: int, k: int, fill: float, at_open: bool, sgn: int) -> tuple[float, float]:
+        """(stop level, target level) of a position opening on bar i at `fill`; the target may use stop_price (the
+        initial stop: the tightest of the stop level and the percentage / ATR stops)."""
+        stop = level_value("stop_level", i, k, at_open, {"entry_price": fill})
+        tgt = np.nan
+        if strat.target_level:
+            atr = ATR[i - 1, k] if at_open and i > 0 else ATR[i, k]
+            probe = Position(k, sgn, [], i, fill, atr, None, False, lvl_stop=stop)
+            tgt = level_value("target_level", i, k, at_open, {"entry_price": fill, "stop_price": initial_stop(probe, fill)})
+        return stop, tgt
 
     def split_levels(p: Position):
         """(fixed stop, trailing stop, target) at this moment, NaN where not used: the chart draws them."""
         s, e = p.sign, p.avg_price
         fixed = [x for x in ((e * (1 - s * strat.stop_loss)) if strat.stop_loss else None,
-                             (e - s * strat.stop_atr * p.atr_at_entry) if strat.stop_atr and np.isfinite(p.atr_at_entry) else None)
+                             (e - s * strat.stop_atr * p.atr_at_entry) if strat.stop_atr and np.isfinite(p.atr_at_entry) else None,
+                             p.lvl_stop if np.isfinite(p.lvl_stop) else None)
                  if x is not None]
-        trail = [x for x in ((p.peak * (1 - s * strat.trailing_stop)) if strat.trailing_stop else None,
-                             (p.peak - s * strat.trailing_atr * p.atr_at_entry) if strat.trailing_atr and np.isfinite(p.atr_at_entry) else None)
+        trail_on = not strat.trail_after_scale_out or bool(p.scaled)
+        trail = [x for x in ((p.peak * (1 - s * strat.trailing_stop)) if strat.trailing_stop and trail_on else None,
+                             (p.peak - s * strat.trailing_atr * p.atr_at_entry) if strat.trailing_atr and trail_on and np.isfinite(p.atr_at_entry) else None)
                  if x is not None]
         pick = (lambda xs: max(xs) if s == 1 else min(xs))
         _, _, tgt = levels(p)
@@ -716,9 +814,12 @@ def run(strat: Strategy) -> Result:
             cands.append((e * (1 - s * strat.stop_loss), "stop loss"))
         if strat.stop_atr and np.isfinite(p.atr_at_entry):
             cands.append((e - s * strat.stop_atr * p.atr_at_entry, "ATR stop"))
-        if strat.trailing_stop:
+        if np.isfinite(p.lvl_stop):
+            cands.append((p.lvl_stop, "stop level"))
+        trail_on = not strat.trail_after_scale_out or bool(p.scaled)   # "trail the rest": after the first scale-out
+        if strat.trailing_stop and trail_on:
             cands.append((p.peak * (1 - s * strat.trailing_stop), "trailing stop"))
-        if strat.trailing_atr and np.isfinite(p.atr_at_entry):
+        if strat.trailing_atr and trail_on and np.isfinite(p.atr_at_entry):
             cands.append((p.peak - s * strat.trailing_atr * p.atr_at_entry, "chandelier stop"))
         if strat.breakeven_after and (p.peak - e * (1 + s * strat.breakeven_after)) * s >= 0:
             cands.append((e, "breakeven stop"))    # armed once the best price reached +breakeven_after
@@ -729,6 +830,9 @@ def run(strat: Strategy) -> Result:
             tgt = e * (1 + s * strat.take_profit)
         if strat.take_profit_atr and np.isfinite(p.atr_at_entry):
             t2 = e + s * strat.take_profit_atr * p.atr_at_entry
+            tgt = t2 if tgt is None else (min(tgt, t2) if s == 1 else max(tgt, t2))
+        if np.isfinite(p.lvl_tgt):
+            t2 = p.lvl_tgt
             tgt = t2 if tgt is None else (min(tgt, t2) if s == 1 else max(tgt, t2))
         return stop, why, tgt
 
@@ -757,7 +861,7 @@ def run(strat: Strategy) -> Result:
                 S["cash"] -= fee
                 for lot in p.lots:
                     lot.income -= fee * lot.shares / p.shares
-            if DIV[i, k] > 0:
+            if DIV[i, k] > 0 and strat.dividends is not False:
                 for lot in p.lots:
                     if lot.bar < i:  # held into the ex-date
                         amt = p.sign * lot.shares * DIV[i, k]
@@ -821,6 +925,7 @@ def run(strat: Strategy) -> Result:
                 continue
             if open_pos(i, k, fill, True, sgn, o):
                 positions[k].lots[-1].at_open = True  # exposed from the fill onward
+                positions[k].lots[-1].fill_kind = "open" if at_o else strat.entry_order   # gapped through, or at the level
         pending_lvl = still
 
         # ---- 2. INTRADAY stops / targets / scale-outs
@@ -962,6 +1067,19 @@ def run(strat: Strategy) -> Result:
                            f"{' or it exceeded the volume cap' if strat.max_volume_pct else ''}. As in TradingView, a fixed size "
                            "is filled in full or not at all (never cut to what the cash allows). Lower the size, add "
                            "capital, or size as a percentage of equity.")
+    if S["lvl_nan"]:
+        strat.notes = [n for n in strat.notes if not n.startswith("Levels:")]
+        strat.notes.append(f"Levels: {S['lvl_nan']} entry signal(s) were skipped because the stop / target level "
+                           f"({strat.stop_level or strat.target_level}) was not defined yet (its indicator was still warming up).")
+    if S["no_risk"] and strat.target_r:
+        strat.notes = [n for n in strat.notes if not n.startswith("R target:")]
+        strat.notes.append(f"R target: on {S['no_risk']} entr{'y' if S['no_risk'] == 1 else 'ies'} the stop was at or beyond the "
+                           "entry price (no risk to measure), so no R-multiple target was set for those trades.")
+    if S["wrong_side"] and strat.stop_level:
+        strat.notes = [n for n in strat.notes if not n.startswith("Stop level:")]
+        strat.notes.append(f"Stop level: on {S['wrong_side']} entr{'y' if S['wrong_side'] == 1 else 'ies'} {strat.stop_level} was "
+                           "at or beyond the entry price, so the stop was already crossed: it filled at the next check "
+                           "(the next open), as a broker's stop order would.")
     if S["small"]:
         strat.notes = [n for n in strat.notes if not n.startswith("Min order:")]
         strat.notes.append(f"Min order: {S['small']} entry order(s) worth less than ${strat.min_order:g} were skipped.")

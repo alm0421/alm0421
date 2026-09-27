@@ -582,6 +582,7 @@ ENGLISH_TICKERS = set("""
 all app arm be cat cost cure dell dis dust fang fast flex fox gold corn has jets java life lit lite mar mat on
 qual shop size spot tail tan team tip trip ups usd vip yang are low high open close day hold buy sell top cash bond
 bonds rate rates ring now well real key sun eat run win net plus ever tell love fun main dash pep coin hood
+bar bars rest risk trail cloud candle
 """.split())
 
 
@@ -715,6 +716,16 @@ def _ma(kind: str | None, x: str, n: str, unit: str | None, raw: str) -> str:
     return f"{k}({x}, {_period(n, unit)})"
 
 
+def _stoch_note(slow: bool, n: int = 14) -> None:
+    if slow:
+        _note(f"Slow stochastic: %K = the {n}-bar stochastic smoothed over 3 bars (stoch_k({n}, 3)), %D = the 3-bar SMA "
+              f"of %K (stoch_d({n}, 3, 3)).")
+    else:
+        _note(f"Stochastic: TradingView's defaults - %K length {n}, %K smoothing 1 (the raw {n}-bar stochastic, "
+              f"stoch_k({n}, 1)), %D = the 3-bar SMA of %K (stoch_d({n}, 1, 3)). Say 'slow stochastic' for %K "
+              "smoothing 3.")
+
+
 def _osc(name: str, n: str | None, ctx: Ctx) -> str:
     """Oscillator expression for a phrase name."""
     name = name.lower().replace("%", "").strip()
@@ -723,8 +734,10 @@ def _osc(name: str, n: str | None, ctx: Ctx) -> str:
     if not ctx.base:
         raise ParseError(f"{name} of another ticker is not supported in English; use backticks")
     nn = int(float(n)) if n else None
-    if name.startswith("stoch"):
-        return f"stoch_k({nn or 14}, 3)"
+    if name.startswith(("stoch", "slow", "fast", "full")):
+        slow = name.startswith(("slow", "full"))
+        _stoch_note(slow, nn or 14)
+        return f"stoch_k({nn or 14}, {3 if slow else 1})"
     if name.startswith("cci"):
         return f"cci({nn or 20})"
     if name.startswith("williams") or name.startswith("willr") or name == "r":
@@ -745,7 +758,7 @@ MOVE_AUX = (r"(?:(?:has|have|had) (?:been |gone )?|(?:is|was|are|were) |closes? 
             r"moves? |moved |gets? |got )?")
 
 
-OSC = r"(rsi|stochastic(?: %?k)?|stoch|cci|williams %?r|willr|mfi|money flow index|adx)"
+OSC = r"(rsi|(?:slow |fast |full )?stochastic(?: %?k)?|(?:slow |fast |full )?stoch|cci|williams %?r|willr|mfi|money flow index|adx)"
 
 # indicators whose lookback can follow them: "the RSI over 10 days", "CCI for the last 20 sessions"
 PERIOD_IND = (r"(?:relative strength index|rsi|stochastics?(?: oscillator)?(?: %?k)?|stoch|commodity channel index|cci|williams %?r|"
@@ -890,6 +903,27 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     s = re.sub(r"(?:(?<= )the |(?<= )its )?(?:close|closing price|price) (?:is |was )?(higher|greater|lower|less) than (?=(?:the )?"
                r"(?:highest |lowest )?(?:high|low|close)s? (?:of|in|over|during) (?:the )?(?:last|past|prior|previous) \d)",
                lambda m: "closes above " if m.group(1) in ("higher", "greater") else "closes below ", s)
+    # "the close is higher than 5 days ago" / "closes above its close 5 days ago": close against ref(close, N)
+    def vs_ago(m):
+        op = ">" if m.group("rel") in ("higher", "greater", "above", "over") else "<"
+        return f"{c} {op} ref({c}, {_period(m.group('n'), m.group('u'))})"
+    take(r"(?:(?:the |its |today's )?(?:close|closing price|price) (?:is |was )?|(?:it )?closes? |(?:it )?closed |(?:it )?(?:is|trades?) )"
+         r"(?P<rel>higher|greater|above|over|lower|less|below|under)(?: than)? (?:(?:it was|it did|the close|its close|the price|"
+         r"its price|the closing price|its closing price) )?(?P<n>\d+) (?:trading )?(?P<u>day|bar|session|week|month)s? ago", vs_ago)
+    # the Ichimoku cloud (as drawn on the current bar: senkou A and B computed 25 bars earlier)
+    def cloud(m):
+        if not ctx.base:
+            _unsupported("the Ichimoku cloud of another ticker")
+        rel, top, bot = m.group("rel"), "maximum(senkou_a(), senkou_b())", "minimum(senkou_a(), senkou_b())"
+        _note("Ichimoku cloud: TradingView's defaults (9, 26, 52, displacement 26); the cloud on today's bar is senkou "
+              "span A = (tenkan + kijun) / 2 and span B = the 52-bar high/low midpoint, both computed 25 bars earlier.")
+        if rel in ("inside", "in", "within"):
+            return f"{c} <= {top} and {c} >= {bot}"
+        if m.group("cross"):
+            return f"crossover({c}, {top})" if rel in ("above", "over") else f"crossunder({c}, {bot})"
+        return f"{c} > {top}" if rel in ("above", "over") else f"{c} < {bot}"
+    take(r"(?:(?:the )?(?:close|price|closing price) )?(?:closes? |is |trades? )?(?P<cross>cross(?:es|ed)? (?:back )?)?"
+         r"(?P<rel>above|over|below|under|inside|within|in) (?:the )?(?:ichimoku )?(?:cloud|kumo)", cloud)
     # "above its 200-day" (no noun) = its 200-day simple moving average
     def bare_ma(m):
         _note(f"'{m.group(2).strip()}' with no indicator named was read as the {m.group(3)} {m.group(4)} simple moving average.")
@@ -1007,7 +1041,10 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     def kd(m):
         if not ctx.base:
             _unsupported("the stochastic of another ticker")
-        k, d = "stoch_k(14, 3)", "stoch_d(14, 3, 3)"
+        slow = bool(re.search(r"\b(?:slow|full)\b", m.group(0)))
+        sm = 3 if slow else 1
+        k, d = f"stoch_k(14, {sm})", f"stoch_d(14, {sm}, 3)"
+        _stoch_note(slow)
         rel = m.group("rel")
         zone = f" and ({k} {_cmp(m.group('zrel'))} {m.group('zv')})" if m.group("zrel") else ""
         if m.group("cross"):
@@ -1195,9 +1232,14 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     take(rf"(?:(?:the )?(?:close|price|closing price) )?(?:closes? |is |trades? )?(?P<cross>cross(?:es|ed)? (?:back )?)?(?P<rel>above|below|over|under) {ST}",
          lambda m: (f"{'crossover' if _cmp(m.group('rel')) == '>' else 'crossunder'}({c}, {st_args(m)})" if m.group("cross")
                     else f"{c} {_cmp(m.group('rel'))} {st_args(m)}"))
-    take(rf"{ST} (?:turns |flips |switches |changes |goes )?(?:to )?(?:(?P<up>bullish|up|long|green|positive|buy)|(?P<dn>bearish|down|short|red|negative|sell))",
-         lambda m: f"{'crossover' if m.group('up') else 'crossunder'}({c}, {st_args(m)})")
-    if re.search(r"supertrend(?:\s*\([^)]*\))? (?:turns|flips|flipped|switches|changes|changed)\b", s):
+    def st_dir(m):
+        if m.group("dir"):   # the direction itself (TradingView: -1 = up, +1 = down) changing on this bar
+            d = st_args(m).replace("supertrend(", "supertrend_dir(")
+            return f"{d} < 0 and ref({d}, 1) > 0" if m.group("up") else f"{d} > 0 and ref({d}, 1) < 0"
+        return f"{'crossover' if m.group('up') else 'crossunder'}({c}, {st_args(m)})"
+    take(rf"{ST}(?:'s)?(?P<dir> direction| trend)? (?:turns |flips |flipped |switches |changes |changed |goes )?(?:to )?"
+         rf"(?:(?P<up>bullish|up|long|green|positive|buy)|(?P<dn>bearish|down|short|red|negative|sell))", st_dir)
+    if re.search(r"supertrend(?:\s*\([^)]*\))?(?:'s)?(?: direction| trend)? (?:turns|flips|flipped|switches|changes|changed)\b", s):
         raise ParseError("'the supertrend flips': which way? Say 'the supertrend flips bullish' (the close crosses above it) or "
                          "'the supertrend flips bearish' (the close crosses below it).")
     take(r"(?:(?:the )?(?:parabolic )?sar|the dots?) (?:flips?|flipped|crosses|crossed|moves?|moved|goes|went|turns?|turned|switches) "
@@ -1714,6 +1756,15 @@ def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list:
             if not o.strip():
                 continue
             o = _sub_outside(r".+", lambda m: _indicator_periods(m.group(0)), o)
+            o = re.sub(r"(?i)^\s*(?:today(?:'s)?|now),?\s+(?=\S)", " ", o)       # "today RSI(2) is above 10"
+            myd = re.match(r"(?is)\s*(?:yesterday'?s?|the (?:previous|prior) (?:day|session|bar)'?s?|(?:on )?the (?:day|bar|session) before,?)"
+                           r"\s+(?P<rest>(?!(?:high|low|close|open)\b).+)$", o) if "`" not in o else None
+            if myd:   # "yesterday's RSI(2) was below 10": the whole comparison on the previous bar
+                inner = re.sub(r"(?i)\bwas\b", "is", re.sub(r"(?i)\bwere\b", "are", myd.group("rest")))
+                e = parse_conditions(inner, traded, strict=strict, total=total)
+                _note(f"'{o.strip()}' = the previous bar's value: ref(({e}), 1).")
+                or_exprs.append(f"ref(({e}), 1)")
+                continue
             mentioned = [t for t in find_tickers(o, strict=True) if t not in traded]
             rel = _relative_compare(o, total) if mentioned else None
             if rel:
@@ -1754,6 +1805,13 @@ def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list:
                 bad.append(o.strip() + (f"' (not understood: '{' '.join(unknown)}')" if e and unknown else "'"))
         if or_exprs:
             exprs.append(or_exprs[0] if len(or_exprs) == 1 else "(" + " or ".join(or_exprs) + ")")
+    for b in bad:
+        mx = re.search(r"(?i)\b(cross(?:es|ed|ing)?)\b(?! (?:above|below|over|under|back|up|down)\b)\s*(?P<what>[^']*)", b)
+        if mx and "`" not in b:
+            what = mx.group("what").strip() or "it"
+            raise ParseError(f"'{b.split(chr(39))[0].strip()}': crosses which way? Say 'crosses above {what}' (from below to "
+                             f"above) or 'crosses below {what}' (from above to below). For a cross in either direction write "
+                             "the rule in backticks, e.g. `cross(rsi(2), 70)`.")
     if bad:
         raise ParseError(
             "Could not interpret: " + "; ".join("'" + b for b in bad)
@@ -2128,6 +2186,9 @@ def common_options(T: Text, notes: list[str]) -> dict:
     m = T.find(rf"(?:idle )?cash (?:earns|pays|yields) {NUM}%(?: (?:a|per) year| annually)?")
     if m:
         kw["cash_rate"] = float(m.group(1)) / 100
+    if "cash_rate" not in kw and T.find(r"(?:(?:with|and|plus) )?(?:t-?bill )?interest on (?:idle |uninvested )?cash|(?:with|plus) (?:t-?bill |cash )?interest\b"
+                                        r"|(?:idle )?cash earns (?:the )?(?:3[- ]month )?(?:t-?bills?|treasury bills?|interest)(?: rate)?"):
+        kw["cash_rate"] = "tbill"
     # benchmark: a blend ("vs 60/40 SPY/AGG", "benchmark 60% SPY and 40% AGG"), or one ticker
     BT = r"[\^$]?[a-z]{1,5}(?:sim)?(?:-usd)?"
     m = T.find(r"\b(?:compared? (?:it )?(?:to|with|against)|benchmark(?:ed)?(?: it)?(?: (?:to|against|with))?|versus|vs\.?|against) "
@@ -2659,6 +2720,47 @@ def _holding_signal(text: str) -> str | None:
     return f"buy {who} while {m.group('rest')}"
 
 
+_PINE_OPERAND = (r"(?:(?:ta|math)\.\w+|[a-z_]\w*|\d+(?:\.\d+)?)(?:\[\d+\])?"
+                 r"(?:\((?:[^()`]|\((?:[^()`]|\([^()`]*\))*\))*\))?")
+_PINE_EXPR = rf"{_PINE_OPERAND}(?:\s*[-+*/]\s*{_PINE_OPERAND})*"
+_PINE_RX = re.compile(rf"(?i)(?<![\w.`])(?:{_PINE_EXPR}\s*(?:>=|<=|==|!=|>|<)\s*{_PINE_EXPR}"
+                      rf"|ta\.(?:crossover|crossunder|cross|rising|falling)\((?:[^()`]|\((?:[^()`]|\([^()`]*\))*\))*\))(?![\w.(\[])")
+_PINE_WORDS = {"close", "open", "high", "low", "volume", "hl2", "hlc3", "ohlc4", "hlcc4", "true", "false"}
+
+
+def _pine_backticks(t: str) -> str:
+    """TradingView / rule-language expressions written in a sentence without backticks ("buy SPY when close >
+    ta.sma(close, 200)") are wrapped in backticks, so the dot and the commas inside them are not read as English.
+    Only a comparison or ta.cross...() that contains a Pine marker (ta.xxx(, math.xxx(, close[1]) and nothing but
+    price names, functions and numbers."""
+    if not re.search(r"(?i)\b(?:ta|math)\.\w+\s*\(|\b(?:close|open|high|low|volume|hl2|hlc3|ohlc4)\[\d+\]", t):
+        return t
+    from .expr import pine_to_rule
+
+    def wrap(m):
+        e = m.group(0)
+        if not re.search(r"(?i)\b(?:ta|math)\.\w+|\[\d+\]", e):
+            return e
+        # every bare word must be a price name or a function call (no English words inside)
+        for w in re.finditer(r"(?i)(?<![\w.])([a-z_]\w*)(?!\w*\s*[.(])", e):
+            if w.group(1).lower() not in _PINE_WORDS:
+                return e
+        try:
+            pine_to_rule(e)
+        except ValueError:
+            return e
+        _note(f"'{e}' was read as a TradingView / rule-language expression (put such expressions in `backticks` to be sure).")
+        return f"`{e}`"
+    mk = _mask(t, parens=False)
+    out, last = [], 0
+    for m in _PINE_RX.finditer(mk):
+        out.append(t[last:m.start()])
+        out.append(wrap(_MM(m, t)))
+        last = m.end()
+    out.append(t[last:])
+    return "".join(out)
+
+
 def parse_signal(text: str, holding: bool = False) -> Strategy:
     raw = text
     t = _normalize(text)
@@ -2703,11 +2805,25 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
         if mv and not re.sub(r"(?i)\b(?:and|the|shares?|stock|of)\b|[,&]", "", left).strip():
             rest = mon.group("rest").strip()
             t = f"{rest[: mv.end()]} {who}{rest[mv.end():]}"
+    t = _pine_backticks(t)
     T = Text(t)
     notes: list[str] = []
     broker = _broker_costs(T, notes)
     kw = common_options(T, notes)
     kw.update(broker)
+    m = T.find(r"(?:(?:with|and) )?(?:no|without|ignor(?:e|ing)|exclud(?:e|ing)) (?:cash )?dividends|dividends (?:ignored|excluded|not credited)"
+               r"|(?:(?:with|using) )?price[- ]only(?: returns)?")
+    if m:
+        kw["dividends"] = False
+        if "price" in m.group(0).lower() and "cash_rate" not in kw:
+            kw["cash_rate"] = None
+        if not getattr(_TL, "tv", False):
+            notes.append("No dividends: cash dividends are not credited to long positions (nor charged to shorts), so the "
+                         "positions earn their price change only.")
+    elif T.find(r"(?:with|and|including|plus) (?:cash )?dividends(?: (?:credited|included|paid))?|(?:credit|includ)(?:e|es|ing) (?:cash )?dividends"):
+        kw["dividends"] = True
+    if getattr(_TL, "tv", False) and "cash_rate" not in kw:
+        kw["cash_rate"] = None     # TradingView-compatible mode: no interest unless asked for ("with interest on cash")
 
     # ---- sizing and portfolio options
     m = T.find(r"(?:max(?:imum)?(?: of)?|up to|at most|no more than|hold at most|limit(?:ed)? to) (\d+) (?:open |simultaneous |concurrent )?(?:positions?|stocks?|names?|holdings?|trades?)(?: at (?:a|any|one) time| at once)?|(\d+) (?:positions|stocks|names) max(?:imum)?")
@@ -2788,6 +2904,47 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
         raise ParseError("Breakeven stop: after how much gain? Say e.g. 'move the stop to breakeven after +2%'.")
     if so:
         ex["scale_out"] = so
+    # "trail the rest (with an 8% trailing stop)": after the first scale-out, a trailing stop on the remainder
+    m = T.find(rf"(?:(?:and|then) )?trail(?:ing)? (?:the )?(?:rest|remainder|remaining (?:shares|position|stake|half|\d+%))"
+               rf"(?: of (?:the |it|the position|the shares))?(?: (?:with|using|on|by|at) (?:a |an )?(?:(?P<pct>\d+(?:\.\d+)?)%"
+               rf"(?: trailing stop(?:[- ]loss)?)?|(?P<atr>\d+(?:\.\d+)?) ?(?:x )?atrs?(?: (?:trailing|chandelier) stop)?))?")
+    if m:
+        ex["trail_after_scale_out"] = True
+        if m.group("pct"):
+            ex["trailing_stop"] = float(m.group("pct")) / 100
+        if m.group("atr"):
+            ex["trailing_atr"] = float(m.group("atr"))
+        notes.append("Trail the rest: the trailing stop is armed only once the first scale-out has filled (from the next "
+                     "bar), for the shares that are left; it trails the best price since entry.")
+    # a stop at a price level, fixed when the position opens: "stop at the low of the entry bar", "stop at the 5 day low"
+    CS = r"(?:^|(?<=[,;] )|(?<=[,;])|(?<=\band )|(?<=\bthen )|(?<=\bwith ))"
+    m = T.find(CS + r"(?:(?:with|use|place|set|put) )?(?:a |an |the |my |your )?(?:initial |protective |hard )?stop(?:[- ]loss)?(?: order)?"
+               r" (?:at|below|under|just below|above|over|just above|on) (?:the |its )?(?:(?:(?P<who>entry|signal) (?:bar|day|candle)'?s? (?P<f1>low|high))"
+               r"|(?:(?P<f2>low|high) of (?:the )?(?P<who2>entry|signal|previous|prior|last) (?:bar|day|candle|session))"
+               r"|(?:(?P<n>\d+) (?:day|bar|session)s? (?P<f3>low|high))|`(?P<raw>[^`]+)`)")
+    if m:
+        if m.group("raw"):
+            ex["stop_level"] = m.group("raw").strip()
+        elif m.group("n"):
+            n_, f_ = int(m.group("n")), m.group("f3").lower()
+            ex["stop_level"] = f"lowest(low, {n_})" if f_ == "low" else f"highest(high, {n_})"
+        else:
+            ex["stop_level"] = (m.group("f1") or m.group("f2")).lower()
+            if (m.group("who2") or "").lower() in ("previous", "prior", "last"):
+                ex["stop_level"] = f"ref({ex['stop_level']}, 1)"
+        ex["_stop_phrase"] = m.group(0).strip()
+    # a target at a price level, or an R multiple of the risk
+    m = T.find(rf"(?:(?:with|and) (?:a |an )?)?(?:take[- ]profits?|profit target|target|exit)(?: of| at)? {NUM} ?(?:r\b|x (?:the )?(?:initial )?risk|times (?:the )?(?:initial )?(?:risk|stop distance)|r[- ]multiples?)"
+               rf"|(?:(?:with|and) (?:a |an )?)?{NUM} ?r (?:target|take[- ]profit|profit target)"
+               rf"|(?:(?:with|and) (?:a |an )?)?{NUM}(?::1| to 1) reward[- ]to[- ]risk(?: (?:target|ratio))?")
+    if m:
+        ex["target_r"] = float(m.group(1) or m.group(2) or m.group(3))
+        notes.append(f"R-multiple target: {ex['target_r']:g} x the initial risk (entry price - initial stop) from the entry, "
+                     "fixed when the position opens.")
+    m = T.find(r"(?:(?:with|and) (?:a |an )?)?(?:take[- ]profits?|profit target|target) (?:at|near) (?:the |its )?(?:(?P<n>\d+) (?:day|bar|session)s? (?P<f>high|low)|`(?P<raw>[^`]+)`)")
+    if m:
+        ex["target_level"] = (m.group("raw").strip() if m.group("raw") else
+                              f"highest(high, {m.group('n')})" if m.group("f").lower() == "high" else f"lowest(low, {m.group('n')})")
     m = T.find(rf"(?:with a |use a |place a |and a )?{NUM} ?(?:x )?atr (?:trailing|chandelier) stop|(?:trailing|chandelier) stop(?: loss)?(?: of| at)? {NUM} ?(?:x )?atrs?(?: (?:from|below|above) the (?:high|low|highest high|lowest low))?")
     if m:
         ex["trailing_atr"] = float(m.group(1) or m.group(2))
@@ -2807,6 +2964,23 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
     m = T.find(rf"(?:with a |and a |and )?(?:take[- ]profits?|profit target|target)(?: of| at)? \+?{NUM}%|(?:with a |and a )?{NUM}% (?:profit target|take[- ]profit|target|gain target)")
     if m:
         ex["take_profit"] = float(m.group(1) or m.group(2)) / 100
+    for k_, label in (("stop_loss", "stop"), ("trailing_stop", "trailing stop"), ("take_profit", "take profit"),
+                      ("stop_atr", "ATR stop"), ("trailing_atr", "chandelier stop"), ("take_profit_atr", "ATR take profit"),
+                      ("target_r", "R-multiple target")):
+        if ex.get(k_) == 0:
+            raise ParseError(f"A {label} of 0{'%' if k_ in ('stop_loss', 'trailing_stop', 'take_profit') else ''} would exit at "
+                             "the entry price at once (every trade would close on its first check). Use a positive distance, "
+                             f"e.g. '5% {label}' or '2 ATR', or leave it out.")
+    if ex.get("trail_after_scale_out") and not ex.get("scale_out"):
+        raise ParseError("'Trail the rest' of what? It follows a partial exit: e.g. 'sell half at +10% and trail the rest with "
+                         "an 8% trailing stop'.")
+    if ex.get("trail_after_scale_out") and not (ex.get("trailing_stop") or ex.get("trailing_atr")):
+        raise ParseError("'Trail the rest' by how much? Say e.g. 'trail the rest with an 8% trailing stop' or 'trail the rest "
+                         "with a 3 ATR chandelier stop'.")
+    if ex.get("trailing_stop") and ex.get("trailing_atr") and not ex.get("trail_after_scale_out"):
+        notes.append(f"Two trailing stops (a {ex['trailing_stop'] * 100:g}% trailing stop and a {ex['trailing_atr']:g} ATR "
+                     "chandelier stop): both are active, one-cancels-other; at any moment the one closer to the price is the "
+                     "one that can trigger.")
     rest_wo_orders = _entry_order(T.rest)[3]
     if re.search(r"\b(?:stop|target|trailing)\b", rest_wo_orders, re.I) and re.search(r"\d", rest_wo_orders):
         mm = re.search(r"[^;]*\b(?:stop|target|trailing)\b[^;]*", rest_wo_orders, re.I)
@@ -2873,7 +3047,12 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
     stateful = holding
     subject_hold = None
     timing_unstated: set = set()
+    delay: dict = {}
     for side, cl in entries:
+        md = re.search(r"(?i)\b(\d+) (?:trading )?(day|bar|session|week)s? (?=after\b)", cl)
+        if md:   # "buy SPY 2 days after RSI(2) is below 10": the condition, 2 bars before the entry signal
+            delay[side] = _period(md.group(1), md.group(2))
+            cl = cl[: md.start()] + cl[md.end():]
         cl_rest = cl
         mcond = re.search(COND_START, cl_rest, flags=re.I)
         subject = cl_rest[: mcond.start()] if mcond else cl_rest
@@ -2990,6 +3169,12 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
                 msg += (". To use today's values for everything, enter at the close; to check the whole rule on the "
                         "previous day, enter at the next open.")
                 notes.append(msg)
+        if side in delay:
+            n_ = delay[side]
+            inner = " and ".join(parts)
+            parts = [f"ref(({inner}), {n_})"]
+            notes.append(f"'{n_} day{'s' if n_ != 1 else ''} after': the condition is checked {n_} bar{'s' if n_ != 1 else ''} "
+                         f"before the signal bar (ref(({inner}), {n_})); the entry then fills as stated for the signal bar.")
         parsed[side] = {"entry": " and ".join(parts), "fill": fill, "order": order, "level": level, "valid": valid}
 
     # a rule knowable at the open (a gap: today's open against yesterday's close) with no timing stated is acted
@@ -3008,6 +3193,12 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
     first = parsed.get("long") or parsed.get("short")
 
     # ---- exits (clauses)
+    # a clause left with only connecting words once its stops were read ("exit on a 10% trailing stop or a 3 ATR
+    # chandelier stop" -> "exit on a ; or a") says nothing more
+    filler = (r"\b(?:sell|exit|get out|cover|close (?:it|the position|out)|it|the|position|trade|on|at|with|using|via|a|an|or|"
+              r"and|whichever|comes?|first|hits?|is|triggered|either|of|both|use|place)\b|[,;.\s]")
+    if any(v for k_, v in ex.items() if not k_.startswith("_")):
+        exits = [cl for cl in exits if re.sub(filler, "", cl, flags=re.I)]
     hold_bars, hold_fill = None, "close"
     exit_when, exit_when_fill = None, "close"
     for k, cl in enumerate(exits):
@@ -3089,12 +3280,17 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
         if hold_bars is not None and hold_bars != subject_hold:
             raise ParseError(f"Two holding periods ({subject_hold} and {hold_bars} bars); keep one.")
         hold_bars = subject_hold
-    stops_given = any(ex.get(k) for k in ("stop_loss", "trailing_stop", "take_profit", "stop_atr", "trailing_atr", "take_profit_atr", "scale_out"))
+    stops_given = any(ex.get(k) for k in ("stop_loss", "trailing_stop", "take_profit", "stop_atr", "trailing_atr", "take_profit_atr",
+                                          "scale_out", "stop_level", "target_level", "target_r"))
+    if hold_bars == 0 and first["fill"] not in ("open", "next_open") and first["order"] == "market":
+        raise ParseError("A holding period must be at least 1 day: an entry at the close can't be sold at that same close "
+                         "('hold 0 days'). Say 'hold 1 day' to sell at the next close, or buy at the open and 'sell at the "
+                         "close' for a same-day round trip.")
     if stateful and len(parsed) == 1 and not (hold_bars or exit_when or stops_given):
         exit_when = f"not ({first['entry']})"
         notes.append(f"No exit given: in the market while {first['entry']} is true, and out at the close of the "
                      "first day it is false (it is re-entered when it turns true again).")
-    if not any([hold_bars, exit_when, stops_given, len(parsed) == 2]):
+    if not any([hold_bars is not None, exit_when, stops_given, len(parsed) == 2]):
         raise ParseError("No exit rule found. Say e.g. 'hold 1 day and sell at the close', 'sell when it closes above its 5-day moving average', or 'with a 5% stop loss'.")
 
     # leftover check over the whole sentence (entry conditions were parsed strictly already)
@@ -3150,6 +3346,21 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
                      "using TODAY'S members only - results carry survivorship bias."))
     benchmark = kw.pop("benchmark", None)
 
+    stop_phrase = ex.pop("_stop_phrase", None)
+    if ex.get("stop_level") and stop_phrase:
+        lv = ex["stop_level"]
+        if side == "both":
+            raise ParseError(f"'{stop_phrase}': a long's stop is below the price and a short's above it; with long and short "
+                             "entries, give the stop as a percentage or ATR distance, or write it in backticks per side.")
+        if (side == "long" and re.search(r"\bhigh", lv)) or (side == "short" and re.search(r"\blow", lv)):
+            raise ParseError(f"'{stop_phrase}': a {side} position's stop is {'below' if side == 'long' else 'above'} the price: "
+                             f"use the {'low' if side == 'long' else 'high'}.")
+        at_close = first["fill"] in ("close", "next_close") and first["order"] == "market"
+        when = ("the entry bar's values (the fill is at its close, when they are known)" if at_close else
+                "the previous bar's values (the fill is at or after the open, before the entry bar's low/high is known: "
+                "for a next-open entry that is the signal bar)")
+        notes.append(f"Stop level: {lv}, evaluated once when the position opens with {when}, and fixed for the trade. It fills "
+                     "at that level, or at the open if the price gaps through it.")
     long_rule = parsed.get("long", {}).get("entry")
     short_rule = parsed.get("short", {}).get("entry")
     strat = Strategy(
@@ -4224,6 +4435,11 @@ def parse_allocation(text: str) -> Portfolio:
     if T.find(r",? ?(?:do not|don't|without) reinvest(?:ing)? dividends|dividends (?:paid out|kept) (?:as|in) cash"):
         kw["reinvest_dividends"] = False
     T.find(r",? ?(?:with )?dividends reinvested|reinvest(?:ing)? dividends")
+    m = T.find(r",? ?(?:with )?(?:no|without|ignor(?:e|ing)|exclud(?:e|ing)) (?:cash )?dividends|,? ?price[- ]only(?: returns)?", consume=False)
+    if m:
+        raise ParseError(f"'{m.group(0).strip(' ,')}': a portfolio always receives its holdings' dividends (they are part of "
+                         "its total return). Say \"don't reinvest dividends\" to keep them as cash; price-only returns are "
+                         "available for signal strategies ('buy ... when ..., no dividends').")
 
     extra: dict = {}
     m = T.find(rf",? ?(?:(?:with|using|at|and) )?{NUM}(?:x| ?times) (?:leverage|leveraged)|,? ?(?:with |using )?(?:a )?leverage (?:of )?{NUM}(?:x| ?times)?|,? ?(?:levered|leveraged) {NUM}(?:x| ?times)")

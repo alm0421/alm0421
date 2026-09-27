@@ -1118,7 +1118,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
         for (let j = x.ei; j <= xi; j++) {
           const v = lvl(pk);
           if (isNum(v)) { const y = Yp(v); if (pen) ctx.lineTo(X(j) - halfBar, y); else ctx.moveTo(X(j) - halfBar, y); ctx.lineTo(X(j) + halfBar, y); pen = true; }
-          if (j > x.ei || tr.entry_fill === 'open') { const hv = long ? P.h[j] : P.l[j]; if (isNum(hv)) pk = long ? Math.max(pk, hv) : Math.min(pk, hv); }
+          if (j > x.ei || tr.entry_fill !== 'close') { const hv = long ? P.h[j] : P.l[j]; if (isNum(hv)) pk = long ? Math.max(pk, hv) : Math.min(pk, hv); }
         }
         ctx.stroke();
       });
