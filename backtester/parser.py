@@ -845,13 +845,18 @@ def find_tickers(text: str, strict: bool = False) -> list[str]:
             elif strict:
                 unknown.append(f"{name} ({sym})")
     if strict and unknown:
+        from . import coverage
+
         def one(u):
-            sug = data.suggest(u.split(" (")[-1].rstrip(")") if " (" in u else u)
+            s = u.split(" (")[-1].rstrip(")") if " (" in u else u
+            if coverage.lookup(s):
+                return f"{u} is not downloaded yet"
+            sug = data.suggest(s)
             return f"unknown ticker {u}" + (f" (closest: {', '.join(sug)})" if sug else "")
         msg = "; ".join(one(u) for u in dict.fromkeys(unknown))
         syms = ", ".join(dict.fromkeys(u.split(" (")[-1].rstrip(")") if " (" in u else u for u in unknown))
-        raise ParseError(msg[0].upper() + msg[1:] + f" - no price data for {syms}. If the symbol is right, add it to "
-                         "data/extra_tickers.txt and run the 'Fetch price data' workflow (GitHub Actions), then pull. "
+        hint = coverage.missing_hint(syms.split(", "), data.offline())
+        raise ParseError(msg[0].upper() + msg[1:] + f" - no price data for {syms}. {hint} "
                          "(`python -m backtester tickers` lists all.)")
     out: list[str] = []
     for _, s in sorted(found):

@@ -8,6 +8,9 @@ Yahoo. A symbol Yahoo doesn't know is retried once a month, not every run.
 
 They are funds, never index members: backtester/data.py strips every symbol here from the Nasdaq-100
 membership history. To add a symbol, append it to the right list (or put it in data/extra_tickers.txt).
+MUTUAL_FUNDS also takes the ~800 funds of data/mutual_funds.txt (read_curated_funds: one "## Family" heading per
+family - Longleaf, Oakmark, Fidelity, T. Rowe Price, PIMCO, ... - each symbol checked against the SEC's list of
+mutual fund share-class symbols), the easiest place to add a fund.
 
 Sources of the lists added on 2026-09-27 (each checked against the issuer's own fund list that day):
   Vanguard       every retail mutual fund share class (Investor / Admiral; no money market, 529, institutional or
@@ -184,6 +187,35 @@ GDS PACS GRFS TBBB QBTS Z BLDR PL BZ OGC LB JOBY BILI INGM PAGP IFS NXE XE DPC L
 def _split(s: str) -> list[str]:
     return list(dict.fromkeys(s.split()))
 
+
+CURATED_FUNDS_FILE = __import__("pathlib").Path(__file__).resolve().parent.parent / "data" / "mutual_funds.txt"
+
+
+def read_curated_funds(path=None) -> dict[str, str]:
+    """{family: "SYM SYM ..."} from data/mutual_funds.txt: "## Family" starts a family, '#' starts a comment. The
+    ~800 well-known funds of the major families (Vanguard, Fidelity, T. Rowe Price, American Funds, PIMCO, Dodge & Cox,
+    DFA, Schwab, Longleaf, Oakmark, ...), each checked against the SEC's mutual fund symbol list."""
+    import re
+    try:
+        text = (path or CURATED_FUNDS_FILE).read_text()
+    except OSError:
+        return {}
+    out: dict[str, list[str]] = {}
+    fam = "other"
+    for line in text.splitlines():
+        if line.startswith("##"):
+            fam = line[2:].strip() or "other"
+            continue
+        for tok in line.split("#", 1)[0].split():
+            t = tok.strip().upper()
+            if re.fullmatch(r"[A-Z]{1,6}", t):
+                out.setdefault(fam, []).append(t)
+    return {k: " ".join(v) for k, v in out.items()}
+
+
+for _fam, _syms in read_curated_funds().items():
+    _key = _fam if _fam not in MUTUAL_FUNDS_BY_FAMILY else f"{_fam} (data/mutual_funds.txt)"
+    MUTUAL_FUNDS_BY_FAMILY[_key] = _syms
 
 BROAD_ETFS = _split(" ".join(BROAD_ETFS_BY_CLASS.values()) + " " + LEVERAGED_ETFS)
 MUTUAL_FUNDS = _split(" ".join(MUTUAL_FUNDS_BY_FAMILY.values()))

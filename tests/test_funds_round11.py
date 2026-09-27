@@ -267,7 +267,8 @@ def test_fetch_on_demand_saves_validates_and_queues(tmp_path, monkeypatch):
     assert data.fetch_on_demand("QZXQ", download=dl) and calls == ["QZXQ"]
     assert (prices / "QZXQ.csv").exists() and not list(prices.glob(".*.part"))
     assert "downloaded from Yahoo Finance" in data.ON_DEMAND["QZXQ"] and "price-integrity gate" in data.ON_DEMAND["QZXQ"]
-    assert "QZXQ" in (tmp_path / "extra_tickers.txt").read_text()        # the data job keeps it updated
+    from backtester import coverage
+    assert "QZXQ" in coverage.read_queue()                    # queued: the data job adds it to its refresh
     assert data.on_demand_notes(["qzxq", "SPY"]) == [data.ON_DEMAND["QZXQ"]]
     assert len(data.load("QZXQ")) == 300
     # too short to use: not saved, and not retried at once

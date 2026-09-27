@@ -7,7 +7,10 @@ on:
       - scripts/fetch_data.py
       - .github/workflows/fetch-data.yml
       - data/extra_tickers.txt
+      - data/requested_tickers.txt   # the request queue: downloaded first (backtester/coverage.py)
+      - data/mutual_funds.txt
       - backtester/fund_lists.py
+      - backtester/coverage.py
   schedule:
     - cron: "17 22 * * 1-5"   # weekdays after the US close
 
@@ -21,7 +24,7 @@ concurrency:
 jobs:
   fetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240   # the rotating batches stop after ROTATION_DEADLINE_MIN (scripts/fetch_data.py)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -71,7 +71,9 @@ def test_funds_unknowns_and_directory(site, width):
         assert "VFINX" in pg.inner_text("#fTable") or "left out" in pg.inner_text("#fUnknown")
         pg.check("#f_unk")
         n2 = int(pg.inner_text("#fTitle").split(":")[1].split(" of ")[0].replace(",", ""))
-        assert n2 > n and "shown" in pg.inner_text("#fUnknown")
+        # once the data job has every listed mutual fund's expense ratio (true since the 2026-09-27 data), ticking
+        # the box adds none: then there is nothing to show
+        assert n2 >= n and (n2 == n or "shown" in pg.inner_text("#fUnknown"))
         pg.click("#fReset")
         assert not pg.is_checked("#f_unk")
         # the directory on the Data page

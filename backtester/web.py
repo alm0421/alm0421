@@ -1367,17 +1367,15 @@ def api_fetch(body):
         how = data.request_ticker(t)
     except data.DataError as e:
         raise ClientError(str(e))
-    after = ("then run the 'Fetch price data' workflow if it doesn't start by itself, and pull the new data. "
-             "(A symbol Yahoo doesn't know is listed under requested_failed in data/universe.json.)")
-    if how == "in the built-in list":
-        msg = (f"{t} is in the built-in lists (funds, S&P 500/400/600 members, large ADRs), downloaded in rotating "
-               "batches by the daily 'Fetch price data' workflow: it arrives with one of the next runs (or run the "
-               "workflow now), then pull.")
-    elif how == "already requested":
-        msg = f"{t} is already in data/extra_tickers.txt: commit and push that file, " + after
-    else:
-        msg = (f"Couldn't download {t} from here, so it was added to data/extra_tickers.txt. Commit and push that file "
-               "(pushing it starts the workflow), " + after)
+    from . import coverage
+    info = coverage.lookup(t)
+    what = coverage.describe(t, info) + " is a valid symbol" if info else \
+        f"{t} is not in the US listing or the fund lists (it is tried anyway: a symbol Yahoo has no data for is " \
+        "dropped after 3 runs and listed under requested_failed in data/universe.json)"
+    where = "is already queued" if how == "already requested" else "was queued"
+    msg = (f"Couldn't download {t} from here (no internet access, or Yahoo failed), so it {where} in "
+           f"data/requested_tickers.txt. {what}. The next data refresh (the daily 'Fetch price data' workflow) "
+           "downloads the queue first; commit and push the file to start it now, then pull the new data.")
     return {"ticker": t, "status": "queued: " + msg, "queued": how}
 
 
