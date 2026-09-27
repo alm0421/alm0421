@@ -1694,6 +1694,19 @@ class _Evaluator:
             self.p.notes.append(msg)
 
     # ------------------------------------------------------------ the tree
+    def _custom(self, n: dict, d) -> dict:
+        """A custom node's weights on `d`: fn(d, history) in its sealed session (a new one when asked about an
+        earlier day than the last, e.g. a sub-tree's NAV evaluated before the main pass)."""
+        from . import sandbox
+        sessions = self.__dict__.setdefault("_sessions", {})
+        s = sessions.get(id(n))
+        if s is None or (s.last is not None and d < s.last):
+            if s is not None:
+                s.close()
+            frames = {t: self.dfs[data.canonical(t)] for t in n["tickers"]}
+            s = sessions[id(n)] = sandbox.PortfolioSession(n["custom"], frames, d)
+        return s(d)
+
     def eval(self, n: dict, i: int) -> dict[str, float]:
         rows = self._rows.get(id(n))
         if rows is not None:
@@ -1715,15 +1728,9 @@ class _Evaluator:
         if "custom" in n:
             # Python API: fn(date, history) -> {ticker: weight}; history holds data up to and including date
             d = self.cal[i]
-            # copies (a slice could reach the whole frame through its buffer), with files, the network and
-            # data.load beyond `d` out of reach while the function runs (see expr.stream_callable)
-            hist = {t: self.dfs[data.canonical(t)].loc[:d].copy() for t in n["tickers"]}
-            tok = data.LOAD_CUTOFF.set(d)
-            try:
-                with expr.io_blocked():
-                    w = n["custom"](d, hist) or {}
-            finally:
-                data.LOAD_CUTOFF.reset(tok)
+            # run in a sealed process fed each ticker's rows up to `d` only, data.load there cut at `d`, files and
+            # the network refused, and data the function captured before the run refused (sandbox.py)
+            w = self._custom(n, d)
             tot = sum(max(v, 0) for v in w.values())
             if tot > 1 + 1e-9:
                 raise ValueError(f"custom weights on {d.date()} add up to {tot:.2%}")

@@ -342,11 +342,11 @@ def test_stream_from_parallel_and_stateful_fallback(fake, monkeypatch):
 
 def test_run_streams_only_the_backtest_window(fake):
     fake["X"] = frame(walk(9, 1200))
-    seen = []
+    from backtester import sandbox
 
-    def spy_rule(d, ns):
-        seen.append(len(d))
+    def spy_rule(d, ns):          # runs in a sealed process: its calls are counted through sandbox.STATS
         return d.close > d.close.rolling(5).mean()
+    s0 = sandbox.STATS["steps"]
     engine.run(Strategy(universe=["X"], entry=spy_rule, hold_bars=1, cash_rate=None,
                         start=str(fake["X"].index[1000].date())))
-    assert min(seen) >= 1000
+    assert sandbox.STATS["steps"] - s0 == 200        # the 200 bars from the start on, streamed once
