@@ -941,7 +941,15 @@ window.addEventListener('blur', unpress);
     box.append(sw); return box;
   }
   function field(label, input) { const l = el('label', { class: 'f' }); l.append(document.createTextNode(label), input); return l; }
-  function inp(val, on, attrs = {}) { const i = el('input', attrs); i.value = val ?? ''; i.addEventListener('change', () => on(i.value)); return i; }
+  // the preview follows the typing (debounced); a re-render of the tree waits for the change event (Enter / leaving the
+  // field), so the caret stays where it is
+  let liveEdit = false;
+  function inp(val, on, attrs = {}) {
+    const i = el('input', attrs); i.value = val ?? ''; i.addEventListener('change', () => on(i.value));
+    let t = null;
+    i.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { if (!i.isConnected || document.activeElement !== i) return; liveEdit = true; try { on(i.value); } finally { liveEdit = false; } }, 400); });
+    return i;
+  }
   function sel(opts, val, on) { const s = el('select'); opts.forEach(o => { const op = el('option', { value: o[0] }, o[1]); if (o[0] === val) op.selected = true; s.append(op); }); s.addEventListener('change', () => on(s.value)); return s; }
   function weightPicker(host, key, lbKey, allowSpecified, onSpecified) {
     const box = el('span', { class: 'row', style: 'gap:4px;display:inline-flex' });
@@ -1238,6 +1246,7 @@ window.addEventListener('blur', unpress);
   }
   let drawing = false, redraw = false;
   function draw() {
+    if (liveEdit) { revalidate(); return; }   // typing: preview only; the change event re-renders
     if (pressed) { autoRebalance(); afterPress(draw, 'draw'); return; }   // re-render just after the click (afterPress)
     if (drawing) { redraw = true; return; }
     drawing = true;

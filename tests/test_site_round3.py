@@ -162,8 +162,10 @@ def test_rebalance_settings():
     assert _conv(root(asset("SPY"), rebalance="monthly"))["rebalance"] == "monthly"
     s = _conv(root(asset("SPY"), **{"rebalance": "none", "rebalance-corridor-width": 0.05}))
     assert s["rebalance"] == "none" and s["drift_band"] == 0.05
-    s = _conv(root(asset("SPY"), **{"rebalance": "none", "rebalance-corridor-width": "10"}))
+    s = _conv(root(asset("SPY"), **{"rebalance": "none", "rebalance-corridor-width": "0.1"}))
     assert s["drift_band"] == 0.1
+    with pytest.raises(ci.ComposerImportError, match="fraction"):     # Composer's unit: 0.1 = 10%, never 10
+        _conv(root(asset("SPY"), **{"rebalance": "none", "rebalance-corridor-width": "10"}))
     with pytest.raises(ci.ComposerImportError, match="rebalance"):
         _conv(root(asset("SPY"), rebalance="hourly"))
 
@@ -172,7 +174,7 @@ def test_rebalance_settings():
     (root(asset("SPY", **{"mystery-field": 1})), "mystery-field"),
     (root({"step": "wt-magic", "children": [asset("SPY")]}), "wt-magic"),
     (root({"step": "if", "children": [cond("hurst-exponent", "SPY", "gt", "0.5", asset("SPY"), window=10), other(asset("BIL"))]}), "hurst-exponent"),
-    (root({"step": "if", "children": [cond("relative-strength-index", "SPY", "eq", "50", asset("SPY"), window=10), other(asset("BIL"))]}), "comparator"),
+    (root({"step": "if", "children": [cond("relative-strength-index", "SPY", "ne", "50", asset("SPY"), window=10), other(asset("BIL"))]}), "comparator"),
     (root({"step": "if", "children": [cond("relative-strength-index", "SPY", "gt", "50", asset("SPY")), other(asset("BIL"))]}), "window"),
     (root({"step": "wt-cash-equal", "children": []}), "empty"),
     ({"nothing": "here"}, "Composer symphony"),

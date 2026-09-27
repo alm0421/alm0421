@@ -250,7 +250,7 @@ def cmd_run(argv: list[str]) -> int:
                                         "cash": A["cash"]}), indent=2))
     else:
         print(report.console_summary(A))
-    out = Path(a.out) if a.out else report.ROOT / "reports" / report.slug(spec.name or spec.description or "run")
+    out = Path(a.out) if a.out else report.ROOT / "reports" / report.run_slug(spec.name or spec.description or "run", spec.to_json())
     path = report.write_outputs(A, out, pdf=a.pdf)
     print(f"Report: {path}\nFiles:  {out}/ (trades.csv, equity.csv, yearly.csv, monthly.csv, report.xlsx, summary.json, strategy.json)")
     print(f"({time.time() - t0:.1f}s)")
@@ -287,7 +287,7 @@ def cmd_compare(argv: list[str]) -> int:
         for k, st in C["benchmarks_own"].items():
             print(f"  {report._fit(k, 24)} CAGR {report.pct(st['cagr']):>8s}  Sharpe {report.num(st['sharpe']):>5s}  "
                   f"MaxDD {report.pct(st['max_drawdown'], 1):>7s}  ({C['benchmarks_own_from'][k]} -> {C['benchmarks_own_to'][k]})")
-    out = Path(a.out) if a.out else report.ROOT / "reports" / ("compare-" + report.slug("-".join(n for n in names)))
+    out = Path(a.out) if a.out else report.ROOT / "reports" / report.run_slug("compare-" + "-".join(n for n in names), [s.to_json() for s in specs])
     path = report.write_outputs(analyses, out, pdf=a.pdf)
     print(f"Report: {path}")
     return 0
@@ -312,12 +312,12 @@ def cmd_sweep(argv: list[str], walk: bool = False) -> int:
         ov.pop("end", None)
         R = research.walk_forward(a.text, a.objective, a.in_sample, a.out_sample, a.anchored, a.start, a.end, ov)
         print(research_report.walk_console(R))
-        out = Path(a.out) if a.out else report.ROOT / "reports" / ("walkforward-" + report.slug(a.text))
+        out = Path(a.out) if a.out else report.ROOT / "reports" / report.run_slug("walkforward-" + a.text, vars(a))
         path = research_report.write_walk(R, a.text, out)
     else:
         R = research.sweep(a.text, a.objective, ov)
         print(research_report.sweep_console(R))
-        out = Path(a.out) if a.out else report.ROOT / "reports" / ("sweep-" + report.slug(a.text))
+        out = Path(a.out) if a.out else report.ROOT / "reports" / report.run_slug("sweep-" + a.text, vars(a))
         path = research_report.write_sweep(R, a.text, out)
     print(f"Report: {path}  ({time.time() - t0:.1f}s)")
     return 0
@@ -374,7 +374,7 @@ def cmd_optimize(argv: list[str]) -> int:
         print(json.dumps(report._clean(R), indent=1, default=str))
         return 0
     print(research_report.optimize_console(R))
-    out = Path(a.out) if a.out else report.ROOT / "reports" / ("optimize-" + report.slug("-".join(a.tickers)))
+    out = Path(a.out) if a.out else report.ROOT / "reports" / report.run_slug("optimize-" + "-".join(a.tickers), vars(a))
     path = research_report.write_optimize(R, out)
     print(f"Report: {path}")
     return 0
@@ -689,7 +689,7 @@ def cmd_import_composer(argv: list[str]) -> int:
         res = runner.run(spec)
         A = report.analyze(res, rf=_rf(a.rf), sensitivity=not a.no_sensitivity)
         print(report.console_summary(A))
-        out = report.ROOT / "reports" / report.slug(spec.name or "composer-symphony")
+        out = report.ROOT / "reports" / report.run_slug(spec.name or "composer-symphony", spec.to_json())
         path = report.write_outputs(A, out)
         print(f"Report: {path}  ({time.time() - t0:.1f}s)")
     return 0

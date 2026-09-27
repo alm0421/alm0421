@@ -407,6 +407,10 @@ class ParseError(ValueError):
     pass
 
 
+class AmbiguousTickers(ParseError):
+    """A condition written once for a bare list of tickers ("SPY, QQQ 10 day RSI ..."): every one, or any one?"""
+
+
 # notes raised deep inside condition / value parsing (which has no notes list of its own); parse()
 # resets them and adds them to the result's notes. Thread-local: the site parses in several threads.
 _TL = threading.local()
@@ -977,6 +981,11 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
 
     # negations of relations: "not above 79" is "at most 79"
     s = _negations(s)
+    # "below its 50 day moving average by more than 5%" = "more than 5% below its 50 day moving average"
+    s = re.sub(r"(?<![a-z])(above|below|over|under) ((?:its |the )?(?:\d+ (?:day|week|month|bar|period|session)s? )?"
+               r"(?:(?:simple |exponential |weighted )?(?:moving average|moving avg|ma|sma|ema|wma)(?: ?\( ?\d+ ?\))?|vwap|"
+               r"(?:\d+ (?:day|week|month|year)s? )?(?:high|low|peak)s?)) by (at least |more than |over |greater than )?"
+               r"(\d+(?:\.\d+)?)%", r"\3\4% \1 \2", s)
     s = re.sub(r"(?:(?<= )the |(?<= )its )?(?:close|closing price|price) (?:is |was )?(higher|greater|lower|less) than (?=(?:the )?"
                r"(?:highest |lowest )?(?:high|low|close)s? (?:of|in|over|during) (?:the )?(?:last|past|prior|previous) \d)",
                lambda m: "closes above " if m.group(1) in ("higher", "greater") else "closes below ", s)
@@ -1232,7 +1241,7 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
         if "cross" in rel:
             return f"{'crossover' if 'above' in rel or 'over' in rel else 'crossunder'}({a}, {b})"
         return f"{a} {_cmp(m.group('rel'))} {b}"
-    take(rf"(?:the |its )?{_mat('a')} (?:line )?(?:is |has |stays |remains )?(?P<cross>cross(?:es|ed)? )?(?P<rel>above|over|below|under|<=|>=) (?:the |its )?{_mat('b')}", ma_vs_ma)
+    take(rf"(?:the |its )?{_mat('a')} (?:line )?(?:is |has |stays |remains )?(?P<cross>cross(?:es|ed)? )?(?P<rel>above|over|below|under|<=|>=|>|<) (?:the |its )?{_mat('b')}", ma_vs_ma)
     take(r"golden cross", lambda m: f"crossover(sma({c}, 50), sma({c}, 200))")
     take(r"death cross", lambda m: f"crossunder(sma({c}, 50), sma({c}, 200))")
 
@@ -1335,7 +1344,8 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
          rf"(?:below|under|from|off|above|over) {EXT_SPAN}", extreme)
     take(rf"{MOVE_AUX}(?:(?P<dn>{DOWN_VERBS})|(?P<up>{UP_VERBS}|bounced|rebounded|recovered)|off|sits?|stays?|remains?)?(?: by)?"
          rf"(?: at least| more than| over| greater than)? (?P<pct>{NUM[1:-1]})%(?: or more)? (?P<prep>from|off|below|under|above|over) {EXT_SPAN}", extreme)
-    take(rf"(?:at least |more than )?(?P<pct>{NUM[1:-1]})% (?:or more )?(?P<prep>from|off|below|under|above|over) {EXT_SPAN}", extreme)
+    take(rf"(?:(?:closes?|closed|trades?|traded|is|was|sits?|stays?|remains?) )?(?:at least |more than |over |greater than )?"
+         rf"(?P<pct>{NUM[1:-1]})% (?:or more )?(?P<prep>from|off|below|under|above|over) {EXT_SPAN}", extreme)
 
     # breakouts vs prior N-day range
     take(r"(?:closes? |breaks? |trades? |moves? )?(above|over|below|under) (?:its |the )?(?:previous |prior |last )?(\d+) (day|week|month|bar)s? (high|low)",
@@ -1877,6 +1887,114 @@ def _balanced(t: str) -> bool:
     return d == 0
 
 
+_GT_TK = r"[\^$]?[A-Z][A-Z0-9]{0,5}(?:[.\-][A-Z]{1,3})?"
+_GT_SEP = r"(?:\s*,\s*(?:and\s+|or\s+|&\s*)?|\s+(?:and|or|&)\s+)"
+_GT_ALL = ("both", "all", "all of", "each of", "every one of", "all three of", "all four of")
+_GT_ANY = ("any", "any of", "any one of", "either", "one of", "at least one of")
+_GT_RX = re.compile(rf"(?<![\w^$.\-])(?:(?P<q>(?i:{'|'.join(sorted(_GT_ALL + _GT_ANY, key=len, reverse=True))}))\s+)?"
+                    rf"(?P<list>{_GT_TK}(?:{_GT_SEP}{_GT_TK})+)(?P<poss>'s?)?(?=\s)")
+
+
+def _ticker_groups(text: str, traded: list[str], strict: bool, total: bool) -> tuple[str, list]:
+    """A comparison written once for several tickers -> one placeholder per group (\\x03i\\x03) and its compiled rule:
+
+      both SPY and QQQ 10 day RSI are above 79           -> each of them (and)
+      all of SPY, QQQ and SMH have a 10 day RSI above 79 -> and;  "SPY and QQQ ..." without a quantifier -> and
+      any of SPY, QQQ and SMH has a 10 day RSI above 79  -> at least one (or); "either SPY or QQQ ..." -> or
+      the 10 day RSI of both SPY and QQQ is above 79     -> the same, with the indicator written first
+
+    A bare list ("SPY, QQQ 10 day RSI is above 79") is refused: every one, or at least one? Never keep one ticker."""
+    groups: list = []
+    mk = _mask(text, parens=False)
+    pos = 0
+    while True:
+        m = _GT_RX.search(mk, pos)
+        if not m:
+            break
+        toks = re.findall(_GT_TK, m.group("list"))
+        tks = [find_tickers(t.lstrip("$").upper() if t.startswith("$") else t, strict=False) for t in toks]
+        if not all(len(x) == 1 for x in tks) or len({x[0] for x in tks}) != len(tks):
+            pos = m.start() + 1
+            continue
+        tickers = [x[0] for x in tks]
+        # the rest of the clause: up to the next top-level ',', ';', ' and ' or ' or ' (not the 'and' of "above 79 and
+        # below 90", which stays with this comparison)
+        end_rx = re.compile(rf"(?i)[,;]|\s(?:and|or)\s(?!(?:(?:is|are|stays?|remains?) )?{RANGE_CMP}\s)")
+        me = end_rx.search(mk, m.end())
+        end = me.start() if me else len(text)
+        rest = text[m.end():end].strip()
+        # what comes before the list in the same clause: nothing ("SPY and QQQ 10 day RSI ...") or an indicator ending
+        # in 'of' / 'for' ("the 10 day RSI of SPY and QQQ ...")
+        starts = [x.end() for x in re.finditer(r"(?i)[,;]|\s(?:and|or)\s", mk[: m.start()])]
+        cs = starts[-1] if starts else 0
+        prefix = text[cs: m.start()].strip()
+        if prefix and not re.search(r"(?i)\b(?:of|for|in|on)$", prefix):
+            pos = m.start() + 1
+            continue
+        if not re.search(r"[a-z]", rest):
+            pos = m.start() + 1
+            continue
+        q = (m.group("q") or "").lower()
+        words = re.findall(r"(?i)\b(and|or)\b|&", m.group("list"))
+        has_and = any(w.lower() in ("and", "") for w in words)
+        has_or = any(w.lower() == "or" for w in words)
+        src = text[cs: end].strip()
+        if q in _GT_ALL:
+            op = "and"
+        elif q in _GT_ANY:
+            op = "or"
+        elif has_and and not has_or:
+            op = "and"
+        elif has_or and not has_and:
+            op = "or"
+        else:
+            lst = ", ".join(tickers)
+            raise AmbiguousTickers(f"'{src}': all of {lst}, or any of them? Write 'all of {lst} ...' (or 'both ... and ...') "
+                             f"when every one must meet the condition, 'any of {lst} ...' (or 'either ... or ...') when "
+                             "one is enough.")
+        r = re.sub(r"(?i)^(?:both|all|each)\s+", "", rest)
+        r = re.sub(r"(?i)\b(are|were|have|has|is|was)\s+(?:both|all|each)\b", r"\1", r)
+        r = re.sub(r"(?i)\bare\b", "is", re.sub(r"(?i)\bwere\b", "was", re.sub(r"(?i)\bhave\b", "has", r)))
+        r = re.sub(r"(?i)\btheir\b", "its", r)
+        r = re.sub(r"(?i)\b(averages|smas|emas|mas|highs|lows|bands|lines|returns|prices|rsis)\b", lambda x: x.group(1)[:-1], r)
+        pre = re.sub(r"(?i)\b(?:both|all|each)\s*$", "", prefix).strip()
+        poss = m.group("poss") or ""
+        clauses = [f"{pre} {tok}{poss} {r}".strip() for tok in toks]
+        es = [parse_conditions(c, traded, strict=strict, total=total) for c in clauses]
+        es = [f"({e})" if re.search(r"\s(?:and|or)\s", e) and not (e.startswith("(") and _balanced(e[1:-1])) else e
+              for e in es]
+        rule = "(" + f" {op} ".join(es) + ")"
+        _note(f"'{src}' = {'every one' if op == 'and' else 'at least one'} of {', '.join(tickers)}: {rule}.")
+        ph = f"\x03{len(groups)}\x03"
+        groups.append((rule, src))
+        text = text[:cs] + (" " if cs else "") + ph + " " + text[end:]
+        mk = _mask(text, parens=False)
+        pos = cs + len(ph) + 1
+    return text, groups
+
+
+def _unplace(s: str, groups: list) -> str:
+    return re.sub(r"\x03(\d+)\x03", lambda m: groups[int(m.group(1))][1], s)
+
+
+def _every_ticker_used(o: str, e: str, traded: list[str]) -> str:
+    """Every ticker a condition names must be in its rule: the rule reads sym("X") for another ticker, or its own
+    series for the ticker it is evaluated on. Otherwise a ticker was dropped: refuse rather than misread."""
+    from .expr import reads_own_series
+    missing = []
+    for t in find_tickers(o):
+        if f'sym("{t}")' in e or f"sym('{t}')" in e:
+            continue
+        if t in traded and (len(traded) > 1 or reads_own_series(e)):
+            continue
+        missing.append(t)
+    if missing:
+        raise ParseError(f"'{o.strip()}' names {', '.join(missing)}, but it was read as `{e}`, which does not use "
+                         f"{'it' if len(missing) == 1 else 'them'}. Write one comparison per ticker (e.g. 'SPY 10 day RSI "
+                         "is above 79 and QQQ 10 day RSI is above 79'), or put the rule in backticks.")
+    return e
+
+
 def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list: bool = False, total: bool = False):
     """Parse `x and y or z` style condition text into one expression.
 
@@ -1884,6 +2002,7 @@ def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list:
     average" -> SPY's series); parts that name no other ticker refer to the traded ticker. With
     total=True (portfolio conditions) returns are total returns (tret).
     """
+    _negative_lookbacks(text)
     # "it is not the case that A and B" / "not (A or B)": the negation of the whole condition
     mneg = re.fullmatch(r"(?is)\s*(?:(?:it is|it's) not (?:the case|true) that|not the case that|it is false that)\s+(.+?)\s*|"
                         r"\s*not\s*\((.+)\)\s*", text)
@@ -1899,9 +2018,12 @@ def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list:
     ind_ahead = rf"(?=(?:\d+ {UNIT_WORDS} )?(?:{PERIOD_IND}|return|volatility|drawdown)\b)"
     text = _sub_outside(rf"(?i)\b(?:(?:it|that|which) )?(?:has|have) (?:a|an) {ind_ahead}", " ", text)
     text = _sub_outside(rf"(?i)\bwith (?:a|an) {ind_ahead}", " and ", text)
-    text = _sub_outside(r"(?i)\bwhose\b", " ", text)
+    text = _sub_outside(r"(?i),?\s*\bwhose\b", " ", text)   # "QQQ, whose 10 day RSI ...": one clause
     # "is between 30 and 50": keep the 'and' from splitting the clause (expanded below)
     text = _sub_outside(r"(?i)\bbetween (-?\$?\d+(?:\.\d+)?%?) and (-?\$?\d+(?:\.\d+)?%?)(?![\w.])", "between \\1 \x02 \\2", text)
+    # "both SPY and QQQ 10 day RSI are above 79", "any of SPY, QQQ and SMH has a 10 day RSI above 79": the comparison
+    # for each ticker, joined with and / or (compiled here, so the ticker list is not split up below)
+    text, groups = _ticker_groups(text, traded, strict, total)
     and_parts = _expand_ranges(_msplit(text, r"\band\b|,|;|\bwith\b(?! a)", flags=0))
     exprs, bad = [], []
     for part in and_parts:
@@ -1911,6 +2033,13 @@ def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list:
         for o in _split_top(part, "or"):
             if not o.strip():
                 continue
+            mg = re.fullmatch(r"\s*\x03(\d+)\x03\s*", o)
+            if mg:
+                or_exprs.append(groups[int(mg.group(1))][0])
+                continue
+            if "\x03" in o:
+                raise ParseError(f"'{_unplace(o, groups).strip()}': write the condition on several tickers as its own "
+                                 "clause, e.g. 'if both SPY and QQQ 10 day RSI are above 79 then ...'.")
             o = _sub_outside(r".+", lambda m: _indicator_periods(m.group(0)), o)
             o = re.sub(r"(?i)^\s*(?:today(?:'s)?|now),?\s+(?=\S)", " ", o)       # "today RSI(2) is above 10"
             myd = re.match(r"(?is)\s*(?:yesterday'?s?|the (?:previous|prior) (?:day|session|bar)'?s?|(?:on )?the (?:day|bar|session) before,?)"
@@ -1924,12 +2053,12 @@ def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list:
             mentioned = [t for t in find_tickers(o, strict=True) if t not in traded]
             rel = _relative_compare(o, total) if mentioned else None
             if rel:
-                or_exprs.append(rel)
+                or_exprs.append(_every_ticker_used(o, rel, traded))
                 continue
             pair = _pair_compare(o, traded)
             if pair:
                 _check_ranges(pair, o)
-                or_exprs.append(pair)
+                or_exprs.append(_every_ticker_used(o, pair, traded))
                 continue
             if len(mentioned) > 1:
                 raise ParseError(f"'{o.strip()}' mentions several tickers ({', '.join(mentioned)}); split it into separate conditions")
@@ -1954,7 +2083,12 @@ def parse_conditions(text: str, traded: list[str], strict: bool = True, as_list:
             if e:
                 if "`" not in o:
                     _check_ranges(e, o)
-                or_exprs.append(e)
+                or_exprs.append(_every_ticker_used(o, e, traded))
+            elif not left and find_tickers(o):
+                # a bare ticker ("SPY" of "if SPY, QQQ ..."): never drop it silently
+                raise ParseError(f"'{o.strip()}': no condition was found for {', '.join(find_tickers(o))} here. For a "
+                                 "condition on several tickers write 'both SPY and QQQ ...' / 'all of ...' (every one) or "
+                                 "'either SPY or QQQ ...' / 'any of ...' (at least one).")
             if left and (strict or not e):
                 words = set(re.findall(r"[a-z%']+|\d+(?:\.\d+)?", o.lower()))
                 unknown = [w for w in left.split() if w in words]
@@ -2023,6 +2157,23 @@ def _pair_compare(text: str, traded: list[str]) -> str | None:
         if ea and eb:
             op = "<" if re.match(r"(?i)under|lag|trail", mo.group("v")) else ">"
             return f"{ea} {op} {eb}"
+    # "the RSI of SPY is 10 points above the RSI of QQQ": an absolute difference (for oscillators; for returns,
+    # percentage points)
+    mp = re.search(r"(?i)\s(?:is |are )?(?P<q>at least |more than |over |no less than )?(?P<n>\d+(?:\.\d+)?) "
+                   r"(?:points?|pts?)(?: or more)? (?P<rel>above|below|higher than|lower than|over|under)\s", f" {text} ")
+    if mp:
+        a, b = f" {text} "[: mp.start()], f" {text} "[mp.end():]
+        if len(find_tickers(a, strict=True)) == 1 and len(find_tickers(b, strict=True)) == 1:
+            ea, eb = _side(a, traded), _side(b, traded)
+            if ea and eb:
+                n = float(mp.group("n"))
+                if _fraction_valued(ea) and _fraction_valued(eb):
+                    n /= 100
+                    _note(f"'{mp.group(0).strip()}': percentage points of return ({n:g}).")
+                up = mp.group("rel").lower() in ("above", "higher than", "over")
+                bound = _bound(">", mp.group(0))
+                diff = f"{ea} - {eb}" if up else f"{eb} - {ea}"
+                return f"{diff} {bound} {n:g}"
     for pat, op in CMP_WORDS:
         m = re.search(rf"(?i)\s{pat}\s", f" {text} ")
         if not m:
@@ -3022,14 +3173,25 @@ def _pine_backticks(t: str) -> str:
     return "".join(out)
 
 
+_NEG_LOOKBACK = re.compile(r"(?<![\w.%$])-\s*\d+(?:\.\d+)?[- ]?(?:trading )?(?:day|bar|session|week|month|year|period)s?\b"
+                           r"|(?i:\b(?:rsi|sma|ema|wma|hma|ma|roc|atr|natr|cci|mfi|adx|willr|stoch\w*|volatility|momentum|"
+                           r"return)\s*\(\s*-\s*\d+)")
+
+
+def _negative_lookbacks(t: str) -> None:
+    """Refuse a negative lookback ("SPY -10 day RSI", "RSI(-2)", "by -12 month return"): the phrases read the number
+    without its sign, so it would silently become a 10-day RSI."""
+    m = _msearch(_NEG_LOOKBACK.pattern, t, flags=re.I, parens=False)
+    if m:
+        raise ParseError(f"'{m.group(0).strip()}': a holding period or lookback must be a positive number of days "
+                         "(a negative one would look into the future, which is not allowed).")
+
+
 def parse_signal(text: str, holding: bool = False) -> Strategy:
     raw = text
     t = _normalize(text)
     t = _sub_outside(r"(?i)\bbuy(?:ing)? to (?:cover|close)\b", "cover", t)   # closing a short is an exit, not an entry
-    mneg = _msearch(r"(?<![\w.])-\s*\d+(?:\.\d+)? (?:trading )?(?:day|bar|session|week|month|year)s?\b", t, parens=False)
-    if mneg:
-        raise ParseError(f"'{mneg.group(0)}': a holding period or lookback must be a positive number of days "
-                         "(looking into the future is not allowed).")
+    _negative_lookbacks(t)
     # "sell Friday at the close" -> "sell on Friday at the close"
     t = _sub_outside(r"(?i)\b((?:sell|exit|cover|close out|get out)\w*(?: it| the position| everything)?) (?=(?:every |each )?(?:monday|tuesday|wednesday|thursday|friday)s?\b)",
                      r"\1 on ", t)
@@ -4148,7 +4310,8 @@ def _if_chain(s: str, notes: list[str]) -> dict:
         try:
             on, rule = _condition_on(cond, None)
         except ParseError as e:
-            first_err = first_err or e
+            # the question "all of them or any?" beats a failed shorter reading ("if SPY" of "if SPY, QQQ RSI ...")
+            first_err = e if isinstance(e, AmbiguousTickers) and not isinstance(first_err, AmbiguousTickers) else first_err or e
             continue
         rest = s[body + b.end():]
         mr = _mask(rest)
@@ -4194,6 +4357,13 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     # if COND [then] X, (else if COND [then] Y,)* otherwise Z   -- any node in any branch
     if re.match(r"(?i)if\b", s):
         return _if_chain(s, notes)
+    # "SPY unless SPY is below its 200 day moving average, in which case BIL" = if <condition> then BIL else SPY
+    mu = _msearch(r"^(?P<d>.+?),? unless (?P<c>.+?),? in which case,? (?P<a>.+)$", s, flags=re.I | re.S, match=True)
+    if mu:
+        on, rule = _condition_on(mu.group("c"), None)
+        notes.append(f"'... unless <condition>, in which case ...' holds the 'in which case' branch while `{rule}` is true, "
+                     "and the first holding otherwise.")
+        return {"if": rule, "on": on, "then": _branch(mu.group("a"), notes), "else": _branch(mu.group("d"), notes)}
     # "when/whenever/while C hold X, otherwise Y" = if; "unless C hold X, otherwise Y" = if C then Y else X
     mw = re.match(r"(?i)(when(?:ever)?|while|unless)\s+", s)
     if mw and re.search(ELSE_RX, _mask(s), re.I):
@@ -4358,6 +4528,25 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
         while i < len(opts):
             o = opts[i].strip()
             nxt = opts[i + 1].strip() if i + 1 < len(opts) else ""
+            # "weighted 70/30": fixed weights by rank (the best pick 70%, the next 30%)
+            mr = re.fullmatch(r"(?i)(?:and |then |with |using )?(?:(?P<a>weight(?:ed|ing)?(?: by rank)?|rank[- ]weighted) )?"
+                              r"(?P<ws>\d+(?:\.\d+)?%?(?:\s*/\s*\d+(?:\.\d+)?%?)+)(?P<b> (?:weights?|split|weighting))?"
+                              r"(?: by rank)?", o)
+            if mr and (mr.group("a") or mr.group("b")):
+                ws = [float(x.strip().rstrip("%")) for x in mr.group("ws").split("/")]
+                if len(ws) != int(n):
+                    raise ParseError(f"'{o}': {len(ws)} weights for {n} picks; give one weight per pick, best first "
+                                     f"(e.g. 'top 2 ..., weighted 70/30').")
+                if any(w <= 0 for w in ws) or abs(sum(ws) - 100) > 1e-6:
+                    raise ParseError(f"'{o}': the weights by rank must be positive and add up to 100 (they add up to "
+                                     f"{sum(ws):g}).")
+                wt = "specified"
+                node["filter"]["w"] = [round(w / 100, 10) for w in ws]
+                notes.append(f"'{o}': fixed weights by rank (#1 is the {direction} pick): " + ", ".join(
+                    f"#{j + 1} {w:g}%" for j, w in enumerate(ws)) + ". If fewer are picked on a day, their weights are "
+                    "scaled to add up to 100%.")
+                i += 1
+                continue
             wp = _weighting_phrase(o)
             if wp:
                 wt, look = wp[0], wp[1] or look
@@ -4738,6 +4927,7 @@ def parse_allocation(text: str) -> Portfolio:
     notes: list[str] = []
     t = _portfolio_phrases(t, notes)
     _refuse_portfolio_stops(t)
+    _negative_lookbacks(t)
     T = Text(t)
     flows = _cash_flows(T, notes)
     # "target 10% volatility (using 60 day volatility)": scale the whole portfolio towards that volatility
@@ -4947,9 +5137,15 @@ def parse_allocation(text: str) -> Portfolio:
             what = [w for w, ok in (("the conditions are checked", _has(tree, "if")),
                                     ("the filters are re-ranked", _has(tree, "filter")),
                                     ("the dynamic weights are recomputed", _dynamic(tree))) if ok]
-            notes.append("Rebalance frequency not stated: " + ", ".join(what[:-1]) + (" and " if len(what) > 1 else "") + what[-1]
-                         + " every day at the close, and the portfolio trades as soon as they change (Composer-style; say "
-                         "'rebalance monthly' to check less often).")
+            if band or band_rel:
+                # "rebalance when any weight drifts 5%" IS the schedule: Composer-style threshold rebalancing
+                notes.append("Threshold rebalancing: " + ", ".join(what[:-1]) + (" and " if len(what) > 1 else "")
+                             + what[-1] + " every day at the close; the portfolio trades when they change the target or "
+                             "a holding drifts past the band (as Composer's threshold rebalancing).")
+            else:
+                notes.append("Rebalance frequency not stated: " + ", ".join(what[:-1]) + (" and " if len(what) > 1 else "") + what[-1]
+                             + " every day at the close, and the portfolio trades as soon as they change (Composer-style; say "
+                             "'rebalance monthly' to check less often).")
         elif "weights" in tree:
             if band or band_rel:
                 rb = "none"  # threshold-only rebalancing

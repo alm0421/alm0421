@@ -344,8 +344,8 @@ def test_composer_export_of_parsed_portfolios_gives_the_same_results():
     ({"filter": {"select": "top", "n": 1, "by": "tret(tr, 20)", "require": "tret(tr, 20) > 0"},
       "universe": ["SPY", "TLT"]}, "requirement"),
     ({"if": "adx(14) > 25", "on": "SPY", "then": {"asset": "SPY"}, "else": {"asset": "BIL"}}, "no Composer equivalent"),
-    ({"if": "close == 3", "on": "SPY", "then": {"asset": "SPY"}, "else": {"asset": "BIL"}}, "single >"),
-    ({"if": "close > 3", "on": "SPY", "then": {"cash": True}, "else": {"asset": "BIL"}}, "cash"),
+    ({"if": "close != 3", "on": "SPY", "then": {"asset": "SPY"}, "else": {"asset": "BIL"}}, "single >"),
+    ({"weights": "equal", "children": [{"asset": "SPY"}, {"cash": True}]}, "cash"),
 ])
 def test_composer_export_refuses_what_composer_lacks(tree, msg):
     with pytest.raises(ce.ComposerExportError, match=msg):
@@ -361,12 +361,12 @@ def test_composer_export_settings():
         ce.export(Portfolio(tree={"asset": "SPY"}, rebalance="semiannual"))
     sym, notes = ce.export(Portfolio(tree={"asset": "SPY"}, rebalance="none", drift_band=0.05, slippage_bps=5,
                                      contribution=100))
-    assert sym["rebalance"] == "none" and sym["rebalance-corridor-width"] == 5
+    assert sym["rebalance"] == "none" and sym["rebalance-corridor-width"] == 0.05   # a fraction, as Composer stores it
     assert any("costs" in n for n in notes) and any("Cash flows" in n for n in notes)
-    # an if with cash in the else branch: Composer leaves it empty, and the importer reads it back as cash
+    # an if with cash in the else branch: Composer's empty block, and the importer reads it back as cash
     sym, _ = ce.export(Portfolio(tree={"if": "rsi(close, 10) > 70", "on": "SPY", "then": {"asset": "SPY"},
                                        "else": {"cash": True}}, rebalance="daily"))
-    assert len(sym["children"][0]["children"]) == 1
+    assert sym["children"][0]["children"][1]["children"][0]["step"] == "empty"
     assert ci.convert(sym)["tree"]["else"] == {"cash": True}
     # percent-valued Composer functions are written in percent
     sym, _ = ce.export(Portfolio(tree={"if": "tret(tr, 5) <= -0.06", "on": "QQQ", "then": {"asset": "QQQ"},

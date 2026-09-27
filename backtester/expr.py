@@ -589,11 +589,13 @@ class Namespace(dict):
                 base, n = n, (20 if x is None else x)
             return base.pct_change(fill_method=None).rolling(int(n)).std() * np.sqrt(252)
 
-        def bb_upper(n=20, k=2.0):
-            return sma(c, n) + k * stdev(c, n)
+        def bb_upper(n=20, k=2.0, x=None):
+            base = c if x is None else series_arg(x, "bb_upper")
+            return sma(base, n) + k * stdev(base, n)
 
-        def bb_lower(n=20, k=2.0):
-            return sma(c, n) - k * stdev(c, n)
+        def bb_lower(n=20, k=2.0, x=None):
+            base = c if x is None else series_arg(x, "bb_lower")
+            return sma(base, n) - k * stdev(base, n)
 
         def pct_rank(*a):
             x, n = pick(a, c, 252)
@@ -616,11 +618,21 @@ class Namespace(dict):
             base = c if x is None else _s(x, c)
             return ema_tv(base, int(fast)) - ema_tv(base, int(slow))
 
-        def macd_signal(fast=12, slow=26, sig=9):
-            return ema_tv(macd(fast, slow), int(sig))
+        def macd_signal(fast=12, slow=26, sig=9, x=None):
+            return ema_tv(macd(fast, slow, x), int(sig))
 
-        def macd_hist(fast=12, slow=26, sig=9):
-            return macd(fast, slow) - macd_signal(fast, slow, sig)
+        def macd_hist(fast=12, slow=26, sig=9, x=None):
+            return macd(fast, slow, x) - macd_signal(fast, slow, sig, x)
+
+        def ppo(fast=12, slow=26, x=None):
+            """Percentage price oscillator, in percent: (EMA(fast) - EMA(slow)) / EMA(slow) * 100 (TradingView's
+            EMAs, as macd)."""
+            base = c if x is None else _s(x, c)
+            s_ = ema_tv(base, int(slow))
+            return (ema_tv(base, int(fast)) - s_) / s_ * 100
+
+        def ppo_signal(fast=12, slow=26, sig=9, x=None):
+            return ema_tv(ppo(fast, slow, x), int(sig))
 
         def stoch_k(n=14, smooth=3):
             ll, hh = lo.rolling(int(n)).min(), hi.rolling(int(n)).max()
@@ -1094,7 +1106,7 @@ class Namespace(dict):
             "rsi": rsi, "tret": tret, "tbill_ret": tbill_ret, "max_drawdown": max_drawdown,
             "ma_return": ma_return, "stdev_return": stdev_return, "atr": atr, "natr": natr, "volatility": volatility, "drawdown": drawdown,
             "bb_upper": bb_upper, "bb_lower": bb_lower, "pct_rank": pct_rank,
-            "macd": macd, "macd_signal": macd_signal, "macd_hist": macd_hist,
+            "macd": macd, "macd_signal": macd_signal, "macd_hist": macd_hist, "ppo": ppo, "ppo_signal": ppo_signal,
             "stoch_k": stoch_k, "stoch_d": stoch_d, "stoch": stoch, "stoch_rsi_k": stoch_rsi_k,
             "stoch_rsi_d": stoch_rsi_d, "adx": adx, "plus_di": plus_di, "minus_di": minus_di,
             "cci": cci, "willr": willr, "obv": obv, "mfi": mfi, "vwap": vwap,
@@ -1150,8 +1162,9 @@ Functions (x defaults to close; n = lookback in bars, a number written in the ru
                linreg(x,n,offset)  least-squares moving average (TradingView's ta.linreg; offset 0 = latest)
                vwap(n)  rolling n-bar VWAP of the typical price   avwap("2020-03-23")  anchored VWAP from a date
   ranges       highest(x,n) lowest(x,n) donchian_upper(n) donchian_lower(n) atr(n) natr(n)
-  bands        bb_upper(n,k) bb_lower(n,k) keltner_upper(n,k) keltner_lower(n,k)
-  momentum     ret(x,n) rsi(x,n) macd(fast,slow) macd_signal(f,s,sig) macd_hist(f,s,sig)
+  bands        bb_upper(n,k) bb_lower(n,k) keltner_upper(n,k) keltner_lower(n,k)   (bb_*: x optional last argument)
+  momentum     ret(x,n) rsi(x,n) macd(fast,slow) macd_signal(f,s,sig) macd_hist(f,s,sig)   (x optional last argument)
+               ppo(fast,slow) ppo_signal(f,s,sig)  percentage price oscillator in percent: (EMA f - EMA s) / EMA s * 100
                stoch_k(n,smooth) stoch_d(n,smooth,d) cci(n) willr(n) mfi(n) obv()
                stoch_rsi_k(k,rsi_n,stoch_n) stoch_rsi_d(k,d,rsi_n,stoch_n)  Stochastic RSI (TradingView's 3, 3, 14, 14)
                stoch(x,high,low,n)  TradingView's ta.stoch of any series, e.g. stoch(rsi(14), rsi(14), rsi(14), 14)
@@ -1605,7 +1618,7 @@ _DEFAULTS_TO_CLOSE = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "st
                       "rsi", "pct_rank", "down_streak", "up_streak", "drawdown", "cummax", "cummin", "tret",
                       "max_drawdown", "ma_return", "stdev_return"}
 # functions that always read today's close/high/low
-_ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "macd_signal", "macd_hist",
+_ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "macd_signal", "macd_hist", "ppo", "ppo_signal",
                  "stoch_k", "stoch_d", "stoch_rsi_k", "stoch_rsi_d", "adx", "plus_di", "minus_di", "cci", "willr",
                  "obv", "mfi", "vwap", "donchian_upper", "donchian_lower", "keltner_upper", "keltner_lower", "supertrend", "sar",
                  "weekly_sma", "monthly_sma", "weekly_close", "monthly_close", "is_week_end",
@@ -1685,6 +1698,36 @@ def never_defined(rule, ns) -> list[tuple[str, int | None]]:
         if not any(s in seg for s, _ in out):
             out.append((seg, max(nums) if nums else None))
     return out
+
+
+_NO_SERIES_NAMES = {"True", "False", "dow", "month", "day", "year", "trading_day_of_month", "trading_days_left_in_month"}
+
+
+def reads_own_series(rule) -> bool:
+    """Does `rule` read the prices of the ticker it is evaluated on (close, rsi(2), sma(close, 200), bb_lower(20, 2)),
+    rather than only other tickers' (sym("QQQ").close, rsi(sym("QQQ").close, 10)) or the calendar?"""
+    try:
+        tree = ast.parse(pine_to_rule(str(rule)).strip(), mode="eval")
+    except (SyntaxError, ValueError):
+        return True     # not a rule we can read: assume it does
+
+    def has_sym(n) -> bool:
+        return any(_is_sym(x) for x in ast.walk(n))
+
+    def own(n) -> bool:
+        if isinstance(n, ast.Name):
+            return n.id not in _NO_SERIES_NAMES
+        if isinstance(n, ast.Attribute):
+            return False if _is_sym(n.value) else own(n.value)
+        if isinstance(n, ast.Call):
+            if _is_sym(n):
+                return False
+            name = n.func.id if isinstance(n.func, ast.Name) else None
+            if name in _DEFAULTS_TO_CLOSE | _ALWAYS_CLOSE and not has_sym(n):
+                return True
+            return any(own(a) for a in list(n.args) + [k.value for k in n.keywords])
+        return any(own(c) for c in ast.iter_child_nodes(n))
+    return own(tree.body)
 
 
 def open_safe(rule) -> bool:
