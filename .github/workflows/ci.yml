@@ -1,0 +1,53 @@
+name: CI
+
+# Runs the test suite on every push to main and on every pull request, plus an
+# advisory lint pass. The paper-trading and live paths are never exercised here:
+# no broker credentials are provided to CI, so the suite runs entirely against
+# the deterministic offline fixtures used by the unit tests.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run the test suite
+        run: python -m pytest -q
+
+      # Advisory only: ruff config lives in pyproject.toml but the codebase has
+      # not yet been linted clean, so this step reports findings without failing
+      # the build. Flip `continue-on-error` to false once the tree is clean to
+      # make linting a blocking gate.
+      - name: Lint (advisory)
+        continue-on-error: true
+        run: |
+          pip install ruff
+          python -m ruff check app tests
