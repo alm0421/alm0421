@@ -1156,6 +1156,7 @@ window.addEventListener('blur', unpress);
   // 0-100, a max drawdown beyond 100% or a return below -100% can never (or always) hold and are refused; a
   // negative max drawdown is the same size written as a loss, and is read that way with a note (the server rewrites
   // it); different units on the two sides earn a warning.
+  function unitWarnings(rule, own) { return unitChecks(rule, own).w; }
   function unitChecks(rule, own) {
     const cc = parseCompound(rule || '', own); if (!cc) return { e: [], w: [] };
     const e = [], w = [];
