@@ -372,12 +372,13 @@ def test_composer_export_settings():
     # an if with cash in the else branch: Composer's empty block, and the importer reads it back as cash
     sym, _ = ce.export(Portfolio(tree={"if": "rsi(close, 10) > 70", "on": "SPY", "then": {"asset": "SPY"},
                                        "else": {"cash": True}}, rebalance="daily"))
-    assert sym["children"][0]["children"][1]["children"][0]["step"] == "empty"
+    assert sym["children"][0]["step"] == "wt-cash-equal"   # under the root, as Composer's own exports
+    assert sym["children"][0]["children"][0]["children"][1]["children"][0]["step"] == "empty"
     assert ci.convert(sym)["tree"]["else"] == {"cash": True}
     # percent-valued Composer functions are written in percent
     sym, _ = ce.export(Portfolio(tree={"if": "tret(tr, 5) <= -0.06", "on": "QQQ", "then": {"asset": "QQQ"},
                                        "else": {"asset": "BIL"}}, rebalance="daily"))
-    c = sym["children"][0]["children"][0]
+    c = sym["children"][0]["children"][0]["children"][0]
     assert c["lhs-fn"] == "cumulative-return" and c["rhs-val"] == "-6" and c["comparator"] == "lte"
     with pytest.raises(ce.ComposerExportError, match="trading rule"):
         ce.export(parser.parse("buy SPY when RSI(2) is below 10, sell after 5 days"))
@@ -391,14 +392,14 @@ def test_composer_export_cli_and_api(tmp_path, capsys):
     assert main(["composer-export", "if SPY is above its 200 day moving average then hold QQQ else hold BIL",
                  "--out", str(out)]) == 0
     sym = json.loads(out.read_text())
-    assert sym["step"] == "root" and sym["children"][0]["step"] == "if"
+    assert sym["step"] == "root" and sym["children"][0]["children"][0]["step"] == "if"
     spec = tmp_path / "spec.json"
     spec.write_text(json.dumps({"kind": "allocation", "tree": {"asset": "SPY"}, "rebalance": "monthly"}))
     assert main(["composer-export", str(spec)]) == 0
-    assert json.loads(capsys.readouterr().out)["children"][0]["ticker"] == "SPY"
+    assert json.loads(capsys.readouterr().out)["children"][0]["children"][0]["ticker"] == "SPY"
     assert main(["composer-export", "hold the top 5 Nasdaq 100 stocks by 20 day return"]) == 2
     assert "Nasdaq-100" in capsys.readouterr().err
-    assert api.composer_export("hold 60% SPY and 40% QQQ")["children"][0]["step"] == "wt-cash-specified"
+    assert api.composer_export("hold 60% SPY and 40% QQQ")["children"][0]["children"][0]["step"] == "wt-cash-specified"
 
 
 # ------------------------------------------------------------ 6/7. site: export endpoint, tickers, autocomplete
@@ -427,7 +428,7 @@ def _post(url, body):
 def test_export_endpoint_and_ticker_list(site):
     code, j = _post(site + "/api/export/composer", {"spec": {"kind": "allocation", "rebalance": "daily", "tree": {
         "if": "close > sma(close, 200)", "on": "SPY", "then": {"asset": "QQQ"}, "else": {"asset": "BIL"}}}})
-    assert code == 200 and j["symphony"]["children"][0]["step"] == "if"
+    assert code == 200 and j["symphony"]["children"][0]["children"][0]["step"] == "if"
     code, j = _post(site + "/api/export/composer", {"spec": {"kind": "allocation", "tree": {"asset": "SPY"}, "leverage": 2}})
     assert code == 400 and "leverage" in j["error"]
     with urllib.request.urlopen(site + "/api/tickers") as r:

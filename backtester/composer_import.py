@@ -24,7 +24,10 @@ The result is a dict for `Portfolio.from_dict` (see portfolio.py). Composer's re
 (cumulative return, moving average of return, standard deviation of return, max drawdown) are in
 percent, so fixed thresholds on them are divided by 100. MACD / MACD signal, PPO / PPO signal (in percent)
 and the lower / upper Bollinger band map to macd, macd_signal, ppo, ppo_signal, bb_lower and bb_upper. Anything the importer does not understand
-raises ComposerImportError naming the field and where it is in the tree; nothing is dropped silently.
+raises ComposerImportError naming the field and where it is in the tree: an unknown step, function, comparator or
+condition type, and any unknown field that could change the allocation (its name speaks of weights, windows,
+conditions, tickers, rebalancing ... or it holds blocks). An unknown field that looks like metadata (a new label,
+display setting or timestamp) is ignored with a warning in the notes; nothing is dropped silently.
 
     python -m backtester import-composer symphony.json [--out spec.json] [--run]
 """
@@ -76,8 +79,8 @@ REBALANCE = {"daily": "daily", "weekly": "weekly", "monthly": "monthly", "quarte
 # The allow-list of descriptive fields Composer attaches to nodes (seen in real exports, API responses and shared
 # links). None of them changes the allocation: labels, display settings, ids, timestamps, versions, the asset
 # class and quote metadata. They are matched with "-" and "_" treated alike ("asset_class" = "asset-class"),
-# because exports use both spellings. Any other field raises ComposerImportError: an unknown field might change
-# what the symphony holds, so the importer stops rather than ignore it.
+# because exports use both spellings. Any other field is checked by unknown_fields: refused when it could change
+# what the symphony holds, ignored with a warning when it looks like more metadata.
 META = {"id", "name", "description", "collapsed?", "collapsed-specified-weight?", "suppress-incomplete-warnings?", "suppress-incomplete-warnings", "suppress-description?", "exchange", "price", "dollar-volume",
         "has-marketcap", "children-count", "asset-class", "asset-classes", "color", "version-id", "version",
         "created-at", "updated-at", "last-updated-at", "last-backtest-at", "symphony-id", "tags", "notes", "hashtag",
@@ -210,12 +213,51 @@ def indicator(fn: str, t: str | None, raw, own: str | None, where: str, what: st
     return f"{name}({series}, {_int(raw, what, where)})", pct
 
 
-def _check(node: dict, step: str, where: str, extra: set = frozenset()) -> None:
+# An unknown field is either metadata Composer added since this importer was written (a label, a display setting, a
+# timestamp: ignored with a warning, so a new export still opens) or something that could change what the symphony
+# holds (refused, naming where it is). A field is taken as structural when its name has a word that describes
+# holdings, weights, conditions, rankings or rebalancing, or when its value holds blocks of its own (a "step").
+STRUCTURAL_WORDS = re.compile(
+    r"(?:^|[-_?])(fn|params?|windows?|days|n|weights?|comparator|select|sort|conditions?|lhs|rhs|child|children|"
+    r"rebalance|rebalancing|corridor|threshold|operator|tickers?|val|values?|step|if|else|filter|period|leverage|"
+    r"alloc|allocation|short|hedge|cash|assets?|lookback|rank|top|bottom|max|min|limit|cap|scale|percent|pct|"
+    r"ratio|fraction|num|den|order|trade|signal|rules?|when|stop|margin|target|override|amount|size|holdings?)"
+    r"(?=[-_?]|$)", re.I)
+
+
+def _has_blocks(v) -> bool:
+    if isinstance(v, dict):
+        return "step" in v or any(_has_blocks(x) for x in v.values())
+    if isinstance(v, list):
+        return any(_has_blocks(x) for x in v)
+    return False
+
+
+def structural(key: str, value) -> bool:
+    """Could this unknown field change the allocation? (see STRUCTURAL_WORDS)"""
+    return bool(STRUCTURAL_WORDS.search(str(key))) or _has_blocks(value)
+
+
+def unknown_fields(node: dict, ok: set, where: str, what: str, notes: list | None) -> None:
+    """Refuse unknown structural fields; note (and ignore) unknown metadata."""
+    bad = sorted((k for k in node if k not in ok and _norm(k) not in META), key=str)
+    if not bad:
+        return
+    hard = [k for k in bad if structural(k, node[k]) or notes is None]
+    if hard:
+        raise ComposerImportError(f"{where} ({what}): unknown field(s) {', '.join(map(str, hard))} — they may change what "
+                                  "the symphony holds and the importer does not know what they do, so it stops rather "
+                                  "than ignore them")
+    msg = (f"Warning: {where} ({what}): unknown field(s) {', '.join(map(str, bad))} ignored — they look like metadata "
+           "(labels, display settings, timestamps) that do not change the allocation. Check the result if Composer "
+           "gave them a meaning.")
+    if msg not in notes:
+        notes.append(msg)
+
+
+def _check(node: dict, step: str, where: str, extra: set = frozenset(), notes: list | None = None) -> None:
     ok = FIELDS.get(step, set()) | {"step", "children"} | set(extra)
-    bad = sorted(k for k in node if k not in ok and _norm(k) not in META)
-    if bad:
-        raise ComposerImportError(f"{where} ({step}): unknown field(s) {', '.join(bad)} — the importer does not "
-                                  "know what they do, so it stops rather than ignore them")
+    unknown_fields(node, ok, where, step, notes)
 
 
 def _with_id(node: dict, key: str, block_id) -> dict:
@@ -260,7 +302,7 @@ class _Importer:
                                       f"{', '.join(s for s in FIELDS if s != 'root')})")
         label = n.get("name") or n.get("ticker") or step
         here = f"{where} [{label}]" if label != step else where
-        _check(n, step, here, WEIGHT_KEYS)
+        _check(n, step, here, WEIGHT_KEYS, self.notes)
         if "weight" in n and not parent_specified:
             self.ignored_weights = True
         kids = self.kids(n, here)
@@ -407,10 +449,7 @@ class _Importer:
         if ct not in allowed:
             raise ComposerImportError(f"{where}: unknown condition-type {ct!r} (supported: binary, compound, "
                                       "binary-compound)")
-        bad = sorted(k for k in cond if k not in allowed[ct])
-        if bad:
-            raise ComposerImportError(f"{where}: unknown field(s) {', '.join(bad)} in a {ct} condition — the importer "
-                                      "does not know what they do, so it stops rather than ignore them")
+        unknown_fields(cond, allowed[ct], where, f"{ct} condition", self.notes)
         if ct == "binary":
             return self.compare(self._side(cond.get("lhs"), f"{where} lhs"), cond.get("comparator"),
                                 self._side(cond.get("rhs"), f"{where} rhs"), on, where)
@@ -501,7 +540,7 @@ class _Importer:
             kw = f"{where} > {i + 1}"
             if not isinstance(k, dict) or k.get("step") != "if-child":
                 raise ComposerImportError(f"{kw}: an 'if' block may only contain if-child blocks")
-            _check(k, "if-child", kw)
+            _check(k, "if-child", kw, notes=self.notes)
             body = self.group_of(self.kids(k, kw), kw)
             if k.get("is-else-condition?"):
                 if other is not None:
@@ -575,7 +614,7 @@ def convert(obj) -> dict:
     # Composer computes every indicator on dividend-adjusted (total-return) prices
     spec: dict = {"kind": "allocation", "price_basis": "adjusted"}
     if sym.get("step") == "root":
-        _check(sym, "root", "symphony")
+        _check(sym, "root", "symphony", notes=imp.notes)
         rb = sym.get("rebalance", sym.get("rebalance-frequency", "daily"))
         if isinstance(rb, dict):
             rb = rb.get("frequency") or rb.get("value")
@@ -600,7 +639,15 @@ def convert(obj) -> dict:
             spec["drift_band"] = band
         elif spec["rebalance"] == "none" and rb == "threshold":
             raise ComposerImportError("symphony: threshold rebalancing needs 'rebalance-corridor-width'")
-        spec["tree"] = _with_id(imp.group_of(imp.kids(sym, "symphony"), "symphony"), "root_id", sym.get("id"))
+        top = imp.kids(sym, "symphony")
+        spec["tree"] = _with_id(imp.group_of(top, "symphony"), "root_id", sym.get("id"))
+        # Composer puts the content under one weighting block (wt-cash-equal with a single child is a no-op): its id
+        # is kept so an export writes the same wrapper back
+        if (len(top) == 1 and isinstance(top[0], dict) and top[0].get("step") == "wt-cash-equal"
+                and isinstance(top[0].get("children"), list) and len(top[0]["children"]) == 1):
+            from .composer_export import wrapper_id
+            if str(top[0].get("id")) != wrapper_id(str(sym.get("id"))):    # (not one this tool's export made)
+                _with_id(spec["tree"], "wrap_id", top[0].get("id"))
         name = str(sym.get("name") or "").strip()
     else:
         spec["rebalance"] = "daily"

@@ -258,7 +258,10 @@ def test_export_keeps_ids_group_names_and_both_window_formats():
     p = Portfolio.from_dict(dict(ci.convert(src)))
     sym, _ = ce.export(p)
     ids_in = {b["id"] for b in _blocks(src)}
-    ids_out = {b["id"] for b in _blocks(sym)}
+    # (round 13: the content hangs from a wt-cash-equal block under the root, as in Composer's own exports; this
+    # symphony had none, so the export adds one with a generated id)
+    assert sym["children"][0]["step"] == "wt-cash-equal" and len(sym["children"][0]["children"]) == 1
+    ids_out = {b["id"] for b in _blocks(sym)} - {sym["children"][0]["id"]}
     # every block that survives the import keeps its id (the root too); only the collapsed wrappers are gone
     assert sym["id"] == src["id"] and ids_out <= ids_in and len(ids_out) >= len(ids_in) - 1
     group = next(b for b in _blocks(sym) if b["step"] == "group")

@@ -171,7 +171,7 @@ def test_rebalance_settings():
 
 
 @pytest.mark.parametrize("sym, needle", [
-    (root(asset("SPY", **{"mystery-field": 1})), "mystery-field"),
+    (root(asset("SPY", **{"mystery-weight": 1})), "mystery-weight"),   # (round 13: "mystery-field" is now a warning)
     (root({"step": "wt-magic", "children": [asset("SPY")]}), "wt-magic"),
     (root({"step": "if", "children": [cond("hurst-exponent", "SPY", "gt", "0.5", asset("SPY"), window=10), other(asset("BIL"))]}), "hurst-exponent"),
     (root({"step": "if", "children": [cond("relative-strength-index", "SPY", "ne", "50", asset("SPY"), window=10), other(asset("BIL"))]}), "comparator"),
@@ -221,7 +221,7 @@ def test_cli_import_composer(tmp_path, capsys):
     spec = json.loads(out.read_text())
     assert spec["kind"] == "allocation" and spec["tree"]["on"] == "SPY"
     bad = tmp_path / "bad.json"
-    bad.write_text(json.dumps(root(asset("SPY", oops=True))))
+    bad.write_text(json.dumps(root(asset("SPY", **{"oops-window": 5}))))   # (round 13: a structural-looking field)
     assert main(["import-composer", str(bad)]) == 2
     assert "oops" in capsys.readouterr().err
 
@@ -330,8 +330,11 @@ def test_composer_import_endpoint(server):
     # a ticker without data still loads the tree (for the editor to mark), with the problem listed
     code, j = call(server, "/api/import/composer", {"json": root(asset("NOSUCHX"))})
     assert code == 200 and pf.without_ids(j["spec"]["tree"]) == {"asset": "NOSUCHX"} and j["problems"]
+    code, j = call(server, "/api/import/composer", {"json": root(asset("SPY", **{"surprise-weight": 1}))})
+    assert code == 400 and "surprise-weight" in j["error"]
+    # (round 13) an unknown metadata-looking field: imported, with a warning naming it
     code, j = call(server, "/api/import/composer", {"json": root(asset("SPY", surprise=1))})
-    assert code == 400 and "surprise" in j["error"]
+    assert code == 200 and any("surprise" in n and "ignored" in n for n in j["spec"]["notes"]), j
 
 
 @pytest.mark.skipif(not HAVE, reason="price data not downloaded")

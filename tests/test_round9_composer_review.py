@@ -324,8 +324,14 @@ def test_ppo_and_macd_formulas_match_tradingview():
 
 # ------------------------------------------------------------ 4b. the exporter writes all / any blocks and empty
 
-def _ic(sym):
+def _top(sym):
+    """The block under the root's wt-cash-equal wrapper (round 13: as Composer's own exports)."""
+    assert sym["children"][0]["step"] == "wt-cash-equal"
     return sym["children"][0]["children"][0]
+
+
+def _ic(sym):
+    return _top(sym)["children"][0]
 
 
 @needs("SPY", "QQQ", "SMH", "UVXY", "TQQQ", "TLT", "BIL")
@@ -344,7 +350,7 @@ def test_and_or_conditions_round_trip_as_condition_blocks(text):
     # round 10: beside the block, the single-comparison fields repeat its last comparison, as in Composer's own exports
     # (tests/fixtures/composer_frontrunner_2026.json; see test_round10_composer_review)
     assert ic["lhs-fn"] and ic["comparator"] and "rhs-val" in ic
-    assert len(sym["children"][0]["children"]) == 2              # one if-child and the else: no nested ifs
+    assert len(_top(sym)["children"]) == 2              # one if-child and the else: no nested ifs
     back = Portfolio.from_dict(ci.convert(json.dumps(sym)))
     a, b = back.tree, p.tree
     assert norm(a["if"]) == norm(b["if"]) or _same_truth(a["if"], b["if"])
@@ -375,7 +381,7 @@ def test_export_eq_market_cap_and_empty():
                         "else": {"weights": "market_cap", "children": [{"asset": "AAPL"}, {"asset": "MSFT"}]}},
                   rebalance="daily")
     sym, _ = ce.export(p)
-    kids = sym["children"][0]["children"]
+    kids = _top(sym)["children"]
     assert kids[0]["comparator"] == "eq" and kids[0]["children"][0]["step"] == "empty"
     assert kids[1]["children"][0]["step"] == "wt-marketcap"
     back = ci.convert(json.dumps(sym))["tree"]

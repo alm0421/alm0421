@@ -11,6 +11,7 @@ Composer's editor supports a subset of what the portfolio engine does. This modu
                                          comparison on several tickers as binary-compound), "not" flips comparators
   filter (top/bottom N by a metric)      a "filter" block: sort-by-fn over sort-by-window-days, select-fn, select-n
   cash in a branch of an if              Composer's "empty" block
+  the whole tree                         under a wt-cash-equal block below the root, as Composer's own exports are
   a drift band                           threshold rebalancing: "rebalance": "none" with "rebalance-corridor-width"
                                          as a fraction (0.05 = 5%), as Composer stores it
 
@@ -38,6 +39,12 @@ ID_NAMESPACE = uuid.UUID("5b0c3f0e-6a52-4d1e-9f4c-1f2a8f3c9d01")
 
 class ComposerExportError(ValueError):
     pass
+
+
+def wrapper_id(root_id: str) -> str:
+    """The id of the wt-cash-equal block the export puts under the root when the portfolio has none of its own: made
+    from the root's id, so the import can tell it from a real Composer block and a round trip keeps the spec as it was."""
+    return str(uuid.uuid5(ID_NAMESPACE, f"{root_id}|wrap"))
 
 
 # rule-language function -> (Composer function, series it reads, percent-valued in Composer)
@@ -479,7 +486,13 @@ def export(spec) -> tuple[dict, list[str]]:
         raise ComposerExportError("Composer has no buy-and-hold (never rebalance) setting without a corridor width.")
     if isinstance(spec.tree, dict) and spec.tree.get("cash"):
         raise ComposerExportError("The portfolio holds only cash.")
-    root["children"] = [ex.node(spec.tree, "portfolio")]
+    top = ex.node(spec.tree, "portfolio")
+    if top.get("step") != "wt-cash-equal":
+        # Composer's own exports always hang the symphony's content from one weighting block under the root (an
+        # equal-weight block when nothing else is chosen): written the same way, so the export opens in Composer's
+        # editor like one of its own. The import unwraps it again (a single child needs no wrapper).
+        top = {"id": (cm or {}).get("wrap_id") or wrapper_id(root["id"]), "step": "wt-cash-equal", "children": [top]}
+    root["children"] = [top]
     if spec.price_basis != "adjusted":
         ex.note("Composer computes indicators on total-return (dividend-adjusted) prices; this spec used prices as "
                 "quoted, so RSI and moving averages of dividend payers can differ slightly.")

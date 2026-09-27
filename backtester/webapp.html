@@ -1051,11 +1051,19 @@ window.addEventListener('blur', unpress);
   function field(label, input) { const l = el('label', { class: 'f' }); l.append(document.createTextNode(label), input); return l; }
   // the preview follows the typing (debounced); a re-render of the tree waits for the change event (Enter / leaving the
   // field), so the caret stays where it is
-  let liveEdit = false;
+  let liveEdit = false, leaving = 0;
   function inp(val, on, attrs = {}) {
-    const i = el('input', attrs); i.value = val ?? ''; i.addEventListener('change', () => on(i.value));
+    const i = el('input', attrs); i.value = val ?? ''; i._on = on; let sent = i.value;
+    // a box replaced by a re-render (draw) is dead: its value was committed first (i._commit), and a late blur/change
+    // from the detached box must not write stale text or start another re-render. (The box being typed in is not
+    // replaced: draw() moves it into the new tree and points it at the new tree's handler, i._on.)
+    // A change fires as the focus leaves the box, before the next box has it: a re-render it asks for waits until
+    // the focus has landed (leaving), so the box clicked or tabbed into is the one kept, not destroyed.
+    i.addEventListener('change', () => { if (i._dead) return; sent = i.value; leaving++; try { i._on(i.value); } finally { leaving--; } });
     let t = null;
-    i.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { if (!i.isConnected || document.activeElement !== i) return; liveEdit = true; try { on(i.value); } finally { liveEdit = false; } }, 400); });
+    i.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { if (i._dead || !i.isConnected || document.activeElement !== i) return; sent = i.value; liveEdit = true; try { i._on(i.value); } finally { liveEdit = false; } }, 400); });
+    // draw() calls this on the focused box before re-rendering: the typed text reaches the model without a blur
+    i._commit = () => { clearTimeout(t); if (i.value === sent) return; sent = i.value; liveEdit = true; try { i._on(i.value); } finally { liveEdit = false; } };
     return i;
   }
   function sel(opts, val, on) { const s = el('select'); opts.forEach(o => { const op = el('option', { value: o[0] }, o[1]); if (o[0] === val) op.selected = true; s.append(op); }); s.addEventListener('change', () => on(s.value)); return s; }
@@ -1453,16 +1461,61 @@ window.addEventListener('blur', unpress);
     $('rebalNote').textContent = dyn ? 'Rebalance set to daily: the tree has an if/else, a filter or a look-back weighting, which Composer re-checks every day. Choose another schedule to keep it.'
       : 'Rebalance set back to monthly: the tree only has fixed weights.';
   }
-  let drawing = false, redraw = false;
+  let drawing = false, redraw = false, drawQueued = false;
+  // where the focus is inside a container, as a path of child indexes plus the control's kind (tag, type, class,
+  // placeholder), so the matching control of a re-rendered copy can be found again
+  const ctlSig = e => [e.tagName, e.type || '', e.className.replace(/\bbad-in\b/g, '').trim(), e.getAttribute('placeholder') || ''].join('|');
+  function focusState(root) {
+    const a = document.activeElement;
+    if (!a || a === root || !root.contains(a) || !/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) return null;
+    if (a._commit) a._commit();   // the text typed so far goes into the model (no re-render: liveEdit)
+    const path = []; for (let e = a; e !== root; e = e.parentElement) path.unshift([...e.parentElement.children].indexOf(e));
+    const all = [...root.querySelectorAll('input,select,textarea')].filter(x => ctlSig(x) === ctlSig(a));
+    let sel = null; try { sel = [a.selectionStart, a.selectionEnd, a.selectionDirection]; } catch (e) { sel = null; }
+    return { el: a, path, sig: ctlSig(a), nth: all.indexOf(a), value: a.value, sel };
+  }
+  // the control in a freshly rendered tree (not yet on the page: its root is `fresh`, the new first child of `root`)
+  // that matches the focused one of the old tree
+  function matchIn(fresh, k) {
+    let e = null;
+    if (k.path[0] === 0) { e = fresh; for (const i of k.path.slice(1)) { e = e && e.children[i]; } }
+    if (!e || ctlSig(e) !== k.sig) e = [...fresh.querySelectorAll('input,select,textarea')].filter(x => ctlSig(x) === k.sig)[k.nth];
+    return e || null;
+  }
+  function restoreFocus(fresh, k) {
+    if (!k) return null;
+    const e = matchIn(fresh, k);
+    if (!e) return null;
+    const a = k.el;
+    // a text box: the very element stays (its text, caret, selection and undo history are the user's), now wired
+    // to the new tree's handler and wearing the new box's attributes
+    if (a._on && e._on && a.tagName === e.tagName) {
+      [...e.attributes].forEach(x => { if (x.name !== 'value') a.setAttribute(x.name, x.value); });
+      a._on = e._on; a._dead = false; e.replaceWith(a);
+      return () => { a.focus({ preventScroll: true }); if (k.sel && k.sel[0] != null) { try { a.setSelectionRange(k.sel[0], k.sel[1], k.sel[2] || 'none'); } catch (x) { /* number boxes */ } } };
+    }
+    return () => e.focus({ preventScroll: true });   // a select or checkbox: the same control has the focus
+  }
   function draw() {
     if (liveEdit) { revalidate(); return; }   // typing: preview only; the change event re-renders
+    if (leaving) { revalidate(); if (!drawQueued) { drawQueued = true; setTimeout(() => { drawQueued = false; draw(); }, 0); } return; }
     if (pressed) { autoRebalance(); afterPress(draw, 'draw'); return; }   // re-render just after the click (afterPress)
     if (drawing) { redraw = true; return; }
     drawing = true;
     try {
-      const a = document.activeElement; if (a && $('tree').contains(a)) a.blur();   // commit a pending edit before its input is replaced
+      // The focused box (the one being typed in) survives the re-render: its text is committed to the model without
+      // a blur, and the box itself is moved into the new tree with its focus, text and caret / selection, so no
+      // keystroke is lost when another field's change re-renders the tree (a ticker committed by the click into the
+      // threshold box once turned "79" into "7").
+      const keep = focusState($('tree'));
       autoRebalance(); rebalLabels();
-      errBoxes.clear(); $('tree').replaceChildren(renderNode(tree, { kind: 'slot', owner: null, key: 'root' })); revalidate();
+      $('tree').querySelectorAll('input,select,textarea').forEach(x => { x._dead = true; });
+      errBoxes.clear();
+      const fresh = renderNode(tree, { kind: 'slot', owner: null, key: 'root' });
+      const refocus = restoreFocus(fresh, keep);
+      $('tree').replaceChildren(fresh);
+      if (refocus) refocus();
+      revalidate();
     } finally { drawing = false; }
     if (redraw) { redraw = false; draw(); }
   }
@@ -1687,7 +1740,9 @@ window.addEventListener('blur', unpress);
       const j = await api('/api/import/composer?soft=1', { json: src });
       loadSpec(j.spec);
       $('composerStatus').textContent = `Loaded "${j.spec.name}"${label ? ' from ' + label : ''} — check the blocks below, then Run.`;
-      j.notes.forEach(n => $('composerNotes').append(el('div', { class: 'note' }, 'Note: ' + n)));
+      // (unknown metadata fields the import ignored come as "Warning: ...": shown as warnings, not notes)
+      j.notes.forEach(n => $('composerNotes').append(/^Warning: /.test(n) ? el('div', { class: 'warn', role: 'alert' }, '⚠ ' + n.replace(/^Warning: /, ''))
+        : el('div', { class: 'note' }, 'Note: ' + n)));
       j.problems.forEach(p => $('composerNotes').append(el('div', { class: 'warn' }, p)));
     } catch (e) { $('composerStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
   }

@@ -243,6 +243,13 @@
   "member_months": "2008-10..2011-12",
   "source": "bdi+intrader"
  },
+ "FNGU-2025": {
+  "last_date": "2024-09-27",
+  "first_date": "2018-01-23",
+  "rows": 1682,
+  "reason": "the original MicroSectors FANG+ Index 3x Leveraged ETN listed as FNGU until 2025-02 (then FNGA, redeemed 2025-05-15; the archive ends 2024-09-27); the symbol FNGU was reused by a new ETN",
+  "source": "intrader"
+ },
  "FOX-2019": {
   "last_date": "2019-03-12",
   "first_date": "1987-12-30",
