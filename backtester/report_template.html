@@ -344,7 +344,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   const el = (tag, attrs = {}, text) => { const e = document.createElement(tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; };
   const svgEl = (tag, attrs = {}) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
   const isNum = v => typeof v === 'number' && isFinite(v);
-  const pct = (v, d = 2) => isNum(v) ? (v * 100).toFixed(d) + '%' : (v === 'inf' ? '∞' : '—');
+  const pct = (v, d = 2) => isNum(v) ? (v * 100).toFixed(d).replace(/^-(0(\.0+)?)$/, '$1') + '%' : (v === 'inf' ? '∞' : '—');
   // a headline percentage: fewer decimals as it grows, thousands separators, k / M beyond 10,000%
   const pctH = (v, d = 2) => {
     if (!isNum(v)) return pct(v, d);
@@ -385,7 +385,10 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const nTick = multi ? new Set(D.runs.flatMap(x => x.universe || [])).size || r.universe_size : r.universe_size;
     const what = multi ? `${D.runs.length} ${D.runs.every(x => x.kind === 'allocation') ? 'portfolios' : 'strategies'}`
       : (r.kind === 'allocation' ? 'allocation portfolio' : 'signal strategy');
-    $('subtitle').textContent = `${st.start} → ${st.end} · ${st.years.toFixed(1)} years · ${what}${nTick ? ' · ' + nTick + ' ticker' + (nTick > 1 ? 's' : '') : ''} · generated ${D.generated}`;
+    // a run whose money ran out: its statistics stop that day, the report (benchmarks, other runs) goes on
+    const lastDay = D.dates.length ? D.dates[D.dates.length - 1] : st.end;
+    const ranOut = r.depleted ? ` (${multi ? r.name + ' r' : 'r'}an out ${r.depleted}; the report runs to ${lastDay})` : '';
+    $('subtitle').textContent = `${st.start} → ${st.end}${ranOut} · ${st.years.toFixed(1)} years · ${what}${nTick ? ' · ' + nTick + ' ticker' + (nTick > 1 ? 's' : '') : ''} · generated ${D.generated}`;
     $('interp').textContent = (multi ? D.runs.map((x, i) => x.name + ': ' + x.interpretation.join('\n   ')).join('\n\n') : r.interpretation.join('\n'));
     $('notes').replaceChildren();
     const notes = multi ? D.runs.flatMap(x => x.notes.map(n => x.name + ': ' + n)) : r.notes;
@@ -660,8 +663,10 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
         : 'All columns are measured over the same period.')
       : 'Every column is measured over exactly this period (the latest start date among the strategies), so the comparison is like-for-like.'
         + (Object.keys(C.benchmarks_own || {}).length ? ' Benchmarks whose data starts later are listed below with their own dates.' : '');
+    if (Object.keys(C.depleted || {}).length) $('cmpNote').textContent += ' A column marked "ran out" had its money run out on that date: its figures cover the time it was funded (its balance is $0 after it); the other columns and the benchmarks run to the end.';
     const cols = Object.keys(data);
-    const lab = c => short(c) + (from[c] ? ` (from ${from[c]})` : '');
+    const dep = C.depleted || {};
+    const lab = c => short(c) + (from[c] ? ` (from ${from[c]})` : '') + (dep[c] ? ` (ran out ${dep[c]})` : '');
     const rows = [
       // the growth of the runs' own starting amount; with cash flows that growth is time-weighted (flows left out),
       // and the account's real final balance follows
@@ -1699,19 +1704,27 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ? ['Year', multi ? r.name : 'Return', 'Real return', 'Inflation', 'Start balance', 'Contributions', 'Withdrawals', 'End balance', 'Max DD']
       : ['Year', multi ? r.name : 'Strategy', 'Max DD', 'Closed trades', 'Win rate', 'P&L', 'Exposure', 'End value'];
     const head = own.concat(D.runs.length > 1 ? D.runs.filter((_, i) => i !== sel).map(x => x.name) : []).concat(bn.map(short));
+    const ranOut = { t: 'ran out', c: 'neg', title: 'the money ran out: the balance is $0, no return' };
     const ownCells = y => alloc
-      ? [yrLabel(y), { t: pct(y.return, 1), c: signCls(y.return) }, { t: pct(y.real_return, 1), c: signCls(y.real_return) }, pct(y.inflation, 1),
+      ? [yrLabel(y), y.depleted ? ranOut : { t: pct(y.return, 1), c: signCls(y.return) }, { t: pct(y.real_return, 1), c: signCls(y.real_return) }, pct(y.inflation, 1),
          usd(y.start_balance), y.contributions ? usd(y.contributions) : '—', y.withdrawals ? usd(y.withdrawals) : '—', usd(y.end_balance), pct(y.max_drawdown, 1)]
       : [yrLabel(y), { t: pct(y.return, 1), c: signCls(y.return) }, pct(y.max_drawdown, 1), y.trades, y.trades ? pct(y.win_rate, 0) : '—', usd(y.pnl), pct(y.exposure, 0), usd(y.end_equity)];
     table($('yrTbl'), head, r.yearly.map(y => ownCells(y)
-      .concat(D.runs.filter((_, i) => i !== sel).map(o => { const f = o.yearly.find(x => x.year === y.year); return f ? { t: pct(f.return, 1), c: signCls(f.return) } : '—'; }))
+      .concat(D.runs.filter((_, i) => i !== sel).map(o => { const f = o.yearly.find(x => x.year === y.year);
+        // another column's partial year (it ran out, or starts / ends inside the year) is starred and says which part
+        if (!f) return '—';
+        if (f.depleted) return ranOut;
+        return f.partial && isNum(f.return) ? { t: pct(f.return, 1) + '*', c: signCls(f.return), title: `${o.name}: ${yrLabel(f)}` } : { t: pct(f.return, 1), c: signCls(f.return) }; }))
       .concat(bn.map(n => { const v = D.benchmark_yearly[n][y.year], bp = BPART[n];
         // a benchmark's own partial first year (it starts later in that year: SPY 1993 from Jan 29) is starred
         return bp && bp.year === y.year && isNum(v) ? { t: pct(v, 1) + '*', c: signCls(v), title: `${short(n)} starts ${bp.from}: its ${bp.year} return is from that day` } : { t: pct(v, 1), c: signCls(v) }; }))));
     const parts = r.yearly.filter(y => y.partial);
+    const oparts = D.runs.filter((_, i) => i !== sel).flatMap(o => o.yearly.filter(y => y.partial && isNum(y.return) && r.yearly.some(x => x.year === y.year)).map(y => `${o.name} ${yrLabel(y)}`));
     const bparts = bn.filter(n => BPART[n] && r.yearly.some(y => y.year === BPART[n].year)).map(n => `${short(n)} ${yrLabel({ year: BPART[n].year, partial: true, from: BPART[n].from })}`);
     $('partialNote').textContent = (parts.length ? 'Partial year' + (parts.length > 1 ? 's' : '') + ': ' + parts.map(y => `${y.year} (${y.from || ''} → ${y.to || ''})`).join(', ') + ' (not annualised). ' : '')
       + (bparts.length ? '* Benchmark partial first year' + (bparts.length > 1 ? 's' : '') + ': ' + bparts.join(', ') + ', each from its first day of data. ' : '')
+      + (oparts.length ? '* Partial years of the other columns: ' + oparts.join(', ') + ' (not annualised). ' : '')
+      + (D.runs.some(o => o.depleted) ? 'After a portfolio\'s money ran out its balance is $0 and it has no return ("ran out"); the benchmarks and the other columns continue. ' : '')
       + (alloc ? 'Return is time-weighted (cash flows removed); balances are the account itself.' : 'Closed trades, win rate and P&L count trades by the year they closed.');
   }
 
@@ -1837,8 +1850,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     if (!show) return;
     const keys = [['3M', '3 months'], ['YTD', 'YTD'], ['1Y', '1 year'], ['3Y', '3 years'], ['5Y', '5 years'], ['10Y', '10 years'], ['Full', 'Full period']];
     $('trailAsOf').textContent = 'as of ' + (tr.Strategy && tr.Strategy.as_of || '');
-    table($('trailTbl'), [''].concat(keys.map(k => k[1])), names.map(n => [n === 'Strategy' && multi ? r.name : short(n)]
-      .concat(keys.map(([k]) => { const v = tr[n][k]; return isNum(v) ? { t: pct(v, 1), c: signCls(v) } : '—'; }))));
+    table($('trailTbl'), [''].concat(keys.map(k => k[1])), names.map(n => [(n === 'Strategy' && multi ? r.name : short(n)) + (tr[n].depleted_on ? ` (ran out ${tr[n].depleted_on})` : '')]
+      .concat(keys.map(([k]) => { const v = tr[n][k]; return isNum(v) ? { t: pct(v, 1), c: signCls(v) } : tr[n].depleted_on ? 'n/a' : '—'; }))));
   }
   function drawAssets() {
     const r = R(), A = r.asset_stats || [];
@@ -1865,9 +1878,15 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     $('incomeCard').classList.toggle('hide', !(r.kind === 'allocation' && inc.length));
     if (!inc.length) return;
     const part = Object.fromEntries((r.yearly || []).map(y => [y.year, y]));
+    // simulated (SIM) and imported series are total-return series: their income is in the price, never paid out
+    const trs = r.income_total_return || [], allTR = !!r.income_all_total_return;
+    const na = { t: 'n/a', title: 'total-return series: income included in price' };
     table($('incomeTbl'), ['Year', 'Start balance', 'Dividends', 'Interest', 'Total income', 'Dividend yield', 'Income yield'],
-      inc.map(x => [yrLabel(part[x.year] || { year: x.year }), usd(x.start_balance), usd(x.dividends), usd(x.interest), usd(x.income), pct(x.dividend_yield, 2), pct(x.yield, 2)]));
-    $('incomeNote').textContent = 'Dividends and other distributions paid by the holdings, and interest earned on cash (negative when borrowing), received during each calendar year; the yields are on the balance at the start of the year (a partial year is not annualised).';
+      inc.map(x => [yrLabel(part[x.year] || { year: x.year }), usd(x.start_balance), allTR ? na : usd(x.dividends), usd(x.interest),
+        allTR ? na : usd(x.income), allTR ? na : pct(x.dividend_yield, 2), allTR ? na : pct(x.yield, 2)]));
+    $('incomeNote').textContent = (allTR ? `Dividends: n/a (total-return series: income included in price) — ${trs.join(', ')} ${trs.length > 1 ? 'are' : 'is a'} total-return series, so ${trs.length > 1 ? 'their' : 'its'} income is part of the price and not paid out; only the interest on cash is shown. `
+      : trs.length ? `${trs.join(', ')} ${trs.length > 1 ? 'are total-return series' : 'is a total-return series'} (income included in price, not counted as dividends here). ` : '')
+      + 'Dividends and other distributions paid by the holdings, and interest earned on cash (negative when borrowing), received during each calendar year; the yields are on the balance at the start of the year (a partial year is not annualised).';
   }
 
   function drawTradeCharts() {

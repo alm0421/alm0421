@@ -242,9 +242,13 @@ def check_benchmark(b) -> None:
         data.load(t)
 
 
-def blend_growth(parts: list[tuple[str, float]], index: pd.DatetimeIndex) -> pd.Series | None:
-    """Growth of 1 in a blend of total returns rebalanced to its weights at the end of every month, from the
-    first date of `index` on which every part has data."""
+BLEND_REBALANCE = ("daily", "weekly", "monthly", "quarterly", "semiannual", "yearly", "none")
+
+
+def blend_growth(parts: list[tuple[str, float]], index: pd.DatetimeIndex, rebalance: str = "monthly") -> pd.Series | None:
+    """Growth of 1 in a blend of total returns rebalanced to its weights at the end of every month (or on another
+    schedule: `rebalance` as a portfolio's, e.g. "yearly", "quarterly", "yearly_6", or "none" for buy and hold), from
+    the first date of `index` on which every part has data."""
     try:
         cs = [data.load(t)["adj_close"] for t, _ in parts]
     except (FileNotFoundError, data.DataError):
@@ -254,27 +258,33 @@ def blend_growth(parts: list[tuple[str, float]], index: pd.DatetimeIndex) -> pd.
         return None
     r = df.pct_change().to_numpy()[1:]
     w0 = np.array([w for _, w in parts])
-    month = df.index.to_period("M")
+    if rebalance in (None, "", "monthly"):
+        month = df.index.to_period("M")
+        ends = np.r_[month[1:] != month[:-1], False]
+    else:
+        from . import portfolio as _pf     # (portfolio imports this module)
+        ends = _pf._schedule(df.index, rebalance).copy()
+        ends[0] = False
     val = np.empty(len(df))
     val[0] = 1.0
     hold = w0.copy()                    # dollar value in each part, per 1 of portfolio
     for i in range(1, len(df)):
         hold = hold * (1 + r[i - 1])
         val[i] = hold.sum()
-        if i + 1 < len(df) and month[i + 1] != month[i]:
-            hold = w0 * val[i]          # rebalance at the month's last close
+        if i + 1 < len(df) and ends[i]:
+            hold = w0 * val[i]          # rebalance at the period's last close
     return pd.Series(val, index=df.index)
 
 
-def buy_and_hold(ticker: str, index: pd.DatetimeIndex, capital: float) -> pd.Series | None:
+def buy_and_hold(ticker: str, index: pd.DatetimeIndex, capital: float, rebalance: str = "monthly") -> pd.Series | None:
     """Growth of `capital` in a ticker (total return), or in a blend such as "60% SPY / 40% AGG" rebalanced
-    monthly, from the first date of `index` it has data."""
+    monthly (or on `rebalance`), from the first date of `index` it has data."""
     try:
         parts = parse_blend(ticker)
     except ValueError:
         return None
     if parts is not None:
-        g = blend_growth(parts, index)
+        g = blend_growth(parts, index, rebalance)
         return None if g is None or g.empty else (capital * g).rename(benchmark_label(ticker))
     try:
         c = data.load(ticker)["adj_close"]

@@ -183,30 +183,33 @@ RUIN = ("hold 60% SPYSIM and 40% IEFSIM, withdraw 4% per year adjusted for infla
 
 
 @needs("SPYSIM", "IEFSIM", "SPY", "QQQ")
-def test_depleted_portfolio_report_stops_and_benchmarks_all_get_flows():
+def test_depleted_portfolio_stops_while_benchmarks_all_get_flows_to_the_end():
+    """(Round 11, as Portfolio Visualizer: the portfolio stays at $0 after it runs out; its statistics cover the
+    funded part, and the benchmarks, the yearly table and the charts run to the end.)"""
     p = port(RUIN)
     res = runner.run(p)
     dep = res.extras.get("depleted")
     assert dep is not None and dep < pd.Timestamp("2000-01-01")
+    end = res.equity.index[-1]
     A = report.analyze(res, sensitivity=False, mc=True)
-    # 3. no benchmark without the cash flows: QQQ starts after the money ran out and is left out, with a note
-    assert "QQQ buy & hold" not in A["benchmarks"]
+    # 3. every benchmark gets the cash flows; QQQ starts after the money ran out: from the starting balance
+    assert "QQQ buy & hold" in A["benchmarks"]
     assert set(A["benchmarks"]) == set(A["benchmarks_with_flows"])
-    assert any(n.startswith("QQQ buy & hold is left out") for n in p.notes)
+    assert "had run out" in A["benchmark_cash"]["QQQ buy & hold"]["note"]
     assert A["benchmark_cash"]["SPY buy & hold"]["from"] == pd.Timestamp("1993-01-29").date()
-    # 4. everything stops on the depletion day
-    assert int(A["yearly"].index.astype(int).max()) == dep.year
+    # 4. the portfolio's statistics stop on the depletion day; the benchmarks and the yearly rows run on
     assert A["result"].equity.index[-1] == dep and A["result"].holdings.index[-1] <= dep
-    assert all(b.index[-1] <= dep for b in A["benchmarks"].values())
+    assert all(b.index[-1] == end for b in A["benchmarks"].values())
+    assert int(A["yearly"].index.astype(int).max()) == end.year
+    assert A["yearly"].loc[A["yearly"].index.astype(int) > dep.year, "depleted"].all()
     assert all(pd.Timestamp(a["to"]) <= dep for a in A["asset_stats"])
     assert A["exposure"]["time_in_market"] > 0.99
     assert A["monte_carlo"] and 0 <= A["monte_carlo"]["success_rate"] <= 1
     P = report.build_payload([A])
-    assert P["dates"][-1] == str(dep.date())
+    assert P["dates"][-1] == str(end.date())
     assert pd.Timestamp(P["runs"][0]["holdings"]["dates"][-1]) <= dep + pd.Timedelta(days=7)
     text = report.console_summary(A)
-    assert "QQQ" not in text.split("Returns by year")[1].splitlines()[1]
-    assert "the day the money ran out" in text
+    assert "the day its money ran out" in text and "ran out" in text.split("Returns by year")[1]
 
 
 # ------------------------------------------------------------------ 6. compare: the common period is common

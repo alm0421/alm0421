@@ -109,17 +109,24 @@ combo", "Frank Armstrong ideal index", "Bogleheads four-fund", "second grader's 
 "Aronson family taxable", and any stock/bond split ("80/20 portfolio", "Stocks/Bonds 60/40", "US stocks
 and bonds 70/30 since 1950": US total market and total bond market) (the notes list the holdings, the
 source and any proxy fund, e.g. VSS for developed ex-US small caps, and long-history SIM series stand in
-before the funds existed). A bare asset-class name holds 100% of it ("long-term corporate bonds since
+before the funds existed). Named **tactical** models too: "GTAA" / "Faber GTAA" / "Ivy timing" (Faber's
+5 asset classes, SPY, EFA, IEF, VNQ and DBC, a fifth each, each held only while above its 10-month moving average
+of month-end prices, otherwise that fifth in cash) and "Antonacci GEM" / "global equities momentum" / "dual
+momentum GEM" (when US stocks' 12-month return beats T-bills', the better of SPY and VEU over 12 months, else
+AGG), checked monthly; with an early start ("GTAA since 1973") the long-history series stand in. The same
+per-asset timing on your own list: "SPY, EFA, IEF, VNQ and DBC equally, each only when above its 10 month
+moving average, otherwise cash". A bare asset-class name holds 100% of it ("long-term corporate bonds since
 1955", "US small cap value"). When one sleeve's history starts later than the requested start (Swensen and
-7Twelve are held back to 2000 by TIPS, Larry to 1989-90 by emerging and international small caps), the
+7Twelve are held back to mid-1989 by emerging markets, EEMSIM / VWOSIM, and Larry to mid-1990 by international
+small caps, SCZSIM; TIPSIM itself goes back to 1972), the
 backtest starts when it has data and the Warning says which sleeve. Add **"with proxies before inception"**
 to let a stated proxy stand in for that sleeve until its own series exists (opt-in, never by default): TIPS →
 intermediate Treasuries (IEFSIM); international small caps, emerging markets → developed ex-US (EFASIM);
 international small value → developed ex-US value (EFVSIM); developed ex-US / Europe / Japan before 1975 and
 REITs before 1972 → US stocks (SPYSIM); high yield / EM bonds → corporates (LQDSIM); munis, international and
-total bonds → IEFSIM. The interpretation lists each proxy and the notes give each sleeve's dates ("IEFSIM
-(intermediate Treasuries) stands in for TIPSIM from 1972-01-03 until TIPSIM's data begins on 2000-06-30"); in
-a JSON spec it is `"proxies": {"TIPSIM": "IEFSIM"}`. The proxy's total return is spliced in before the sleeve's
+total bonds → IEFSIM. The interpretation lists each proxy and the notes give each sleeve's dates ("Swensen
+since 1972 with proxies before inception": SPYSIM stands in for EFASIM until 1975, and EFASIM for EEMSIM until
+mid-1989); in a JSON spec it is `"proxies": {"EEMSIM": "EFASIM", "EFASIM": "SPYSIM"}`. The proxy's total return is spliced in before the sleeve's
 first date, so the numbers before it are the proxy's, not the asset class's; whatever long-history series
 exist are used first, and a proxy only fills the gap before them. An "N month return" is 21 trading days a month by default (12 months = 252
 sessions); add "using calendar months" (or "using month-end prices", or `"month_lookbacks": "calendar"` in a
@@ -128,7 +135,9 @@ Visualizer and Antonacci do. The interpretation says which one a portfolio uses.
 return skipping the last month" (12-1 momentum) is measured on month-end prices: the month-end price one month
 ago over the month-end price 12 months ago, minus 1. A weighted mix of lookbacks ("3 month return weighted 50%,
 6 month weighted 30% and 12 month weighted 20%") is the weighted average of those total returns (the weights
-must add to 100%), each lookback following the same month convention. Filters and weightings
+must add to 100%), each lookback following the same month convention; add "skipping the last month" to end
+every lookback a month ago (`ref(0.5 * tret(tr, 42) + ..., 21)`, as "12 month return skipping the last month"
+does for one lookback). Filters and weightings
 can also rank or weight whole groups ("the top 1 of (60% TECL and 40% BIL), SVIX and TQQQ by 10 day
 return"): in a JSON spec or the Build editor, any node can sit inside a filter, and it is
 measured on its own simulated value over time. **Composer symphonies** can be imported directly:
@@ -179,7 +188,7 @@ import but do not export: no public export or schema names the keys of their par
 | More signals | ROC(10) above 5 / rate of change, %K crosses above %D, MACD histogram turns negative, yesterday's high, not on Fridays, except in October, buy stop 1% above the close / at yesterday's high |
 | Portfolio conditions | any indicator phrase compared with a number or another ticker's indicator: "TQQQ 6 day cumulative return is less than -12%", "the 10 day max drawdown of TQQQ is above 20%", "SPY 10 day standard deviation of return is above 2%", "QQQ's 3 month return beats TLT's" (total returns); "the RSI of SPY is 10 points above the RSI of QQQ" (a difference: `rsi(close, 14) - rsi(sym("QQQ").close, 14) >= 10`; points of a return are percentage points) |
 | Schedules and flows | semi-annually, relative bands ("drifts 25% relative to its target"), schedule + band ("rebalance quarterly or when any weight drifts more than 5%": every quarter AND whenever a weight leaves its band in between), fortnightly (every 2nd week-end); a band with no schedule, or "never rebalance" with if/else or filters, re-evaluates the rules every close and trades only when the target allocation changes or a holding leaves its band (Composer's threshold rebalancing), contributions/withdrawals for N years / starting in YEAR / from year N, growing X% a year |
-| Other | starting with $X, since/from/until YEAR, month names and months ("from March 2005 to June 2015", "since Jan 1999", "until 2020-06": the month's first / last day), weight-first lists without commas ("60% VTI 40% BND since 2010", "VTI 60 BND 40"), "rebalance when drift exceeds 5%" / "at 5% drift" / "threshold rebalance 5%" / "5% threshold rebalancing" / "a 5% rebalance corridor" / "rebalance at 5% corridor" / "rebalance band 5%" (a band that can never trigger, e.g. 150% on 50/50, earns a warning that says what still trades: nothing after the first day, the calendar schedule, or, for a tree with if/else or filters, the switches), "inverse volatility weighted top 3 of … by 63 day return using a 10 day lookback" (the lookback of the weighting; refused when the weighting has none), "a 10% target volatility using 60 day volatility" (rescaled monthly unless you say otherwise), vs TICKER (incl. SPYSIM), a blended benchmark ("vs 60/40 SPY/AGG", "compared with 60% SPY and 40% AGG", "benchmark 60/40 SPY/AGG"), versus T-bills, cash earns nothing / no interest on cash / with interest on cash, no dividends / with dividends / price-only returns (signal strategies), using today's members only; TradingView syntax without backticks ("when close > ta.sma(close, 200)", "when close crosses above ta.ema(close, 20)", "when close > ta.highest(high, 55)[1]"); a cross needs a direction ("crosses 70" is refused with the two readings) |
+| Other | starting with $X, since/from/until YEAR, month names and months ("from March 2005 to June 2015", "since Jan 1999", "until 2020-06": the month's first / last day), weight-first lists without commas ("60% VTI 40% BND since 2010", "VTI 60 BND 40"), "rebalance when drift exceeds 5%" / "at 5% drift" / "rebalance when drift exceeds 25% relative" (a relative band) / "threshold rebalance 5%" / "5% threshold rebalancing" / "a 5% rebalance corridor" / "rebalance at 5% corridor" / "rebalance band 5%" (a band that can never trigger, e.g. 150% on 50/50, earns a warning that says what still trades: nothing after the first day, the calendar schedule, or, for a tree with if/else or filters, the switches), "inverse volatility weighted top 3 of … by 63 day return using a 10 day lookback" (the lookback of the weighting; refused when the weighting has none), "a 10% target volatility using 60 day volatility" (rescaled monthly unless you say otherwise), vs TICKER (incl. SPYSIM), a blended benchmark ("vs 60/40 SPY/AGG", "compared with 60% SPY and 40% AGG", "benchmark 60/40 SPY/AGG"; rebalanced like the portfolio unless stated: "vs 60/40 SPY/AGG rebalanced monthly" / "... never rebalanced"), "expense ratio 0.5%" / "0.5% expense ratio" / "expense ratio of 0.5%", "margin rate of fed funds plus 1%" / "margin rate T-bills + 1%" (borrowing at the base rate plus the spread; the data has no fed funds series, so the 3-month T-bill rate stands in, with a note: fed funds has run about 0.1% above it since 2009 and 0.3-1% above it before), versus T-bills, cash earns nothing / no interest on cash / with interest on cash, no dividends / with dividends / price-only returns (signal strategies), using today's members only; TradingView syntax without backticks ("when close > ta.sma(close, 200)", "when close crosses above ta.ema(close, 20)", "when close > ta.highest(high, 55)[1]"); a cross needs a direction ("crosses 70" is refused with the two readings) |
 | Valuation | "the Shiller CAPE is below 25" (`cape() < 25`), "the CAPE percentile is below 70%" (`cape_pct(0) < 0.7`: its rank among all values since 1881 known at the time; "... over the last 30 years" for a window), "the earnings yield is above the 10 year treasury yield" (`earnings_yield() > treasury_10y()`); the named tactical model "CAPE-based allocation" (between VTI and BND by default, or "between SPY and IEF"): 80/20 stocks/bonds while the CAPE is in the cheapest third of its history, 60/40 in the middle third, 40/60 in the dearest third, checked monthly. CAPE is Shiller's monthly data, used 4 months after the month it describes (see "Valuation data" below) |
 | Relative hurdles | "only if their 12 month return is above BIL's 12 month return" (each candidate vs BIL; also beats / exceeds / greater than / higher than, "above BIL" = the same indicator), "hold SPY if its 12 month return beats BIL's, otherwise IEF". A condition that compares a value with itself is refused |
 
@@ -279,10 +288,23 @@ never quietly drops them or swaps in a different ticker.
   and labelled so). They come from the portfolio re-run without the cash flows over the whole period (or
   the whole withdrawal phase), so they do not depend on the amount entered, even one that empties the account.
 - With cash flows every benchmark gets the same flows: one that starts later starts with the portfolio's
-  balance on its first day; one whose data starts after the portfolio ran out of money is left out, with a
-  note (never shown without the flows).
-- Holdings that move in **monthly steps** (EFASIM/EFVSIM/VGKSIM before 1990, EEMSIM before 2003, VNQSIM
-  before 2004, DBCSIM before 2006, BNDXSIM's model, LQDSIM's monthly-yield years; detected from the data by
+  balance on its first day (with the starting balance when the portfolio had already run out of money). A
+  requested benchmark that cannot be shown at all (no data in the period, or too little) gets a warning saying
+  why; it never disappears silently.
+- A benchmark that starts later than the strategy (no cash flows) is bought with the strategy's value on its
+  first day, so the curves compare from there; the console says so with the amount ("bought with the
+  strategy's value on its first day (60/40 SPY/AGG $14,210 on 2003-09-29)"), its CAGR, Sharpe and drawdown
+  cover its own period, and in the head-to-head it is marked "from" (full period) or listed with its own dates
+  (common period), each as the growth of the starting amount.
+- A **blended benchmark** ("vs 60/40 SPY/AGG", the grid's "60% US Stock Market 40% Total Bond Market") is
+  rebalanced on the portfolio's own calendar schedule (a 60/40 portfolio rebalanced yearly is compared with a
+  60/40 blend rebalanced yearly; never rebalanced = buy and hold), or monthly for signal strategies, drift
+  bands and rules re-evaluated daily; a note says which. State another one after the blend: "vs 60/40 SPY/AGG
+  rebalanced monthly" (`"benchmark_rebalance": "monthly"` in a JSON spec).
+- Holdings that move in **monthly steps** (EFASIM/EFVSIM/VGKSIM/VXUSSIM before mid-1990, the other country
+  SIMs before 1996, EEMSIM before 2003, VWOSIM before 1994, VNQSIM before mid-1996, TIPSIM before mid-2000,
+  DBCSIM before 2006, BWXSIM before late 2007, BNDXSIM before 1993, LQDSIM before 1986, VCLTSIM before 1980;
+  detected from the data by
   `data.stepped_ranges`): when one is held with a material weight (5% on average over its stepped stretch),
   volatility, Sharpe, Sortino, skew, kurtosis, beta/alpha and the factor regression are computed from
   monthly returns for the whole run, daily figures (best/worst day, positive days, daily VaR/CVaR) are
@@ -295,7 +317,9 @@ never quietly drops them or swaps in a different ticker.
 - Benchmarks are bought when the strategy is: at the close of the session before a portfolio's first day
   (day 0, see "Equity curve"), otherwise at the close of the strategy's first bar.
 - For portfolios, an income table (dividends and other distributions, cash interest, the total and its yield on
-  the balance at the start of each year) and each holding's calendar-year total return next to the
+  the balance at the start of each year; for a portfolio of total-return series, SIM or imported, the
+  dividends and yields read "n/a (total-return series: income included in price)", since their income is in
+  the price and never paid out) and each holding's calendar-year total return next to the
   portfolio's; also in the Excel export (sheets "Income" and "Asset returns by year"). A partial first or last
   year is labelled with its dates ("2010 (from Mar 3)", "2026 (to Sep 25)").
 - A Monte Carlo block bootstrap (with "chance the money lasts" when there are withdrawals) and a
@@ -661,7 +685,15 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   began then) or the rules cannot decide yet (warm-up, membership data), it is bought at the first day's close
   instead and a note says that day's return is not counted. A signal strategy trades from its first bar.
 - **Portfolios.** Targets are re-evaluated on the schedule (month-end close by default) and traded at
-  the close or next open. Only the differences are traded, and new contributions buy the target mix.
+  the close or next open. Only the differences are traded. Contributions and withdrawals are made **pro
+  rata**: each buys or sells every holding (and the cash sleeve) in proportion to its current market value, so a
+  cash flow never rebalances the portfolio. A "never rebalance" portfolio stays buy-and-hold with flows (its
+  turnover and drift are the same as without them), and the time-weighted return of any portfolio is the same
+  with or without flows (tests check this to 1e-9, never rebalanced and rebalanced yearly). This follows
+  Portfolio Visualizer, where a cash flow is applied to the balance rather than traded into the target mix; the
+  rebalance on the portfolio's schedule is what brings the weights back. Orders from flows are marked
+  "contribution" / "withdrawal" and do not count as turnover. A portfolio that holds nothing yet (a $0 start)
+  invests its first contribution in the target mix.
   - "Trade at the next open" needs real opening prices. A ticker with none in the period (a SIM series or a
     mutual fund: only a daily close) is refused, as in signal strategies ("SPYSIM has no real opening
     prices ... Trade at the close instead"). A day on which a ticker's open was not quoted (old data) fills
@@ -692,11 +724,15 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
     is 3.0%).
   - A withdrawal is capped at the balance: when one is more than the account holds, everything is sold at that
     close and what is left is paid out (cash_flow in equity.csv is the amount actually paid). The notes and the
-    cash-flow table say "portfolio depleted on <date>", and the report stops on that day: statistics, the
-    yearly table (the depletion year is its last row), the monthly table, the equity and allocation charts, the
-    holdings' statistics and the benchmarks all end there. Benchmarks that receive the same flows are capped at
-    their own balance the same way (their values are shown on the depletion day), and the Monte Carlo replays
-    the flows as scheduled over the whole period.
+    cash-flow table say "portfolio depleted on <date>". As on Portfolio Visualizer the portfolio then stays at
+    $0 while everything else runs to the end of the period: its statistics, monthly returns and holdings cover
+    the funded part; the yearly table goes on with $0 balances and "ran out" instead of a return (the depletion
+    year is a partial year, "2004 (to Jan 2)"); the trailing returns are n/a, marked "ran out <date>"; the
+    benchmarks, the charts and, in a comparison or grid, the other portfolios keep running to the end. In the
+    head-to-head table a depleted column is marked "(ran out <date>)" and measured while it was funded, and in
+    the yearly table another column's partial year is starred with its dates. Benchmarks that receive the same
+    flows are capped at their own balance the same way (one that starts after the money ran out starts with the
+    starting balance), and the Monte Carlo replays the flows as scheduled over the whole period.
   - "starting with $0" works when contributions fund the account from the first day: returns are
     time-weighted from the first funded day (and it is refused when nothing would ever be invested).
   - Short positions (negative weights): the proceeds earn the cash rate less `short_rebate_spread` (default
@@ -913,7 +949,7 @@ failed to build and, for each one, how the model compares with the real fund whe
 | VUGSIM | US large-cap growth: Fama-French big / low book-to-market or a 25-portfolio blend (1926, daily) | the Vanguard Growth Index fund VIGRX (1992), then VUG |
 | VXUSSIM | International stocks: 80% developed ex-US (EFASIM's model) + 20% emerging (EEMSIM's, from 1989), rebalanced daily (1975) | the Vanguard Total International Stock Index fund VGTSX (1996), then VXUS (2011) |
 | VWOSIM | Emerging markets: Fama-French (1989, monthly steps) | the Vanguard Emerging Markets Stock Index fund VEIEX (1994), then VWO |
-| EWJSIM, EWUSIM, EWGSIM, EWCSIM, EWASIM, EWQSIM, EWLSIM, EWHSIM | Japan, UK, Germany, Canada, Australia, France, Switzerland, Hong Kong: Fama-French country indexes in USD with dividends (1975, monthly steps; Japan daily from 1990) | the iShares country ETF |
+| EWJSIM, EWUSIM, EWGSIM, EWCSIM, EWASIM, EWQSIM, EWLSIM, EWHSIM | Japan, UK, Germany, Canada, Australia, France, Switzerland, Hong Kong: Fama-French country indexes in USD with dividends (1975, Canada 1977, monthly steps; Japan daily from 1990) | the iShares country ETF |
 | EFASIM | Developed ex-US: Fama-French EAFE index (1975, monthly steps), Fama-French developed ex-US market (1990, daily) | EFA |
 | EFVSIM | Developed ex-US value: Fama-French EAFE high book-to-market index (1975, monthly steps), big / high B/M (1990, daily) | EFV |
 | SCZSIM | Developed ex-US small caps: Fama-French small portfolios (1990, daily) | SCZ |
@@ -1061,8 +1097,8 @@ notes. Keep in mind:
   a rough guide before PFORX starts in 1993;
 - DBCSIM is an equal-weight commodity index; DBC is energy-heavy, so they share direction (monthly
   correlation about 0.9) but not volatility;
-- no free source gives high-yield bonds before 1985 or TIPS before 2000 without a model we could not
-  defend, so HYGSIM and TIPSIM start with the oldest real funds instead;
+- HYGSIM (1953) and TIPSIM (1972) are models before their oldest real funds (VWEHX, VIPSX in mid-2000; see
+  the table above): treat their early decades as indicative;
 - rules that need intraday prices or volume (gaps, ranges, ATR, volume caps, MFI/VWAP) are
   meaningless on them;
 - sentences can name them like any ticker ("hold 60% SPYSIM and 40% TLTSIM", "vs SPYSIM"). A

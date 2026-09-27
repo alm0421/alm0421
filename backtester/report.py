@@ -216,14 +216,45 @@ def cost_sensitivity(res: Result, levels=(0, 5, 10, 25), warm=None) -> list[dict
     return rows
 
 
-def _aligned_buy_and_hold(t: str, idx: pd.DatetimeIndex, cap: float, day0: bool = False) -> pd.Series | None:
+def blend_rebalance(s) -> tuple[str, str]:
+    """(schedule, why) of a blended benchmark: as stated ("vs 60/40 SPY/AGG rebalanced quarterly"), else the
+    portfolio's own calendar schedule (a 60/40 portfolio rebalanced yearly is compared with a 60/40 blend rebalanced
+    yearly), else monthly (signal strategies, drift bands, rules re-evaluated every day)."""
+    stated = getattr(s, "benchmark_rebalance", None)
+    if stated:
+        return stated, "as stated"
+    rb = getattr(s, "rebalance", None)
+    if isinstance(rb, str) and (rb in ("quarterly", "semiannual", "yearly", "monthly", "weekly")
+                                or rb.startswith("yearly_")
+                                or (rb == "none" and not (getattr(s, "drift_band", None) or getattr(s, "drift_band_relative", None)))):
+        try:
+            from .portfolio import follows_rules
+            dynamic = follows_rules(s)
+        except Exception:  # noqa: BLE001
+            dynamic = False
+        if not dynamic:
+            return rb, "the portfolio's schedule"
+    return "monthly", "default"
+
+
+def _rebalance_words(rb: str) -> str:
+    if rb == "none":
+        return "never rebalanced (buy and hold)"
+    if rb.startswith("yearly_"):
+        import calendar as _c
+        return f"rebalanced yearly at the end of {_c.month_name[int(rb.split('_')[1])]}"
+    return f"rebalanced {rb.replace('semiannual', 'semi-annually')}"
+
+
+def _aligned_buy_and_hold(t: str, idx: pd.DatetimeIndex, cap: float, day0: bool = False,
+                          rebalance: str = "monthly") -> pd.Series | None:
     """Buy and hold bought at the close of the strategy's first real bar (idx[1]); the synthetic
     day-before point idx[0] carries the starting capital, as it does for the strategy. day0: the strategy was
     bought at idx[0]'s close (a portfolio starting from the prior session, as Portfolio Visualizer does), so the
     benchmark is too, when it has a price that day."""
     if len(idx) < 2 or day0:
-        return metrics.buy_and_hold(t, idx, cap)
-    b = metrics.buy_and_hold(t, idx[1:], cap)
+        return metrics.buy_and_hold(t, idx, cap, rebalance)
+    b = metrics.buy_and_hold(t, idx[1:], cap, rebalance)
     if b is not None and len(b) and b.index[0] == idx[1]:
         b = pd.concat([pd.Series([cap], index=idx[:1]), b]).rename(t)
     return b
@@ -276,8 +307,20 @@ def benchmark_series(res: Result, nav_: pd.Series | None = None, skipped: dict |
         if t not in names:
             names.append(t)
     out = {}
+    brb, why = blend_rebalance(s) if res.kind == "allocation" else (getattr(s, "benchmark_rebalance", None) or "monthly", "")
     for t in names:
-        b = _aligned_buy_and_hold(t, idx, cap, bool(res.extras.get("day0")))
+        b = _aligned_buy_and_hold(t, idx, cap, bool(res.extras.get("day0")), brb)
+        try:
+            is_blend = metrics.parse_blend(t) is not None
+        except ValueError:
+            is_blend = False
+        if is_blend and b is not None:
+            n_ = (f"Benchmark {metrics.benchmark_label(t)}: a blend of total returns, {_rebalance_words(brb)}"
+                  + {"as stated": " (as stated).", "the portfolio's schedule": " like the portfolio (say e.g. 'vs 60/40 "
+                     "SPY/AGG rebalanced monthly' for another schedule)."}.get(why, "."))
+            # (a parsed sentence already says it: "Benchmark: a blend of ...")
+            if n_ not in s.notes and not any(isinstance(x, str) and x.startswith("Benchmark: a blend of") for x in s.notes):
+                s.notes.append(n_)
         if b is not None and len(b) > 30:
             if nav_ is not None and len(idx) > 1 and b.index[0] > idx[1]:
                 base = nav_.reindex(nav_.index.union(b.index[:1])).ffill().get(b.index[0])
@@ -285,7 +328,10 @@ def benchmark_series(res: Result, nav_: pd.Series | None = None, skipped: dict |
                     b = b / float(b.iloc[0]) * float(base)
             out[bench_name(t)] = b
         elif skipped is not None:
-            skipped[bench_name(t)] = _first_date(t)
+            try:
+                skipped[bench_name(t)] = metrics.benchmark_first_date(t)
+            except ValueError:
+                skipped[bench_name(t)] = None
     return out
 
 
@@ -335,6 +381,9 @@ def benchmarks_with_flows(benches: dict[str, pd.Series], flows: pd.Series | None
         if equity is not None and len(equity) > 1 and b.index[0] > equity.index[1]:
             b0 = b.index[0]
             bal = equity.reindex(equity.index.union([b0])).ffill().get(b0)
+            if (bal is None or not np.isfinite(bal) or bal <= 0) and float(equity.iloc[0]) > 0 and (equity > 0).any():
+                # it starts after the portfolio ran out of money: from the starting balance instead
+                bal = float(equity.iloc[0])
             if bal is None or not np.isfinite(bal) or bal <= 0:
                 continue
             g = b / float(b.iloc[0]) * float(bal)
@@ -1039,6 +1088,77 @@ def holdings_stats(res: Result, rf="tbill", limit: int = 12) -> list[dict]:
     return out
 
 
+def total_return_series(tickers) -> list[str]:
+    """The holdings that are total-return series with no separate distributions (simulated SIM series, imported
+    series): their dividends are included in the price, so the income table cannot show them."""
+    out = []
+    for t in tickers:
+        if not (data.is_sim(t) or data.is_custom(t)):
+            continue
+        try:
+            df = data.load(t)
+        except (FileNotFoundError, data.DataError, KeyError):
+            continue
+        if "dividend" not in df or not (df["dividend"].fillna(0) != 0).any():
+            out.append(t)
+    return out
+
+
+def _skipped_benchmark_notes(s, skipped: dict, idx: pd.DatetimeIndex) -> list[str]:
+    """A note (shown as a warning) for every benchmark that cannot be shown, and why: a requested benchmark must never
+    disappear silently."""
+    end = idx[-1] if len(idx) else None
+    out = []
+    for k, d0 in skipped.items():
+        if d0 is None:
+            why = "there is no price data for it (or for a part of the blend)"
+        else:
+            d0 = pd.Timestamp(d0)
+            why = (f"its data starts {d0.date()}, after the period ends ({end.date()})" if end is not None and d0 > end
+                   else f"its data starts {d0.date()}, too close to the end of the period ({end.date()}) for a comparison"
+                   if end is not None else f"its data starts {d0.date()}")
+        n = f"The benchmark {short_label(k)} is not shown: {why}."
+        out.append(n)
+        if "Warning: " + n not in s.notes:
+            s.notes.append("Warning: " + n)
+    return out
+
+
+def _mark_depleted_years(yearly: pd.DataFrame, dep: pd.Timestamp) -> None:
+    """After the money ran out: no return in the later years (their balances are $0), marked "depleted"; the year
+    it ran out is a partial year to that day."""
+    yi = yearly.index.astype(int)
+    after = yi > dep.year
+    for c in ("return", "max_drawdown", "real_return", "exposure"):
+        if c in yearly:
+            yearly.loc[after, c] = np.nan
+    yearly["depleted"] = after
+    if dep.year not in set(yi) or (dep.month == 12 and dep.day >= 24):
+        return
+    for c in ("partial", "from", "to"):
+        yearly[c] = yearly[c].astype(object)
+    row = yearly.index[list(yi).index(dep.year)]
+    if not yearly.at[row, "partial"]:
+        yearly.at[row, "from"] = None
+    yearly.at[row, "partial"] = True
+    yearly.at[row, "to"] = dep.date()
+    if "inflation" in yearly:
+        # inflation (and the real return) of that year up to the day the money ran out
+        f = yearly.at[row, "from"]
+        infl = metrics.calendar_inflation(pd.Timestamp(f) if f is not None else pd.Timestamp(dep.year, 1, 1), dep)
+        yearly.at[row, "inflation"] = infl
+        ret = yearly.at[row, "return"]
+        if "real_return" in yearly:
+            yearly.at[row, "real_return"] = ((1 + ret) / (1 + infl) - 1 if np.isfinite(ret) and np.isfinite(infl)
+                                             else np.nan)
+
+
+def _depleted_trailing(end: pd.Timestamp, dep: pd.Timestamp) -> dict:
+    """Trailing returns as of the end of the period for a portfolio whose money ran out before it: n/a."""
+    return {"as_of": end.date(), **{k: None for k, *_ in metrics.TRAILING}, "Full": None, "full_ann": True,
+            "depleted_on": dep.date()}
+
+
 def flow_free_nav(spec, start=None) -> pd.Series | None:
     """The allocation re-run with no contributions or withdrawals: its equity is the time-weighted growth of the
     asset mix over the whole requested period, whatever the cash flows did (even after they emptied the account).
@@ -1068,10 +1188,14 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
     nv = metrics.floor_at_zero(metrics.nav(res.equity, flows) if has_flows else res.equity)
     nv_all = nv
     first_bar = res.equity.index[1] if len(res.equity) > 1 else None
-    # money ran out: everything (statistics, yearly rows, charts, holdings, benchmarks) stops on that day (a $0
-    # balance earns no return); the Monte Carlo still replays the whole scheduled period
+    # money ran out: the portfolio's statistics, holdings and monthly returns stop on that day (a $0 balance earns
+    # no return), as on Portfolio Visualizer; the benchmarks, the yearly table (n/a returns, $0 balances after it),
+    # the trailing returns and the charts keep running to the end of the period, and the Monte Carlo replays the
+    # whole scheduled period
     dep = res.extras.get("depleted") if has_flows else None
     res_run = res
+    nv_run = nv
+    flows_run = flows
     if dep is not None and res.equity.index[0] < dep < res.equity.index[-1]:
         res = trim_end(res, dep)
         flows = res.extras.get("flows")
@@ -1155,41 +1279,40 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
                "daily VaR/CVaR) are left blank.")
         warnings.append({"code": "monthly_steps", "level": "warn", "message": "Monthly-stepped data", "detail": msg})
     skipped: dict = {}
-    benches = benchmark_series(res, nv, skipped)
+    # the benchmarks run over the whole period, also after the portfolio's money ran out
+    benches = benchmark_series(res_run, nv_run, skipped)
     if has_flows:
-        # a like-for-like comparison with cash flows: a benchmark that cannot receive the same flows from a balance
-        # the portfolio actually had (its data starts after the money ran out) is left out, never shown without flows
-        sched0 = res.extras.get("flows_requested")
-        sched0 = sched0[sched0.index >= res.equity.index[0]] if sched0 is not None else flows
-        can = benchmarks_with_flows(benches, sched0, res.equity)
+        # a like-for-like comparison with cash flows: each benchmark receives the same flows from the portfolio's
+        # balance on its first day (from the starting balance when it starts after the money ran out)
+        sched0 = res_run.extras.get("flows_requested")
+        sched0 = sched0[sched0.index >= res_run.equity.index[0]] if sched0 is not None else flows_run
+        can = benchmarks_with_flows(benches, sched0, res_run.equity)
         for k in [k for k in benches if k not in can]:
             skipped[k] = benches.pop(k).index[0]
-        for k, d0 in skipped.items():
-            if d0 is None:
-                continue
-            d0 = pd.Timestamp(d0)
-            why = (f"after the portfolio ran out of money on {dep.date()}" if dep is not None and d0 >= dep
-                   else "too close to the end of the period")
-            n = (f"{k} is left out of the comparison: its data starts {d0.date()}, {why}. Benchmarks here receive the "
-                 "same contributions and withdrawals as the portfolio, starting from the portfolio's balance on their "
-                 "first day, so one that starts after the money ran out has nothing to compare.")
-            if n not in s.notes:
-                s.notes.append(n)
+    # only the requested (or default) comparison benchmark is announced: the extra SPY / QQQ columns simply start later
+    prim = bench_name(default_benchmark(res))
+    for n in _skipped_benchmark_notes(s, {k: v for k, v in skipped.items() if k == prim}, res_run.equity.index):
+        warnings.append({"code": "benchmark_missing", "level": "warn", "message": "Benchmark not shown", "detail": n})
     pname, pseries = _primary_bench(res, benches)
     rel = {} if no_trades else metrics.relative_stats(nv, pseries, rf, freq=basis)  # beta/alpha of idle cash mean nothing
-    yearly = metrics.yearly_detail(nv_all, res.trades, res.exposure, first_bar=first_bar)
-    bal = metrics.yearly_balances(res.equity, nv_all, flows if has_flows else None)
+    if dep is not None:
+        # the yearly table runs to the end of the period: after the depletion year the balance is $0 and there is no
+        # return; the depletion year is a partial year (to the day the money ran out)
+        yearly = metrics.yearly_detail(nv_run, res_run.trades, res_run.exposure, first_bar=first_bar)
+        bal = metrics.yearly_balances(res_run.equity, nv_run, flows_run)
+    else:
+        yearly = metrics.yearly_detail(nv_all, res.trades, res.exposure, first_bar=first_bar)
+        bal = metrics.yearly_balances(res.equity, nv_all, flows if has_flows else None)
     for c in bal.columns:
         yearly[c] = bal[c].reindex(yearly.index)
     monthly = metrics.monthly_table(nv_all)
     if dep is not None:
+        _mark_depleted_years(yearly, dep)
         # after the money ran out there is nothing to earn a return on: blank, not 0%
-        after = yearly.index.astype(int) > dep.year
-        for c in ("return", "max_drawdown", "real_return"):
-            if c in yearly:
-                yearly.loc[after, c] = np.nan
-        monthly.loc[monthly.index > dep.year] = np.nan
-        monthly.loc[dep.year, monthly.columns[dep.month:]] = np.nan
+        if len(monthly):
+            monthly.loc[monthly.index > dep.year] = np.nan
+            if dep.year in monthly.index:
+                monthly.loc[dep.year, monthly.columns[dep.month:]] = np.nan
     yr_b = metrics.yearly_returns(benches)
     for n in yr_b:
         yearly[n] = yr_b[n].reindex(yearly.index)
@@ -1210,15 +1333,19 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
         "turnover": res.extras.get("turnover_annual"), "rebalances": res.extras.get("rebalances"),
         "warnings": warnings, "no_trades": no_trades,
         "first_bar": first_bar, "fees": res.extras.get("fees", 0.0),
-        "equity_real": real_equity(res.equity),
+        "equity_real": real_equity(res_run.equity if dep is not None else res.equity),
         "attribution": attribution,
-        "trailing": {"Strategy": metrics.trailing_returns(nv, first_bar),
-                     **{k: metrics.trailing_returns(b, first_bar, end=nv.index[-1]) for k, b in benches.items()}},
+        "trailing": {"Strategy": (metrics.trailing_returns(nv, first_bar) if dep is None else
+                                  _depleted_trailing(res_run.equity.index[-1], dep)),
+                     **{k: metrics.trailing_returns(b, first_bar, end=res_run.equity.index[-1]) for k, b in benches.items()}},
+        # the account over the whole period ($0 after the money ran out), for the charts and the grid's periods
+        "equity_full": res_run.equity,
     }
     # the benchmarks receive the flows as scheduled (each capped at its own balance), not the strategy's capped ones
-    sched = res.extras.get("flows_requested") if has_flows else None
-    sched = sched[sched.index >= res.equity.index[0]] if sched is not None else (flows if has_flows else None)
-    bwf, bflows = benchmarks_with_flows(benches, sched, res.equity, with_paid=True)
+    sched = res_run.extras.get("flows_requested") if has_flows else None
+    sched = (sched[sched.index >= res_run.equity.index[0]] if sched is not None
+             else (flows_run if has_flows else None))
+    bwf, bflows = benchmarks_with_flows(benches, sched, res_run.equity, with_paid=True)
     A["benchmarks_with_flows"] = bwf
     A["benchmark_cash"] = {}
     for k, v in bwf.items():
@@ -1227,13 +1354,22 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
         cs = metrics.cashflow_stats(v, bflows[k])
         if late:
             cs["from"] = b0.date()
-            cs["note"] = "starts with the portfolio's balance on its first day"
+            cs["note"] = ("starts with the starting balance on its first day (the portfolio had run out of money)"
+                          if dep is not None and b0 > dep else "starts with the portfolio's balance on its first day")
         A["benchmark_cash"][k] = cs
     if res.kind == "allocation":
         from . import risk
         A["risk_contributions"] = risk.risk_contributions(res, nv)
         # Portfolio Visualizer's annual income table and each holding's calendar-year returns
         A["income_yearly"] = metrics.income_yearly(res.equity, res.extras.get("income"))
+        # simulated (SIM) and imported series are total-return series: their income is in the price, not paid out
+        held_ = [c for c in (res.holdings.columns if res.holdings is not None else []) if c not in ("cash", "other")]
+        tr_ = total_return_series(held_)
+        A["income_total_return"] = tr_
+        A["income_all_total_return"] = bool(tr_) and len(tr_) == len(held_)
+        if len(A["income_yearly"]) and A["income_all_total_return"]:
+            A["income_yearly"]["dividends"] = np.nan
+            A["income_yearly"]["dividend_yield"] = np.nan
         held = [c for c in (res.holdings.columns if res.holdings is not None else []) if c != "cash"]
         A["asset_yearly"] = metrics.asset_yearly_returns(res.prices or {}, held[:40], res.equity.index)
     A["withdrawal_rates"] = {}
@@ -1337,8 +1473,16 @@ def common_window_stats(analyses: list[dict], rf="tbill") -> dict:
         series[k] = v
     if has_flows:
         balances.update(analyses[0].get("benchmarks_with_flows") or {})
+    # a run whose money ran out does not end the period for the others: it is measured while funded and marked
+    ends, depleted = {}, {}
+    for i, A in enumerate(analyses):
+        name = runs[i]
+        e = A.get("equity_full")
+        ends[name] = (e if e is not None and len(e) else series[name]).index[-1]
+        if A.get("depleted"):
+            depleted[name] = str(A["depleted"])
     start = max(series[k].index[0] for k in runs)
-    end = min(series[k].index[-1] for k in runs)
+    end = min(ends[k] for k in runs)
     fb = next((A.get("first_bar") for A in analyses if A.get("first_bar") is not None and A["result"].equity.index[0] == start), None)
     out = {"start": metrics.display_date(start, fb).date(), "end": end.date(), "columns": {}, "initial": base,
            "has_flows": has_flows}
@@ -1346,6 +1490,7 @@ def common_window_stats(analyses: list[dict], rf="tbill") -> dict:
     late = [k for k in series if k not in runs and len(series[k]) and series[k].index[0] > clim]
     out["columns"] = _window_stats({k: v for k, v in series.items() if k not in late}, start, end, fb, rf, blank, monthly,
                                    base, balances)
+    out["depleted"] = depleted     # {run: the day its money ran out}: its column covers the funded part only
     out["columns_from"] = {}   # kept for older readers: nothing in "columns" starts later any more
     own = _window_stats({k: series[k] for k in late}, start, end, fb, rf, blank, base=base, balances=balances)
     out["benchmarks_own"] = own
@@ -1353,7 +1498,7 @@ def common_window_stats(analyses: list[dict], rf="tbill") -> dict:
     out["benchmarks_own_to"] = {k: str(min(series[k].index[-1], end).date()) for k in own}
     # full period: from the earliest run's start to the latest end
     fstart = min(A["nav"].index[0] for A in analyses)
-    fend = max(A["nav"].index[-1] for A in analyses)
+    fend = max(ends.values())
     ffb = next((A.get("first_bar") for A in analyses if A["nav"].index[0] == fstart), None)
     out["full"] = _window_stats(series, fstart, fend, ffb, rf, blank, monthly, base, balances)
     out["full_start"] = metrics.display_date(fstart, ffb).date()
@@ -1367,7 +1512,10 @@ def common_window_stats(analyses: list[dict], rf="tbill") -> dict:
 # ------------------------------------------------------------------ console
 
 def pct(x, d=2):
-    return "n/a" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{x * 100:.{d}f}%"
+    if x is None or (isinstance(x, float) and math.isnan(x)):
+        return "n/a"
+    t = f"{x * 100:.{d}f}"
+    return (t[1:] if t.startswith("-") and not t.strip("-0.") else t) + "%"     # no "-0.00%"
 
 
 def num(x, d=2):
@@ -1512,9 +1660,13 @@ def console_summary(A: dict) -> str:
     if bwf:
         L.append("(benchmark final values include the same contributions and withdrawals as the strategy"
                  + ("; one that starts later starts with the strategy's balance on its first day" if late else "")
-                 + (f"; all values on {A['depleted']}, the day the money ran out" if A.get("depleted") else "") + ")")
+                 + (f"; the strategy's on {A['depleted']}, the day its money ran out, the benchmarks' at the end"
+                    if A.get("depleted") else "") + ")")
     elif late:
-        L.append("(a benchmark that starts later is bought at the strategy's growth index on its first day)")
+        L.append("(a benchmark marked 'from' starts later: it is bought with the strategy's value on its first day ("
+                 + ", ".join(f"{short_label(n)} ${float(A['benchmarks'][n].iloc[0]):,.0f} on {d}" for n, d in late.items()
+                             if n in A["benchmarks"])
+                 + "), so its Final $ is that amount's growth; its CAGR, Sharpe and MaxDD cover its own period)")
     tr_ = A.get("trailing") or {}
     if A["result"].kind == "allocation" and tr_.get("Strategy"):
         L.append("-" * 78)
@@ -1524,7 +1676,8 @@ def console_summary(A: dict) -> str:
         L.append(f"{'':{tw}s} " + " ".join(f"{k:>7s}" for k in keys))
         for n, t in tr_.items():
             if t:
-                L.append(f"{_fit(short_label(n), tw)} " + " ".join(f"{pct(t.get(k), 1):>7s}" for k in keys))
+                L.append(f"{_fit(short_label(n) + (' (ran out)' if t.get('depleted_on') else ''), tw)} "
+                         + " ".join(f"{pct(t.get(k), 1):>7s}" for k in keys))
     wr = A.get("withdrawal_rates") or {}
     if wr:
         base = (f"of the balance when withdrawals start ({wr['base_date']}, ${wr['base_balance']:,.0f}), "
@@ -1569,7 +1722,8 @@ def console_summary(A: dict) -> str:
         tail = " ".join(_fit((pct(row[c], 1) + ("*" if (bpart.get(c) or {}).get("year") == int(yr) else ""))
                              if pd.notna(row[c]) else '', w, right=True) for c, w in zip(cols, widths))
         if alloc:
-            L.append(f"{lab:8s} {pct(row['return'], 1):>8s} {pct(row.get('real_return'), 1):>7s} {pct(row.get('inflation'), 1):>6s} "
+            ret_ = "ran out" if row.get("depleted") is True else pct(row['return'], 1)
+            L.append(f"{lab:8s} {ret_:>8s} {pct(row.get('real_return'), 1):>7s} {pct(row.get('inflation'), 1):>6s} "
                      f"{row.get('start_balance', np.nan):>13,.0f} {row.get('contributions', 0):>11,.0f} {row.get('withdrawals', 0):>11,.0f} "
                      f"{row.get('end_balance', np.nan):>13,.0f} " + tail)
         else:
@@ -1585,7 +1739,8 @@ def console_summary(A: dict) -> str:
         L.append("Infl. = CPI inflation over the calendar year (December to December; a partial year to the latest month "
                  "published). Real = the return after that inflation.")
     if A.get("depleted"):
-        L.append(f"Portfolio depleted on {A['depleted']}: the report stops there (the balance was $0 after it).")
+        L.append(f"Portfolio depleted on {A['depleted']}: its balance is $0 after that day and it has no return "
+                 "('ran out'); the benchmarks run to the end of the period.")
     if A.get("return_basis") == "monthly":
         L.append(f"Monthly steps: {data.stepped_text({t: [(pd.Timestamp(a), pd.Timestamp(b)) for a, b in r] for t, r in A['stepped'].items()})}"
                  " - volatility, Sharpe, Sortino, skew and kurtosis from monthly returns; daily figures blank.")
@@ -1645,7 +1800,7 @@ def run_payload(A: dict, i: int, idx: pd.DatetimeIndex) -> dict:
         "interpretation": interpretation(s).splitlines(),
         "notes": list(s.notes),
         "spec": dataclasses.asdict(s),
-        "equity": _ser(res.equity, idx, 2),
+        "equity": _ser(A["equity_full"] if A.get("equity_full") is not None else res.equity, idx, 2),
         "nav": _ser(A["nav"], idx, 2),
         "drawdown": _ser(metrics.drawdown(A["nav"]) * 100, idx, 3),
         "stats": A["stats"], "cash": A["cash"], "trade_stats": A["trade_stats"], "exposure": A["exposure"],
@@ -1688,6 +1843,8 @@ def run_payload(A: dict, i: int, idx: pd.DatetimeIndex) -> dict:
         "return_basis": A.get("return_basis") or "daily",
         "stepped": A.get("stepped") or {},
         "income_yearly": _frame_records(A.get("income_yearly")),
+        "income_total_return": A.get("income_total_return") or [],
+        "income_all_total_return": bool(A.get("income_all_total_return")),
         "asset_yearly": ({"tickers": [str(c) for c in A["asset_yearly"].columns],
                           "rows": [{"year": int(y), "values": [None if pd.isna(v) else float(v) for v in row]}
                                    for y, row in A["asset_yearly"].iterrows()]}
@@ -1722,9 +1879,12 @@ def build_payload(analyses: list[dict], out_dir: Path | None = None) -> dict:
     """The report's data. With `out_dir`, price charts of up to MAX_EMBED_TICKERS tickers per run are embedded
     and every other traded ticker is written to out_dir/charts/ for loading on demand; without it, only the
     embedded ones (within MAX_PRICE_TICKERS and the size budget) are charted."""
-    idx = analyses[0]["result"].equity.index
+    def full_idx(A):   # a portfolio whose money ran out still spans the whole period ($0 after it)
+        e = A.get("equity_full")
+        return (e if e is not None else A["result"].equity).index
+    idx = full_idx(analyses[0])
     for A in analyses[1:]:
-        idx = idx.union(A["result"].equity.index)
+        idx = idx.union(full_idx(A))
     benches = analyses[0]["benchmarks"]
     first = analyses[0]
     title = first["strategy"].description or first["strategy"].summary().splitlines()[0]
