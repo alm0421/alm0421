@@ -308,9 +308,11 @@ def test_model_portfolios(name, weights):
 
 def test_model_portfolio_uses_sims_before_the_funds():
     p = port("golden butterfly since 1972, rebalance yearly")
-    assert [k["asset"] for k in p.tree["children"]] == ["SPYSIM", "VBRSIM", "TLTSIM", "SHYSIM", "GLDSIM"]
+    # VTI's fund-exact series (VTISIM: the market model, then VTSMX, then VTI) when it is built, else SPYSIM
+    us = "VTISIM" if "VTISIM" in data.available_tickers() else "SPYSIM"
+    assert [k["asset"] for k in p.tree["children"]] == [us, "VBRSIM", "TLTSIM", "SHYSIM", "GLDSIM"]
     assert p.rebalance == "yearly" and p.start == "1972-01-01"
-    assert any("SPYSIM for VTI" in n and "GLDSIM for GLD" in n for n in p.notes)
+    assert any(f"{us} for VTI" in n and "GLDSIM for GLD" in n for n in p.notes)
 
 
 def test_model_portfolio_without_a_sim_keeps_the_etf():
@@ -318,7 +320,8 @@ def test_model_portfolio_without_a_sim_keeps_the_etf():
     kids = [k["asset"] for k in p.tree["children"]]
     if "DBCSIM" not in data.available_tickers():
         assert kids[-1] == "DBC" and any("No long-history series for DBC" in n for n in p.notes)
-    assert kids[:4] == ["SPYSIM", "TLTSIM", "IEFSIM", "GLDSIM"]
+    us = "VTISIM" if "VTISIM" in data.available_tickers() else "SPYSIM"
+    assert kids[:4] == [us, "TLTSIM", "IEFSIM", "GLDSIM"]
 
 
 def test_model_portfolio_nested():

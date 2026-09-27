@@ -128,10 +128,22 @@ def _all_days():
 
 @pytest.mark.skipif(not data.available_tickers(), reason="price data not downloaded")
 def test_no_day_disagrees_with_the_total_return_unless_whitelisted():
-    bad = [r for r in _all_days() if (r[0], r[1]) not in data.CA_WHITELIST]
+    # mutual funds' free histories often misreport capital-gains distributions: those are not reconciled but every
+    # backtest that holds one across such a day gets a data-quality warning (data.distribution_note), tested below
+    from backtester import fund_lists
+    bad = [r for r in _all_days() if (r[0], r[1]) not in data.CA_WHITELIST and r[0] not in fund_lists.MUTUAL_FUNDS]
     assert not bad, f"engine total return differs from adj_close by more than 2% (reconcile or whitelist): {bad[:20]}"
     for why in data.CA_WHITELIST.values():
         assert len(why) > 20                                                 # every exception has a reason
+
+
+@pytest.mark.skipif("PCRAX" not in data.available_tickers(), reason="PCRAX not downloaded")
+def test_mutual_fund_distribution_mismatch_is_warned():
+    days = data.distribution_mismatch_days("PCRAX")
+    assert days, "PCRAX's 2008 distribution disagrees with its adjusted close"
+    spec = parser.parse("hold 100% PCRAX from 2008 to 2009")
+    runner.run(spec)
+    assert any(n.startswith("Warning: data quality") and "PCRAX" in n for n in spec.notes)
 
 
 # ------------------------------------------------------------ as-traded share units

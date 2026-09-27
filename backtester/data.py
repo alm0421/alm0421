@@ -773,6 +773,40 @@ _READING = {"per_presplit": "the payout was per pre-split share",
             "unresolved": "no consistent reading found; left as reported - trades held over it may be misstated"}
 
 
+@lru_cache(maxsize=None)
+def distribution_mismatch_days(ticker: str) -> tuple:
+    """Days where the file's own figures disagree: the total return from price + reported distribution differs
+    from the adjusted close's by more than CA_TOLERANCE, and no reconciliation or whitelist entry explains it.
+    Mostly old mutual-fund histories from Yahoo (capital-gains distributions missing or garbled): ((date, gap), ...)."""
+    try:
+        df = load(ticker)
+    except Exception:  # noqa: BLE001
+        return ()
+    if len(df) < 2 or not {"close", "dividend", "adj_close"} <= set(df.columns):
+        return ()
+    c, d, a = df["close"], df["dividend"], df["adj_close"]
+    diff = ((c + d) / c.shift(1) - a / a.shift(1)).abs()
+    bad = diff[(diff > CA_TOLERANCE).fillna(False)]
+    return tuple((day, float(v)) for day, v in bad.items() if (canonical(ticker), str(day.date())) not in CA_WHITELIST)
+
+
+def distribution_note(tickers, start=None, end=None) -> str | None:
+    """A warning naming held tickers whose distributions disagree with their adjusted close inside [start, end]."""
+    parts = []
+    for t in tickers:
+        days = [(d, g) for d, g in distribution_mismatch_days(t)
+                if (start is None or d >= pd.Timestamp(start)) and (end is None or d <= pd.Timestamp(end))]
+        if days:
+            d, g = max(days, key=lambda x: x[1])
+            parts.append(f"{t} on {len(days)} day(s) (largest {g:.0%} on {d.date()})")
+    if not parts:
+        return None
+    return ("Warning: data quality: the price + distribution figures disagree with the adjusted close for "
+            + "; ".join(parts) + ". This is usually a mutual fund whose free (Yahoo) history misreports "
+            "capital-gains distributions; returns across those days may be wrong. Prefer the fund's ETF share class "
+            "or a long-history series for those dates.")
+
+
 def corporate_action_note(tickers, start=None, end=None) -> str | None:
     """A note listing the reconciled corporate-action days of `tickers` inside [start, end]."""
     parts = []
