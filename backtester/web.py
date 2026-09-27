@@ -720,9 +720,10 @@ GRID_REBALANCE = ("none", "monthly", "quarterly", "semiannual", "yearly", "bands
 # asset-class table to the longest-history series with data, e.g. "US Small Cap Value" -> VBRSIM)
 GRID_ASSET_CLASSES = (
     "US Stock Market", "US Large Cap", "US Large Cap Value", "US Large Cap Growth", "US Mid Cap", "US Mid Cap Value",
-    "US Mid Cap Growth", "US Small Cap", "US Small Cap Value", "US Small Cap Growth", "International Stocks",
-    "International Developed Stocks", "International Small Cap", "International Small Cap Value",
-    "International Value", "Emerging Markets", "European Stocks", "Japan", "REITs", "Gold", "Commodities",
+    "US Mid Cap Growth", "US Small Cap", "US Small Cap Value", "US Small Cap Growth", "US Micro Cap", "Global Stocks",
+    "International Stocks", "International Developed Stocks", "International Small Cap",
+    "International Small Cap Value", "International Value", "Emerging Markets", "European Stocks", "Pacific Stocks",
+    "Japan", "REITs", "International REITs", "Gold", "Commodities",
     "Total Bond Market", "Short-Term Treasuries", "Intermediate-Term Treasuries", "Long-Term Treasuries", "TIPS",
     "Corporate Bonds", "Long-Term Corporate Bonds", "High Yield Bonds", "Municipal Bonds", "International Bonds",
     "Emerging Market Bonds", "T-Bills")

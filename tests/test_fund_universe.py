@@ -201,7 +201,8 @@ def test_pv_asset_class_names_after_a_weight():
 
 
 @pytest.mark.parametrize("phrase,want", [
-    ("US large cap value", "VTVSIM"), ("US large cap growth", "VUGSIM"), ("US large cap", "SPYSIM"),
+    ("US large cap value", "VTVSIM"), ("US large cap growth", "VUGSIM"),
+    ("US large cap", "VOOSIM"),   # large caps (Fama-French largest 30% of NYSE stocks, VFINX), not SPYSIM's whole market
     ("US mid cap", "MIDSIM"), ("US small cap value", "VBRSIM"), ("small cap growth", "VBKSIM"),
     ("US small cap", "VBSIM"), ("international developed", "EFASIM"), ("REITs", "VNQSIM"), ("gold", "GLDSIM"),
     ("commodities", "DBCSIM"), ("short term treasury", "SHYSIM"), ("intermediate term treasuries", "IEFSIM"),

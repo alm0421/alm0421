@@ -219,6 +219,9 @@ class Portfolio:
     # dynamic allocation (Portfolio Visualizer's glide path): the tree's fixed weights are the start mix and the target
     # moves towards glide["to"] ({ticker: weight}) as the calendar advances; see GLIDE_KEYS / glide_mix
     glide: dict | None = None
+    # "using raw fund history": use a mutual fund's early free history even where it misses distributions and
+    # has no published returns to repair it (backtester/fund_history.py); by default such a fund starts later
+    raw_fund_history: bool = False
     name: str = ""
     description: str = ""
     notes: list[str] = field(default_factory=list)

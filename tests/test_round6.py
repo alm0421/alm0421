@@ -151,7 +151,8 @@ def test_desert_and_buffett_weights_and_proxy_notes():
     p = port("desert portfolio")
     assert dict(zip([k["asset"] for k in p.tree["children"]], p.tree["w"])) == {"IEF": 0.6, "VTI": 0.3, "GLD": 0.1}
     p = port("buffett 90/10 since 1976")
-    assert [k["asset"] for k in p.tree["children"]] == ["SPYSIM", "SHYSIM"] and p.tree["w"] == [0.9, 0.1]
+    # an S&P 500 fund before VOO existed: VOOSIM (large caps, then VFINX), not SPYSIM (the whole market before 1993)
+    assert [k["asset"] for k in p.tree["children"]] == ["VOOSIM", "SHYSIM"] and p.tree["w"] == [0.9, 0.1]
     assert any("Proxies" in n for n in port("global market portfolio").notes)
     assert any("VSS" in n for n in port("weird portfolio").notes)
 

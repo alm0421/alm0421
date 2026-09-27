@@ -220,10 +220,19 @@ SIM_FOR = {
     # "fund-exact" series first: the named fund as soon as it or its mutual-fund twin exists
     "VTI": [("VTISIM", "the US market (Fama-French) until April 1992, then the Vanguard Total Stock Market Index fund "
                        "VTSMX, and VTI itself from 2001"), ("SPYSIM", "the US market (Fama-French), then SPY")],
-    "VOO": [("SPYSIM", "the US market, then SPY")], "IVV": [("SPYSIM", "the US market, then SPY")],
-    "VV": [("SPYSIM", "US large caps: the US market (Fama-French), then SPY")],
+    # S&P 500 / large-cap funds: VOOSIM (the largest 30% of NYSE stocks, then VFINX from 1980, then VOO); SPYSIM, the
+    # whole US market before 1993, only when VOOSIM is missing
+    "VOO": [("VOOSIM", None), ("SPYSIM", "the US market, then SPY")],
+    "IVV": [("VOOSIM", "US large caps (Fama-French largest 30% of NYSE stocks, then VFINX), then VOO"),
+            ("SPYSIM", "the US market, then SPY")],
+    "VV": [("VOOSIM", "US large caps (Fama-French largest 30% of NYSE stocks, then VFINX), then VOO"),
+           ("SPYSIM", "US large caps: the US market (Fama-French), then SPY")],
+    "IWC": [("IWCSIM", None)],
+    "VT": [("VTSIM", None)],
+    "ACWI": [("VTSIM", "global stocks (Fama-French US + developed + emerging, cap-weighted), then VT")],
+    "VNQI": [("VNQISIM", None)],
     "IJT": [("VBKSIM", "US small-cap growth (Fama-French), then VBK")],
-    "VPL": [("EWJSIM", "Japanese stocks (about 60% of the Pacific index), then EWJ")],
+    "VPL": [("VPLSIM", None), ("EWJSIM", "Japanese stocks (about 60% of the Pacific index), then EWJ")],
     "TLT": [("TLTSIM", None)], "VGLT": [("TLTSIM", "long Treasuries, then TLT")],
     "IEF": [("IEFSIM", None)], "SHY": [("SHYSIM", None)], "BIL": [("BILSIM", None)],
     "IEI": [("IEISIM", None)], "VB": [("VBSIM", None)], "VBR": [("VBRSIM", None)], "VTV": [("VTVSIM", None)],
@@ -478,13 +487,16 @@ ASSET_CLASSES = [
      "US total stock market"),
     (rf"{_US}?large{_CAP} value", ["VTVSIM", "VTV"], "US large-cap value"),
     (rf"{_US}?large{_CAP} growth", ["VUGSIM", "VUG"], "US large-cap growth"),
-    (rf"{_US}?large{_CAP}(?: blend)?", ["SPYSIM", "SPY"], "US large caps (S&P 500)"),
+    (rf"{_US}?large{_CAP}(?: blend)?", ["VOOSIM", "SPYSIM", "VOO"], "US large caps (S&P 500)"),
     (rf"{_US}?mid{_CAP} value", ["VOESIM", "VOE"], "US mid-cap value"),
     (rf"{_US}?mid{_CAP} growth", ["VOTSIM", "VOT"], "US mid-cap growth"),
     (rf"{_US}?mid{_CAP}(?: blend)?", ["MIDSIM", "MDY"], "US mid caps"),
     (rf"{_US}?small{_CAP} value", ["VBRSIM", "VBR"], "US small-cap value"),
     (rf"{_US}?small{_CAP} growth", ["VBKSIM", "VBK"], "US small-cap growth"),
     (rf"{_US}?small{_CAP}(?: blend)?", ["VBSIM", "VB"], "US small caps"),
+    (rf"{_US}?micro{_CAP}", ["IWCSIM", "IWC"], "US micro caps"),
+    (r"(?:international|global ex[- ]u\.?s\.?|ex[- ]u\.?s\.?|foreign) (?:reits?|real estate)",
+     ["VNQISIM", "VNQI"], "international (ex-US) REITs"),
     (r"(?:unhedged international (?:government |treasury )?bonds?|international (?:government |treasury )?bonds? \(?unhedged\)?|"
      r"global bonds?(?: ex[- ]u\.?s\.?)? \(?unhedged\)?)", ["BWXSIM", "BWX"], "international government bonds, unhedged"),
     (r"international (?:government )?bonds?|global bonds?(?: ex[- ]u\.?s\.?)?", ["BNDXSIM", "BNDX"],
@@ -500,6 +512,10 @@ ASSET_CLASSES = [
     (r"emerging markets? (?:bonds|debt)", ["EMBSIM", "EMB"], "emerging-market bonds"),
     (r"emerging markets?(?: stocks| equities)?", ["VWOSIM", "EEMSIM", "VWO"], "emerging-market stocks"),
     (r"european stocks|europe(?:an)? equities|europe", ["VGKSIM", "VGK"], "European stocks"),
+    (r"(?:developed )?pacific(?: stocks| equities)?|(?:developed )?asia[- ]pacific(?: stocks| equities)?",
+     ["VPLSIM", "VPL"], "developed Pacific stocks"),
+    (r"(?:global|world|all[- ]world|total world)(?: stock market| stocks| equities)|(?:msci )?acwi",
+     ["VTSIM", "VT"], "global stocks (US + developed + emerging)"),
     (r"japan(?:ese stocks)?", ["EWJSIM", "EWJ"], "Japanese stocks"),
     (r"(?:us |u\.s\. )?reits?|real estate(?: investment trusts)?", ["VNQSIM", "VNQ"], "US REITs"),
     (r"gold", ["GLDSIM", "GLD"], "gold"),
@@ -3511,6 +3527,10 @@ def common_options(T: Text, notes: list[str]) -> dict:
     if T.find(r"(?:using |with )?(?:only )?(?:today's|current) (?:index )?members(?: only)?|ignore (?:index )?membership(?: history)?|without point[- ]in[- ]time(?: membership)?"):
         kw["point_in_time"] = False
     T.find(r"(?:using |with )?point[- ]in[- ]time(?: index)? membership")
+    # mutual funds whose early free history misses distributions start later unless the run opts in
+    # (backtester/fund_history.py)
+    if T.find(r",? ?(?:using |with |use )(?:the )?raw (?:mutual )?fund histor(?:y|ies)"):
+        kw["raw_fund_history"] = True
     return kw
 
 
@@ -7289,7 +7309,7 @@ def parse_allocation(text: str) -> Portfolio:
     if "commission_per_share" in kw:
         raise ParseError("Per-share commissions are not supported for allocation portfolios; use '$1 per trade' or '0.1% commission'.")
     pk: dict = {k: v for k, v in kw.items() if k in ("capital", "slippage_bps", "commission", "commission_pct", "start", "end", "cash_rate", "point_in_time",
-                                                   "commission_model", "slippage_model")}
+                                                   "commission_model", "slippage_model", "raw_fund_history")}
 
     # rebalancing
     rb = None
