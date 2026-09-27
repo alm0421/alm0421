@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-09-27T03:57:36+00:00",
+ "updated_utc": "2026-09-27T07:09:10+00:00",
  "constituent_source": "stockanalysis.com",
  "nasdaq100": [
   "AAPL",
@@ -431,6 +431,8 @@
   "EWH",
   "VCLT",
   "MUB",
+  "BWX",
+  "IGOV",
   "IVV",
   "ITOT",
   "SPTM",
@@ -685,8 +687,6 @@
   "BKLN",
   "SRLN",
   "IAGG",
-  "BWX",
-  "IGOV",
   "VWOB",
   "PCY",
   "EMLC",
@@ -1088,6 +1088,7 @@
   "BNDSIM",
   "TIPSIM",
   "HYGSIM",
+  "BWXSIM",
   "BNDXSIM",
   "EEMSIM",
   "VWOSIM",
@@ -2597,16 +2598,6 @@
    "first": "2015-11-12",
    "last": "2026-09-25",
    "rows": 2732
-  },
-  "BWX": {
-   "first": "2007-10-11",
-   "last": "2026-09-25",
-   "rows": 4769
-  },
-  "IGOV": {
-   "first": "2009-01-30",
-   "last": "2026-09-25",
-   "rows": 4441
   },
   "VWOB": {
    "first": "2013-06-04",
@@ -6237,6 +6228,16 @@
    "first": "2007-09-10",
    "last": "2026-09-25",
    "rows": 4792
+  },
+  "BWX": {
+   "first": "2007-10-11",
+   "last": "2026-09-25",
+   "rows": 4769
+  },
+  "IGOV": {
+   "first": "2009-01-30",
+   "last": "2026-09-25",
+   "rows": 4441
   },
   "JPM": {
    "first": "1980-03-17",
