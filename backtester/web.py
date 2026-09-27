@@ -324,6 +324,50 @@ def _new_id(label: str) -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S-") + h
 
 
+# The download files of a run (CSV tables, report.xlsx) and its on-demand chart files (charts/*.js) are written after
+# the answer, in a background thread, so a run returns as soon as its report.html is ready; a request for one of those
+# files (GET /r/<id>/...) waits for that thread. {run folder: (thread, the file names it writes; "charts/" for all)}
+_EXPORTS: dict[str, tuple[threading.Thread, set]] = {}
+_EXPORTS_LOCK = threading.Lock()
+
+
+def _write_report(analyses, out: Path, common: dict | None = None) -> list[str]:
+    """report.html (and summary.json, strategy.json, charts) now, the download files in the background. Returns the
+    names of every file the run folder will hold."""
+    jobs: list = []
+    report.write_outputs(analyses, out, exports=False, common=common, deferred=jobs)   # (jobs: the chart files)
+    jobs += report.export_jobs(analyses, out)
+
+    def work():
+        for name, job in jobs:
+            try:
+                job()
+            except Exception:  # noqa: BLE001 - a failed export must not take the site down (the report is there)
+                traceback.print_exc()
+    t = threading.Thread(target=work, name=f"exports {out.name}", daemon=True)
+    pending = {"charts/" if n == "charts" else n for n, _ in jobs}
+    with _EXPORTS_LOCK:
+        for k in [k for k, v in _EXPORTS.items() if not v[0].is_alive()]:
+            _EXPORTS.pop(k, None)
+        _EXPORTS[str(out.resolve())] = (t, pending)
+    t.start()
+    return sorted({p.name for p in out.iterdir()} | {n for n, _ in jobs if n != "charts"})
+
+
+def wait_exports(folder: Path, name: str | None = None, timeout: float = 300.0) -> None:
+    """Wait until the files the background thread of the run in `folder` writes are written (no-op when none are
+    pending). With `name` (a path inside the folder), only when that file is one of them."""
+    with _EXPORTS_LOCK:
+        hit = _EXPORTS.get(str(Path(folder).resolve()))
+    if hit is None:
+        return
+    t, pending = hit
+    if name is not None and name not in pending and not (name.startswith("charts/") and "charts/" in pending):
+        return
+    if t.is_alive() and t is not threading.current_thread():
+        t.join(timeout)
+
+
 def _summary_row(rid: str, A: dict, kind: str, label: str, spec, extra: dict | None = None, res=None,
                  rf="tbill") -> dict:
     st = A["stats"]
@@ -372,14 +416,14 @@ def api_run(body):
     A = report.analyze(res, rf=rf, sensitivity=sens)
     rid = _new_id(spec.description)
     out = RUNS / rid
-    report.write_outputs(A, out)
+    files = _write_report(A, out)
     row = _summary_row(rid, report._clean(A), res.kind, spec.name or spec.description[:80], spec, res=res, rf=rf)
     row["key"] = key
     with LOCK:
         idx = _index()
         idx.insert(0, report._clean(row))
         _save_index(idx)
-    return {"id": rid, "url": f"/r/{rid}/report.html", "files": sorted(p.name for p in out.iterdir()),
+    return {"id": rid, "url": f"/r/{rid}/report.html", "files": files,
             "summary": report._clean(row), "interpretation": spec.summary(), "notes": spec.notes,
             "spec": runner.to_dict(spec), "share": row["share"]}
 
@@ -634,8 +678,9 @@ def _compare_run(specs, names=None) -> dict:
         s.name = s.name[:40]
         analyses.append(report.analyze(runner.run(s), sensitivity=False))
     rid = _new_id("compare")
-    report.write_outputs(analyses, RUNS / rid)
     C = report.common_window_stats(analyses) if len(analyses) > 1 else None
+    # (the report's own common-period table is the same one when it uses the T-bill rate, the default)
+    _write_report(analyses, RUNS / rid, common=C if C is not None and analyses[0]["rf"] == "tbill" else None)
     row = {"id": rid, "created": datetime.now().isoformat(timespec="seconds"), "kind": "compare",
            "label": " vs ".join(s.name for s in specs), "text": " | ".join(s.description for s in specs)}
     with LOCK:
@@ -1388,6 +1433,7 @@ def api_delete(rid):
         _save_index(idx)
     d = RUNS / rid
     if d.exists() and d.parent == RUNS:
+        wait_exports(d)
         shutil.rmtree(d)
     return {"deleted": rid}
 
@@ -1502,6 +1548,9 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/r/"):
                 rel = urllib.parse.unquote(path[3:])
                 f = (RUNS / rel).resolve()
+                if RUNS.resolve() in f.parents:
+                    run_dir, _, name = rel.partition("/")
+                    wait_exports(RUNS / run_dir, name)    # a download or chart file still being written
                 if RUNS.resolve() not in f.parents or not f.is_file():
                     return self._send(404, b"not found", "text/plain")
                 ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
@@ -1548,12 +1597,31 @@ class Handler(BaseHTTPRequestHandler):
         return self._json(404, {"error": "unknown endpoint"})
 
 
+def warm_up() -> None:
+    """Load what nearly every request reads, once, when the site starts (it stays in memory for later requests: price
+    data, T-bill rates, CPI, index membership, the parser's patterns), so the first run is as fast as the next."""
+    try:
+        api_status()
+        api_tickers()
+        for t in data.BENCHMARKS:
+            data.load(t)
+        data.tbill_rate()
+        data.cpi()
+        data.cpi_monthly()
+        data.membership()
+        for text in ("60% SPY 40% AGG since 2020", "buy SPY when it is down 3 days in a row, sell at the next close since 2020"):
+            report.analyze(runner.run(parser.parse(text)), sensitivity=False)
+    except Exception:  # noqa: BLE001 - only a head start: any failure shows up in the request that needs it
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m backtester web")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 to share on your network")
     a = p.parse_args(argv)
     RUNS.mkdir(parents=True, exist_ok=True)
+    threading.Thread(target=warm_up, name="warm-up", daemon=True).start()
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     print(f"Backtester site running on http://{a.host if a.host != '0.0.0.0' else 'localhost'}:{a.port}  (Ctrl+C to stop)")
     try:

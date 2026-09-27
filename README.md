@@ -327,7 +327,10 @@ never quietly drops them or swaps in a different ticker.
 - A Monte Carlo block bootstrap (with "chance the money lasts" when there are withdrawals) and a
   transaction-cost sensitivity table.
 - Exports: HTML, Excel, CSV (trades, orders, equity, holdings, yearly, monthly), JSON, and PDF
-  (browser or `--pdf`).
+  (browser or `--pdf`). The command line writes them all before it returns. The site shows the report as soon as
+  report.html is written and writes the CSV and Excel files (and the price charts of tickers beyond the first 12,
+  `charts/*.js`) just after, in the background; a download or chart that is still being written simply waits for
+  it (the files are the same either way).
 
 ## Command line
 
@@ -840,6 +843,16 @@ python -m backtester trade "buy QQQ when RSI(2) is below 10, sell when RSI(2) is
 
 ## Data
 
+**Speed.** Reading a price file is quick, but `data.load` also reconciles corporate actions, runs the integrity
+gate and repairs bad bars (about 0.1 s a ticker, a minute for a Nasdaq-100 universe). Its results are kept in
+`.cache/prices/` (gitignored) and read back by later runs. The cache is keyed by a fingerprint of every price
+file's name, size and modification time, the reference files in `data/` and the backtester's code, and each entry
+also by its own file's size and time. So any change to `data/prices` (pulling the daily data, an on-demand
+download, an imported series), to `data/*.json` or to the code starts a fresh cache, and the stale one is deleted.
+Delete the folder at any time; `BACKTESTER_CACHE=0` turns the cache off (the test suite does). The site keeps
+everything it has loaded in memory between requests and, when it starts, loads what nearly every request reads
+(SPY, QQQ, T-bill rates, CPI, index membership) in the background.
+
 `scripts/fetch_data.py` runs in the **Fetch price data** GitHub Action every weekday after the US
 close and commits updates, so `git pull` gets fresh data. It downloads:
 - prices from Yahoo Finance for current and former Nasdaq-100 members, ETFs and indexes (Tiingo,
@@ -1291,6 +1304,10 @@ the strategy's own monthly returns.
 ```bash
 python -m pytest -q
 ```
+
+The suite runs with the processed-price cache off (`tests/conftest.py`); `tests/test_performance.py` checks
+that cached and uncached loads are identical, that the cache is invalidated when a price file changes, and has a
+loose timing guard.
 
 About 50 tests cover:
 - fills, stops, gaps, limits, pyramiding, scale-outs, leverage and dividends on synthetic data

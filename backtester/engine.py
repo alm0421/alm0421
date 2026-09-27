@@ -44,6 +44,7 @@ lower of the leverage cap and the exposure at which equity is 125% of the mainte
 """
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 
 import re
@@ -275,8 +276,58 @@ def _xrank_tables(strat, dfs, tick, cal, member=None, per_trade_exit=False) -> d
     return out
 
 
+_PREP_REUSE: dict = {"on": 0, "key": None, "P": None}
+
+
+class reuse_prepared:
+    """Within this context, a run of a strategy that differs from `result`'s only in its slippage reuses that run's
+    prepared bars and signals (_prepare_bars: prices, indicators, entry and exit signals, rankings), which do not
+    depend on costs: for re-running one strategy at several slippage levels (report.cost_sensitivity). The arrays are
+    only read by the simulation. Notes are not repeated (the copies carry them)."""
+
+    def __init__(self, result=None):
+        self.result = result
+
+    def __enter__(self):
+        self.prev = dict(_PREP_REUSE)
+        _PREP_REUSE["on"] += 1
+        src = getattr(self.result, "_prepared", None)
+        if src is not None:
+            _PREP_REUSE["key"], _PREP_REUSE["P"] = src
+        return self
+
+    def __exit__(self, *exc):
+        _PREP_REUSE.update(self.prev)   # nothing outlives the context
+        return False
+
+
+def _prep_key(strat: Strategy) -> tuple | None:
+    """What _prepare_bars reads from the strategy: every field but the notes and the slippage (None: a Python-function
+    rule, never reused)."""
+    out = []
+    for f in dataclasses.fields(strat):
+        if f.name in ("notes", "slippage_bps"):
+            continue
+        v = getattr(strat, f.name)
+        if callable(v):
+            return None
+        out.append((f.name, repr(v)))
+    return tuple(out)
+
+
+def _same_data(P: dict) -> bool:
+    try:
+        return all(data.load(t) is df for t, df in P["dfs"].items())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _prepare(strat: Strategy):
     """_prepare_bars with Python-function rules streamed only from the run's first day (expr.STREAM_FROM)."""
+    if _PREP_REUSE["on"] and _PREP_REUSE["P"] is not None:
+        k = _prep_key(strat)
+        if k is not None and k == _PREP_REUSE["key"] and _same_data(_PREP_REUSE["P"]):
+            return _PREP_REUSE["P"]
     tok = expr.STREAM_FROM.set(None)
     try:
         return _prepare_bars(strat, tok)
@@ -595,6 +646,7 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
 def run(strat: Strategy) -> Result:
     strat.validate()
     P = _prepare(strat)
+    prep_key = _prep_key(strat)   # after _prepare_bars, which may narrow the universe (today's members)
     cal, tick = P["cal"], P["tick"]
     # annual borrow fee per ticker for shorts: the one given, else the assumed default (margin.default_borrow_fee)
     BF = np.array([_margin.borrow_fee_of(t, strat.borrow_fee) for t in tick])
@@ -1091,7 +1143,11 @@ def run(strat: Strategy) -> Result:
                 return True
         return False
 
+    sig_day = (long_sig.any(axis=1) | short_sig.any(axis=1)).tolist()   # most days have no signal at all
+
     def signals(i: int) -> list[tuple[int, int]]:
+        if not sig_day[i]:
+            return []
         out = [(k, 1) for k in np.flatnonzero(long_sig[i])] + [(k, -1) for k in np.flatnonzero(short_sig[i])]
         return out
 
@@ -1707,4 +1763,6 @@ def run(strat: Strategy) -> Result:
         for od in pending_lvl if od["expires"] >= T and not S["halted"]]
     res.extras["rule_state"] = {"cal": cal, "tick": tick, "entry": long_sig | short_sig,
                                 "exit": None if P["per_trade_exit"] or not strat.exit_when else exit_sig}
+    if prep_key is not None:
+        res._prepared = (prep_key, P)   # for reuse_prepared(res): lives as long as the result, never in a file
     return res
