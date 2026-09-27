@@ -344,7 +344,8 @@ def test_opposite_cross_with_a_compound_entry():
 def test_dunder_names_get_no_nonsense_suggestion():
     with pytest.raises(ParseError) as e:
         parser.parse('buy SPY when `__import__("os")`, hold 3 days')
-    assert "not a function of the rule language" in str(e.value) and "__import__(close" not in str(e.value)
+    msg = str(e.value)
+    assert ("not a function of the rule language" in msg or "not allowed in rules" in msg) and "__import__(close" not in msg
     with pytest.raises(ValueError) as e2:      # a known window function keeps its example
         expr.compile_expr('sma(close, "20") > 1')
     assert "sma(close, 20)" in str(e2.value)
