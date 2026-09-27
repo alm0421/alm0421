@@ -1,0 +1,7139 @@
+{
+"updated_utc": "2026-09-27T09:46:17+00:00",
+"source": "Yahoo Finance chart metadata (longName, instrumentType) returned with each price download",
+"tickers": {
+"AA": {
+"name": "Alcoa Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AAON": {
+"name": "AAON, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AAPL": {
+"name": "Apple Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AAXJ": {
+"name": "iShares MSCI All Country Asia ex Japan ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ABBV": {
+"name": "AbbVie Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ABNB": {
+"name": "Airbnb, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ABT": {
+"name": "Abbott Laboratories",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ACI": {
+"name": "Albertsons Companies, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ACM": {
+"name": "AECOM",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ACWI": {
+"name": "iShares MSCI ACWI ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ACWV": {
+"name": "iShares MSCI Global Min Vol Factor ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ACWX": {
+"name": "iShares MSCI ACWI ex U.S. ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ADBE": {
+"name": "Adobe Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ADC": {
+"name": "Agree Realty Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ADI": {
+"name": "Analog Devices, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ADP": {
+"name": "Automatic Data Processing, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ADSK": {
+"name": "Autodesk, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AEIS": {
+"name": "Advanced Energy Industries, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AEP": {
+"name": "American Electric Power Company, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AFG": {
+"name": "American Financial Group, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AGCO": {
+"name": "AGCO Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AGG": {
+"name": "iShares Core U.S. Aggregate Bond ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AGNC": {
+"name": "AGNC Investment Corp.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AGQ": {
+"name": "ProShares Ultra Silver",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AHR": {
+"name": "American Healthcare REIT, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AIT": {
+"name": "Applied Industrial Technologies, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ALAB": {
+"name": "Astera Labs, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ALGM": {
+"name": "Allegro MicroSystems, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ALK": {
+"name": "Alaska Air Group, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ALLY": {
+"name": "Ally Financial Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ALNY": {
+"name": "Alnylam Pharmaceuticals, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ALSN": {
+"name": "Allison Transmission Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ALV": {
+"name": "Autoliv, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AM": {
+"name": "Antero Midstream Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AMAT": {
+"name": "Applied Materials, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AMD": {
+"name": "Advanced Micro Devices, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AMG": {
+"name": "Affiliated Managers Group, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AMGN": {
+"name": "Amgen Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AMH": {
+"name": "American Homes 4 Rent",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AMKR": {
+"name": "Amkor Technology, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AMZN": {
+"name": "Amazon.com, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AN": {
+"name": "AutoNation, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ANF": {
+"name": "Abercrombie & Fitch Co.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"APG": {
+"name": "APi Group Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"APP": {
+"name": "AppLovin Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"APPF": {
+"name": "AppFolio, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AR": {
+"name": "Antero Resources Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ARKF": {
+"name": "ARK Blockchain & Fintech Innovation ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ARKG": {
+"name": "ARK Genomic Revolution ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ARKK": {
+"name": "ARK Innovation ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ARKQ": {
+"name": "ARK Autonomous Technology & Robotics ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ARKW": {
+"name": "ARK Next Generation Internet ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ARM": {
+"name": "Arm Holdings plc",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ARMK": {
+"name": "Aramark",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ARW": {
+"name": "Arrow Electronics, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ARWR": {
+"name": "Arrowhead Pharmaceuticals, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ASB": {
+"name": "Associated Banc-Corp",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ASH": {
+"name": "Ashland Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ASML": {
+"name": "ASML Holding N.V.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ATI": {
+"name": "ATI Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ATR": {
+"name": "AptarGroup, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVAV": {
+"name": "AeroVironment, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVDE": {
+"name": "Avantis International Equity ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVDV": {
+"name": "Avantis International Small Cap Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVEM": {
+"name": "Avantis Emerging Markets Equity ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVES": {
+"name": "Avantis Emerging Markets Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVGO": {
+"name": "Broadcom Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVIG": {
+"name": "Avantis Core Fixed Income ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVIV": {
+"name": "Avantis International Large Cap Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVLV": {
+"name": "Avantis US Large Cap Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVMV": {
+"name": "Avantis U.S. Mid Cap Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVNT": {
+"name": "Avient Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVRE": {
+"name": "Avantis Real Estate ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVSC": {
+"name": "Avantis US Small Cap Equity ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVSD": {
+"name": "Avantis Responsible International Equity ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVT": {
+"name": "Avnet, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVTR": {
+"name": "Avantor, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVUS": {
+"name": "Avantis US Equity ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AVUV": {
+"name": "Avantis US Small Cap Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AXON": {
+"name": "Axon Enterprise, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AXTA": {
+"name": "Axalta Coating Systems Ltd.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AYI": {
+"name": "Acuity Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"AZN": {
+"name": "AstraZeneca PLC",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BA": {
+"name": "The Boeing Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BAC": {
+"name": "Bank of America Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BAH": {
+"name": "Booz Allen Hamilton Holding Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BATRA": {
+"name": "Atlanta Braves Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BATRK": {
+"name": "Atlanta Braves Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BB": {
+"name": "BlackBerry Limited",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BBBY": {
+"name": "Bed Bath & Beyond, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BBWI": {
+"name": "Bath & Body Works, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BC": {
+"name": "Brunswick Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BCO": {
+"name": "The Brink's Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BDC": {
+"name": "Belden Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BHF": {
+"name": "Brighthouse Financial, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BIDU": {
+"name": "Baidu, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BIIB": {
+"name": "Biogen Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BIL": {
+"name": "State Street SPDR Bloomberg 1-3 Month T-Bill ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BILL": {
+"name": "BILL Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BIO": {
+"name": "Bio-Rad Laboratories, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BITO": {
+"name": "ProShares Bitcoin ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BITX": {
+"name": "2x Bitcoin Strategy ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BIV": {
+"name": "Vanguard Intermediate-Term Bond Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BJ": {
+"name": "BJ's Wholesale Club Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BKH": {
+"name": "Black Hills Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BKNG": {
+"name": "Booking Holdings Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BKR": {
+"name": "Baker Hughes Company",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BLOK": {
+"name": "Amplify Blockchain Technology ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BLV": {
+"name": "Vanguard Long-Term Bond Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BMRN": {
+"name": "BioMarin Pharmaceutical Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BND": {
+"name": "Vanguard Total Bond Market Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BNDX": {
+"name": "Vanguard Total International Bond Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BNKU": {
+"name": "MicroSectors™ U.S. Big Banks 3x Leveraged ETNs",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BNO": {
+"name": "United States Brent Oil Fund, LP",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BOIL": {
+"name": "ProShares Ultra Bloomberg Natural Gas",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BOTZ": {
+"name": "Global X Robotics & Artificial Intelligence ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BRK-B": {
+"name": "Berkshire Hathaway Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BRKR": {
+"name": "Bruker Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BROS": {
+"name": "Dutch Bros Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BRX": {
+"name": "Brixmor Property Group Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BSV": {
+"name": "Vanguard Short-Term Bond Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BSY": {
+"name": "Bentley Systems, Incorporated",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BTAL": {
+"name": "AGF U.S. Market Neutral Anti-Beta Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BTC-USD": {
+"name": "Bitcoin USD",
+"type": "CRYPTOCURRENCY",
+"exchange": "CCC",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BTSG": {
+"name": "BrightSpring Health Services, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BULZ": {
+"name": "MicroSectors Solactive FANG Innovation 3X Leveraged ETNs",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BURL": {
+"name": "Burlington Stores, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BWA": {
+"name": "BorgWarner Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BWX": {
+"name": "State Street SPDR Bloomberg International Treasury Bond ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BWXT": {
+"name": "BWX Technologies, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"BYD": {
+"name": "Boyd Gaming Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"C": {
+"name": "Citigroup Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CACI": {
+"name": "CACI International Inc",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CALF": {
+"name": "Pacer US Small Cap Cash Cows 100 ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CAR": {
+"name": "Avis Budget Group, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CART": {
+"name": "Maplebear Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CAT": {
+"name": "Caterpillar Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CAVA": {
+"name": "CAVA Group, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CBSH": {
+"name": "Commerce Bancshares, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CBT": {
+"name": "Cabot Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CCEP": {
+"name": "Coca-Cola Europacific Partners PLC",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CCK": {
+"name": "Crown Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CDE": {
+"name": "Coeur Mining, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CDNS": {
+"name": "Cadence Design Systems, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CDP": {
+"name": "COPT Defense Properties",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CDW": {
+"name": "CDW Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CECO": {
+"name": "CECO Environmental Corp.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CEG": {
+"name": "Constellation Energy Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CELH": {
+"name": "Celsius Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqCM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CFR": {
+"name": "Cullen/Frost Bankers, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CG": {
+"name": "The Carlyle Group Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CGNX": {
+"name": "Cognex Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CHDN": {
+"name": "Churchill Downs Incorporated",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CHE": {
+"name": "Chemed Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CHH": {
+"name": "Choice Hotels International, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CHKP": {
+"name": "Check Point Software Technologies Ltd.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CHRD": {
+"name": "Chord Energy Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CHRW": {
+"name": "C.H. Robinson Worldwide, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CHTR": {
+"name": "Charter Communications, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CHWY": {
+"name": "Chewy, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CIBR": {
+"name": "First Trust NASDAQ Cybersecurity ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CLF": {
+"name": "Cleveland-Cliffs Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CLH": {
+"name": "Clean Harbors, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CLOU": {
+"name": "Global X Cloud Computing ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CMC": {
+"name": "Commercial Metals Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CMCSA": {
+"name": "Comcast Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CNH": {
+"name": "CNH Industrial N.V.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CNM": {
+"name": "Core & Main, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CNO": {
+"name": "CNO Financial Group, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CNX": {
+"name": "CNX Resources Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"COIN": {
+"name": "Coinbase Global, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"COKE": {
+"name": "Coca-Cola Consolidated, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"COLB": {
+"name": "Columbia Banking System, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"COLM": {
+"name": "Columbia Sportswear Company",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CONL": {
+"name": "GraniteShares 2x Long COIN Daily ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"COPX": {
+"name": "Global X Copper Miners ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CORN": {
+"name": "Teucrium Corn Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CORT": {
+"name": "Corcept Therapeutics Incorporated",
+"type": "EQUITY",
+"exchange": "NasdaqCM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"COST": {
+"name": "Costco Wholesale Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"COWZ": {
+"name": "Pacer US Cash Cows 100 ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CPER": {
+"name": "United States Copper Index Fund, LP",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CPRT": {
+"name": "Copart, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CPWR": {
+"name": "Ocean Thermal Energy Corporation",
+"type": "EQUITY",
+"exchange": "OTC Markets OTCID",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CR": {
+"name": "Crane Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CRBG": {
+"name": "Corebridge Financial, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CRM": {
+"name": "Salesforce, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CROX": {
+"name": "Crocs, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CRS": {
+"name": "Carpenter Technology Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CRUS": {
+"name": "Cirrus Logic, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CRWD": {
+"name": "CrowdStrike Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CRWV": {
+"name": "CoreWeave, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CSCO": {
+"name": "Cisco Systems, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CSGP": {
+"name": "CoStar Group, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CSL": {
+"name": "Carlisle Companies Incorporated",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CSX": {
+"name": "CSX Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CTA": {
+"name": "Simplify Managed Futures Strategy ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CTAS": {
+"name": "Cintas Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CTRE": {
+"name": "CareTrust REIT, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CTSH": {
+"name": "Cognizant Technology Solutions Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CUBE": {
+"name": "CubeSmart",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CURE": {
+"name": "Direxion Daily Healthcare Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CUZ": {
+"name": "Cousins Properties Incorporated",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CVLT": {
+"name": "Commvault Systems, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CVX": {
+"name": "Chevron Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CW": {
+"name": "Curtiss-Wright Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CWEB": {
+"name": "Direxion Daily CSI China Internet Bull 2X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CXT": {
+"name": "Crane NXT, Co.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"CYTK": {
+"name": "Cytokinetics, Incorporated",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DAR": {
+"name": "Darling Ingredients Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DASH": {
+"name": "DoorDash, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DBA": {
+"name": "Invesco DB Agriculture Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DBB": {
+"name": "Invesco DB Base Metals Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DBC": {
+"name": "Invesco DB Commodity Index Tracking Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DBE": {
+"name": "Invesco DB Energy Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DBMF": {
+"name": "iMGP DBi Managed Futures Strategy ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DBO": {
+"name": "Invesco DB Oil Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DBX": {
+"name": "Dropbox, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DCI": {
+"name": "Donaldson Company, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DDOG": {
+"name": "Datadog, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DELL": {
+"name": "Dell Technologies Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFAC": {
+"name": "Dimensional U.S. Core Equity 2 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFAI": {
+"name": "Dimensional International Core Equity Market ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFAR": {
+"name": "Dimensional US Real Estate ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFAS": {
+"name": "Dimensional U.S. Small Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFAT": {
+"name": "Dimensional U.S. Targeted Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFAU": {
+"name": "Dimensional US Core Equity Market ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFAX": {
+"name": "Dimensional World ex U.S. Core Equity 2 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFCF": {
+"name": "Dimensional Core Fixed Income ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFEM": {
+"name": "Dimensional Emerging Markets Core Equity 2 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFEN": {
+"name": "Direxion Daily Aerospace & Defense Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFEV": {
+"name": "Dimensional Emerging Markets Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFGR": {
+"name": "Dimensional Global Real Estate ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFIP": {
+"name": "Dimensional Inflation-Protected Securities ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFIS": {
+"name": "Dimensional International Small Cap ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFIV": {
+"name": "Dimensional International Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFLV": {
+"name": "Dimensional US Large Cap Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFNM": {
+"name": "Dimensional National Municipal Bond ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFSD": {
+"name": "Dimensional Short-Duration Fixed Income ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFSV": {
+"name": "Dimensional US Small Cap Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DFUS": {
+"name": "Dimensional U.S. Equity Market ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DGRO": {
+"name": "iShares Core Dividend Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DGRW": {
+"name": "WisdomTree U.S. Quality Dividend Growth Fund",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DGX": {
+"name": "Quest Diagnostics Incorporated",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DHR": {
+"name": "Danaher Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DIA": {
+"name": "State Street SPDR Dow Jones Industrial Average ETF Trust",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DINO": {
+"name": "HF Sinclair Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DIS": {
+"name": "The Walt Disney Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DISV": {
+"name": "Dimensional International Small Cap Value ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DIVO": {
+"name": "Amplify CWP Enhanced Dividend Income ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DKS": {
+"name": "DICK'S Sporting Goods, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DLB": {
+"name": "Dolby Laboratories, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DLS": {
+"name": "WisdomTree International SmallCap Dividend Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DLTR": {
+"name": "Dollar Tree, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DOCN": {
+"name": "DigitalOcean Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DOCS": {
+"name": "Doximity, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DOCU": {
+"name": "DocuSign, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DPST": {
+"name": "Direxion Daily Regional Banks Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DRIP": {
+"name": "Direxion Daily S&P Oil & Gas Exp. & Prod. Bear 2X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DRN": {
+"name": "Direxion Daily Real Estate Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DRV": {
+"name": "Direxion Daily Real Estate Bear 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DSI": {
+"name": "iShares ESG MSCI KLD 400 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DT": {
+"name": "Dynatrace, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DTM": {
+"name": "DT Midstream, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DUK": {
+"name": "Duke Energy Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DUOL": {
+"name": "Duolingo, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DUSL": {
+"name": "Direxion Daily Industrials Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DUST": {
+"name": "Direxion Daily Gold Miners Index Bear 2X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DVY": {
+"name": "iShares Select Dividend ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DXCM": {
+"name": "DexCom, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DXJ": {
+"name": "WisdomTree Japan Hedged Equity Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"DY": {
+"name": "Dycom Industries, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EA": {
+"name": "Electronic Arts Inc",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EAT": {
+"name": "Brinker International, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EBAY": {
+"name": "eBay Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EDC": {
+"name": "Direxion Daily MSCI Emerging Markets Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EDV": {
+"name": "Vanguard Extended Duration Treasury Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EDZ": {
+"name": "Direxion Daily MSCI Emerging Markets Bear 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EEFT": {
+"name": "Euronet Worldwide, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EEM": {
+"name": "iShares MSCI Emerging Markets ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EEMV": {
+"name": "iShares MSCI Emerging Markets Min Vol Factor ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EFA": {
+"name": "iShares MSCI EAFE ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EFAV": {
+"name": "iShares MSCI EAFE Min Vol Factor ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EFG": {
+"name": "iShares MSCI EAFE Growth ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EFV": {
+"name": "iShares MSCI EAFE Value ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EGP": {
+"name": "EastGroup Properties, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EHC": {
+"name": "Encompass Health Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ELAN": {
+"name": "Elanco Animal Health Incorporated",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ELF": {
+"name": "e.l.f. Beauty, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ELS": {
+"name": "Equity LifeStyle Properties, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EMB": {
+"name": "iShares J.P. Morgan USD Emerging Markets Bond ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ENPH": {
+"name": "Enphase Energy, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ENS": {
+"name": "EnerSys",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ENSG": {
+"name": "The Ensign Group, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ENTG": {
+"name": "Entegris, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EPR": {
+"name": "EPR Properties",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EQH": {
+"name": "Equitable Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EQIX": {
+"name": "Equinix, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ERIC": {
+"name": "Telefonaktiebolaget LM Ericsson (publ)",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ERX": {
+"name": "Direxion Daily Energy Bull 2X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ERY": {
+"name": "Direxion Daily Energy Bear 2X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ESAB": {
+"name": "ESAB Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ESGU": {
+"name": "iShares ESG Aware MSCI USA ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ESGV": {
+"name": "Vanguard ESG U.S. Stock ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ESNT": {
+"name": "Essent Group Ltd.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ESPO": {
+"name": "VanEck Video Gaming and eSports ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ETH-USD": {
+"name": "Ethereum USD",
+"type": "CRYPTOCURRENCY",
+"exchange": "CCC",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EVR": {
+"name": "Evercore Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EWA": {
+"name": "iShares MSCI Australia ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EWBC": {
+"name": "East West Bancorp, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EWC": {
+"name": "iShares MSCI Canada ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EWG": {
+"name": "iShares MSCI Germany ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EWH": {
+"name": "iShares MSCI Hong Kong ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EWJ": {
+"name": "iShares MSCI Japan ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EWL": {
+"name": "iShares MSCI Switzerland ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EWQ": {
+"name": "iShares MSCI France ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EWU": {
+"name": "iShares MSCI United Kingdom ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EWX": {
+"name": "State Street SPDR S&P Emerging Markets Small Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EWZ": {
+"name": "iShares MSCI Brazil ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EXC": {
+"name": "Exelon Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EXEL": {
+"name": "Exelixis, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EXLS": {
+"name": "ExlService Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EXP": {
+"name": "Eagle Materials Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EXPD": {
+"name": "Expeditors International of Washington, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EXPE": {
+"name": "Expedia Group, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EXPO": {
+"name": "Exponent, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"EZU": {
+"name": "iShares MSCI Eurozone ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FAF": {
+"name": "First American Financial Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FAN": {
+"name": "First Trust Global Wind Energy ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FANG": {
+"name": "Diamondback Energy, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FAS": {
+"name": "Direxion Daily Financial Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FAST": {
+"name": "Fastenal Company",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FAZ": {
+"name": "Direxion Daily Financial Bear 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FBIN": {
+"name": "Fortune Brands Innovations, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FCFS": {
+"name": "FirstCash Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FCN": {
+"name": "FTI Consulting, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FDN": {
+"name": "First Trust Dow Jones Internet Index Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FDVV": {
+"name": "Fidelity High Dividend ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FER": {
+"name": "Ferrovial N.V.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FEZ": {
+"name": "State Street SPDR EURO STOXX 50 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FFIN": {
+"name": "First Financial Bankshares, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FFIV": {
+"name": "F5, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FHI": {
+"name": "Federated Hermes, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FHN": {
+"name": "First Horizon Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FINX": {
+"name": "Global X FinTech ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FISV": {
+"name": "Fiserv, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FIVE": {
+"name": "Five Below, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FLEX": {
+"name": "Flex Ltd.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FLG": {
+"name": "Flagstar Bank, National Association",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FLR": {
+"name": "Fluor Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FLS": {
+"name": "Flowserve Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FN": {
+"name": "Fabrinet",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FNB": {
+"name": "F.N.B. Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FND": {
+"name": "Floor & Decor Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FNDA": {
+"name": "Schwab Fundamental U.S. Small Company ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FNDF": {
+"name": "Schwab Fundamental International Equity ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FNDX": {
+"name": "Schwab Fundamental U.S. Large Company ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FNF": {
+"name": "Fidelity National Financial, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FNGD": {
+"name": "MicroSectors FANG+ Index -3X Inverse Leveraged ETN",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FNGO": {
+"name": "MicroSectors FANG+ Index 2X Leveraged ETN",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FNGU": {
+"name": "MicroSectors FANG+ 3X Leveraged",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FOSL": {
+"name": "Fossil Group, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FOUR": {
+"name": "Shift4 Payments, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FOX": {
+"name": "Fox Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FOXA": {
+"name": "Fox Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FR": {
+"name": "First Industrial Realty Trust, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FSLR": {
+"name": "First Solar, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FTI": {
+"name": "TechnipFMC plc",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FTNT": {
+"name": "Fortinet, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FXB": {
+"name": "Invesco CurrencyShares British Pound Sterling Trust",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FXE": {
+"name": "Invesco CurrencyShares Euro Currency Trust",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FXF": {
+"name": "Invesco CurrencyShares Swiss Franc Trust",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FXI": {
+"name": "iShares China Large-Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"FXY": {
+"name": "Invesco CurrencyShares Japanese Yen Trust",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"G": {
+"name": "Genpact Limited",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GAP": {
+"name": "The Gap, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GATX": {
+"name": "GATX Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GBCI": {
+"name": "Glacier Bancorp, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GBTC": {
+"name": "Grayscale Bitcoin Trust ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GDX": {
+"name": "VanEck Gold Miners ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GDXJ": {
+"name": "VanEck Junior Gold Miners ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GE": {
+"name": "GE Aerospace",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GEF": {
+"name": "Greif, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GEHC": {
+"name": "GE HealthCare Technologies Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GEN": {
+"name": "Gen Digital Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GENZ": {
+"name": "VanEck Digital Native Economy ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GFS": {
+"name": "GLOBALFOUNDRIES Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GGG": {
+"name": "Graco Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GHC": {
+"name": "Graham Holdings Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GILD": {
+"name": "Gilead Sciences, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GLD": {
+"name": "SPDR Gold Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GLDM": {
+"name": "SPDR Gold MiniShares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GLL": {
+"name": "ProShares UltraShort Gold",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GLPI": {
+"name": "Gaming and Leisure Properties, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GME": {
+"name": "GameStop Corp.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GMED": {
+"name": "Globus Medical, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GNTX": {
+"name": "Gentex Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GOLD": {
+"name": "Gold.com, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GOOG": {
+"name": "Alphabet Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GOOGL": {
+"name": "Alphabet Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GOVT": {
+"name": "iShares U.S. Treasury Bond ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GPK": {
+"name": "Graphic Packaging Holding Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GRID": {
+"name": "First Trust NASDAQ Clean Edge Smart Grid Infrastructure Index Fund",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GRMN": {
+"name": "Garmin Ltd.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GS": {
+"name": "The Goldman Sachs Group, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GSG": {
+"name": "iShares S&P GSCI Commodity-Indexed Trust",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GUSH": {
+"name": "Direxion Daily S&P Oil & Gas Exp. & Prod. Bull 2X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GWRE": {
+"name": "Guidewire Software, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GWW": {
+"name": "W.W. Grainger, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GWX": {
+"name": "State Street SPDR S&P International Small Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"GXO": {
+"name": "GXO Logistics, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"H": {
+"name": "Hyatt Hotels Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HACK": {
+"name": "Amplify Cybersecurity ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HAE": {
+"name": "Haemonetics Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HALO": {
+"name": "Halozyme Therapeutics, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HAS": {
+"name": "Hasbro, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HD": {
+"name": "The Home Depot, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HDV": {
+"name": "iShares Core High Dividend ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HEDJ": {
+"name": "WisdomTree Europe Hedged Equity Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HGV": {
+"name": "Hilton Grand Vacations Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HIBL": {
+"name": "Direxion Daily S&P 500 High Beta Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HIBS": {
+"name": "Direxion Daily S&P 500 High Beta Bear 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HIMS": {
+"name": "Hims & Hers Health, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HL": {
+"name": "Hecla Mining Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HLI": {
+"name": "Houlihan Lokey, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HLNE": {
+"name": "Hamilton Lane Incorporated",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HOG": {
+"name": "Harley-Davidson, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HOMB": {
+"name": "Home BancShares, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HON": {
+"name": "Honeywell International Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HONA": {
+"name": "Honeywell Aerospace Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HOOD": {
+"name": "Robinhood Markets, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HQY": {
+"name": "HealthEquity, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HR": {
+"name": "Healthcare Realty Trust Incorporated",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HRB": {
+"name": "H&R Block, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HSIC": {
+"name": "Henry Schein, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HUBS": {
+"name": "HubSpot, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HWC": {
+"name": "Hancock Whitney Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HXL": {
+"name": "Hexcel Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"HYG": {
+"name": "iShares iBoxx $ High Yield Corporate Bond ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IAK": {
+"name": "iShares U.S. Insurance ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IAT": {
+"name": "iShares U.S. Regional Banks ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IAU": {
+"name": "iShares Gold Trust",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IBB": {
+"name": "iShares Biotechnology ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IBIT": {
+"name": "iShares Bitcoin Trust ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IBM": {
+"name": "International Business Machines Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ICLN": {
+"name": "iShares Global Clean Energy ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IDEV": {
+"name": "iShares Core MSCI International Developed Markets ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IDU": {
+"name": "iShares U.S. Utilities ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IDV": {
+"name": "iShares International Select Dividend ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IDXX": {
+"name": "IDEXX Laboratories, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IEF": {
+"name": "iShares 7-10 Year Treasury Bond ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IEFA": {
+"name": "iShares Core MSCI EAFE ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IEI": {
+"name": "iShares 3-7 Year Treasury Bond ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IEMG": {
+"name": "iShares Core MSCI Emerging Markets ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IEUR": {
+"name": "iShares Core MSCI Europe ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IEV": {
+"name": "iShares Europe ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IGF": {
+"name": "iShares Global Infrastructure ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IGOV": {
+"name": "iShares International Treasury Bond ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IGV": {
+"name": "iShares Expanded Tech-Software Sector ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IHF": {
+"name": "iShares U.S. Healthcare Providers ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IHI": {
+"name": "iShares U.S. Medical Devices ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IJH": {
+"name": "iShares Core S&P Mid-Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IJJ": {
+"name": "iShares S&P Mid-Cap 400 Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IJK": {
+"name": "iShares S&P Mid-Cap 400 Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IJR": {
+"name": "iShares Core S&P Small-Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IJS": {
+"name": "iShares S&P Small-Cap 600 Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IJT": {
+"name": "iShares S&P Small-Cap 600 Growth ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ILF": {
+"name": "iShares Latin America 40 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ILMN": {
+"name": "Illumina, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IMTM": {
+"name": "iShares MSCI Intl Momentum Factor ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"INCY": {
+"name": "Incyte Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"INFY": {
+"name": "Infosys Limited",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"INSM": {
+"name": "Insmed Incorporated",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"INTC": {
+"name": "Intel Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"INTU": {
+"name": "Intuit Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IQLT": {
+"name": "iShares MSCI Intl Quality Factor ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ISRG": {
+"name": "Intuitive Surgical, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ITA": {
+"name": "iShares U.S. Aerospace & Defense ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ITB": {
+"name": "iShares U.S. Home Construction ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ITOT": {
+"name": "iShares Core S&P Total U.S. Stock Market ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IUSG": {
+"name": "iShares Core S&P U.S. Growth ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IUSV": {
+"name": "iShares Core S&P U.S. Value ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IVE": {
+"name": "iShares S&P 500 Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IVLU": {
+"name": "iShares Edge MSCI Intl Value Factor ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IVV": {
+"name": "iShares Core S&P 500 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IVW": {
+"name": "iShares S&P 500 Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IWB": {
+"name": "iShares Russell 1000 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IWC": {
+"name": "iShares Micro-Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IWD": {
+"name": "iShares Russell 1000 Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IWF": {
+"name": "iShares Russell 1000 Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IWM": {
+"name": "iShares Russell 2000 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IWN": {
+"name": "iShares Russell 2000 Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IWO": {
+"name": "iShares Russell 2000 Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IWP": {
+"name": "iShares Russell Mid-Cap Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IWR": {
+"name": "iShares Russell Mid-Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IWS": {
+"name": "iShares Russell Mid-Cap Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IWV": {
+"name": "iShares Russell 3000 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IWX": {
+"name": "iShares Russell Top 200 Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IWY": {
+"name": "iShares Russell Top 200 Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IXUS": {
+"name": "iShares Core MSCI Total International Stock ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IYC": {
+"name": "iShares US Consumer Discretionary ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IYE": {
+"name": "iShares U.S. Energy ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IYF": {
+"name": "iShares U.S. Financials ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IYH": {
+"name": "iShares U.S. Healthcare ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IYJ": {
+"name": "iShares U.S. Industrials ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IYK": {
+"name": "iShares US Consumer Staples ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IYM": {
+"name": "iShares U.S. Basic Materials ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IYT": {
+"name": "iShares Transportation Average ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IYW": {
+"name": "iShares U.S. Technology ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"IYZ": {
+"name": "iShares U.S. Telecommunications ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"JAVA": {
+"name": "JPMorgan Active Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"JBHT": {
+"name": "J.B. Hunt Transport Services, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"JD": {
+"name": "JD.com, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"JDST": {
+"name": "Direxion Daily Junior Gold Miners Index Bear 2X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"JEPI": {
+"name": "JPMorgan Equity Premium Income ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"JEPQ": {
+"name": "JPMorgan Nasdaq Equity Premium Income ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"JETS": {
+"name": "U.S. Global Jets ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"JNJ": {
+"name": "Johnson & Johnson",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"JNK": {
+"name": "State Street SPDR Bloomberg High Yield Bond ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"JNUG": {
+"name": "Direxion Daily Junior Gold Miners Index Bull 2X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"JPM": {
+"name": "JPMorgan Chase & Co.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"JQUA": {
+"name": "JPMorgan U.S. Quality Factor ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"KBE": {
+"name": "State Street SPDR S&P Bank ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"KDP": {
+"name": "Keurig Dr Pepper Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"KHC": {
+"name": "The Kraft Heinz Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"KLAC": {
+"name": "KLA Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"KMLM": {
+"name": "KraneShares Mount Lucas Managed Futures Index Strategy ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"KO": {
+"name": "The Coca-Cola Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"KOLD": {
+"name": "ProShares UltraShort Bloomberg Natural Gas",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"KRE": {
+"name": "State Street SPDR S&P Regional Banking ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"KWEB": {
+"name": "KraneShares CSI China Internet ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LABD": {
+"name": "Direxion Daily S&P Biotech Bear 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LABU": {
+"name": "Direxion Daily S&P Biotech Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LAMR": {
+"name": "Lamar Advertising Company",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LBTYA": {
+"name": "Liberty Global Ltd.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LBTYK": {
+"name": "Liberty Global Ltd.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LCID": {
+"name": "Lucid Group, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LIFE": {
+"name": "Ethos Technologies Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LILA": {
+"name": "Liberty Latin America Ltd.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LILAK": {
+"name": "Liberty Latin America Ltd.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LIN": {
+"name": "Linde plc",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LIT": {
+"name": "Global X Lithium & Battery Tech ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LITE": {
+"name": "Lumentum Holdings Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LLY": {
+"name": "Eli Lilly and Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LMT": {
+"name": "Lockheed Martin Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LOGI": {
+"name": "Logitech International S.A.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LQD": {
+"name": "iShares iBoxx $ Investment Grade Corporate Bond ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LRCX": {
+"name": "Lam Research Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LULU": {
+"name": "lululemon athletica inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"LUV": {
+"name": "Southwest Airlines Co.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MA": {
+"name": "Mastercard Incorporated",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MAR": {
+"name": "Marriott International, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MAT": {
+"name": "Mattel, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MCD": {
+"name": "McDonald's Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MCHI": {
+"name": "iShares MSCI China ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MCHP": {
+"name": "Microchip Technology Incorporated",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MDB": {
+"name": "MongoDB, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MDLZ": {
+"name": "Mondelez International, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MDY": {
+"name": "State Street SPDR S&P MIDCAP 400 ETF Trust",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MEDI": {
+"name": "Harbor Health Care ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MELI": {
+"name": "MercadoLibre, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"META": {
+"name": "Meta Platforms, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MGC": {
+"name": "Vanguard Morningstar Mega Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MGK": {
+"name": "Vanguard Morningstar Mega Cap Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MGV": {
+"name": "Vanguard Morningstar Mega Cap Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MICC": {
+"name": "The Magnum Ice Cream Company N.V.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MIDU": {
+"name": "Direxion Daily Mid Cap Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MMM": {
+"name": "3M Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MNST": {
+"name": "Monster Beverage Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MOAT": {
+"name": "VanEck Morningstar Wide Moat ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MPWR": {
+"name": "Monolithic Power Systems, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MRK": {
+"name": "Merck & Co., Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MRNA": {
+"name": "Moderna, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MRVL": {
+"name": "Marvell Technology, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MS": {
+"name": "Morgan Stanley",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MSFT": {
+"name": "Microsoft Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MSTR": {
+"name": "Strategy Inc",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MSTU": {
+"name": "T-Rex 2X Long MSTR Daily Target ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MTCH": {
+"name": "Match Group, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MTUM": {
+"name": "iShares MSCI USA Momentum Factor ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MU": {
+"name": "Micron Technology, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"MUB": {
+"name": "iShares National Muni Bond ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NAIL": {
+"name": "Direxion Daily Homebuilders & Supplies Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NBIS": {
+"name": "Nebius Group N.V.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NCLH": {
+"name": "Norwegian Cruise Line Holdings Ltd.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NEE": {
+"name": "NextEra Energy, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NFLX": {
+"name": "Netflix, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NKE": {
+"name": "NIKE, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NOBL": {
+"name": "ProShares S&P 500 Dividend Aristocrats ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NOW": {
+"name": "ServiceNow, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NTAP": {
+"name": "NetApp, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NTES": {
+"name": "NetEase, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NTSX": {
+"name": "WisdomTree U.S. Efficient Core Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NUGT": {
+"name": "Direxion Daily Gold Miners Index Bull 2X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NVDA": {
+"name": "NVIDIA Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NVDL": {
+"name": "GraniteShares 2x Long NVDA Daily ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NVDS": {
+"name": "Tradr 1.5X Short NVDA Daily ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NWSA": {
+"name": "News Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NXP": {
+"name": "Nuveen Select Tax-Free Income Portfolio",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"NXPI": {
+"name": "NXP Semiconductors N.V.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"O": {
+"name": "Realty Income Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ODFL": {
+"name": "Old Dominion Freight Line, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"OEF": {
+"name": "iShares S&P 100 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"OIH": {
+"name": "VanEck Oil Services ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"OKE": {
+"name": "ONEOK, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"OKTA": {
+"name": "Okta, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ON": {
+"name": "ON Semiconductor Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ONEQ": {
+"name": "Fidelity Nasdaq Composite Index ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ORCL": {
+"name": "Oracle Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ORLY": {
+"name": "O'Reilly Automotive, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"OTIS": {
+"name": "Otis Worldwide Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PALL": {
+"name": "abrdn Physical Palladium Shares ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PANW": {
+"name": "Palo Alto Networks, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PAVE": {
+"name": "Global X U.S. Infrastructure Development ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PAYX": {
+"name": "Paychex, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PBW": {
+"name": "Invesco WilderHill Clean Energy ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PCAR": {
+"name": "PACCAR Inc",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PCG": {
+"name": "PG&E Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PDBC": {
+"name": "Invesco Optimum Yield Diversified Commodity Strategy No K-1 ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PDD": {
+"name": "PDD Holdings Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PEG": {
+"name": "Public Service Enterprise Group Incorporated",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PEP": {
+"name": "PepsiCo, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PFE": {
+"name": "Pfizer Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PFG": {
+"name": "Principal Financial Group, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PFIX": {
+"name": "Simplify Interest Rate Hedge ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PG": {
+"name": "The Procter & Gamble Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PGR": {
+"name": "The Progressive Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PH": {
+"name": "Parker-Hannifin Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PHM": {
+"name": "PulteGroup, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PILL": {
+"name": "Direxion Daily Pharmaceutical & Medical Bull 3X Shares ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PKG": {
+"name": "Packaging Corporation of America",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PLD": {
+"name": "Prologis, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PLTR": {
+"name": "Palantir Technologies Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PM": {
+"name": "Philip Morris International Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PNC": {
+"name": "The PNC Financial Services Group, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PNR": {
+"name": "Pentair plc",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PNW": {
+"name": "Pinnacle West Capital Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PPG": {
+"name": "PPG Industries, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PPL": {
+"name": "PPL Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PPLT": {
+"name": "abrdn Physical Platinum Shares ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PRF": {
+"name": "Invesco RAFI US 1000 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PRGO": {
+"name": "Perrigo Company plc",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PRU": {
+"name": "Prudential Financial, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PSA": {
+"name": "Public Storage",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PSKY": {
+"name": "Paramount Skydance Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PSQ": {
+"name": "ProShares Short QQQ",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PST": {
+"name": "ProShares UltraShort 7-10 Year Treasury",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PSX": {
+"name": "Phillips 66",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PTC": {
+"name": "PTC Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PTEN": {
+"name": "Patterson-UTI Energy, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PTON": {
+"name": "Peloton Interactive, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PWR": {
+"name": "Quanta Services, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"PYPL": {
+"name": "PayPal Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"Q": {
+"name": "Qnity Electronics, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"QCOM": {
+"name": "QUALCOMM Incorporated",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"QGEN": {
+"name": "Qiagen N.V.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"QID": {
+"name": "ProShares UltraShort QQQ",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"QLD": {
+"name": "ProShares Ultra QQQ",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"QQQ": {
+"name": "Invesco QQQ Trust",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"QQQE": {
+"name": "Direxion NASDAQ-100 Equal Weighted Index Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"QQQM": {
+"name": "Invesco NASDAQ 100 ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"QUAL": {
+"name": "iShares MSCI USA Quality Factor ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"QYLD": {
+"name": "Global X NASDAQ 100 Covered Call ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RCL": {
+"name": "Royal Caribbean Cruises Ltd.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RDDT": {
+"name": "Reddit, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"REET": {
+"name": "iShares Global REIT ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"REG": {
+"name": "Regency Centers Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"REGN": {
+"name": "Regeneron Pharmaceuticals, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RETL": {
+"name": "Direxion Daily Retail Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RF": {
+"name": "Regions Financial Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RIVN": {
+"name": "Rivian Automotive, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RJF": {
+"name": "Raymond James Financial, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RKLB": {
+"name": "Rocket Lab Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RL": {
+"name": "Ralph Lauren Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RMD": {
+"name": "ResMed Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ROBO": {
+"name": "Robo Global Robotics and Automation Index ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ROK": {
+"name": "Rockwell Automation, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ROL": {
+"name": "Rollins, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ROM": {
+"name": "ProShares Ultra Technology",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ROP": {
+"name": "Roper Technologies, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ROST": {
+"name": "Ross Stores, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RPAR": {
+"name": "RPAR Risk Parity ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RPG": {
+"name": "Invesco S&P 500 Pure Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RPV": {
+"name": "Invesco S&P 500 Pure Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RSG": {
+"name": "Republic Services, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RSP": {
+"name": "Invesco S&P 500 Equal Weight ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RTX": {
+"name": "RTX Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RVTY": {
+"name": "Revvity, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RWR": {
+"name": "State Street SPDR Dow Jones REIT ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RYAAY": {
+"name": "Ryanair Holdings plc",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"RYLD": {
+"name": "Global X Russell 2000 Covered Call ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SANM": {
+"name": "Sanmina Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SARK": {
+"name": "Tradr 1X Short Innovation Daily ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SBAC": {
+"name": "SBA Communications Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SBUX": {
+"name": "Starbucks Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCHA": {
+"name": "Schwab U.S. Small-Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCHB": {
+"name": "Schwab U.S. Broad Market ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCHC": {
+"name": "Schwab International Small-Cap Equity ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCHD": {
+"name": "Schwab U.S. Dividend Equity ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCHE": {
+"name": "Schwab Emerging Markets Equity ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCHF": {
+"name": "Schwab International Equity ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCHG": {
+"name": "Schwab U.S. Large-Cap Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCHH": {
+"name": "Schwab U.S. REIT ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCHK": {
+"name": "Schwab 1000 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCHM": {
+"name": "Schwab U.S. Mid-Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCHP": {
+"name": "Schwab U.S. TIPS ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCHV": {
+"name": "Schwab U.S. Large-Cap Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCHX": {
+"name": "Schwab U.S. Large-Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCO": {
+"name": "ProShares UltraShort Bloomberg Crude Oil",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SCZ": {
+"name": "iShares MSCI EAFE Small-Cap ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SDOW": {
+"name": "ProShares UltraPro Short Dow30",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SDS": {
+"name": "ProShares UltraShort S&P500",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SDY": {
+"name": "State Street SPDR S&P Dividend ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SGOV": {
+"name": "iShares 0-3 Month Treasury Bond ETF",
+"type": "ETF",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SH": {
+"name": "ProShares Short S&P500",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SHLD": {
+"name": "Global X Defense Tech ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SHOP": {
+"name": "Shopify Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SHV": {
+"name": "iShares 0–1 Year Treasury Bond ETF",
+"type": "ETF",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SHW": {
+"name": "The Sherwin-Williams Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SHY": {
+"name": "iShares 1-3 Year Treasury Bond ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SIL": {
+"name": "Global X Silver Miners ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SIRI": {
+"name": "Sirius XM Holdings Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SIZE": {
+"name": "iShares MSCI USA Size Factor ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SJM": {
+"name": "The J. M. Smucker Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SKYY": {
+"name": "First Trust Cloud Computing ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SLB": {
+"name": "SLB N.V.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SLV": {
+"name": "iShares Silver Trust",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SLYG": {
+"name": "State Street SPDR S&P 600 Small Cap Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SLYV": {
+"name": "State Street SPDR S&P 600 Small Cap Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SMCI": {
+"name": "Super Micro Computer, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SMH": {
+"name": "VanEck Semiconductor ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SNA": {
+"name": "Snap-on Incorporated",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SNDK": {
+"name": "Sandisk Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SNPS": {
+"name": "Synopsys, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SO": {
+"name": "The Southern Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SOLS": {
+"name": "Solstice Advanced Materials, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SOLV": {
+"name": "Solventum Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SOXL": {
+"name": "Direxion Daily Semiconductor Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SOXS": {
+"name": "Direxion Daily Semiconductor Bear 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SOXX": {
+"name": "iShares Semiconductor ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPCX": {
+"name": "Space Exploration Technologies Corp.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPDN": {
+"name": "Direxion Daily S&P 500 Bear 1X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPDW": {
+"name": "State Street SPDR Portfolio Developed World ex-US ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPEM": {
+"name": "State Street SPDR Portfolio Emerging Markets ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPG": {
+"name": "Simon Property Group, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPGI": {
+"name": "S&P Global Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPHB": {
+"name": "Invesco S&P 500 High Beta ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPHQ": {
+"name": "Invesco S&P 500 Quality ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPIB": {
+"name": "State Street SPDR Portfolio Intermediate Term Corporate Bond ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPLS": {
+"name": "PIMCO US Stocks PLUS Active Bond Exchange Traded Fund",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPLV": {
+"name": "Invesco S&P 500 Low Volatility ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPMD": {
+"name": "State Street SPDR Portfolio S&P 400 Mid Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPOT": {
+"name": "Spotify Technology S.A.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPSM": {
+"name": "State Street SPDR Portfolio S&P 600 Small Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPTL": {
+"name": "State Street SPDR Portfolio Long Term Treasury ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPTM": {
+"name": "State Street SPDR Portfolio S&P 1500 Composite Stock Market ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPUU": {
+"name": "Direxion Daily S&P 500 Bull 2X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPXL": {
+"name": "Direxion Daily S&P500 Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPXS": {
+"name": "Direxion Daily S&P 500 Bear 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPXU": {
+"name": "ProShares UltraPro Short S&P500",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPY": {
+"name": "State Street SPDR S&P 500 ETF Trust",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPYD": {
+"name": "State Street SPDR Portfolio S&P 500 High Dividend ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPYG": {
+"name": "State Street SPDR Portfolio S&P 500 Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SPYV": {
+"name": "State Street SPDR Portfolio S&P 500 Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SQM": {
+"name": "Sociedad Química y Minera de Chile S.A.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SQQQ": {
+"name": "ProShares UltraPro Short QQQ",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SRE": {
+"name": "Sempra",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SRTY": {
+"name": "ProShares UltraPro Short Russell2000",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SSCC": {
+"name": "Spirits Capital Corporation",
+"type": "EQUITY",
+"exchange": "OTC Markets OTCPK",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SSO": {
+"name": "ProShares Ultra S&P500",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"STE": {
+"name": "STERIS plc",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"STIP": {
+"name": "iShares 0-5 Year TIPS Bond ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"STLD": {
+"name": "Steel Dynamics, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"STT": {
+"name": "State Street Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"STX": {
+"name": "Seagate Technology Holdings plc",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SUSA": {
+"name": "iShares ESG Optimized MSCI USA ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SVIX": {
+"name": "-1x Short VIX Futures ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SVOL": {
+"name": "Simplify Volatility Premium ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SVXY": {
+"name": "ProShares Short VIX Short-Term Futures ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SW": {
+"name": "Smurfit Westrock Plc",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SWK": {
+"name": "Stanley Black & Decker, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SWKS": {
+"name": "Skyworks Solutions, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SYF": {
+"name": "Synchrony Financial",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SYK": {
+"name": "Stryker Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"SYY": {
+"name": "Sysco Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"T": {
+"name": "AT&T Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TAIL": {
+"name": "Cambria Tail Risk ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TAN": {
+"name": "Invesco Solar ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TARK": {
+"name": "Tradr 2X Long Innovation ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TBF": {
+"name": "ProShares Short 20+ Year Treasury",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TBT": {
+"name": "ProShares UltraShort 20+ Year Treasury",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TCOM": {
+"name": "Trip.com Group Limited",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TDG": {
+"name": "TransDigm Group Incorporated",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TDY": {
+"name": "Teledyne Technologies Incorporated",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TEAM": {
+"name": "Atlassian Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TECL": {
+"name": "Direxion Daily Technology Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TECS": {
+"name": "Direxion Daily Technology Bear 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TEL": {
+"name": "TE Connectivity plc",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TER": {
+"name": "Teradyne, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TEVA": {
+"name": "Teva Pharmaceutical Industries Limited",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TFC": {
+"name": "Truist Financial Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TFLO": {
+"name": "iShares Treasury Floating Rate Bond ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TGT": {
+"name": "Target Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TIP": {
+"name": "iShares TIPS Bond ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TJX": {
+"name": "The TJX Companies, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TKO": {
+"name": "TKO Group Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TLH": {
+"name": "iShares 10-20 Year Treasury Bond ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TLT": {
+"name": "iShares 20+ Year Treasury Bond ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TMF": {
+"name": "Direxion Daily 20+ Year Treasury Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TMO": {
+"name": "Thermo Fisher Scientific Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TMUS": {
+"name": "T-Mobile US, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TMV": {
+"name": "Direxion Daily 20+ Year Treasury Bear 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TNA": {
+"name": "Direxion Daily Small Cap Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TPL": {
+"name": "Texas Pacific Land Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TPOR": {
+"name": "Direxion Daily Transportation Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TPR": {
+"name": "Tapestry, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TQQQ": {
+"name": "ProShares UltraPro QQQ",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TRGP": {
+"name": "Targa Resources Corp.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TRI": {
+"name": "Thomson Reuters Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TRIP": {
+"name": "Tripadvisor, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TRMB": {
+"name": "Trimble Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TROW": {
+"name": "T. Rowe Price Group, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TRV": {
+"name": "The Travelers Companies, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TSCO": {
+"name": "Tractor Supply Company",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TSLA": {
+"name": "Tesla, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TSLL": {
+"name": "Direxion Daily TSLA Bull 2X Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TSLQ": {
+"name": "Tradr 2X Short TSLA Daily ETF",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TSN": {
+"name": "Tyson Foods, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TT": {
+"name": "Trane Technologies plc",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TTD": {
+"name": "The Trade Desk, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TTT": {
+"name": "ProShares UltraPro Short 20+ Year Treasury",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TTWO": {
+"name": "Take-Two Interactive Software, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TXN": {
+"name": "Texas Instruments Incorporated",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TXT": {
+"name": "Textron Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TYD": {
+"name": "Direxion Daily 7-10 Year Treasury Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TYL": {
+"name": "Tyler Technologies, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TYO": {
+"name": "Direxion Daily 7-10 Year Treasury Bear 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"TZA": {
+"name": "Direxion Daily Small Cap Bear 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UAL": {
+"name": "United Airlines Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UBER": {
+"name": "Uber Technologies, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UBT": {
+"name": "ProShares Ultra 20+ Year Treasury",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UCO": {
+"name": "ProShares Ultra Bloomberg Crude Oil",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UDN": {
+"name": "Invesco DB US Dollar Index Bearish Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UDOW": {
+"name": "ProShares UltraPro Dow30",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UDR": {
+"name": "UDR, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UGE": {
+"name": "ProShares Ultra Consumer Staples",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UGL": {
+"name": "ProShares Ultra Gold",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UHS": {
+"name": "Universal Health Services, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ULTA": {
+"name": "Ulta Beauty, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UNG": {
+"name": "United States Natural Gas Fund, LP",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UNH": {
+"name": "UnitedHealth Group Incorporated",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UNP": {
+"name": "Union Pacific Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UPRO": {
+"name": "ProShares UltraPro S&P500",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UPS": {
+"name": "United Parcel Service, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"URA": {
+"name": "Global X Uranium ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"URBN": {
+"name": "Urban Outfitters, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"URI": {
+"name": "United Rentals, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"URTH": {
+"name": "iShares MSCI World ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"URTY": {
+"name": "ProShares UltraPro Russell2000",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"USB": {
+"name": "U.S. Bancorp",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"USD": {
+"name": "ProShares Ultra Semiconductors",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"USFR": {
+"name": "WisdomTree Floating Rate Treasury Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"USMV": {
+"name": "iShares MSCI USA Min Vol Factor ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"USO": {
+"name": "United States Oil Fund, LP",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UST": {
+"name": "ProShares Ultra 7-10 Year Treasury",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UTSL": {
+"name": "Direxion Daily Utilities Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UUP": {
+"name": "Invesco DB US Dollar Index Bullish Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UVIX": {
+"name": "2x Long VIX Futures ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UVXY": {
+"name": "ProShares Ultra VIX Short-Term Futures ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"UYG": {
+"name": "ProShares Ultra Financials",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"V": {
+"name": "Visa Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VAW": {
+"name": "Vanguard Materials Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VB": {
+"name": "Vanguard Morningstar Small-Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VBK": {
+"name": "Vanguard Morningstar Small-Cap Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VBR": {
+"name": "Vanguard Morningstar Small-Cap Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VCIT": {
+"name": "Vanguard Intermediate-Term Corporate Bond Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VCLT": {
+"name": "Vanguard Long-Term Corporate Bond Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VCR": {
+"name": "Vanguard Consumer Discretionary Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VCSH": {
+"name": "Vanguard Short-Term Corporate Bond Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VDC": {
+"name": "Vanguard Consumer Staples Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VDE": {
+"name": "Vanguard Energy Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VEA": {
+"name": "Vanguard FTSE Developed Markets Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VEEV": {
+"name": "Veeva Systems Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VEU": {
+"name": "Vanguard FTSE All-World ex-US Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VFH": {
+"name": "Vanguard Financials Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VFMF": {
+"name": "Vanguard U.S. Multifactor ETF Shares",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VFMO": {
+"name": "Vanguard U.S. Momentum Factor ETF ETF Shares",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VFMV": {
+"name": "Vanguard U.S. Minimum Volatility ETF ETF Shares",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VFQY": {
+"name": "Vanguard U.S. Quality Factor ETF Shares",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VFVA": {
+"name": "Vanguard U.S. Value Factor ETF Shares",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VGIT": {
+"name": "Vanguard Intermediate-Term Treasury Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VGK": {
+"name": "Vanguard FTSE Europe ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VGLT": {
+"name": "Vanguard Long-Term Treasury Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VGSH": {
+"name": "Vanguard Short-Term Treasury Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VGT": {
+"name": "Vanguard Information Technology Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VHT": {
+"name": "Vanguard Health Care Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VIAV": {
+"name": "Viavi Solutions Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VICI": {
+"name": "VICI Properties Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VIG": {
+"name": "Vanguard Dividend Appreciation Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VIGI": {
+"name": "Vanguard International Dividend Appreciation Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VIOO": {
+"name": "Vanguard S&P Small-Cap 600 Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VIOV": {
+"name": "Vanguard S&P Small-Cap 600 Value Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VIP": {
+"name": "Vulcan Infrastructure and Power Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VIS": {
+"name": "Vanguard Industrials Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VIXM": {
+"name": "ProShares VIX Mid-Term Futures ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VIXY": {
+"name": "ProShares VIX Short-Term Futures ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VLO": {
+"name": "Valero Energy Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VLTO": {
+"name": "Veralto Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VLUE": {
+"name": "iShares MSCI USA Value Factor ETF",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VMC": {
+"name": "Vulcan Materials Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VMRK": {
+"name": "Vivmark Residential",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VNQ": {
+"name": "Vanguard Real Estate Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VNQI": {
+"name": "Vanguard Global ex-U.S. Real Estate Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VO": {
+"name": "Vanguard Morningstar Mid-Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VOD": {
+"name": "Vodafone Group Public Limited Company",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VOE": {
+"name": "Vanguard Morningstar Mid-Cap Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VONE": {
+"name": "Vanguard Russell 1000 Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VONG": {
+"name": "Vanguard Russell 1000 Growth Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VONV": {
+"name": "Vanguard Russell 1000 Value Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VOO": {
+"name": "Vanguard S&P 500 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VOOG": {
+"name": "Vanguard S&P 500 Growth Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VOOV": {
+"name": "Vanguard S&P 500 Value Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VOT": {
+"name": "Vanguard Morningstar Mid-Cap Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VOX": {
+"name": "Vanguard Communication Services Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VPL": {
+"name": "Vanguard FTSE Pacific Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VPU": {
+"name": "Vanguard Utilities Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VRSK": {
+"name": "Verisk Analytics, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VRSN": {
+"name": "VeriSign, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VRT": {
+"name": "Vertiv Holdings Co",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VRTS": {
+"name": "Virtus Investment Partners, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VRTX": {
+"name": "Vertex Pharmaceuticals Incorporated",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VSS": {
+"name": "Vanguard FTSE All-World ex-US Small-Cap Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VST": {
+"name": "Vistra Corp.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VT": {
+"name": "Vanguard Total World Stock Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VTI": {
+"name": "Vanguard Morningstar Total Stock Market ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VTIP": {
+"name": "Vanguard Short-Term Inflation-Protected Securities Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VTR": {
+"name": "Ventas, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VTRS": {
+"name": "Viatris Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VTV": {
+"name": "Vanguard Morningstar Value ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VTWO": {
+"name": "Vanguard Russell 2000 Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VUG": {
+"name": "Vanguard Morningstar Growth ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VV": {
+"name": "Vanguard Morningstar Large-Cap ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VWO": {
+"name": "Vanguard FTSE Emerging Markets Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VXF": {
+"name": "Vanguard Extended Market Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VXUS": {
+"name": "Vanguard Total International Stock Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VXX": {
+"name": "iPath Series B S&P 500 VIX Short-Term Futures ETN",
+"type": "ETF",
+"exchange": "Cboe US",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VYM": {
+"name": "Vanguard High Dividend Yield Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VYMI": {
+"name": "Vanguard International High Dividend Yield Index Fund ETF Shares",
+"type": "ETF",
+"exchange": "NasdaqGM",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"VZ": {
+"name": "Verizon Communications Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WAB": {
+"name": "Westinghouse Air Brake Technologies Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WANT": {
+"name": "Direxion Daily Cnsmr Discret Bull 3XShrs",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WAT": {
+"name": "Waters Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WBD": {
+"name": "Warner Bros. Discovery, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WDAY": {
+"name": "Workday, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WDC": {
+"name": "Western Digital Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WEAT": {
+"name": "Teucrium Wheat Fund",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WEBL": {
+"name": "Direxion Daily Dow Jones Internet Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WEC": {
+"name": "WEC Energy Group, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WELL": {
+"name": "Welltower Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WFC": {
+"name": "Wells Fargo & Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WM": {
+"name": "Waste Management, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WMB": {
+"name": "The Williams Companies, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WMT": {
+"name": "Walmart Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WRB": {
+"name": "W. R. Berkley Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WSM": {
+"name": "Williams-Sonoma, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WST": {
+"name": "West Pharmaceutical Services, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WTW": {
+"name": "Willis Towers Watson Public Limited Company",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WY": {
+"name": "Weyerhaeuser Company",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"WYNN": {
+"name": "Wynn Resorts, Limited",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XAR": {
+"name": "State Street SPDR S&P Aerospace & Defense ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XBI": {
+"name": "State Street SPDR S&P Biotech ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XEL": {
+"name": "Xcel Energy Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XES": {
+"name": "State Street SPDR S&P Oil & Gas Equipment & Services ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XHB": {
+"name": "State Street SPDR S&P Homebuilders ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XHE": {
+"name": "State Street SPDR S&P Health Care Equipment ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XLB": {
+"name": "State Street Materials Select Sector SPDR ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XLC": {
+"name": "State Street Communication Services Select Sector SPDR ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XLE": {
+"name": "State Street Energy Select Sector SPDR ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XLF": {
+"name": "State Street Financial Select Sector SPDR ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XLG": {
+"name": "Invesco S&P 500 Top 50 ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XLI": {
+"name": "State Street Industrial Select Sector SPDR ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XLK": {
+"name": "State Street Technology Select Sector SPDR ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XLP": {
+"name": "State Street Consumer Staples Select Sector SPDR ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XLRE": {
+"name": "State Street Real Estate Select Sector SPDR ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XLU": {
+"name": "State Street Utilities Select Sector SPDR ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XLV": {
+"name": "State Street Health Care Select Sector SPDR ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XLY": {
+"name": "State Street Consumer Discretionary Select Sector SPDR ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XME": {
+"name": "State Street SPDR S&P Metals & Mining ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XMHQ": {
+"name": "Invesco S&P MidCap Quality ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XMLV": {
+"name": "Invesco S&P MidCap Low Volatility ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XOM": {
+"name": "ExxonMobil Holdings Corporation",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XOP": {
+"name": "State Street SPDR S&P Oil & Gas Exploration & Production ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XPH": {
+"name": "State Street SPDR S&P Pharmaceuticals ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XRAY": {
+"name": "DENTSPLY SIRONA Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XRT": {
+"name": "State Street SPDR S&P Retail ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XSD": {
+"name": "State Street SPDR S&P Semiconductor ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XSW": {
+"name": "State Street SPDR S&P Software & Services ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XTN": {
+"name": "State Street SPDR S&P Transportation ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XYL": {
+"name": "Xylem Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"XYLD": {
+"name": "Global X S&P 500 Covered Call ETF",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"YANG": {
+"name": "Direxion Daily FTSE China Bear 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"YINN": {
+"name": "Direxion Daily FTSE China Bull 3X Shares",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"YUM": {
+"name": "Yum! Brands, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ZBH": {
+"name": "Zimmer Biomet Holdings, Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ZBRA": {
+"name": "Zebra Technologies Corporation",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ZM": {
+"name": "Zoom Communications, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ZS": {
+"name": "Zscaler, Inc.",
+"type": "EQUITY",
+"exchange": "NasdaqGS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ZSL": {
+"name": "ProShares UltraShort Silver",
+"type": "ETF",
+"exchange": "NYSEArca",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"ZTS": {
+"name": "Zoetis Inc.",
+"type": "EQUITY",
+"exchange": "NYSE",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"^DJI": {
+"name": "Dow Jones Industrial Average",
+"type": "INDEX",
+"exchange": "DJI",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"^FVX": {
+"name": "Treasury Yield 5 Years",
+"type": "INDEX",
+"exchange": "Cboe Indices",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"^GSPC": {
+"name": "S&P 500",
+"type": "INDEX",
+"exchange": "SNP",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"^IRX": {
+"name": "13 WEEK TREASURY BILL",
+"type": "INDEX",
+"exchange": "Cboe Indices",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"^NDX": {
+"name": "NASDAQ-100",
+"type": "INDEX",
+"exchange": "Nasdaq GIDS",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"^RUT": {
+"name": " Russell 2000 Index",
+"type": "INDEX",
+"exchange": "Chicago Options",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"^SP500TR": {
+"name": "S&P 500 (TR)",
+"type": "INDEX",
+"exchange": "SNP",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"^TNX": {
+"name": "CBOE Interest Rate 10 Year T Note",
+"type": "INDEX",
+"exchange": "Cboe Indices",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"^TYX": {
+"name": "Treasury Yield 30 Years",
+"type": "INDEX",
+"exchange": "Cboe Indices",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"^VIX": {
+"name": "CBOE Volatility Index",
+"type": "INDEX",
+"exchange": "Cboe Indices",
+"currency": "USD",
+"seen": "2026-09-27"
+},
+"^VIX3M": {
+"name": "CBOE S&P 500 3-Month Volatility",
+"type": "INDEX",
+"exchange": "Chicago Options",
+"currency": "USD",
+"seen": "2026-09-27"
+}
+}
+}
