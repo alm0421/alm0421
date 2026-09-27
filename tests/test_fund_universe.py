@@ -219,7 +219,8 @@ def test_asset_class_names_only_after_a_weight():
 
 def test_fund_phrases_next_to_real_tickers_keep_their_fund():
     # mixed with real tickers, a phrase that already named a fund stays that fund; alone, the long series
-    assert parser._asset_class_names("hold 60% SPY and 40% gold") == "hold 60% SPY and 40% gold"
+    # (round 12: the substitution is the fund itself now, settled against the start by the holdings parser)
+    assert parser._asset_class_names("hold 60% SPY and 40% gold") == "hold 60% SPY and 40% GLD"
     assert parser._asset_class_names("hold 60% US stock market and 40% gold").endswith("40% GLDSIM")
     assert parser._asset_class_names("60% SPY, 40% municipal bonds") != "60% SPY, 40% municipal bonds" or \
         parser._asset_class_ticker("municipal bonds") is None

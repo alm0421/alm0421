@@ -483,6 +483,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       <label>History from<input id="mc_start" type="date"></label><label>History to<input id="mc_end" type="date"></label>
       <label>Stress test<select id="mc_stress"><option value="">none</option><option value="worst_sequence">worst historical sequence first</option><option value="shock">first-year shock</option></select></label>
       <label>Worst sequence (years)<input id="mc_stress_years" type="number" value="10" min="1"></label>
+      <label title="auto: never milder than the worst stretch of the long-history series (SPYSIM, TLTSIM, ...)">Worst sequence from<select id="mc_stress_history"><option value="auto">this window, floored at the long history</option><option value="window">this window only</option></select></label>
       <label>First-year return (%)<input id="mc_shock" type="number" value="-30" step="1"></label>
       <label>Horizon<select id="mc_horizon"><option value="fixed">fixed number of years</option><option value="mortality">a lifetime (SSA life table)</option></select></label>
       <label>Current age<input id="mc_age" type="number" placeholder="optional"></label>
@@ -2167,7 +2168,7 @@ window.addEventListener('blur', unpress);
     const body = { balance: +$('mc_balance').value, years: +$('mc_years').value, model: $('mc_model').value, block_months: +$('mc_block').value,
       rebalance: $('mc_rebalance').value, inflation: $('mc_infl').value === 'fixed' ? (+$('mc_infl_rate').value / 100) : 'historical',
       sims: +$('mc_sims').value, success_target: +$('mc_success').value / 100, start: $('mc_start').value, end: $('mc_end').value,
-      stress: $('mc_stress').value || null, stress_years: +$('mc_stress_years').value || 10, stress_shock: $('mc_shock').value === '' ? null : +$('mc_shock').value / 100,
+      stress: $('mc_stress').value || null, stress_years: +$('mc_stress_years').value || 10, stress_history: $('mc_stress_history').value, stress_shock: $('mc_shock').value === '' ? null : +$('mc_shock').value / 100,
       age: $('mc_age').value === '' ? null : +$('mc_age').value, until_age: $('mc_until_age').value === '' ? null : +$('mc_until_age').value,
       horizon: $('mc_horizon').value, sex: $('mc_sex').value, age2: $('mc_age2').value === '' ? null : +$('mc_age2').value,
       flows: mcFlowsBody() };
@@ -2371,7 +2372,7 @@ window.addEventListener('blur', unpress);
       lineChart($('kRoll'), { x: T, height: 280, series: [{ name: 'Correlation', color: css('--s1'), values: ro.values }], yMin: -1, yMax: 1, zero: true,
         fmtY: v => v.toFixed(1), fmtX: (v, full) => full ? ro.dates[T.indexOf(v)] || new Date(v).toISOString().slice(0, 10) : yr(v),
         tipRows: i => [['Correlation', num(ro.values[i])]] });
-      $('kRollNote').textContent = `Over the pair's own common history from ${ro.start}; over the whole period ${num(ro.full_period)}. Latest ${num(ro.values[ro.values.length - 1])}.`;
+      $('kRollNote').textContent = `Over the pair's own common history (${ro.start} to ${ro.end || R.end}): ${num(ro.full_period)}` + (ro.matrix_period != null && String(ro.start) !== String(R.start) ? `; over the matrix period (${R.start} to ${R.end}): ${num(ro.matrix_period)}` : '') + `. Latest ${num(ro.values[ro.values.length - 1])}.`;
     }
     $('kStatTitle').textContent = `Asset statistics, ${R.stats_start} → ${R.stats_end}` + (R.stats_basis === 'monthly'
       ? ' (monthly returns, like the matrix; max drawdown from month-end values)' : ' (daily returns)');

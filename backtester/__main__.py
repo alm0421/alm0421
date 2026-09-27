@@ -432,6 +432,9 @@ def cmd_montecarlo(argv: list[str]) -> int:
                    help="sequence-of-returns stress: start every path with the worst historical --stress-years years, "
                         "or with a first-year --shock")
     p.add_argument("--stress-years", type=int, default=10)
+    p.add_argument("--stress-history", choices=["auto", "window"], default="auto",
+                   help="worst_sequence: 'auto' (default) also looks in the long-history series (SPYSIM, TLTSIM, ...) and "
+                        "uses the worse stretch; 'window' only this history window")
     p.add_argument("--shock", type=float, default=-0.30, help="first-year return for --stress shock (default -0.30)")
     p.add_argument("--age", type=float, help="current age; with --until-age the horizon is the difference")
     p.add_argument("--until-age", type=float, help="e.g. 95: withdraw until this age")
@@ -459,7 +462,7 @@ def cmd_montecarlo(argv: list[str]) -> int:
     s = mc.Settings(start_balance=a.balance, years=a.years, model=a.model, block_months=a.block, rebalance=a.rebalance,
                     sims=a.sims, seed=a.seed, success_target=a.success, start=a.start, end=a.end,
                     inflation=a.inflation if a.inflation == "historical" else float(a.inflation),
-                    stress=a.stress, stress_years=a.stress_years, stress_shock=a.shock, age=a.age, until_age=a.until_age,
+                    stress=a.stress, stress_years=a.stress_years, stress_shock=a.shock, stress_history=a.stress_history, age=a.age, until_age=a.until_age,
                     horizon=a.horizon, sex=a.sex, age2=a.age2)
     if a.horizon == "mortality":
         if a.age is None:

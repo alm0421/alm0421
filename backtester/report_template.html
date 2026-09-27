@@ -126,7 +126,7 @@ td:first-child, th:first-child { text-align: left; }
 tr.sect td { font-weight: 600; color: var(--text); padding-top: 12px; border-bottom: 1px solid var(--border); }
 .scroll { overflow: auto; max-height: 560px; }
 .xscroll { overflow-x: auto; }
-.pos { color: var(--good); } .neg { color: var(--bad); }
+.pos { color: var(--good); } .neg { color: var(--bad); } td.b { font-weight: 600; }
 .heat td { text-align: center; font-size: 12px; border: 2px solid var(--surface); border-radius: 4px; }
 .heat th { text-align: center; }
 th.sort { cursor: pointer; user-select: none; }
@@ -191,9 +191,9 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   </div>
 
   <div class="card" id="trailCard">
-    <h2>Trailing returns <span class="pill runName"></span> <span class="pill" id="trailAsOf"></span></h2>
+    <h2>Trailing returns <span class="pill runName" id="trailRun"></span> <span class="pill" id="trailAsOf"></span></h2>
     <div class="xscroll"><table id="trailTbl"></table></div>
-    <p class="note">3 months, year to date and 1 year are total returns; 3, 5 and 10 years and the full period are annualised. Periods longer than the history are blank.</p>
+    <p class="note">3 months, year to date and 1 year are total returns; 3, 5 and 10 years and the full period are annualised. Periods longer than the history are blank. <span id="trailMultiNote"></span></p>
   </div>
 
   <div class="card" id="assetCard">
@@ -1844,14 +1844,21 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   // ---------- trade charts
   // ---------- trailing returns and per-asset statistics (allocation runs, like Portfolio Visualizer)
   function drawTrailing() {
-    const r = R(), tr = r.trailing || {}, names = Object.keys(tr).filter(k => tr[k] && Object.keys(tr[k]).length);
-    const show = r.kind === 'allocation' && names.length;
-    $('trailCard').classList.toggle('hide', !show);
-    if (!show) return;
+    // every allocation run of a multi-run report side by side (as Portfolio Visualizer), then the benchmarks once each
+    const r = R(), has = x => x && x.kind === 'allocation' && x.trailing && x.trailing.Strategy && Object.keys(x.trailing.Strategy).length;
+    const runs = multi ? D.runs.filter(has) : (has(r) ? [r] : []);
+    $('trailCard').classList.toggle('hide', !runs.length);
+    if (!runs.length) return;
     const keys = [['3M', '3 months'], ['YTD', 'YTD'], ['1Y', '1 year'], ['3Y', '3 years'], ['5Y', '5 years'], ['10Y', '10 years'], ['Full', 'Full period']];
-    $('trailAsOf').textContent = 'as of ' + (tr.Strategy && tr.Strategy.as_of || '');
-    table($('trailTbl'), [''].concat(keys.map(k => k[1])), names.map(n => [(n === 'Strategy' && multi ? r.name : short(n)) + (tr[n].depleted_on ? ` (ran out ${tr[n].depleted_on})` : '')]
-      .concat(keys.map(([k]) => { const v = tr[n][k]; return isNum(v) ? { t: pct(v, 1), c: signCls(v) } : tr[n].depleted_on ? 'n/a' : '—'; }))));
+    const rows = [], seen = new Set(), asOf = new Set();
+    runs.forEach(x => { const t = x.trailing.Strategy; rows.push({ name: multi ? x.name : short('Strategy'), t, bold: multi && x === r }); if (t.as_of) asOf.add(String(t.as_of)); });
+    runs.forEach(x => Object.keys(x.trailing).filter(k => k !== 'Strategy' && x.trailing[k] && Object.keys(x.trailing[k]).length).forEach(k => {
+      if (seen.has(short(k))) return; seen.add(short(k)); rows.push({ name: short(k), t: x.trailing[k] }); }));
+    $('trailAsOf').textContent = 'as of ' + [...asOf].join(' / ');
+    if (multi) { $('trailRun').textContent = 'all portfolios'; $('trailRun').classList.remove('hide'); }
+    $('trailMultiNote').textContent = multi && runs.length > 1 ? 'Every portfolio of the report is listed (the selected one in bold), each over its own run; the benchmarks follow, once each.' : '';
+    table($('trailTbl'), [''].concat(keys.map(k => k[1])), rows.map(o => [o.bold ? { t: o.name + ' ◀', c: 'b' } : o.name + (o.t.depleted_on ? ` (ran out ${o.t.depleted_on})` : '')]
+      .concat(keys.map(([k]) => { const v = o.t[k]; return isNum(v) ? { t: pct(v, 1), c: signCls(v) } : o.t.depleted_on ? 'n/a' : '—'; }))));
   }
   function drawAssets() {
     const r = R(), A = r.asset_stats || [];

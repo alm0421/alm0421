@@ -90,7 +90,7 @@ COMPANIES = {
     "s&p 500": "SPY", "s&p500": "SPY", "the s&p": "SPY", "nasdaq 100 etf": "QQQ",
     "long-term treasuries": "TLT", "long term treasuries": "TLT", "long treasuries": "TLT", "long bonds": "TLT",
     "intermediate treasuries": "IEF", "short-term treasuries": "SHY", "short term treasuries": "SHY",
-    "t-bills": "BIL", "treasury bills": "BIL", "aggregate bonds": "AGG", "bonds": "AGG", "gold": "GLD",
+    "t-bills": "BIL", "treasury bills": "BIL", "aggregate bonds": "AGG", "bonds": "BND", "gold": "GLD",
     "silver": "SLV", "commodities": "DBC", "emerging markets": "EEM", "international stocks": "EFA",
     "developed markets": "EFA", "real estate": "VNQ", "reits": "VNQ", "small caps": "IWM", "small-caps": "IWM",
     "russell 2000": "IWM", "the vix": "^VIX", "vix": "^VIX", "the dow": "DIA", "dow jones": "DIA",
@@ -332,7 +332,9 @@ def _model_portfolio(text: str, notes: list[str]) -> dict | None:
         about = (f"{a:g}% US total stock market, {b:g}% US total bond market, Portfolio Visualizer's 'Stocks/Bonds "
                  f"{a:g}/{b:g}'; with an early start the longest series stand in: the US market back to 1926 and the "
                  "total bond market back to 1962")
-    return _model_node(name, holdings, about, notes)
+    node = _model_node(name, holdings, about, notes)
+    _TL.model = (name, node)        # a named model portfolio: rebalanced yearly by default (Portfolio Visualizer's)
+    return node
 
 
 def _model_node(name: str, holdings: list, about: str, notes: list[str]) -> dict:
@@ -420,6 +422,10 @@ GEM_RX = (r"(?:the )?(?:(?:gary )?antonacci'?s?(?: gem| global equit(?:y|ies) mo
           r"(?: model| portfolio| strategy)?")
 
 
+# the named tactical models whose N-month lookbacks default to calendar months (month-end to month-end)
+TACTICAL_MONTH_END = ("GTAA (Faber)", "Global Equities Momentum (Antonacci)")
+
+
 def _tactical_model(text: str, notes: list[str]) -> dict | None:
     """'GTAA', 'Faber GTAA', 'Ivy timing' -> the 5-sleeve 10-month moving-average timing model; 'Antonacci GEM',
     'global equities momentum', 'dual momentum GEM' -> Global Equities Momentum. The funds are swapped for their
@@ -445,10 +451,13 @@ def _tactical_model(text: str, notes: list[str]) -> dict | None:
         us, intl, bonds = (_long_history(e, swaps, late) for e in ("SPY", "VEU", "AGG"))
         n = _period(12, "month")
         _TL.tactical = "Global Equities Momentum (Antonacci)"
+        trading = getattr(_TL, "months", None) == "trading"
+        how = (f"{n} trading days, 21 a month" if trading else
+               f"{n} = 12 months, measured on calendar months: month-end to month-end")
         notes.append(f"Global Equities Momentum (Gary Antonacci, 'Dual Momentum Investing', 2014): when US stocks ({us}) "
-                     f"returned more than T-bills over the last 12 months (`tret({n}) > tbill_ret({n})` on {us}), hold the "
-                     f"better of US ({us}) and ex-US stocks ({intl}) by 12-month total return; otherwise aggregate bonds "
-                     f"({bonds}). Checked monthly unless you say otherwise.")
+                     f"returned more than T-bills over the last 12 months (`tret({n}) > tbill_ret({n})` on {us}; {how}), "
+                     f"hold the better of US ({us}) and ex-US stocks ({intl}) by 12-month total return; otherwise aggregate "
+                     f"bonds ({bonds}). Checked monthly unless you say otherwise.")
         _history_notes("GEM", swaps, late, ["SPY", "VEU", "AGG"], notes)
         return {"if": f"tret({n}) > tbill_ret({n})", "on": us,
                 "then": {"filter": {"select": "top", "n": 1, "by": f"tret({n})"}, "universe": "children",
@@ -507,7 +516,16 @@ ASSET_CLASSES = [
     (r"high[- ]yield(?: corporate)?(?: bonds?)?|junk bonds", ["HYGSIM", "HYG"], "high-yield bonds"),
     (r"municipal bonds?|munis?|muni bonds?", ["MUBSIM", "MUB"], "municipal bonds"),
     (r"t-?bills|treasury bills", ["BILSIM", "BIL"], "T-bills"),
+    (r"silver", ["SLVSIM", "SLV"], "silver"),
+    # no maturity given: intermediate-term (7-10 years), with a Warning naming the other readings (last, so that
+    # "treasury bills" and "long-term treasuries" are matched by their own rows first)
+    (rf"{_TSY}|government bonds|gov't bonds|govt bonds", ["IEFSIM", "IEF"], "intermediate-term Treasuries"),
 ]
+# asset-class words that need a Warning: the reading chosen and how to get the other ones
+_CLASS_AMBIGUOUS = {
+    "intermediate-term Treasuries": "no maturity was given, so Treasuries are read as intermediate-term (7-10 years, IEF); "
+                                    "say 'long-term treasuries' (TLT) or 'short-term treasuries' (SHY) for the others",
+}
 ASSET_CLASS_RX = "|".join(f"(?:{p})" for p, *_ in ASSET_CLASSES)
 
 
@@ -580,24 +598,167 @@ def resolve_asset_list(items) -> tuple[list[str], list[str]]:
     return ticks, notes
 
 
-def _asset_class_names(text: str) -> str:
-    """Portfolio Visualizer asset-class names after a weight ('40% US stock market') -> their series, with a
-    note. Only right after 'NN%' (optionally 'in' / 'of'), so words elsewhere in a sentence are untouched.
-    Next to real tickers ('60% SPY and 40% short-term treasuries'), a phrase that already names a fund
-    (COMPANIES: 'short-term treasuries' = SHY) keeps that fund, so the mix stays fund against fund."""
+def _class_row(phrase: str):
+    """The ASSET_CLASSES row a phrase names in full ('gold', 'US small cap value'), or None."""
+    for row in ASSET_CLASSES:
+        if re.fullmatch(row[0], phrase.strip(), re.I):
+            return row
+    return None
+
+
+def _first_date(t: str) -> str | None:
+    try:
+        return str(data.load(t).index[0].date())
+    except Exception:  # noqa: BLE001 - no data: reported when the portfolio runs
+        return None
+
+
+# tickers that are also asset-class words, for the Warning ("gold" the asset class, GOLD the stock)
+_CLASS_WORD_TICKERS = {"GOLD": "Barrick Gold, a stock"}
+
+
+def class_series(phrase: str, start=None, mixed: bool = False) -> tuple[str, list[str]] | None:
+    """An asset-class word or name typed as a holding ('gold', 'Gold', 'bonds', 'REITs', 'US small cap value') ->
+    (the series to hold, notes), or None when the phrase is no asset class. The one rule, for sentences and the
+    Backtest grid alike:
+
+    - the class's fund (gold = GLD, REITs = VNQ, bonds = AGG next to tickers / BND otherwise ...);
+    - its long-history series (GLDSIM: gold before GLD existed, then GLD itself, so over the fund's life the two
+      are the same) when the backtest starts before the fund's first price: the start given, or - with no start -
+      a portfolio of asset classes alone, which starts as early as the data allows (Portfolio Visualizer's
+      asset-class mode). A portfolio that also names tickers ('60% SPY and 40% gold') with no start holds the fund.
+
+    A word in capitals that is a ticker with data is never an asset class (the caller checks: 'GOLD' is Barrick
+    Gold). When the lowercase word is also such a ticker, a Warning names both readings."""
+    raw = " ".join(str(phrase or "").split())
+    row = _class_row(raw)
+    if not row:
+        return None
+    pat, opts, label = row
     known = _known()
-    mixed = any(t in known and not t.endswith("SIM") for t in re.findall(r"(?<![\w^$])[$^]?([A-Z]{1,5}(?:-[A-Z])?)\b", text))
-    fund_names = {k.lower() for k in COMPANIES}
+    low = raw.lower()
+    fund = next((t for t in reversed(opts) if not t.endswith("SIM") and t in known), None)
+    sims = [(t, None) for t in opts if t.endswith("SIM") and t in known]
+    if fund:
+        sims = [(x, pr) for x, pr in SIM_FOR.get(fund, []) if x in known] or sims
+    sim, proxy = sims[0] if sims else (None, None)
+    # what the long-history series is: the fund itself from its first day, or (a proxy) another fund's history
+    then = f"the long-history series that is {fund} itself once {fund} exists" if not proxy else proxy
+    first = _first_date(fund) if fund else None
+    start = str(start)[:10] if start else None
+    use_sim = sim is not None and (fund is None or (start is not None and (first is None or start < first))
+                                   or (start is None and not mixed))
+    notes: list[str] = []
+    if use_sim:
+        about = data.sim_about(sim) if sim in data.SIMS else None
+        if start and fund:
+            notes.append(f"'{raw}' ({label}) is read as {sim}: the start {start} is before {fund} existed ({first}), so "
+                         f"{sim} stands in" + (f" ({about})" if about and not proxy else f" ({proxy})" if proxy else "")
+                         + (f"; from {first} on it is {fund} itself" if not proxy else "") + f". Say {fund} to hold the "
+                         f"fund alone (the backtest then starts in {first[:4] if first else 'its first year'}).")
+        else:
+            notes.append(f"'{raw}' ({label}) is read as {sim}" + (f": {about}" if about else "")
+                         + (f". A long-history series that is the fund itself once the fund exists; name a fund (e.g. "
+                            f"{fund or opts[-1]}) to use the fund alone" if sim.endswith("SIM") else "") + ".")
+        use = sim
+    elif fund:
+        use = fund
+        msg = f"'{raw}' ({label}) is read as {fund}"
+        if start is None and sim:
+            msg += (f", the fund (from {first}); give an earlier start (e.g. 'since 1972') to extend it back with "
+                    f"{sim}, {then}")
+        elif start is not None and first and start < first:
+            msg += f"; its history starts on {first}, so the backtest can only start then"
+        notes.append(msg + ".")
+    else:
+        return None
+    if label in _CLASS_AMBIGUOUS:
+        notes.append(f"Warning: '{raw}': {_CLASS_AMBIGUOUS[label]}.")
+    tk = data.canonical(raw.upper())
+    if " " not in raw and tk in known and tk != use:
+        what = _CLASS_WORD_TICKERS.get(tk, "the stock or fund with that symbol")
+        notes.append(f"Warning: '{raw}' is read as the asset class {label} ({use}), not the ticker {tk} ({what}); "
+                     f"write {tk} in capitals to hold that ticker.")
+    return use, notes
+
+
+def _class_mixed(text: str) -> bool:
+    """True when the text names real tickers (not SIM series) in capitals: asset-class words next to them are the
+    funds (see class_series)."""
+    known = _known()
+    return any(t in known and not t.endswith("SIM") and t not in NOT_TICKERS
+               for t in re.findall(r"(?<![\w^$])[$^]?([A-Z]{1,5}(?:-[A-Z])?)\b", _sub_outside(r"`[^`]*`", " ", text)))
+
+
+def _class_word(phrase: str) -> str | None:
+    """A holding typed as an asset-class word ('gold', 'Gold', 'real estate'), not an all-capitals ticker with data ->
+    the series (class_series, with the start of the portfolio being parsed), notes added; else None."""
+    w = " ".join(str(phrase or "").split())
+    if not w or (" " not in w and w == w.upper() and data.canonical(w) in _known()):
+        return None
+    hit = class_series(w, getattr(_TL, "start", None), getattr(_TL, "mixed", False))
+    if not hit:
+        return None
+    for n in hit[1]:
+        _note(n)
+    return hit[0]
+
+
+def _asset_class_names(text: str) -> str:
+    """Portfolio Visualizer asset-class names after a weight ('40% US stock market', '40% gold') -> the series
+    class_series reads with no start (the fund next to real tickers, the long-history series otherwise). Only right
+    after 'NN%' (optionally 'in' / 'of'), so words elsewhere in a sentence are untouched. Each substitution is
+    recorded (_TL.class_subs): the holdings parser settles it once the start is known (a start before the fund
+    existed swaps in the long-history series) and adds the notes then."""
+    mixed = _class_mixed(text)
+    _TL.mixed = mixed
+    subs = getattr(_TL, "class_subs", None)
+    if subs is None:
+        subs = _TL.class_subs = {}
 
     def fix(m):
-        if mixed and m.group("name").strip().lower() in fund_names:
-            return m.group(0)
-        hit = _asset_class_ticker(m.group("name"))
+        name = m.group("name")
+        if " " not in name and name == name.upper() and data.canonical(name) in _known():
+            return m.group(0)       # 'GOLD' in capitals is the ticker
+        # a blended benchmark ("benchmark 60% US Stock Market and 40% Total Bond Market") takes the long-history
+        # series, as benchmarks do everywhere (metrics.benchmark_label, the grid's benchmark box)
+        bench = re.search(r"(?i)\b(?:benchmark(?:ed)?|vs\.?|versus|compared (?:to|with))\b[^;]*$", m.string[:m.start()])
+        hit = class_series(name, None, False if bench else mixed)
         if not hit:
             return m.group(0)
-        _note(hit[1])
+        if bench:
+            for n_ in hit[1]:
+                _note(n_)
+        else:
+            subs.setdefault(hit[0], name)
         return m.group("pre") + hit[0]
     return _sub_outside(rf"(?i)(?P<pre>\d+(?:\.\d+)?% (?:in |of |to )?(?:the )?)(?P<name>{ASSET_CLASS_RX})(?![\w-])", fix, text)
+
+
+def _settle_class(ticker: str) -> str:
+    """A holding substituted for an asset-class name by _asset_class_names -> the series for the actual start, with
+    its notes (once per name)."""
+    subs = getattr(_TL, "class_subs", None) or {}
+    name = subs.get(ticker)
+    if not name:
+        return ticker
+    done = getattr(_TL, "class_done", None)
+    if done is None:
+        done = _TL.class_done = set()
+    done.add(ticker)
+    return _class_word(name) or ticker
+
+
+def _unsettled_class_notes() -> None:
+    """Notes for asset-class names substituted in a sentence that never reached the holdings parser (a signal
+    strategy): read with no start."""
+    subs = getattr(_TL, "class_subs", None) or {}
+    done = getattr(_TL, "class_done", None) or set()
+    for t, name in subs.items():
+        if t not in done:
+            hit = class_series(name, None, getattr(_TL, "mixed", False))
+            for n in (hit[1] if hit else []):
+                _note(n)
 
 
 # words that may be left over after everything meaningful was recognised
@@ -3560,6 +3721,7 @@ def _parse(text: str, **overrides):
         obj = pine_import.translate(text, ticker=overrides.get("ticker"))
         return _finish(obj, overrides)
     original = text
+    _TL.class_subs, _TL.class_done, _TL.mixed = {}, set(), False
     text = _lowercase_tickers(text)
     text = _asset_class_names(text)
     _intraday_check(text)
@@ -3572,8 +3734,10 @@ def _parse(text: str, **overrides):
     _TL.tv = bool(overrides.get("tv_compat"))
     try:
         obj = _parse_text(text)
+        _unsettled_class_notes()
     finally:
         _TL.tv = False
+        _TL.class_subs, _TL.class_done, _TL.mixed = {}, set(), False
     obj.description = original
     return _finish(obj, overrides)
 
@@ -5380,6 +5544,11 @@ def _asset_list(s: str, choice: bool = False) -> list[dict]:
         if re.fullmatch(r"(?i)(?:hold |in )?(?:cash|t-?bills? as cash|money market)", it):
             out.append({"cash": True})
             continue
+        # an asset-class word ('gold', 'Gold', 'bonds', 'REITs'), not an all-capitals ticker: class_series' rule
+        cw = _class_word(re.sub(r"(?i)^(?:the )", "", it.strip()))
+        if cw:
+            out.append({"asset": cw})
+            continue
         probe = it.upper() if re.fullmatch(r"[a-z^$]{1,6}", it) else it
         tk = find_tickers(probe, strict=True)
         if len(tk) > 1 and re.search(r"(?i)\b(?:else|otherwise)\b", it):
@@ -5400,7 +5569,7 @@ def _asset_list(s: str, choice: bool = False) -> list[dict]:
         if left:
             raise ParseError(f"Could not interpret {' '.join(left)!r} in {it!r}"
                              + (": write 'short X' for a short position, or 'cash'" if set(left) & SIDE_WORDS else ""))
-        out.append({"asset": tk[0]})
+        out.append({"asset": _settle_class(tk[0])})
     if not out:
         raise ParseError(f"No holdings found in {s!r}")
     return out
@@ -5565,11 +5734,10 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     # a bare asset-class name ("long-term corporate bonds", "US small cap value"): 100% of its long-history series,
     # unless the phrase already names a fund ("long-term treasuries" = TLT)
     ma = re.fullmatch(rf"(?i)(?:100% (?:in |of )?)?(?:the )?({ASSET_CLASS_RX})", s)
-    if ma and ma.group(1).strip().lower() not in {k.lower() for k in COMPANIES}:
-        hit = _asset_class_ticker(ma.group(1))
+    if ma:
+        hit = _class_word(ma.group(1))
         if hit:
-            notes.append(hit[1])
-            return {"asset": hit[0]}
+            return {"asset": hit}
     # if COND [then] X, (else if COND [then] Y,)* otherwise Z   -- any node in any branch
     if re.match(r"(?i)if\b", s):
         return _if_chain(s, notes)
@@ -6023,6 +6191,14 @@ _BW_SEP = r"(?:\s*,\s*(?:and\s+)?|\s+and\s+|\s*;\s*|\s+|\s*\+\s*)"
 def _one_ticker(w: str) -> str | None:
     if w.lower() == "cash":
         return "cash"
+    if not (w == w.upper() and data.canonical(w) in _known()):
+        hit = class_series(w, getattr(_TL, "start", None), getattr(_TL, "mixed", False))
+        if hit:     # the holdings parser settles it (and adds the notes)
+            subs = getattr(_TL, "class_subs", None)
+            if subs is None:
+                subs = _TL.class_subs = {}
+            subs.setdefault(hit[0], w)
+            return hit[0]
     probe = w.upper() if re.fullmatch(r"[a-z^$]{1,6}", w) else w
     try:
         tk = find_tickers(probe, strict=True)
@@ -6320,6 +6496,18 @@ def parse_allocation(text: str) -> Portfolio:
     if T.find(r",? ?(?:and )?(?:(?:using|with|on|measured (?:on|over|with)) )?(?:(?:the )?calendar months?(?: returns?| lookbacks?)?"
               r"|(?:the )?month[- ]end (?:prices|closes|values)|month[- ]end to month[- ]end(?: returns?)?)"):
         tv["month_lookbacks"] = "calendar"
+    # "with Portfolio Visualizer defaults" / "PV defaults": yearly rebalancing for fixed weights and calendar-month
+    # lookbacks unless stated otherwise (the other defaults - $10,000, dividends reinvested - are the same already)
+    pv_defaults = bool(T.find(r",? ?(?:and )?(?:with|using|on|in) (?:the )?(?:portfolio ?visualizer|pv)(?:'s)? (?:defaults?|default settings|settings)"
+                              r"|,? ?(?:as|like) (?:in )?(?:portfolio ?visualizer|pv)\b"))
+    if pv_defaults and "month_lookbacks" not in tv:
+        tv["month_lookbacks"] = "calendar"
+    # "using trading days" / "with 21-day months": N-month returns as N x 21 sessions (the default outside the named
+    # tactical models, which use month-ends as Portfolio Visualizer does)
+    if "month_lookbacks" not in tv and T.find(
+            r",? ?(?:and )?(?:(?:using|with|on|measured (?:on|over|with|in)) (?:(?:the )?trading[- ]days?(?: months?| lookbacks?)?"
+            r"|21[- ](?:trading[- ])?days? (?:a |per )?months?)|(?:(?:using|with|on) )?trading[- ]day (?:months|lookbacks))(?![\w-])"):
+        tv["month_lookbacks"] = "trading"
     # opt-in: a stated proxy for a holding before its history begins ("with proxies before inception")
     want_proxies = bool(T.find(r",? ?(?:and )?(?:with|using|use) (?:stated )?proxies(?: for (?:the )?(?:missing |late )?(?:sleeves?|holdings?|funds?))?"
                                r" (?:before|until|prior to) (?:(?:the|their|its|each (?:fund|sleeve|holding)'s) )?(?:inception|launch)s?"))
@@ -6521,12 +6709,29 @@ def parse_allocation(text: str) -> Portfolio:
         raise ParseError("What should the portfolio hold? e.g. 'hold 60% SPY and 40% TLT, rebalance quarterly'.")
     _TL.start = pk.get("start")
     _TL.tactical = None
+    _TL.months = tv.get("month_lookbacks")
+    _TL.model = None
     try:
         tree = _node(body, notes)
         tactical = _TL.tactical
+        model = _TL.model[0] if _TL.model and _TL.model[1] is tree else None
     finally:
         _TL.start = None
         _TL.tactical = None
+        _TL.months = None
+        _TL.model = None
+    if tactical in TACTICAL_MONTH_END and "month_lookbacks" not in tv:
+        # Portfolio Visualizer, Antonacci and Faber measure the models on calendar months (month-end prices)
+        tv["month_lookbacks"] = "calendar"
+        if tactical.startswith("GTAA"):
+            notes.append(f"{tactical}: the 10-month moving averages are of month-end prices and the model is checked at "
+                         "each month-end close, as Portfolio Visualizer and Faber do (N-month lookbacks are calendar "
+                         "months). For a daily version write e.g. 'SPY, EFA, IEF, VNQ and DBC equally, each only when "
+                         "above its 210 day moving average, otherwise cash'.")
+        else:
+            notes.append(f"{tactical}: N-month returns are measured on calendar months, month-end to month-end (from the "
+                         "last completed month-end), and the model is checked at each month-end close, as Portfolio "
+                         "Visualizer and Antonacci do. Say 'using trading days' for 21-trading-day months instead.")
     if tactical is None and _has(tree, "if") and _if_rules(tree) and all(
             re.search(r"\bmonthly_\w+\(", r) and not re.search(r"\b(?!monthly_)(?:sma|ema|rsi|ret|tret|volatility|drawdown|max_drawdown|"
                                                                 r"stdev_return|ma_return|change|ref)\(", r) for r in _if_rules(tree)):
@@ -6543,6 +6748,11 @@ def parse_allocation(text: str) -> Portfolio:
             rb = "monthly"
             notes.append(f"Rebalance frequency not stated: {tactical} is checked and traded at each month-end close, its "
                          "published schedule. Say 'rebalance daily' to check every day.")
+        elif pv_defaults and (_has(tree, "if") or _has(tree, "filter") or _dynamic(tree)) and not (band or band_rel):
+            rb = "monthly"
+            notes.append("Rebalance frequency not stated: with Portfolio Visualizer's defaults the rules, rankings and "
+                         "weights are re-evaluated and traded at each month-end close, as its tactical models are; say "
+                         "'rebalance daily' to check every day.")
         elif _has(tree, "if") or _has(tree, "filter") or _dynamic(tree):
             # Composer semantics: rules, rankings and dynamic weights are re-evaluated every day
             rb = "daily"
@@ -6561,6 +6771,11 @@ def parse_allocation(text: str) -> Portfolio:
         elif "weights" in tree:
             if band or band_rel:
                 rb = "none"  # threshold-only rebalancing
+            elif model or pv_defaults:
+                rb = "yearly"
+                notes.append(f"Rebalance frequency not stated: {model or 'the portfolio'} is rebalanced yearly (at the "
+                             "last close of each year), Portfolio Visualizer's default; say 'rebalance monthly' or "
+                             "'rebalance quarterly' for more often, or 'never rebalance'.")
             else:
                 rb = "monthly"
                 notes.append("Rebalance frequency not stated: fixed weights are rebalanced monthly (month-end close); say "
@@ -6572,9 +6787,13 @@ def parse_allocation(text: str) -> Portfolio:
     if wd_pct and wd_infl:
         # "withdraw 4% a year adjusted for inflation" is the classic 4% rule: 4% of the starting
         # balance, then that dollar amount rising with CPI
+        per = {"monthly": 12, "quarterly": 4}.get(wfreq, 1)
         wd, wd_pct = wd_pct * pk.get("capital", 10_000.0), 0.0
-        notes.append(f"Read as the '4% rule': withdraw ${wd:,.0f} in the first year (that % of the starting balance), "
-                     "then the same amount grown with inflation. Say 'withdraw 4% of the balance each year' for a percentage of the current balance.")
+        rate = f"{round(wd * per / pk.get('capital', 10_000.0) * 100, 4):g}%"
+        each = f" (${wd:,.0f} a {'month' if per == 12 else 'quarter'})" if per > 1 else ""
+        notes.append(f"Read as the '4% rule'" + (f" (here {rate})" if rate != "4%" else "") + f": withdraw ${wd * per:,.0f} a year{each} in the first year ({rate} of the "
+                     "starting balance), then the same amount grown with inflation. Say "
+                     f"'withdraw {rate} of the balance each year' for a percentage of the current balance.")
     newer = {k: flows[k] for k in ("contribution_start", "contribution_end", "withdrawal_start", "withdrawal_end",
                                    "contribution_growth", "withdrawal_growth", "contribution_dollars", "withdrawal_dollars")
              if flows.get(k) is not None}
@@ -6719,17 +6938,25 @@ def _cash_flows(T: "Text", notes: list[str]) -> dict:
     # periods (as Portfolio Visualizer's withdrawal frequency): 1.25% of the balance every quarter
     def split(m):
         n = {"month": 12, "quarter": 4}[m.group("u")]
+        infl = m.group("infl") or ""
+        tail = f" {infl.strip(' ,')}" if infl else ""
+        # "withdraw 4% a year adjusted for inflation, taken monthly": the 4% rule paid monthly - the rule's note
+        # (below) gives the yearly and the monthly dollars
+        rule = m.group("pct") and (infl or re.match(rf"(?i),? ?(?:{CF_INFL})", m.m.string[m.m.end():]))
         if m.group("pct"):
-            amt = f"{round(float(m.group('pct')) / n, 6):g}% of the balance"
+            # the 4% rule turns this share into dollars of the start balance: keep it exact ($40,000 a year, not $39,999.96)
+            amt = (f"{float(m.group('pct')) / n:.15g}" if rule else f"{round(float(m.group('pct')) / n, 6):g}") + "% of the balance"
             shown = f"{m.group('pct')}% of the balance"
         else:
             amt = f"${round(float(m.group('usd')) / n, 2):g}"
             shown = f"${float(m.group('usd')):,.0f}"
         each = amt if m.group("pct") else f"${float(m.group('usd')) / n:,.2f}"
-        notes.append(f"'{m.group(0).strip(' ,')}' = {shown} a year taken every {m.group('u')}: {each} each {m.group('u')}.")
-        return f"{m.group('v')} {amt} every {m.group('u')}"
+        if not rule:
+            notes.append(f"'{m.group(0).strip(' ,')}' = {shown} a year taken every {m.group('u')}: {each} each {m.group('u')}.")
+        return f"{m.group('v')} {amt} every {m.group('u')}{tail}"
     T.rest = _sub_outside(r"(?i)\b(?P<v>withdraw\w*|take out|spend\w*) (?:(?P<pct>\d+(?:\.\d+)?)%(?: of the (?:balance|portfolio))?|"
-                          r"\$(?P<usd>\d+(?:\.\d+)?)) (?:a|per|each|every|1) year,? (?:(?:taken|paid|withdrawn|split|spread) (?:out )?)?"
+                          r"\$(?P<usd>\d+(?:\.\d+)?)) (?:a|per|each|every|1) year"
+                          rf"(?P<infl>,? ?(?:{CF_INFL}))?,? (?:(?:taken|paid|withdrawn|split|spread) (?:out )?)?"
                           r"(?:(?:in|as) (?:equal )?(?:monthly|quarterly) (?:instalments|installments|payments) ?)?"
                           r"(?:(?:every|each|per|1) (?P<u>month|quarter)|(?P<ly>monthly|quarterly))",
                           lambda m: split(_Unit(m)), T.rest)

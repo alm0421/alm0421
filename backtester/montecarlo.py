@@ -28,6 +28,13 @@ Stress tests (Settings.stress):
                   the chosen model: sequence-of-returns risk for someone retiring into a bad decade
   shock           every path's first year returns `stress_shock` (default -30%), spread evenly over its
                   twelve months, then continues with the model
+  Historical floor (stress_history="auto", the default): a window of a few decades may hold only mild decades (SPY and
+  TLT from 2002: the worst real 10 years were 2015-2025, +49%). When every asset has a long-history series
+  (SPYSIM for SPY, TLTSIM for TLT, ... or the asset is one) that starts at least 5 years earlier, the worst stretch is
+  also looked for there, and the worse of the two is placed first (the 1970s, for a 60/40 mix): the stress is never
+  milder than the worst of the long history. stress_history="window" uses only the window's worst stretch.
+  Warnings: a history window under 40 years, and a stressed result that beats the unstressed one (the same random
+  draws without the stress: result["prob_success_unstressed"]).
 Horizon: `years`, or `until_age - age` when both ages are given ("withdraw until age 95"), or
 horizon="mortality": the paths run until the survival probability from the current age falls below 0.1%
 (SSA period life table, see lifetable.py; sex "male", "female" or "joint" for a couple, where the money must
@@ -116,6 +123,7 @@ class Settings:
     series_name: str = "Portfolio"
     stress: str | None = None                     # None, "worst_sequence" or "shock"
     stress_years: int = 10                        # length of the worst historical sequence placed first
+    stress_history: str = "auto"                  # "auto": floor at the long-history series' worst; "window": this window only
     expense_ratio: float = 0.0                    # annual fee on the portfolio, taken monthly
     stress_shock: float = -0.30                   # first-year return of the "shock" stress test
     age: float | None = None                      # current age: with until_age, the horizon is until_age - age
@@ -447,6 +455,40 @@ def _history(s: Settings) -> tuple[pd.DataFrame, np.ndarray, list[str]]:
     return hist, w, tick
 
 
+SHORT_HISTORY_YEARS = 40       # a window shorter than this gets a Warning (it may miss the bad decades)
+
+
+def long_history_series(tick: list[str]) -> list[str] | None:
+    """The long-history series for each ticker (the ticker itself when it is one, SPYSIM for SPY, TLTSIM for TLT ...),
+    or None when one of them has none."""
+    from .parser import SIM_FOR
+    known = set(data.available_tickers())
+    out = []
+    for t in tick:
+        if data.is_sim(t) or t.startswith("^"):
+            out.append(t)
+            continue
+        c = [x for x, _ in SIM_FOR.get(t, []) if x in known]
+        if not c:
+            return None
+        out.append(c[0])
+    return out
+
+
+def _worst_window(H: np.ndarray, w: np.ndarray, infl: np.ndarray | None, k: int) -> tuple[int, float, float]:
+    """The start of the worst k-month stretch of the mix w (compounded; after inflation when `infl` is given):
+    (start index, total log growth, nominal log growth)."""
+    hp = H @ w if H.shape[1] > 1 else H[:, 0]
+    logg = np.log1p(np.maximum(hp, -0.999999))
+    nominal = logg
+    if infl is not None:
+        logg = logg - np.log1p(infl[: len(logg)])
+    c = np.concatenate([[0.0], np.cumsum(logg)])
+    tot = c[k:] - c[:-k]
+    j = int(np.argmin(tot))
+    return j, float(tot[j]), float(nominal[j:j + k].sum())
+
+
 def _mix_vector(weights: dict, tick: list[str], what: str) -> np.ndarray:
     """A mix as a vector over `tick` (missing = 0), normalised to 1."""
     w = np.zeros(len(tick))
@@ -544,34 +586,68 @@ def run(s: Settings) -> dict:
     if fixed_infl is not None:
         I = np.full((sims, months), (1 + fixed_infl) ** (1 / 12) - 1)
     stress = None
+    hist_years = len(hist) / 12
+    if s.series is None and hist_years < SHORT_HISTORY_YEARS:
+        longs = long_history_series(tick)
+        alt = ([f"{l} for {t}" for t, l in zip(tick, longs) if l != t] if longs else [])
+        notes.append(f"Warning: the history window is only {hist_years:.0f} years ({hist.index[0]:%Y-%m} to "
+                     f"{hist.index[-1]:%Y-%m}): the model's returns, volatility and correlations come from it, and it may "
+                     "miss the bad decades (1929-32, the 1966-82 inflation)"
+                     + (f"; use the long-history series ({', '.join(alt)}) or an earlier --start for "
+                        f"{SHORT_HISTORY_YEARS}+ years" if alt else "; an earlier --start or long-history (SIM) series cover more")
+                     + ".")
+    A_saved = I_saved = None
     if s.stress == "worst_sequence":
         k = int(min(max(1, s.stress_years) * 12, months, len(H)))
-        hp = H @ w if n > 1 else H[:, 0]
-        logg = np.log1p(np.maximum(hp, -0.999999))
-        nominal_logg = logg
-        real_basis = False
-        if fixed_infl is None and any(getattr(f, "inflation_adjusted", False) and (f.amount or f.pct) and (f.amount < 0 or f.pct < 0) for f in (s.flows or [])):
-            # with inflation-indexed cash flows the damaging sequence is the worst in real terms (the 1970s)
-            hi0 = hist_infl.reindex(hist.index).to_numpy() if hasattr(hist_infl, "reindex") else np.asarray(hist_infl)
-            hi0 = np.where(np.isfinite(hi0), hi0, 0.0)
-            logg = logg - np.log1p(hi0[: len(logg)])
-            real_basis = True
-        c = np.concatenate([[0.0], np.cumsum(logg)])
-        tot = c[k:] - c[:-k]
-        j = int(np.argmin(tot))
-        A[:, :k, :] = H[j:j + k][None, :, :]
+        real_basis = bool(fixed_infl is None and any(getattr(f, "inflation_adjusted", False) and (f.amount or f.pct) and (f.amount < 0 or f.pct < 0) for f in (s.flows or [])))
+        # with inflation-indexed cash flows the damaging sequence is the worst in real terms (the 1970s)
+        hi0 = hist_infl.reindex(hist.index).to_numpy() if hasattr(hist_infl, "reindex") else np.asarray(hist_infl)
+        hi0 = np.where(np.isfinite(hi0), hi0, 0.0)
+        j, tot_j, nom_log = _worst_window(H, w, hi0 if real_basis else None, k)
+        seq_A, seq_idx, where = H[j:j + k], hist.index[j:j + k], "this history"
+        hi_ = hist_infl.to_numpy()
+        hi_ = np.where(np.isnan(hi_), np.nanmean(hi_), hi_) if np.isfinite(hi_).any() else np.zeros(len(hi_))
+        seq_I = hi_[j:j + k]
+        floor_note = None
+        if s.stress_history not in ("auto", "window", None, ""):
+            raise ValueError("stress_history must be 'auto' or 'window'")
+        if s.series is None and s.stress_history in ("auto", None, ""):
+            longs = long_history_series(tick)
+            if longs and longs != tick:
+                try:
+                    HL = monthly_asset_returns(longs, None, s.end)
+                except Exception:  # noqa: BLE001 - no floor without the data
+                    HL = None
+                if HL is not None and len(HL) >= k and HL.index[0] <= hist.index[0] - pd.DateOffset(years=5):
+                    il = monthly_inflation(HL.index).to_numpy()
+                    il = np.where(np.isfinite(il), il, np.nanmean(il) if np.isfinite(il).any() else 0.0)
+                    jl, tot_l, nom_l = _worst_window(HL.to_numpy(), w, il if real_basis else None, k)
+                    if tot_l < tot_j - 1e-12:
+                        floor_note = (f"Stress floor: the worst {k // 12 if k % 12 == 0 else round(k / 12, 1)}-year stretch "
+                                      f"of this history ({hist.index[j]:%Y-%m} to {hist.index[j + k - 1]:%Y-%m}, "
+                                      f"{np.expm1(tot_j):+.1%}{' after inflation' if real_basis else ''}) is milder than "
+                                      f"the worst of the long-history series ({', '.join(f'{l} for {t}' for t, l in zip(tick, longs) if l != t)}, "
+                                      f"{HL.index[0]:%Y-%m} on), so that one is used. Say stress_history='window' "
+                                      "(--stress-history window) for this history's own worst stretch.")
+                        j, tot_j, nom_log = jl, tot_l, nom_l
+                        seq_A, seq_idx, seq_I, where = HL.to_numpy()[jl:jl + k], HL.index[jl:jl + k], il[jl:jl + k], \
+                            "the long-history series"
+        A_saved = A[:, :k, :].copy()
+        A[:, :k, :] = seq_A[None, :, :]
         if fixed_infl is None:
-            hi_ = hist_infl.to_numpy()
-            hi_ = np.where(np.isnan(hi_), np.nanmean(hi_), hi_) if np.isfinite(hi_).any() else np.zeros(len(hi_))
-            I[:, :k] = hi_[j:j + k][None, :]
-        nom = float(np.expm1(nominal_logg[j:j + k].sum()))
-        stress = {"kind": "worst_sequence", "months": k, "from": hist.index[j].date(), "to": hist.index[j + k - 1].date(),
-                  "return": float(np.expm1(tot[j])), "basis": "real" if real_basis else "nominal", "return_nominal": nom}
-        what = (f"{np.expm1(tot[j]):.1%} in total after inflation, {nom:.1%} nominal; chosen as the worst in real terms "
+            I_saved = I[:, :k].copy()
+            I[:, :k] = seq_I[None, :]
+        nom = float(np.expm1(nom_log))
+        stress = {"kind": "worst_sequence", "months": k, "from": seq_idx[0].date(), "to": seq_idx[-1].date(),
+                  "return": float(np.expm1(tot_j)), "basis": "real" if real_basis else "nominal", "return_nominal": nom,
+                  "source": "long_history" if floor_note else "window"}
+        what = (f"{np.expm1(tot_j):.1%} in total after inflation, {nom:.1%} nominal; chosen as the worst in real terms "
                 "because the withdrawals grow with inflation" if real_basis else
                 f"{nom:.1%} in total, nominal (before inflation); chosen as the worst in nominal terms")
+        if floor_note:
+            notes.append(floor_note)
         notes.append(f"Stress test: every path starts with the worst {k // 12 if k % 12 == 0 else round(k / 12, 1)}-year "
-                     f"stretch of this history ({hist.index[j].strftime('%Y-%m')} to {hist.index[j + k - 1].strftime('%Y-%m')}, "
+                     f"stretch of {where} ({seq_idx[0].strftime('%Y-%m')} to {seq_idx[-1].strftime('%Y-%m')}, "
                      f"{what}), then continues with the {s.model} model.")
     cum_infl = np.concatenate([np.ones((sims, 1)), np.cumprod(1 + I, axis=1)], axis=1)
 
@@ -598,7 +674,23 @@ def run(s: Settings) -> dict:
                         f"in the final year the target is {mix(last)}."))
     else:
         P = _portfolio_returns(A, w, rb) if n > 1 else A[:, :, 0]
+    P_unstressed = cum_unstressed = None
+    if A_saved is not None:
+        # the same draws without the stress, for the comparison below
+        kk = A_saved.shape[1]
+        seq = A[0, :kk, :].copy()
+        A[:, :kk, :] = A_saved          # swapped in place (no copy of the whole draw), then back
+        P_unstressed = _portfolio_returns(A, W, rb) if s.glide_to else (_portfolio_returns(A, w, rb) if n > 1 else A[:, :, 0].copy())
+        A[:, :kk, :] = seq[None, :, :]
+        del A_saved
+        if I_saved is not None:
+            I2 = I.copy()
+            I2[:, :I_saved.shape[1]] = I_saved
+            cum_unstressed = np.concatenate([np.ones((sims, 1)), np.cumprod(1 + I2, axis=1)], axis=1)
+        else:
+            cum_unstressed = cum_infl
     if s.stress == "shock":
+        P_unstressed, cum_unstressed = P.copy(), cum_infl
         k = min(12, months)
         shock = float(s.stress_shock)
         if not -1 < shock < 1:
@@ -611,7 +703,15 @@ def run(s: Settings) -> dict:
         notes[-1] += f" (evenly over {k} months), then continues with the {s.model} model."
     if s.expense_ratio:
         P = P - s.expense_ratio / 12.0
+        if P_unstressed is not None:
+            P_unstressed = P_unstressed - s.expense_ratio / 12.0
     SIM = simulate(P, cum_infl, s.start_balance, s.flows)
+    unstressed = None
+    if P_unstressed is not None:
+        BU = simulate(P_unstressed, cum_unstressed, s.start_balance, s.flows)["B"]
+        unstressed = {"prob_success": float((BU[:, -1] > 0).mean()),
+                      "final_real_median": float(np.median(BU[:, -1] / cum_unstressed[:, -1]))}
+        del BU
     B = SIM["B"]
     R = B / cum_infl
 
@@ -684,6 +784,16 @@ def run(s: Settings) -> dict:
         out["withdrawals"] = {"total": q(SIM["withdrawn"]), "total_real": q(SIM["withdrawn_real"]),
                               "requested_mean": float(SIM["requested"].mean()),
                               "share_of_paths_short": float((short > 1e-6 * max(1.0, s.start_balance)).mean())}
+    if unstressed is not None:
+        out["prob_success_unstressed"] = unstressed["prob_success"]
+        st_ok, un_ok = out["prob_success"], unstressed["prob_success"]
+        med_st, med_un = float(np.median(R[:, -1])), unstressed["final_real_median"]
+        if st_ok > un_ok + 1e-9 or (abs(st_ok - un_ok) <= 1e-9 and med_st > med_un):
+            notes.append(f"Warning: the stressed paths do better than the same paths without the stress (success "
+                         f"{st_ok:.1%} vs {un_ok:.1%}; median real ending balance ${med_st:,.0f} vs ${med_un:,.0f}): the "
+                         f"stress sequence ({stress['from']:%Y-%m} to {stress['to']:%Y-%m}) is milder than what the model "
+                         "draws on average, so it is no stress. Use a longer history (long-history series such as "
+                         "SPYSIM / TLTSIM, or an earlier --start), a longer --stress-years, or --stress shock.")
     if S_full is not None:
         from . import lifetable
         S = S_full[: s.years + 1]
