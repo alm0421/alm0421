@@ -869,6 +869,7 @@ def grid_specs(body: dict) -> tuple[list, list[str], list[str]]:
         cols.append((c, ws))
     if not cols and not problems:
         problems.append("Enter weights (%) for at least one portfolio.")
+    glide = _grid_glide(body.get("glide"), cols, names, problems)
     try:
         start, end = _grid_date(body.get("start"), False), _grid_date(body.get("end"), True)
         capital = _grid_num(body.get("capital"), "Initial amount", 10_000.0, lo=0)
@@ -894,16 +895,28 @@ def grid_specs(body: dict) -> tuple[list, list[str], list[str]]:
         return [], notes, problems
     specs = []
     for c, ws in cols:
+        if glide and c == glide["to_col"]:
+            continue                       # the end mix of the gliding portfolio, not a portfolio of its own
         tree = ({"asset": ws[0][0]} if len(ws) == 1 else
                 {"weights": "specified", "w": [x / 100 for _, x in ws], "children": [{"asset": t} for t, _ in ws]})
         label = ", ".join(f"{x:g}% {t}" for t, x in ws)
         name = str(names[c] if c < len(names) and names[c] else f"Portfolio {c + 1}").strip()[:40]
         kw = dict(tree=tree, capital=capital, start=start, end=end, expense_ratio=er, leverage=lev,
                   rebalance="none" if rb == "bands" else rb, name=name, description=label, **flows)
+        if body.get("expense_on") in ("gross", "equity"):
+            kw["expense_on"] = body["expense_on"]
+        if body.get("inflation_indexing") in ("published", "annual"):
+            kw["inflation_indexing"] = body["inflation_indexing"]
         if rb == "bands":
             kw["drift_band_relative" if body.get("band_mode") == "relative" else "drift_band"] = band
         if bench:
             kw["benchmark"] = bench
+        if glide and c == glide["from_col"]:
+            kw["glide"] = dict(glide["spec"])
+            kw["description"] = label + " gliding to " + glide["label"]
+            if kw["rebalance"] == "none" and rb != "bands":
+                problems.append(f"{name}: a glide path moves the target at rebalances: choose a rebalancing schedule.")
+                continue
         try:
             p = Portfolio(**kw)
             p.validate()
@@ -921,6 +934,40 @@ def grid_specs(body: dict) -> tuple[list, list[str], list[str]]:
             for s in specs:
                 s.notes.insert(0, warn)
     return specs, notes, problems
+
+
+def _grid_glide(g, cols: list, names: list, problems: list) -> dict | None:
+    """The grid's glide path: {"from": column, "to": column (0-based), one of "years" / "end" / "per_year" (% a
+    year), "shape"}: the "from" portfolio glides from its weights to the "to" column's weights (which is then not
+    run on its own). None when off."""
+    if not g or not isinstance(g, dict) or g.get("from") in (None, "") or g.get("to") in (None, ""):
+        return None
+    try:
+        a, b = int(g["from"]), int(g["to"])
+    except (TypeError, ValueError):
+        problems.append("Glide path: choose the start and end portfolios.")
+        return None
+    got = {c: ws for c, ws in cols}
+    if a == b or a not in got or b not in got:
+        problems.append("Glide path: the start and the end must be two different portfolios with weights.")
+        return None
+    spec: dict = {"to": {t: x / 100 for t, x in got[b]}, "shape": str(g.get("shape") or "linear")}
+    try:
+        if g.get("years") not in (None, ""):
+            spec["years"] = _grid_num(g["years"], "Glide path years", lo=0.1, hi=100)
+        elif g.get("end") not in (None, ""):
+            spec["end"] = _grid_date(g["end"], False)
+        elif g.get("per_year") not in (None, ""):
+            spec["per_year"] = _grid_num(g["per_year"], "Glide path % a year", lo=0.01, hi=100) / 100
+        else:
+            problems.append("Glide path: give the years it takes (or the end year, or the change in % a year).")
+            return None
+    except ClientError as e:
+        problems.append(str(e))
+        return None
+    nm = lambda c: str(names[c] if c < len(names) and names[c] else f"Portfolio {c + 1}")  # noqa: E731
+    return {"from_col": a, "to_col": b, "spec": spec,
+            "label": nm(b) + " (" + ", ".join(f"{x:g}% {t}" for t, x in got[b]) + ")"}
 
 
 def _grid_common_period(specs: list, start: str | None, end: str | None) -> str | None:
@@ -1035,7 +1082,7 @@ def decode_grid_share(token: str) -> dict:
 
 
 GRID_KEYS = ("rows", "names", "start", "end", "capital", "flows", "rebalance", "band", "band_mode", "benchmark",
-             "expense_ratio", "leverage")
+             "expense_ratio", "leverage", "glide", "expense_on", "inflation_indexing")
 
 
 def api_grid(body):
@@ -1190,6 +1237,45 @@ def _weights(body, notes: list | None = None) -> dict | None:
 
 def api_montecarlo(body):
     from . import montecarlo as mc
+    return report._clean(mc.run(_mc_settings(body)))
+
+
+def api_goals(body):
+    """The financial goals planner: the Monte Carlo page's settings plus "goals": [{name, kind withdraw/contribute,
+    amount, start_year, end_year, freq once/yearly/quarterly/monthly, inflation_adjusted}] (or goal sentences)."""
+    from . import goals as G
+    raw = body.get("goals") or []
+    if not isinstance(raw, list) or not raw:
+        raise ClientError("Add at least one goal (a contribution or a withdrawal with its years).")
+    try:
+        goals = [G.goal_from_dict(g) for g in raw]
+    except ValueError as e:
+        raise ClientError(str(e))
+    b = dict(body)
+    b["flows"] = body.get("flows") or [{"type": "none"}]      # the goals are the cash flows (not a saved spec's)
+    s = _mc_settings(b)
+    try:
+        R = G.run(s, goals)
+    except ValueError as e:
+        raise ClientError(str(e))
+    return report._clean(R)
+
+
+def api_pca(body):
+    from . import pca
+    raw = body.get("tickers") or ""
+    tickers = [str(t) for t in raw if str(t).strip()] if isinstance(raw, list) else [str(raw)]
+    try:
+        R = pca.analyze(tickers, body.get("freq") or "monthly", body.get("basis") or "correlation",
+                        body.get("start") or None, body.get("end") or None)
+    except ValueError as e:
+        raise ClientError(str(e))
+    return report._clean(R)
+
+
+def _mc_settings(body):
+    """The Monte Carlo settings of a site request (tickers and weights, a sentence or a saved run; cash flows)."""
+    from . import montecarlo as mc
     s = mc.Settings()
     try:
         s.start_balance = float(body.get("balance") or 1_000_000)
@@ -1273,8 +1359,7 @@ def api_montecarlo(body):
         flows = mc.flows_from_portfolio(spec)
     s.flows = flows
     s.input_notes = in_notes
-    R = mc.run(s)
-    return report._clean(R)
+    return s
 
 
 def _factor_target(body, notes: list | None = None):
@@ -1610,7 +1695,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/gallery/stats": api_gallery_stats, "/api/import/composer": api_import_composer,
                 "/api/export/composer": api_export_composer, "/api/tickers": api_tickers,
                 "/api/community/publish": api_community_publish,
-                "/api/montecarlo": api_montecarlo, "/api/factors": api_factors, "/api/style": api_style, "/api/correlation": api_correlation,
+                "/api/montecarlo": api_montecarlo, "/api/goals": api_goals, "/api/pca": api_pca, "/api/factors": api_factors, "/api/style": api_style, "/api/correlation": api_correlation,
                 "/api/funds/compare": api_funds_compare,
             }
             if path in handlers:

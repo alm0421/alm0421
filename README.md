@@ -24,9 +24,9 @@ python -m backtester "buy at the close Microsoft when it trades down 5 days in a
 | **Community** | Strategies people published with "Publish to the community gallery" (Backtest and Build pages: a name, an author and a description; the strategy is backtested first). Search, sort by CAGR, Sharpe or max drawdown, **Fork** into the editor or **Run**. Kept in `data/community.json` (`BACKTESTER_COMMUNITY` points elsewhere). |
 | **Compare** | Put several strategies (from history or typed) in one report. Every column is compared over the same period; a benchmark whose data starts later than that period is listed separately with its own dates. |
 | **Research** | A parameter sweep (`hold {1..5} days`) with a heatmap. Walk-forward optimisation (rolling or anchored). A portfolio optimiser: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity, max diversification, max return / max drawdown, max Omega (at a threshold return), target return, target volatility, inverse volatility and equal weight (pick any subset), with per-asset and group limits (`SPY+QQQ <= 70%`), the efficient frontier, an out-of-sample check and rolling (walk-forward) re-optimisation compared with the static weights. A target that can't be reached says what can ("the minimum achievable volatility is 9.1%"). **Inputs**: historical means by default, or your expected returns (and optionally volatilities and correlations), or **Black-Litterman** (market-cap, equal or given prior weights plus absolute/relative views with confidences; the posterior feeds every objective). **Benchmark-relative**: min tracking error (optionally with a return floor) and max information ratio against a ticker or blend. **Resampled frontier** (Michaud): average the optimal weights over N simulated histories. |
-| **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates, also per percentile of the paths (10th-90th, as Portfolio Visualizer; for contribute-then-withdraw plans measured from the balance when withdrawals start) (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first - never milder than the worst of the long-history series when the window is recent, with a warning when a stressed result beats the unstressed one or the history is under 40 years -, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), any number of cash-flow phases (contribute, then withdraw), and a glide path (e.g. 90/10 -> 40/60 over 30 years, linear or target-date shaped). |
+| **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates, also per percentile of the paths (10th-90th, as Portfolio Visualizer; for contribute-then-withdraw plans measured from the balance when withdrawals start) (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first - never milder than the worst of the long-history series when the window is recent, with a warning when a stressed result beats the unstressed one or the history is under 40 years -, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), any number of cash-flow phases (contribute, then withdraw), and a glide path (e.g. 90/10 -> 40/60 over 30 years, linear or target-date shaped). **Financial goals** (below the settings, as Portfolio Visualizer's financial goals planner): several goals on the same portfolio and settings, each a contribution or a withdrawal with its own years (once, or a year/quarter/month from year A to year B), in today's dollars grown with inflation unless unticked; the table gives each withdrawal goal's chance of being met (every payment paid in full), the median share funded and the median shortfall, and the chance that every goal is met on the same path (API: `POST /api/goals`). Under a stress test the max-drawdown row is split: the stressed months' own drawdown (the same on every path), the drawdown after the stress and without it (the same draws), which vary by path. |
 | **Factors** | Regress a ticker, portfolio, sentence or saved run on CAPM, Fama-French 3, Carhart 4, Fama-French 5 or FF5 + momentum for the US or a region (developed, developed ex US, Europe, Japan, Asia Pacific ex Japan, North America, emerging), AQR's quality (QMJ) and betting-against-beta (BAB) factors, and the bond factors TERM and DEF, monthly (French's official monthly files) or daily: loadings with t-stats, R², annualised alpha and rolling 36-month loadings. **Style analysis** (Sharpe 1992) finds the asset-class mix that best tracks the returns, with rolling 36-month weights. |
-| **Correlations** | The correlation matrix of daily or monthly total returns over a chosen period, a rolling correlation of any pair (its whole-history figure labelled with its own dates, next to the pair's value over the matrix period), a warning naming the ticker whose later data moved the start, and per-asset statistics (CAGR, volatility, Sharpe, max drawdown, best/worst year, first date of data; on the matrix's frequency: with monthly returns, volatility and Sharpe from monthly returns and the max drawdown from month-end values), like Portfolio Visualizer's asset correlations. |
+| **Correlations** | The correlation matrix of daily or monthly total returns over a chosen period, a rolling correlation of any pair (its whole-history figure labelled with its own dates, next to the pair's value over the matrix period), a warning naming the ticker whose later data moved the start, and per-asset statistics (CAGR, volatility, Sharpe, max drawdown, best/worst year, first date of data; on the matrix's frequency: with monthly returns, volatility and Sharpe from monthly returns and the max drawdown from month-end values), like Portfolio Visualizer's asset correlations. **Principal components** (same tickers and period): the components of the correlation (or covariance) matrix of the returns, their explained and cumulative variance and each asset's loadings (API: `POST /api/pca`). |
 | **Funds** | Fund research: every ETF and mutual fund with data in one sortable, filterable table (search, type, category, expense ratio, years of history, assets, 5-year return, 3-year volatility), with trailing 1/3/5/10-year total returns, volatility and max drawdown computed from our own total-return prices, and fund facts (name, category, family, expense ratio, inception, net assets, yield, top holdings) from `data/funds_meta.json`. Click a ticker for its profile and top holdings; tick 2-6 funds (or type them) to compare growth of $10,000, statistics, calendar-year returns and correlations over their common period. Funds without Yahoo metadata yet use the issuers' fund lists (`data/fund_reference.json`, marked †) and still get every statistic; a filter on a value a fund doesn't have yet (expense ratio, assets) leaves it out and says how many, with a box to include them (`include_unknown=1`). Statistics are precomputed by the data job (`data/fund_stats.json`), so the page opens at once; without that file the table answers in about 2.5 s and fills in the rest as they are computed. A ⚠ marks a history with a one-day move far outside the fund's range (a likely data error). API: `GET /api/funds` (filters `q`, `kind`, `category`, `max_er`, `min_years`, `min_aum`, `min_r5y`, `max_vol`), `GET /api/funds/detail?t=VTI`, `POST /api/funds/compare {"tickers": [...]}`. |
 | **Signals & paper** | Shows what a strategy says to do on the latest bar: new entries, open positions and target weights. You can also start a forward test ("paper trading") that only uses data arriving after you saved it. |
 | **History** | Saved runs, with open, edit, share and delete. |
@@ -101,7 +101,15 @@ hold 60% SPY and 40% TLT, rebalance every year in June            (or "rebalance
 hold 60% SPY and 40% TLT, withdraw 5% a year taken quarterly      (1.25% of the balance each quarter)
 hold 60% SPY and 40% TLT, start with $1,000,000, withdraw 4% a year adjusted for inflation, taken monthly   (the 4% rule: $40,000 a year, $3,333 a month)
 hold 60% SPY and 40% gold since 1972        (gold = GLD, with GLDSIM before GLD existed; GOLD in capitals is Barrick Gold)
-hold 60% SPY and 40% TLT with Portfolio Visualizer defaults      (yearly rebalancing, calendar-month lookbacks)
+hold 60% SPY and 40% TLT with Portfolio Visualizer defaults      (yearly rebalancing, calendar-month lookbacks, CPI step-ups once a year)
+100% SPY       VTI 100       SPY 60 AGG 40      (a weight after the ticker: "hold ...")
+hold 25% each of US large cap growth, US large cap value, US small cap growth, US small cap value, since 1930   (refused unless the weights add up to 100%)
+hold 90% VTI and 10% BND gliding to 40% VTI and 60% BND over 30 years          (a glide path: see "Glide paths")
+hold 90% VTI and 10% BND gliding to 40% VTI and 60% BND linearly by 2% a year  (the largest weight moves 2 points a year: 25 years)
+hold 90% VTI and 10% BND, target date 2050 glide path                          (target-date shaped, ending at 40/60 on 1 Jan 2050)
+dual momentum between SPY and EFA with AGG as the safe asset, only if their 12 month return is above BIL's 12 month return
+hold 60% SPY and 40% AGG, withdraw $40,000 a year adjusted for inflation annually   (Portfolio Visualizer's once-a-year CPI step-up)
+hold 60% SPY and 40% TLT with 2x leverage and a 0.5% expense ratio net of leverage  (the fee on the equity, not the gross assets)
 hold 60% SPY and 40% TLT, benchmark 60% US Stock Market and 40% Total Bond Market
 ```
 
@@ -110,8 +118,12 @@ are re-evaluated **every day** by default (as in Composer); fixed-weight trees r
 you say otherwise (a note says so; Portfolio Visualizer's default is yearly), except the named model portfolios
 below, which rebalance **yearly** by default as Portfolio Visualizer does ("rebalance monthly" to change it).
 **"with Portfolio Visualizer defaults"** (or "PV defaults") asks for its conventions where ours differ: yearly
-rebalancing for fixed weights, month-end rules and rankings for tactical trees, and calendar-month lookbacks
-(the $10,000 start and reinvested dividends are the same already). Named model portfolios work as phrases: "golden butterfly since 1972, rebalance
+rebalancing for fixed weights, month-end rules and rankings for tactical trees, calendar-month lookbacks, and
+inflation-adjusted cash flows stepped up once a year (`inflation_indexing: "annual"`, see "Returns and costs": the
+4% rule then withdraws exactly $40,000 in the first year) (the $10,000 start and reinvested dividends are the same
+already). A note always says which indexing a run used. "dual momentum ..., only if their 12 month return is above
+T-bills (cash, the risk-free rate)" restates the built-in hurdle and changes nothing (a note says so); "... above
+BIL's 12 month return" is applied as written: the winner is held only when its total return beats BIL's. Named model portfolios work as phrases: "golden butterfly since 1972, rebalance
 yearly", "three fund portfolio", "all weather", "permanent", "coffeehouse", "ivy", "Bernstein
 no-brainer", "60/40 portfolio", "Hedgefundie adventure", "Swensen", "larry portfolio", "Buffett 90/10",
 "global market portfolio", "sandwich", "desert", "Merriman ultimate buy and hold", "weird portfolio",
@@ -390,6 +402,8 @@ python -m backtester factors QQQ --model ff5+qmj+bab                 # add-ons: 
 python -m backtester style QQQ [--assets "SPY EFA EEM IEF BIL"] [--window 36]
 python -m backtester montecarlo --weights "SPY 60 IEF 40" --withdrawal 50000 --horizon mortality --age 65 --sex joint --age2 63
 python -m backtester correlation SPY TLT GLD EFASIM --window 36 --freq monthly [--pair SPY,TLT] [--start 2000-01-01]
+python -m backtester pca SPY EFA EEM AGG TLT GLD [--basis correlation|covariance] [--freq monthly|daily] [--start 2005]
+python -m backtester goals --weights "VTISIM 60 BNDSIM 40" --balance 250000 --years 35 --goal "House: withdraw 150000 in year 12" --goal "Retirement: withdraw 70000 a year from year 20"
 python -m backtester optimize SPY TLT GLD --methods omega,max_return_over_maxdd --omega-threshold 0.03
 python -m backtester optimize SPY TLT GLD --expected-return "SPY=7%,TLT=4%,GLD=3%" --expected-vol "SPY=16%" --correlation "SPY/TLT=-0.2"
 python -m backtester optimize SPY QQQ TLT GLD --view "SPY = 8% @ 60%" --view "QQQ > TLT by 3% @ 40%" --prior "SPY=40%,QQQ=20%,TLT=30%,GLD=10%"
@@ -977,12 +991,47 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
     `entry_value` the first purchase, `bought`/`sold` every purchase/sale (a daily-rebalanced holding makes
     many), `pnl` sales − purchases − costs + dividends (+ value still held), and `return` the ticker's own
     total return over the period.
+- **Glide paths (dynamic allocation).** A fixed mix can move to another over time, as Portfolio Visualizer's
+  dynamic allocation: "hold 90% VTI and 10% BND gliding to 40% VTI and 60% BND over 30 years" (or "by 2045",
+  "linearly by 2% a year", "target date 2050 glide path"), or in a JSON spec `"glide": {"to": {"VTI": 0.4,
+  "BND": 0.6}, "years": 30}` with one of `years`, `end` (a year = 1 January of it, or a date) or `per_year` (the
+  largest weight's change a year), plus `shape` (`linear`, or `target_date`: the start mix for the first fifth,
+  then de-risking that speeds up, the Monte Carlo's shape), `start` (default the run's first day) and `step`
+  (`rebalance`, the default: at each rebalance the target is start + f x (end - start) with f the share of the
+  glide elapsed on that date; `yearly`: it moves once per glide year, as in the Monte Carlo). The target depends
+  only on the date, so there is no lookahead (truncating the data leaves everything before unchanged); between
+  rebalances the holdings drift, and the end mix is held after the glide. Tickers only in the end mix start at
+  0%. The report shows the target weights over time (first rebalance of each year) under the allocation chart,
+  the command line prints three of them, and the site's allocation grid can glide one portfolio to another's
+  weights ("Glide path: Portfolio 1 → Portfolio 2", over N years; the end column is then not run on its own).
+- **Statistics on the calendar's own frequency.** Volatility, Sharpe, Sortino, alpha, tracking error, Treynor,
+  rolling 3/6/12/36-month windows, the rolling-return summary, the risk contributions, the bootstrap's years and
+  the per-bar risk-free rate use the series' own bars a year (`metrics.periods_per_year`): 252 on a stock-market
+  calendar, 365 on a seven-day one (a crypto holding brings weekend bars: "hold 50% BTC-USD and 50% SPY" has
+  a 36% volatility, not the 30% that sqrt(252) gave), 52 for weekly and 12 for monthly bars. Cash interest,
+  margin interest, borrow fees and the expense ratio accrue per bar on the same count, so a year of bars carries
+  one year's rate. The report and the command line say so when it is not 252. A daily factor regression of a
+  seven-day series compounds its returns onto the factors' trading days (Monday includes the weekend).
 - **Returns and costs.** Returns are time-weighted, so cash flows don't distort CAGR or Sharpe. Flows are
   made at the close, after the day's return (a contribution is invested, and a withdrawal sold, at that close;
   with "at the next open" the open trades are done first), so the daily return is (E_t − cf_t) / E_(t−1) − 1:
   a portfolio fully invested in one asset has that asset's own return, and the same CAGR as its benchmark with
-  the same flows, whatever the contributions or withdrawals. The money-weighted IRR is reported separately. Costs default to zero, and the report always shows a
+  the same flows, whatever the contributions or withdrawals. The money-weighted IRR is reported separately:
+  with cash flows the command line's headline says "Time-weighted total ... CAGR ..." with "Money-weighted IRR
+  .../yr" right under it (never a bare "Total return" next to balances that include the flows), and the
+  report's tile reads "Time-weighted return" with the IRR beside it. Costs default to zero, and the report always shows a
   cost-sensitivity table.
+  - Inflation-indexed $ flows: by default each payment follows the CPI published by its date
+    (`inflation_indexing: "published"`), so a monthly 4% rule pays a little more than $40,000 in its first year
+    as prices rise. `"annual"` (Portfolio Visualizer's convention; "adjusted for inflation annually", or "with
+    Portfolio Visualizer defaults") fixes the amount for each year of the flow (its first n payments of n a year)
+    and steps it up by the CPI since the first payment at the start of each later year: the first year totals
+    exactly the stated amount. The notes say which was used.
+  - The expense ratio is charged daily on the gross invested assets: with leverage or shorts that includes the
+    borrowed or shorted part, as a fund charges on everything it holds. `expense_on: "equity"` ("0.5% expense
+    ratio net of leverage", or "Expense ratio charged on: equity" in the grid) charges it on the account's value
+    instead (the equity, net of the borrowing), for comparing with tools that apply it to the balance. Without
+    leverage the two differ only by the cash held.
 
 ## Broker trading (Alpaca)
 
@@ -1542,6 +1591,20 @@ the start of each period, pro rata, and the portfolio is rebalanced on its sched
   shape of published target-date glide paths. Custom points are (years elapsed: % of the way), joined linearly.
   Returns are drawn for every asset of both mixes together, so correlations hold; the results list the target
   mix by year. A glide path needs tickers and weights (not a sentence or a saved run).
+- Stress-test drawdowns: every path starts with the same stressed months, so their own drawdown is the same on
+  every path and, when it is the deepest, every percentile of the whole-path max drawdown shows it. The results
+  add the stressed months' drawdown (once), the drawdown after the stress (from the end of the stressed months)
+  and the drawdown without the stress (the same draws), which vary by path, and a note gives the share of paths
+  whose deepest drawdown is the stress.
+- Financial goals (`python -m backtester goals --weights "VTISIM 60 BNDSIM 40" --balance 250000 --years 35 --goal
+  "Savings: contribute 20000 a year for 15 years" --goal "College: withdraw 60000 a year from year 8 to year 11"
+  --goal "House: withdraw 150000 in year 12" --goal "Retirement: withdraw 70000 a year from year 20"`, every
+  Monte Carlo option applies; or "Financial goals" on the Monte Carlo page): each goal is a cash flow on the same
+  simulated paths (today's dollars grown with inflation unless "fixed dollars"; a calendar year such as 2045
+  counts this year as year 1). A withdrawal goal is met on a path when all its payments are paid in full; when a
+  period's withdrawals are more than the balance, it is shared among them in proportion to their amounts, so a
+  goal is not starved by another paid the same day. Per goal: the chance of meeting it, the median and 10th
+  percentile share funded, the median shortfall; and the chance of meeting every goal on one path.
 - Lifetime horizon (`--horizon mortality --age 65 --sex male|female|joint [--age2 63]`, or "a lifetime" on
   the site): the paths run until the chance of being alive falls below 0.1%, and the chance of success is
   weighted by survival - the sum over years of P(death that year) x P(money left at the end of that year),
@@ -1550,6 +1613,18 @@ the start of each period, pro rata, and the portfolio is rebalanced on its sched
   `backtester/lifetable.py`); a couple is two independent lives, a man and a woman, and the money must last
   until the second death. A period table assumes no future mortality improvement, so it slightly
   understates lifetimes.
+
+## Principal component analysis
+
+`python -m backtester pca SPY EFA EEM AGG TLT GLD` (or "Principal components" on the Correlations page) reads the
+assets' total returns over their common period as the correlation tool does (monthly, month-end to month-end,
+by default; daily with `--freq daily`) and decomposes their correlation matrix (`--basis correlation`, the
+default: every asset standardised first) or covariance matrix (`--basis covariance`: the more volatile assets
+weigh more). For each component: its explained share of the variance (eigenvalue over their sum) and the
+cumulative share, its eigenvalue (correlation basis; the average is 1) or annualised volatility (covariance
+basis), its loadings (the eigenvector, length 1; the sign of an eigenvector is arbitrary and is chosen so the
+loadings add up to a positive number: the first component then reads as the assets moving together) and its
+correlation with each asset. The output says how many components explain 90% of the variance.
 
 ## Factor analysis
 
@@ -1577,6 +1652,31 @@ the start of each period, pro rata, and the portfolio is rebalanced on its sched
 
 A sentence or saved run with fixed weights is simulated from its assets; one with rules resamples
 the strategy's own monthly returns.
+
+## Speed
+
+The site's allocation grid (three portfolios since 1972 with contributions and withdrawals) and its Monte Carlo
+page were profiled; the changes keep the results the same:
+
+- Safe and perpetual withdrawal rates (historical, bootstrapped and per percentile) come from each path's exact
+  survival threshold: while the money lasts, the balance after the j-th withdrawal is linear in the rate, so one
+  pass over the months gives every path's threshold and the bisections compare against it instead of
+  re-simulating all paths for each of their 36-40 trial rates (30-60x faster; the same rates, to the
+  bisection's own last step).
+- The report's bootstrap replays the cash-flow schedule only on flow days; the stretches in between are one
+  cumulative product per path (the same multiplications in the same order, so the same numbers), and the
+  bootstrap's path blocks run on a few threads.
+- A portfolio backtest values runs of quiet days (no flow, dividend, rebalance, delisting, band, borrowing or
+  fee) at once with the same arithmetic as the day-by-day loop (bit-identical: `portfolio.FAST_QUIET_DAYS`
+  turns it off), period ids are integer ordinals instead of Period objects, and the flow-free re-run behind the
+  historical withdrawal rates reuses the run's evaluated targets and price tables.
+- The web server keeps each ticker's loaded series (as before) and the list of available tickers until the
+  price folder changes.
+
+Measured back to back on a busy 4-core machine (load 5-6, warm server; the first request also loads the data):
+the grid from 9-12 s to about 7 s, the Monte Carlo page from 3.3-3.8 s to 0.5-1.3 s (with a stress test 3.9-4.7 s
+to 0.8-1.5 s). Most of the grid's remaining time is the reports (statistics, bootstrap and writing three reports),
+not the simulations.
 
 ## Tests
 

@@ -32,7 +32,7 @@ from .montecarlo import parse_weights
 
 SUBCOMMANDS = {"run", "compare", "sweep", "walkforward", "optimize", "signals", "paper", "web", "tickers", "library", "montecarlo",
                "factors", "style", "import-composer", "composer-export", "correlation", "correlations", "trade",
-               "import-series"}
+               "import-series", "pca", "goals"}
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -401,9 +401,47 @@ def _load_target(a):
     raise ValueError("Give --weights 'SPY 60 TLT 40', a sentence, --spec FILE or --run ID.")
 
 
-def cmd_montecarlo(argv: list[str]) -> int:
+def cmd_goals(argv: list[str]) -> int:
+    """The financial goals planner: the Monte Carlo options plus one --goal per goal."""
+    from . import goals as G
+    goals, rest, i = [], [], 0
+    while i < len(argv):
+        if argv[i] == "--goal" and i + 1 < len(argv):
+            goals.append(G.parse_goal(argv[i + 1]))
+            i += 2
+            continue
+        if argv[i].startswith("--goal="):
+            goals.append(G.parse_goal(argv[i].split("=", 1)[1]))
+        else:
+            rest.append(argv[i])
+        i += 1
+    if not goals and not any(x in ("-h", "--help") for x in rest):
+        raise ValueError("Give one --goal per goal, e.g. --goal 'College: withdraw 60000 a year from year 8 to year 11' "
+                         "--goal 'House: withdraw 150000 in year 12' --goal 'Savings: contribute 20000 a year for 15 years'.")
+    return cmd_montecarlo(rest, goals=goals, prog="python -m backtester goals")
+
+
+def cmd_pca(argv: list[str]) -> int:
+    from . import pca as PC
+    p = argparse.ArgumentParser(prog="python -m backtester pca",
+                                description="Principal component analysis of asset returns: explained variance and "
+                                            "loadings of each component (total returns, adjusted close).")
+    p.add_argument("tickers", nargs="+", help="tickers or asset-class names")
+    p.add_argument("--freq", default="monthly", choices=["monthly", "daily"])
+    p.add_argument("--basis", default="correlation", choices=list(PC.BASES),
+                   help="correlation (standardised returns, the default) or covariance (raw returns)")
+    p.add_argument("--start")
+    p.add_argument("--end")
+    p.add_argument("--json", action="store_true")
+    a = p.parse_args(argv)
+    R = PC.analyze(a.tickers, a.freq, a.basis, a.start, a.end)
+    print(json.dumps(report._clean(R), indent=2) if a.json else PC.console(R))
+    return 0
+
+
+def cmd_montecarlo(argv: list[str], goals: list | None = None, prog: str = "python -m backtester montecarlo") -> int:
     from . import montecarlo as mc
-    p = argparse.ArgumentParser(prog="python -m backtester montecarlo",
+    p = argparse.ArgumentParser(prog=prog,
                                 description="Monte Carlo simulation of a portfolio's future balance (percentile bands, "
                                             "chance of success, safe and perpetual withdrawal rates).")
     p.add_argument("text", nargs="?", help="a portfolio or strategy sentence (its monthly returns are resampled)")
@@ -487,6 +525,11 @@ def cmd_montecarlo(argv: list[str]) -> int:
         flows = mc.flows_from_portfolio(spec)
     s.flows = flows
     s.input_notes = list(getattr(a, "input_notes", None) or [])
+    if goals is not None:
+        from . import goals as G
+        R = G.run(s, goals)
+        print(json.dumps(report._clean(R), indent=2) if a.json else G.console(R))
+        return 0
     R = mc.run(s)
     if a.json:
         print(json.dumps(report._clean(R), indent=2))
@@ -796,6 +839,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_style(rest)
         if cmd in ("correlation", "correlations"):
             return cmd_correlation(rest)
+        if cmd == "pca":
+            return cmd_pca(rest)
+        if cmd == "goals":
+            return cmd_goals(rest)
         if cmd == "optimize":
             return cmd_optimize(rest)
         if cmd == "signals":

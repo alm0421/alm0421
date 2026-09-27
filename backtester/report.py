@@ -1047,6 +1047,21 @@ def holdings_payload(res: Result) -> dict:
             "as_of": hw.index[-1].strftime("%Y-%m-%d")}
 
 
+def glide_payload(res: Result) -> dict:
+    """A glide path's target weights over time (the first rebalance of each year, and the last one), for the
+    report's table and chart; {} without a glide path."""
+    gt = (res.extras or {}).get("glide_targets") if res is not None else None
+    if gt is None or gt.empty:
+        return {}
+    keep = gt.groupby(gt.index.year).head(1)
+    if keep.index[-1] != gt.index[-1]:
+        keep = pd.concat([keep, gt.iloc[[-1]]])
+    return {"dates": [d.strftime("%Y-%m-%d") for d in keep.index], "columns": list(gt.columns),
+            "values": {c: [round(float(x), 5) for x in keep[c]] for c in gt.columns},
+            "text": next((n for n in getattr(res.strategy, "summary", lambda: "")().split("\n")
+                          if n.startswith("Glide path:")), "")}
+
+
 def signal_attribution(res: Result) -> pd.DataFrame | None:
     """P&L per ticker for a signal run, from its trades (closed and still open): sum(pnl) + interest equals
     final equity - starting capital."""
@@ -1173,15 +1188,21 @@ def _depleted_trailing(end: pd.Timestamp, dep: pd.Timestamp) -> dict:
             "depleted_on": dep.date()}
 
 
-def flow_free_nav(spec, start=None) -> pd.Series | None:
+def flow_free_nav(spec, start=None, res=None) -> pd.Series | None:
     """The allocation re-run with no contributions or withdrawals: its equity is the time-weighted growth of the
     asset mix over the whole requested period, whatever the cash flows did (even after they emptied the account).
-    From `start` on (the first day of the reported run). None if it cannot be run."""
+    From `start` on (the first day of the reported run). None if it cannot be run. With `res` (the run with the
+    flows), its evaluated targets and price tables are reused (they do not depend on the flows) and only the equity
+    curve is built (portfolio.reuse_evaluations(light=True))."""
     from . import portfolio as _pf
     try:
         p0 = dataclasses.replace(spec, contribution=0.0, withdrawal=0.0, withdrawal_pct=0.0,
                                  notes=[], tree=json.loads(json.dumps(spec.tree)))
-        eq = _pf.run(p0).equity
+        if res is not None and getattr(res, "kind", None) == "allocation":
+            with _pf.reuse_evaluations(res, light=True):
+                eq = _pf.run(p0).equity
+        else:
+            eq = _pf.run(p0).equity
     except Exception:  # noqa: BLE001 - the rates then fall back to the run's own returns
         return None
     if start is not None:
@@ -1398,7 +1419,7 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
             base = wd.index[0]
         # measured on the portfolio's own returns without any cash flows, over the whole requested period (or the
         # whole withdrawal phase): the rate must not depend on the amount entered, which can empty the account early
-        tw = flow_free_nav(s, res.equity.index[0])
+        tw = flow_free_nav(s, res.equity.index[0], full)
         if tw is None:
             tw = nv
         nv_w = tw[tw.index >= base] if base is not None else tw
@@ -1621,13 +1642,20 @@ def console_summary(A: dict) -> str:
         c = A["cash"]
         L.append(f"Money             start ${c['starting_balance']:,.0f} + contributions ${c['total_contributions']:,.0f} "
                  f"- withdrawals ${c['total_withdrawals']:,.0f} -> ${c['ending_balance']:,.0f}")
-        L.append(f"                  money-weighted return {pct(c['money_weighted_return'])}/yr"
-                 + (f"   (money ran out: portfolio depleted on {c['depleted_on']})" if c.get("depleted_on") else
-                    "   (money ran out)" if c["ran_out"] else ""))
+        if c.get("depleted_on") or c["ran_out"]:
+            L.append("                  " + (f"money ran out: portfolio depleted on {c['depleted_on']}" if c.get("depleted_on")
+                                             else "money ran out"))
     L.append(f"Start / end       ${st['start_equity']:,.2f} -> ${st['end_equity']:,.2f}")
     if A.get("no_trades"):
         L.append("Result            No trades: the entry rule never triggered.")
         L.append(f"                  (cash interest alone: total {pct(st['total_return'])}, CAGR {pct(st['cagr'])}; not a trading result)")
+    elif A.get("cash"):
+        # with contributions or withdrawals the balances above are not the return: say which return this is, and
+        # put the money-weighted one (IRR of the actual flows) next to it
+        L.append(f"Time-weighted     total {pct(st['total_return'])}   CAGR {pct(st['cagr'])}   real (after inflation) "
+                 f"{pct(st['real_cagr'])}   (the growth of $1 held throughout; cash flows removed)")
+        L.append(f"Money-weighted    IRR {pct(A['cash'].get('money_weighted_return'))}/yr   (the return on the money actually "
+                 "invested, given the timing of the contributions and withdrawals)")
     else:
         L.append(f"Total return      {pct(st['total_return'])}   CAGR {pct(st['cagr'])}   real (after inflation) {pct(st['real_cagr'])}")
     L.append(f"Sharpe            {num(st['sharpe'])}   Sortino {num(st['sortino'])}   Calmar {num(st['calmar'])}   "
@@ -1638,6 +1666,10 @@ def console_summary(A: dict) -> str:
         L.append(f"Max drawdown      {pct(st['max_drawdown'])}  peak {st['max_dd_peak']}  trough {st['max_dd_trough']}  recovered {st['max_dd_recovery'] or 'not yet'}"
                  + (f"   (month-end {pct(st['max_drawdown_monthly'], 1)})" if st.get("max_drawdown_monthly") is not None
                     and np.isfinite(st["max_drawdown_monthly"]) else ""))
+    ppy_ = st.get("periods_per_year")
+    if ppy_ is not None and ppy_ != metrics.TRADING_DAYS:
+        L.append(f"Annualised on     {ppy_:g} bars a year (this calendar's own frequency"
+                 + (": it has weekend bars" if ppy_ == 365 else "") + "), not 252 trading days")
     L.append(f"Volatility        {pct(st['volatility'])}   Time in market {pct(ex['time_in_market'])}   Avg exposure {pct(ex['avg_exposure'])}")
     if A["result"].kind == "allocation":
         n_hp = int(ts.get("trades") or 0) + int(ts.get("open_trades") or 0)
@@ -1654,6 +1686,12 @@ def console_summary(A: dict) -> str:
                  "(marked at the last close; not in the trade statistics)")
     if A.get("turnover") is not None:
         L.append(f"Turnover          {pct(A['turnover'] / 2, 0)} per year (one-sided)   Rebalances {A['rebalances']}")
+    gp = glide_payload(A["result"])
+    if gp:
+        cols = gp["columns"]
+        ix = sorted(set([0, len(gp["dates"]) // 2, len(gp["dates"]) - 1]))
+        L.append("Glide targets     " + "   ".join(
+            f"{gp['dates'][i]}: " + " / ".join(f"{gp['values'][c][i] * 100:.0f}% {c}" for c in cols) for i in ix))
     if A["relative"]:
         r = A["relative"]
         L.append(f"vs {short_label(A['primary_benchmark'])} beta {num(r['beta'])}   alpha {pct(r['alpha_annual'])}/yr   "
@@ -1836,6 +1874,7 @@ def run_payload(A: dict, i: int, idx: pd.DatetimeIndex) -> dict:
         "trades": _trades_records(res),
         "orders": res.orders.to_dict("records") if res.orders is not None and not res.orders.empty and len(res.orders) <= 20000 else [],
         "holdings": holdings_payload(res),
+        "glide": glide_payload(res),
         "prices": {},        # filled by build_payload (embedded charts) / chart files
         "universe_size": len(getattr(s, "universe", []) or []),
         "universe": list(getattr(s, "universe", []) or [])[:500],

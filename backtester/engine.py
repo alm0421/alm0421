@@ -132,8 +132,9 @@ class Result:
 
 # ------------------------------------------------------------------ preparation
 
-def _daily_rate(index: pd.DatetimeIndex, spec) -> np.ndarray:
-    """Per-trading-day interest rate for idle cash."""
+def _daily_rate(index: pd.DatetimeIndex, spec, ppy: float = 252.0) -> np.ndarray:
+    """Per-bar interest rate for idle cash: the annual rate over `ppy` bars a year (252 trading days; 365 on a
+    seven-day calendar with weekend bars, so a year of bars still earns one year's interest)."""
     if spec is None or spec is False or spec == 0:
         return np.zeros(len(index))
     if spec == "tbill":
@@ -141,8 +142,8 @@ def _daily_rate(index: pd.DatetimeIndex, spec) -> np.ndarray:
         if s.empty:
             return np.zeros(len(index))
         s = s.reindex(index.union(s.index)).ffill().reindex(index).fillna(0.0)
-        return s.to_numpy() / 252.0
-    return np.full(len(index), float(spec) / 252.0)
+        return s.to_numpy() / ppy
+    return np.full(len(index), float(spec) / ppy)
 
 
 def _warmup_bar(strat, cal, tick, C, namespaces, long_sig, short_sig) -> int | None:
@@ -728,7 +729,9 @@ def run(strat: Strategy) -> Result:
         key = "short entry" if strat.side == "both" and sgn < 0 else "entry"
         return react if key in react_rules else 0.0
     react_exit = react if "exit" in react_rules else 0.0
-    rate = _daily_rate(cal, strat.cash_rate)
+    from .metrics import periods_per_year
+    ppy = periods_per_year(cal)       # 252; 365 on a seven-day calendar (weekend bars)
+    rate = _daily_rate(cal, strat.cash_rate, ppy)
     warm_i = _warmup_bar(strat, cal, tick, C, namespaces, long_sig, short_sig)
     if warm_i:
         # as a portfolio starts trading on its warm-up day with the starting capital, the account earns nothing while
@@ -1494,15 +1497,15 @@ def run(strat: Strategy) -> Result:
                 if r > 0 and strat.short_rebate_spread:
                     # short sale proceeds (part of cash) earn the rate less the rebate spread, floored at zero
                     short_mv = sum(p.shares * price_or_last(p.k, C[i - 1]) for p in positions.values() if p.sign == -1)
-                    earned -= min(short_mv, S["cash"]) * min(r, strat.short_rebate_spread / 252.0)
+                    earned -= min(short_mv, S["cash"]) * min(r, strat.short_rebate_spread / ppy)
             else:
-                earned = S["cash"] * (r + strat.margin_rate / 252.0)
+                earned = S["cash"] * (r + strat.margin_rate / ppy)
             S["cash"] += earned
             S["interest"] += earned
         for p in positions.values():
             k = p.k
             if i > 0 and p.sign == -1 and BF[k]:
-                fee = p.shares * price_or_last(k, C[i - 1]) * BF[k] / 252.0
+                fee = p.shares * price_or_last(k, C[i - 1]) * BF[k] / ppy
                 S["cash"] -= fee
                 for lot in p.lots:
                     lot.income -= fee * lot.shares / p.shares

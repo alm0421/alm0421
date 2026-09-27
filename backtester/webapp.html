@@ -171,7 +171,13 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       <label>Benchmark<input id="g_benchmark" data-tk="asset" placeholder="SPY (default)"></label>
       <label>Expense ratio (%/yr)<input id="g_expense_ratio" type="number" value="0" min="0" step="0.01"></label>
       <label>Leverage (x)<input id="g_leverage" type="number" value="1" min="0.1" max="10" step="0.1"></label>
+      <label>Expense ratio charged on<select id="g_expense_on"><option value="gross" selected>gross assets (incl. borrowed)</option><option value="equity">equity (net of leverage)</option></select></label>
+      <label>Inflation indexing<select id="g_inflation_indexing"><option value="published" selected>each payment follows CPI</option><option value="annual">once a year (Portfolio Visualizer)</option></select></label>
+      <label>Glide path<select id="g_glide"><option value="">none (fixed weights)</option><option value="0-1">Portfolio 1 → Portfolio 2</option><option value="0-2">Portfolio 1 → Portfolio 3</option><option value="1-2">Portfolio 2 → Portfolio 3</option></select></label>
+      <label>Glide over (years)<input id="g_glide_years" type="number" min="0.1" max="100" step="any" placeholder="e.g. 30" disabled></label>
+      <label>Glide shape<select id="g_glide_shape" disabled><option value="linear">linear</option><option value="target_date">target-date shaped</option></select></label>
     </div>
+    <p class="note">Glide path (dynamic allocation): the first portfolio's weights move to the second's over the years given, recomputed at each rebalance from the date alone; the second portfolio is then the end mix, not run on its own.</p>
     <h3>Assets</h3>
     <div class="xscroll"><table id="gTbl" class="gtbl"></table></div>
     <div class="row" style="margin-top:6px"><button class="btn small" id="gAddRow" type="button">+ Add asset</button><button class="btn small" id="gExample" type="button">Example: 60/40 and three-fund</button><button class="btn small" id="gClear" type="button">Clear</button></div>
@@ -501,6 +507,13 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     <div id="mcForecast" class="hide"><h3>Forecast (annual expected return and volatility per asset; correlations stay historical)</h3><div class="grid" id="mcForecastGrid"></div></div>
     <div class="row" style="margin-top:12px"><button class="btn primary" id="mcRun">Run simulation</button><span class="note" id="mcStatus"></span></div>
   </div>
+  <div class="card" id="goalsCard"><h2>Financial goals</h2>
+    <p class="note">Several goals on the portfolio and settings above: each is a contribution or a withdrawal with its own years, all on the same simulated paths. The chance of meeting a withdrawal goal is the share of paths that pay every one of its payments in full (when the balance cannot cover a period's withdrawals it is shared among them in proportion to their amounts). Amounts are in today's dollars, grown with inflation unless unticked. The cash flows above are replaced by the goals.</p>
+    <div id="goalRows"></div>
+    <div class="row" style="margin-top:6px"><button class="btn" id="goalAdd" type="button">+ Add goal</button>
+      <button class="btn primary" id="goalRun" type="button">Check goals</button><span class="note" id="goalStatus"></span></div>
+    <div id="goalOut" class="hide" style="margin-top:10px"><div class="tiles" id="goalTiles"></div><div class="xscroll"><table id="goalTbl"></table></div></div>
+  </div>
   <div id="mcOut" class="hide">
     <div class="card"><div class="tiles" id="mcTiles"></div><div id="mcNotes"></div></div>
     <div class="card"><div class="row"><h2 style="margin:0">Balance over time (percentiles)</h2><span style="flex:1"></span>
@@ -556,7 +569,16 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       <label>Rolling pair: first<select id="k_a"></select></label><label>second<select id="k_b"></select></label>
       <label>From<input id="k_start" type="date"></label><label>To<input id="k_end" type="date"></label>
     </div>
-    <div class="row" style="margin-top:12px"><button class="btn primary" id="kRun">Show correlations</button><span class="note" id="kStatus"></span></div>
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="kRun">Show correlations</button>
+      <button class="btn" id="pcRun" title="Principal component analysis of the same assets' returns">Principal components</button>
+      <label class="note" style="display:inline-flex;gap:6px;align-items:center">PCA on<select id="pc_basis"><option value="correlation">the correlation matrix</option><option value="covariance">the covariance matrix</option></select></label>
+      <span class="note" id="kStatus"></span></div>
+  </div>
+  <div id="pcOut" class="hide">
+    <div class="card"><h2 id="pcTitle">Principal components</h2><div id="pcNotes"></div>
+      <h3>Explained variance</h3><div class="xscroll"><table id="pcVar"></table></div>
+      <h3>Loadings</h3><div class="xscroll"><table id="pcLoad"></table></div>
+      <p class="note">Each component is an eigenvector of the assets' correlation (or covariance) matrix: its loadings are one weight per asset (length 1; the sign is arbitrary and chosen so they add up to a positive number). The first component is usually the market moving together; the explained share is its eigenvalue over their sum. On the correlation basis every asset is standardised first (eigenvalues average 1); on the covariance basis the more volatile assets weigh more and the component's volatility is in return units.</p></div>
   </div>
   <div id="kOut" class="hide">
     <div class="card"><h2 id="kMatTitle">Correlation matrix</h2><div class="xscroll"><table id="kMat"></table></div><div id="kNotes"></div></div>
@@ -2279,8 +2301,7 @@ window.addEventListener('blur', unpress);
   }
   $('mc_model').addEventListener('change', () => afterPress(drawForecast)); $('mc_weights').addEventListener('change', () => afterPress(drawForecast));
   $('mc_glide').addEventListener('change', () => { $('mc_glide_points').disabled = $('mc_glide').value !== 'custom'; });
-  $('mcRun').addEventListener('click', async () => {
-    spin($('mcStatus'), 'simulating…'); $('mcRun').disabled = true;
+  function mcBody() {
     const body = { balance: +$('mc_balance').value, years: +$('mc_years').value, model: $('mc_model').value, block_months: +$('mc_block').value,
       rebalance: $('mc_rebalance').value, inflation: $('mc_infl').value === 'fixed' ? (+$('mc_infl_rate').value / 100) : 'historical',
       sims: +$('mc_sims').value, success_target: +$('mc_success').value / 100, start: $('mc_start').value, end: $('mc_end').value,
@@ -2295,9 +2316,52 @@ window.addEventListener('blur', unpress);
     }
     if (mcSrc === 'weights') body.weights = $('mc_weights').value; else if (mcSrc === 'text') { body.text = $('mc_text').value; delete body.rebalance; } else { body.run_id = $('mc_run').value; delete body.rebalance; }
     if (body.model === 'forecast') { body.forecast = {}; mcTickers().forEach(tk => { const r = $(`mcf_${tk}_ret`), v = $(`mcf_${tk}_vol`); if (r && v && r.value !== '' && v.value !== '') body.forecast[tk] = { ret: +r.value / 100, vol: +v.value / 100 }; }); }
+    return body;
+  }
+  $('mcRun').addEventListener('click', async () => {
+    spin($('mcStatus'), 'simulating…'); $('mcRun').disabled = true;
+    const body = mcBody();
     try { MC = await api('/api/montecarlo', body); $('mcStatus').textContent = ''; drawMC(); }
     catch (e) { $('mcStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
     $('mcRun').disabled = false;
+  });
+  // ---- financial goals (POST /api/goals: the settings above plus one row per goal)
+  function goalAdd(g = {}) {
+    const row = el('div', { class: 'grid goalrow' }); row.style.marginTop = '6px';
+    const inp = (cls, v, a = {}) => { const x = el('input', { class: cls, ...a }); if (v != null) x.value = v; return x; };
+    const sel = (cls, opts, v) => { const x = el('select', { class: cls }); opts.forEach(([val, lab]) => x.append(el('option', { value: val }, lab))); if (v != null) x.value = v; return x; };
+    const lab = (t, x) => { const l = el('label'); l.append(document.createTextNode(t), x); return l; };
+    const infl = el('input', { class: 'g_infl', type: 'checkbox' }); infl.checked = g.inflation_adjusted !== false;
+    const del = el('button', { class: 'btn', type: 'button', title: 'Remove this goal' }, 'Remove'); del.style.alignSelf = 'end';
+    del.addEventListener('click', () => row.remove());
+    row.append(lab('Goal', inp('g_name', g.name || '', { placeholder: 'e.g. College' })), lab('Kind', sel('g_kind', [['withdraw', 'withdraw'], ['contribute', 'contribute']], g.kind || 'withdraw')),
+      lab('Amount ($ per payment)', inp('g_amount', g.amount ?? '', { type: 'number', min: '0' })), lab('Every', sel('g_freq', [['once', 'once'], ['yearly', 'year'], ['quarterly', 'quarter'], ['monthly', 'month']], g.freq || 'yearly')),
+      lab('From year', inp('g_from', g.start_year ?? 1, { type: 'number', min: '1' })), lab('To year (blank = end)', inp('g_to', g.end_year ?? '', { type: 'number', min: '1' })),
+      lab('Grow with inflation', infl), del);
+    $('goalRows').append(row);
+  }
+  function goalsBody() {
+    return [...document.querySelectorAll('#goalRows .goalrow')].map(r => { const q = c => r.querySelector('.' + c);
+      return { name: q('g_name').value.trim(), kind: q('g_kind').value, amount: +q('g_amount').value, freq: q('g_freq').value,
+        start_year: +q('g_from').value || 1, end_year: q('g_to').value ? +q('g_to').value : null, inflation_adjusted: q('g_infl').checked }; })
+      .filter(g => g.amount > 0);
+  }
+  [{ name: 'Savings', kind: 'contribute', amount: 20000, freq: 'yearly', start_year: 1, end_year: 15 }, { name: 'College', kind: 'withdraw', amount: 60000, freq: 'yearly', start_year: 8, end_year: 11 },
+   { name: 'House', kind: 'withdraw', amount: 150000, freq: 'once', start_year: 12 }, { name: 'Retirement', kind: 'withdraw', amount: 70000, freq: 'yearly', start_year: 20 }].forEach(goalAdd);
+  $('goalAdd').addEventListener('click', () => goalAdd({}));
+  $('goalRun').addEventListener('click', async () => {
+    spin($('goalStatus'), 'simulating…'); $('goalRun').disabled = true;
+    const body = mcBody(); body.goals = goalsBody(); body.flows = [{ type: 'none' }];
+    try {
+      const R = await api('/api/goals', body); $('goalStatus').textContent = '';
+      $('goalOut').classList.remove('hide');
+      $('goalTiles').replaceChildren(tile('All withdrawal goals met', R.all_goals_met == null ? '—' : pct(R.all_goals_met, 1), 'on the same path'),
+        tile('Money left at the end', pct(R.prob_success, 1), `after ${R.settings.years} years`));
+      table($('goalTbl'), ['Goal', 'What', 'Chance met', 'Funded (median)', 'Funded (10th pct)', 'Shortfall (median)'],
+        R.goals.map(g => g.kind === 'withdraw' ? [g.name, g.describe, { t: pct(g.probability, 1), c: g.probability >= 0.8 ? 'pos' : g.probability < 0.5 ? 'neg' : '' }, pct(g.funded_median, 1), pct(g.funded_p10, 1), usd(g.shortfall_median)]
+          : [g.name, g.describe, 'adds money', '—', '—', '—']));
+    } catch (e) { $('goalStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
+    $('goalRun').disabled = false;
   });
   tabs('mcReal', v => { mcMode = v; if (MC) drawFan(); });
   const P = ['10', '25', '50', '75', '90'];
@@ -2349,7 +2413,9 @@ window.addEventListener('blur', unpress);
     table($('mcTable'), ['', '10th', '25th', '50th (median)', '75th', '90th'], [
       row('Final balance', R.final, usd), row("Final balance (today's dollars)", R.final_real, usd),
       row('Annual return', R.annual_return, v => pct(v)), row('Annual return after inflation', R.annual_return_real, v => pct(v)),
-      row('Max drawdown', R.max_drawdown, v => pct(v, 1))].concat(R.withdrawals ? [row('Total withdrawn', R.withdrawals.total, usd), row("Total withdrawn (today's dollars)", R.withdrawals.total_real, usd)] : []).concat(R.depletion_years && Object.keys(R.depletion_years).length ? [row('Years until money ran out (failed paths)', R.depletion_years, v => num(v, 1))] : [])
+      row('Max drawdown', R.max_drawdown, v => pct(v, 1))].concat(R.stress && R.stress.max_drawdown != null ? [row('· of the stressed months (same on every path)', Object.fromEntries(Object.keys(R.max_drawdown).map(k => [k, R.stress.max_drawdown])), v => pct(v, 1))] : [])
+      .concat(R.max_drawdown_after_stress ? [row('· after the stress', R.max_drawdown_after_stress, v => pct(v, 1))] : [])
+      .concat(R.max_drawdown_unstressed ? [row('· without the stress (same draws)', R.max_drawdown_unstressed, v => pct(v, 1))] : []).concat(R.withdrawals ? [row('Total withdrawn', R.withdrawals.total, usd), row("Total withdrawn (today's dollars)", R.withdrawals.total_real, usd)] : []).concat(R.depletion_years && Object.keys(R.depletion_years).length ? [row('Years until money ran out (failed paths)', R.depletion_years, v => num(v, 1))] : [])
       .concat(mcRateRows(R, row)));
     const wr = R.withdrawal_rates;
     if (wr && showWR) n.append(el('p', { class: 'note' }, `Safe and perpetual withdrawal rates by percentile: each path's own highest inflation-adjusted yearly withdrawal, as a share of ${wr.basis === 'start' ? 'the start balance' : `that path's balance at the start of year ${wr.from_year}, when the withdrawals begin (median ${usd(wr.base_balance['50'])})`}, that it pays in full for ${num(wr.years, 0)} years (safe) or that also keeps its real balance (perpetual). The 10th percentile is the cautious figure: 90% of paths sustain at least that rate; ${pct(wr.success_target, 0)} of paths sustain ${pct(wr.safe_at_target)}.`));
@@ -2470,6 +2536,24 @@ window.addEventListener('blur', unpress);
     $('kRun').disabled = false;
   }
   $('kRun').addEventListener('click', runCorr);
+  async function runPca() {
+    spin($('kStatus'), 'computing…'); $('pcRun').disabled = true;
+    const body = { tickers: kTickers(), freq: $('k_freq').value, basis: $('pc_basis').value, start: $('k_start').value, end: $('k_end').value };
+    try { const R = await api('/api/pca', body); $('kStatus').textContent = ''; drawPca(R); }
+    catch (e) { $('kStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
+    $('pcRun').disabled = false;
+  }
+  $('pcRun').addEventListener('click', runPca);
+  function drawPca(R) {
+    $('pcOut').classList.remove('hide');
+    $('pcTitle').textContent = `Principal components of ${R.freq} returns (${R.basis} matrix), ${R.start} → ${R.end} (${R.observations} observations)`;
+    $('pcNotes').replaceChildren(el('div', { class: 'note' }, `${R.components_for_90pct} component(s) explain 90% of the variance.`), ...(R.notes || []).map(x => el('div', { class: 'note' }, 'Note: ' + x)));
+    const cov = R.basis === 'covariance';
+    table($('pcVar'), ['Component', 'Explained', 'Cumulative', cov ? 'Volatility /yr' : 'Eigenvalue'],
+      R.components.map(c => [c.component, pct(c.explained, 1), pct(c.cumulative, 1), cov ? pct(c.volatility_annual, 1) : num(c.eigenvalue, 2)]));
+    table($('pcLoad'), ['Asset'].concat(R.components.map(c => c.component)),
+      R.tickers.map(t => [t].concat(R.components.map(c => { const v = c.loadings[t]; return { t: num(v, 3), c: v >= 0 ? 'pos' : 'neg' }; }))));
+  }
   function drawCorr(R) {
     $('kOut').classList.remove('hide');
     $('kMatTitle').textContent = `Correlation of ${R.freq} returns, ${R.start} → ${R.end} (${R.observations} observations)`;
@@ -2761,14 +2845,18 @@ window.addEventListener('blur', unpress);
     });
   }
   // ---- settings, body, run, share
-  const SET = ['start', 'end', 'capital', 'rebalance', 'band', 'band_mode', 'benchmark', 'expense_ratio', 'leverage'];
+  const SET = ['start', 'end', 'capital', 'rebalance', 'band', 'band_mode', 'benchmark', 'expense_ratio', 'leverage', 'expense_on', 'inflation_indexing'];
   const bandUi = () => { const b = $('g_rebalance').value === 'bands'; $('g_band').disabled = !b; $('g_band_mode').disabled = !b; };
   $('g_rebalance').addEventListener('change', bandUi);
   SET.forEach(k => $('g_' + k).addEventListener('input', () => { lastShare = null; }));
+  const glideUi = () => { const on = !!$('g_glide').value; $('g_glide_years').disabled = !on; $('g_glide_shape').disabled = !on; };
+  $('g_glide').addEventListener('change', () => { glideUi(); lastShare = null; });
+  ['g_glide_years', 'g_glide_shape'].forEach(k => $(k).addEventListener('input', () => { lastShare = null; }));
   function body(action) {
     const b = { action, rows: G.rows.filter(r => r.asset.trim() || r.w.some(x => x !== '')).map(r => ({ asset: r.asset.trim(), w: r.w.map(x => x === '' || x == null ? null : +x) })),
       names: G.names.slice(), flows: G.flows.filter(f => f.amount !== '' && f.amount != null).map(f => ({ ...f })) };
     SET.forEach(k => { const v = $('g_' + k).value; if (v !== '') b[k] = v; });
+    if ($('g_glide').value) { const [a, z] = $('g_glide').value.split('-').map(Number); b.glide = { from: a, to: z, years: $('g_glide_years').value, shape: $('g_glide_shape').value }; }
     return b;
   }
   function fill(g) {
@@ -2777,7 +2865,9 @@ window.addEventListener('blur', unpress);
     G.names = Array.from({ length: NCOL }, (_, c) => (g.names || [])[c] || '');
     G.flows = (g.flows || []).map(f => ({ kind: f.kind || 'contribute', mode: f.mode || 'amount', amount: f.amount ?? '', freq: f.freq || 'monthly', inflation: !!f.inflation, start_year: f.start_year ?? '', end_year: f.end_year ?? '' }));
     SET.forEach(k => { const e = $('g_' + k); if (g[k] != null) e.value = g[k]; else if (e.tagName !== 'SELECT') e.value = e.defaultValue; else e.value = ([...e.options].find(o => o.defaultSelected) || e.options[0]).value; });
-    bandUi(); drawTable(); drawFlows(); showMsgs([], false);
+    const gl = g.glide || {};
+    $('g_glide').value = gl.from != null && gl.to != null ? `${gl.from}-${gl.to}` : ''; $('g_glide_years').value = gl.years ?? ''; $('g_glide_shape').value = gl.shape || 'linear';
+    bandUi(); glideUi(); drawTable(); drawFlows(); showMsgs([], false);
   }
   const shareUrl = tok => `${location.origin}${location.pathname}#backtest?g=${tok}`;
   async function run() {
@@ -2815,8 +2905,10 @@ window.addEventListener('blur', unpress);
   $('gAddRow').addEventListener('click', () => { G.rows.push(blankRow()); drawTable(); });
   $('gAddFlow').addEventListener('click', () => { G.flows.push({ kind: G.flows.some(f => f.kind === 'contribute') ? 'withdraw' : 'contribute', mode: 'amount', amount: '', freq: G.flows.some(f => f.kind === 'contribute') ? 'yearly' : 'monthly', inflation: true, start_year: '', end_year: '' }); drawFlows(); });
   $('gClear').addEventListener('click', () => fill({}));
-  $('gExample').addEventListener('click', () => fill({ rows: [{ asset: 'SPY', w: [60, null, null] }, { asset: 'AGG', w: [40, null, null] }, { asset: 'US Stock Market', w: [null, 40] },
-    { asset: 'International Stocks', w: [null, 20] }, { asset: 'Total Bond Market', w: [null, 40] }], names: ['60/40', 'Three-fund', ''], start: '2008', capital: 10000, rebalance: 'yearly' }));
+  // asset classes, not funds: each resolves to its long-history series (VTISIM, VXUSSIM, BNDSIM) before the fund
+  // existed, so the example reaches its 1987 start instead of being cut to the youngest fund's first day
+  $('gExample').addEventListener('click', () => fill({ rows: [{ asset: 'US Stock Market', w: [60, 40, null] },
+    { asset: 'International Stocks', w: [null, 20, null] }, { asset: 'Total Bond Market', w: [40, 40, null] }], names: ['60/40', 'Three-fund', ''], start: '1987', capital: 10000, rebalance: 'yearly' }));
   window.addEventListener('hashchange', fromHash);
   fill({}); lists().then(() => { changed(); fromHash(); });
 })();

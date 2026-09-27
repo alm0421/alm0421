@@ -38,6 +38,8 @@ from . import margin as _margin
 from .engine import Result, _daily_rate
 
 FREQS = ("daily", "weekly", "monthly", "quarterly", "semiannual", "yearly", "none")
+# value stretches of quiet days at once in run() (the same numbers as day by day; False: always day by day)
+FAST_QUIET_DAYS = True
 # plus "every_N_days" (every N trading days), "every_N_weeks" / "every_N_months" (every Nth week / month end)
 _EVERY = re.compile(r"every_(\d+)_(days|weeks|months)")
 
@@ -169,6 +171,10 @@ class Portfolio:
     withdrawal_inflation: bool | None = None
     contribution_dollars: str | None = None
     withdrawal_dollars: str | None = None
+    # how CPI indexing is applied to $ flows: "published" = each payment grows with the CPI published by its date
+    # (monthly steps); "annual" = Portfolio Visualizer's convention: the amount is fixed for a year and stepped up
+    # by the past year's inflation on each anniversary, so the first year's payments total exactly the stated amount
+    inflation_indexing: Literal["published", "annual"] = "published"
     leverage: float = 1.0                        # scale every target weight; the excess is borrowed
     margin_rate: float = 0.0                     # extra annual rate paid on borrowed cash (above T-bills)
     maintenance_margin: float = 0.25             # with borrowing or shorts: equity below this x gross exposure (x the
@@ -179,6 +185,10 @@ class Portfolio:
     margin_account: Literal["reg_t", "portfolio"] = "reg_t"   # the same margin model as signal strategies
                                                  # (backtester/margin.py): Reg T at most 2x, portfolio margin 4x
     expense_ratio: float = 0.0                   # annual fee on invested assets, charged daily
+    # what the expense ratio is charged on with leverage or shorts: "gross" = every $ held, including the borrowed
+    # (or shorted) part, as a fund charges on the assets it holds; "equity" = the account's net value (net of
+    # leverage), for comparing with tools that apply the fee to the portfolio balance
+    expense_on: Literal["gross", "equity"] = "gross"
     short_rebate_spread: float = 0.0025          # short sale proceeds earn the cash rate minus this (floored at 0)
     borrow_fee: float | None = None              # annual fee on the market value of short positions, charged daily;
                                                  # None: margin.default_borrow_fee per ticker; 0: none
@@ -206,6 +216,9 @@ class Portfolio:
                                                  # "60 SPY 40 AGG" / {"SPY": 0.6, "AGG": 0.4} (see benchmark_rebalance)
     # a blend's rebalancing: "monthly", "quarterly", "yearly", "none"... (None: the portfolio's own calendar schedule)
     benchmark_rebalance: str | None = None
+    # dynamic allocation (Portfolio Visualizer's glide path): the tree's fixed weights are the start mix and the target
+    # moves towards glide["to"] ({ticker: weight}) as the calendar advances; see GLIDE_KEYS / glide_mix
+    glide: dict | None = None
     name: str = ""
     description: str = ""
     notes: list[str] = field(default_factory=list)
@@ -326,6 +339,11 @@ class Portfolio:
             v = getattr(self, f)
             if v not in (None, "start", "flow") and not re.fullmatch(r"(18|19|20)\d\d", str(v)):
                 raise ValueError(f"{f} is None (dollars of the first day), 'flow' (of the flow's first payment) or a year")
+        if self.inflation_indexing not in ("published", "annual"):
+            raise ValueError("inflation_indexing must be 'published' (each payment follows the CPI published by its "
+                             "date) or 'annual' (stepped up once a year, Portfolio Visualizer's convention)")
+        if self.expense_on not in ("gross", "equity"):
+            raise ValueError("expense_on must be 'gross' (every $ held, including borrowed) or 'equity' (net of leverage)")
         if self.warmup not in ("all", "first"):
             raise ValueError("warmup must be 'all' (stats start when every ranked asset has its lookback) or 'first'")
         for f, label in (("slippage_bps", "slippage"), ("commission", "commission per order"),
@@ -344,6 +362,8 @@ class Portfolio:
                 raise ValueError(f"{f} is an annual fraction between 0 and 1 (0.01 = 1% a year)")
         if self.start and self.end and pd.Timestamp(self.start) >= pd.Timestamp(self.end):
             raise ValueError(f"The period is reversed or empty: it starts on {self.start} but ends on {self.end}.")
+        if self.glide not in (None, {}):
+            check_glide(self)
 
     def flow_inflation(self, kind: str) -> bool:
         """Is this flow ('contribution' / 'withdrawal') indexed to CPI?"""
@@ -415,7 +435,8 @@ class Portfolio:
             d = getattr(self, f"{kind}_dollars", None)
             base = ("dollars of its first payment" if d == "flow" else f"{d} dollars" if d not in (None, "start") else
                     f"{str(self.start)[:4]} dollars" if self.start else "dollars of the first day")
-            return f" in {base}, rising with inflation (CPI)"
+            return f" in {base}, rising with inflation (CPI" + (", stepped up once a year" if self.inflation_indexing == "annual"
+                                                                else "") + ")"
         if self.contribution:
             cf.append(f"add ${self.contribution:,.0f} {self.contribution_freq}" + real("contribution")
                       + _window_text(self.contribution_start, self.contribution_end)
@@ -450,8 +471,10 @@ class Portfolio:
             costs.append(f"volume slippage ({self.spread_bps / 2:g} bps + {self.impact_bps:g} bps x sqrt(shares/ADV20))")
         if self.expense_ratio:
             costs.append(f"{self.expense_ratio:.2%}/yr expense ratio"
-                         + (" (charged daily on the gross invested assets, including the borrowed or shorted part, not "
-                            "only on the equity)" if self.leverage > 1 or _has_short(self.tree) else ""))
+                         + ((" (charged daily on the gross invested assets, including the borrowed or shorted part, not "
+                             "only on the equity; expense_on 'equity' charges it net of leverage)" if self.expense_on != "equity"
+                             else " (charged daily on the equity, net of leverage: on the account's value, not on the "
+                                  "borrowed part)") if self.leverage > 1 or _has_short(self.tree) else ""))
         tree_borrows = isinstance(self.tree, dict) and max_gross(self.tree) > 1 + 1e-9   # weights above 100% (cash < 0)
         if self.leverage != 1:
             costs.append(f"{self.leverage:g}x leverage, borrowing at the T-bill rate"
@@ -487,6 +510,8 @@ class Portfolio:
         cr = self.cash_rate
         lines.append("Cash: " + ("earns the 3-month T-bill rate" if cr == "tbill" else
                                  f"earns {float(cr):.2%}/yr" if cr else "earns nothing"))
+        if self.glide:
+            lines.append(glide_text(self))
         if self.proxies:
             lines.append("Before inception (opt-in proxies): " + "; ".join(
                 f"{v} stands in for {k} until {k}'s data begins" + (f" ({PROXY_LABELS.get(v)})" if PROXY_LABELS.get(v) else "")
@@ -494,6 +519,156 @@ class Portfolio:
         if self.start or self.end:
             lines.append(f"Period: {self.start or 'start of data'} to {self.end or 'latest'}")
         return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ glide path (dynamic allocation)
+#
+# glide = {"to": {ticker: weight}, one of "years": N / "end": "2050" or a date / "per_year": 0.02 (the largest
+# weight moves 2 points a year), "shape": "linear" | "target_date", "start": a date (default the run's first day),
+# "step": "rebalance" | "yearly"}. The tree must be a fixed mix (its weights are the start mix). The target on a
+# day depends only on that date and the glide's start, never on prices: at each rebalance the portfolio trades to
+# start + f * (end - start), f = the fraction of the glide elapsed (target_date: montecarlo.TARGET_DATE_POINTS);
+# between rebalances the holdings drift as usual. "step": "yearly" moves the target once per glide year (as the
+# Monte Carlo glide: year 1 the start mix, year N the end mix).
+
+GLIDE_KEYS = {"to", "years", "end", "per_year", "shape", "start", "step"}
+GLIDE_SHAPES = ("linear", "target_date")
+
+
+def _fixed_mix(tree: dict) -> dict[str, float] | None:
+    """{ticker: weight} of a tree that is one asset or specified weights over assets; else None."""
+    if not isinstance(tree, dict):
+        return None
+    if _node_type(tree) == "asset":
+        return {data.canonical(tree["asset"]): 1.0}
+    if _node_type(tree) == "weights" and tree.get("weights") == "specified" and all(
+            _node_type(k) == "asset" for k in tree.get("children") or []):
+        out: dict[str, float] = {}
+        for k, w in zip(tree["children"], tree.get("w") or []):
+            t = data.canonical(k["asset"])
+            out[t] = out.get(t, 0.0) + float(w)
+        return out
+    return None
+
+
+def _glide_end(v) -> pd.Timestamp:
+    v = str(v).strip()
+    if re.fullmatch(r"\d{4}", v):
+        return pd.Timestamp(f"{v}-01-01")          # "by 2050": the end mix from the start of 2050
+    return pd.Timestamp(v)
+
+
+def check_glide(p: "Portfolio") -> None:
+    """Validate p.glide and make the tree hold every ticker of both mixes (a ticker only in the end mix starts at
+    0%), so data, warm-up and the common start cover them all."""
+    g = p.glide
+    if not isinstance(g, dict):
+        raise ValueError('glide is an object: {"to": {"VTI": 0.4, "BND": 0.6}, "years": 30}')
+    bad = set(g) - GLIDE_KEYS
+    if bad:
+        raise ValueError(f"unknown glide key(s) {', '.join(sorted(bad))}; allowed: {', '.join(sorted(GLIDE_KEYS))}")
+    mix0 = _fixed_mix(p.tree)
+    if mix0 is None:
+        raise ValueError("A glide path moves a fixed mix (tickers with weights) from its start weights to the end "
+                         "weights; it cannot be combined with rules, filters or computed weightings.")
+    to = g.get("to")
+    if not isinstance(to, dict) or not to:
+        raise ValueError('glide needs "to": the end mix, e.g. {"VTI": 0.4, "BND": 0.6}')
+    to = {data.canonical(k): float(v) for k, v in to.items()}
+    tot = sum(to.values())
+    if 99 < tot < 101 and all(v >= 0 for v in to.values()):
+        to = {k: v / 100 for k, v in to.items()}      # percentages
+        tot = sum(to.values())
+    if abs(tot - 1) > 1e-6 or any(v < 0 for v in to.values()):
+        raise ValueError(f"The glide path's end weights must be positive and add up to 100% (got {tot:.1%}).")
+    for t in to:
+        data.load(t)
+    n_len = sum(g.get(k) not in (None, "") for k in ("years", "end", "per_year"))
+    if n_len != 1:
+        raise ValueError('A glide path needs exactly one of "years" (how long it takes), "end" (the date or year the '
+                         'end mix is reached) or "per_year" (how many points of weight it moves a year).')
+    if g.get("years") not in (None, "") and not 0 < float(g["years"]) <= 100:
+        raise ValueError("The glide path runs over more than 0 and at most 100 years.")
+    if g.get("per_year") not in (None, ""):
+        py = float(g["per_year"])
+        if py >= 1:
+            py /= 100                                  # 2 -> 2 points a year
+        if not 0 < py < 1:
+            raise ValueError("glide per_year is the change of weight a year (0.02 = 2 points a year).")
+        g["per_year"] = py
+    if g.get("end") not in (None, ""):
+        _glide_end(g["end"])
+    if g.get("start") not in (None, ""):
+        pd.Timestamp(str(g["start"]))
+    if g.get("shape", "linear") not in GLIDE_SHAPES:
+        raise ValueError(f"glide shape must be one of {', '.join(GLIDE_SHAPES)}")
+    if g.get("step", "rebalance") not in ("rebalance", "yearly"):
+        raise ValueError("glide step must be 'rebalance' (the target follows the date at every rebalance) or 'yearly'")
+    if p.rebalance == "none" and not (p.drift_band or p.drift_band_relative):
+        raise ValueError("A glide path moves the target at rebalances: choose a rebalancing schedule (e.g. rebalance "
+                         "yearly) or a drift band.")
+    g["to"] = to
+    missing = [t for t in to if t not in mix0]
+    if missing:
+        kids = [{"asset": t} for t in mix0] + [{"asset": t} for t in missing]
+        p.tree = {"weights": "specified", "w": [mix0[t] for t in mix0] + [0.0] * len(missing), "children": kids}
+
+
+def glide_years(p: "Portfolio", start0: pd.Timestamp) -> float:
+    """The glide's length in years from its start."""
+    g = p.glide
+    if g.get("years") not in (None, ""):
+        return float(g["years"])
+    if g.get("end") not in (None, ""):
+        return max((_glide_end(g["end"]) - start0).days / 365.25, 1e-9)
+    mix0 = _fixed_mix(p.tree) or {}
+    move = max(abs(g["to"].get(t, 0.0) - mix0.get(t, 0.0)) for t in set(mix0) | set(g["to"]))
+    return max(move / float(g["per_year"]), 1e-9)
+
+
+def glide_fraction_at(p: "Portfolio", d, start0: pd.Timestamp) -> float:
+    """How far (0 = start mix, 1 = end mix) the glide has moved on date d. A function of the date only."""
+    g = p.glide
+    s0 = pd.Timestamp(str(g["start"])) if g.get("start") not in (None, "") else start0
+    T = glide_years(p, s0)
+    el = max((pd.Timestamp(d) - s0).days / 365.25, 0.0)
+    if g.get("step") == "yearly":
+        from . import montecarlo as _mc
+        n = max(int(round(T)), 1)
+        return _mc.glide_fraction(int(el), n, g.get("shape") or "linear")
+    x = min(el / T, 1.0)
+    if g.get("shape") == "target_date":
+        from . import montecarlo as _mc
+        return float(np.interp(x, [a for a, _ in _mc.TARGET_DATE_POINTS], [b for _, b in _mc.TARGET_DATE_POINTS]))
+    return float(x)
+
+
+def glide_mix(p: "Portfolio", d, start0: pd.Timestamp) -> dict[str, float]:
+    """The target mix of a glide path on date d."""
+    mix0 = _fixed_mix(p.tree) or {}
+    to = p.glide["to"]
+    f = glide_fraction_at(p, d, start0)
+    return {t: (1 - f) * mix0.get(t, 0.0) + f * to.get(t, 0.0) for t in list(mix0) + [t for t in to if t not in mix0]}
+
+
+def glide_text(p: "Portfolio") -> str:
+    g = p.glide
+    mix0 = _fixed_mix(p.tree) or {}
+    a = ", ".join(f"{fmt_weight(w)} {t}" for t, w in mix0.items() if w > 1e-12)
+    b = ", ".join(f"{fmt_weight(w)} {t}" for t, w in g["to"].items() if w > 1e-12)
+    if g.get("years") not in (None, ""):
+        span = f"over {float(g['years']):g} years"
+    elif g.get("end") not in (None, ""):
+        span = f"reaching it on {_glide_end(g['end']).date()}"
+    else:
+        span = f"moving {float(g['per_year']) * 100:g} points of weight a year"
+    since = f"from {g['start']}" if g.get("start") not in (None, "") else "from the first day"
+    shape = ("target-date shaped (the start mix for the first fifth, then de-risking that speeds up)"
+             if g.get("shape") == "target_date" else "linear")
+    step = ("the target moves once per glide year" if g.get("step") == "yearly" else
+            "the target is recomputed from the date at every rebalance and the holdings drift in between")
+    return (f"Glide path: from {a} to {b} {span}, {since}, {shape}; {step}. The target depends only on the date "
+            "(no lookahead); the end mix is held after the glide ends")
 
 
 # ------------------------------------------------------------------ tree helpers
@@ -2114,7 +2289,9 @@ def _period_ids(idx: pd.DatetimeIndex, freq: str):
     if am:     # years that end with month am: the period changes after its last session
         return np.asarray(idx.year + (idx.month > am).astype(int))
     code = {"weekly": "W-FRI", "monthly": "M", "quarterly": "Q", "yearly": "Y"}[freq]
-    return idx.to_period(code)
+    # the periods' integer ordinals (equal exactly when the periods are, in the same order): comparing and grouping
+    # them does not box every date into a Period object
+    return np.asarray(pd.DatetimeIndex(idx).to_period(code).asi8)
 
 
 _SCHEDULE_MEMO: dict = {}
@@ -2275,12 +2452,38 @@ def _flow_cpi_index(p: "Portfolio", cal: pd.DatetimeIndex, kind: str, days: np.n
     else:
         base, label = c.dropna().iloc[0] if c.notna().any() else np.nan, f"{cal[0].year} dollars (CPI as of {cal[0].date()})"
     idx = (c / base).fillna(1.0).to_numpy() if np.isfinite(base) and base > 0 else np.ones(T)
+    annual = getattr(p, "inflation_indexing", "published") == "annual"
+    if annual and len(first):
+        # Portfolio Visualizer's convention: the amount is fixed within each year of the flow and stepped up on each
+        # anniversary of its first payment by the inflation since (CPI as published by then); in the first year it
+        # is the stated amount exactly
+        a0 = cal[first[0]]
+        # the flow's years count its payments: payments 1..n of a flow paid n times a year are its first year (the
+        # same month or quarter a year on starts the next), so the first year pays exactly n x the amount
+        per = {"monthly": 12, "quarterly": 4, "semiannual": 2, "yearly": 1}[getattr(p, f"{kind}_freq")]
+        nth = np.cumsum(np.asarray(days, bool)) - 1           # the payment number of each day (on its payment days)
+        k = np.maximum(nth, 0) // per
+        # each year's step: CPI as published on its first payment over CPI on the flow's first payment
+        ref = first[::per]
+        c0 = c.iloc[first[0]]
+        steps = np.array([c.iloc[r] / c0 if np.isfinite(c0) and c0 > 0 and np.isfinite(c.iloc[r]) else 1.0 for r in ref])
+        # the level of the first year: the stated amount itself when it is in the dollars of the flow's first payment
+        # or of a start less than a year before it; else CPI-grown from the dollars it is expressed in
+        near = dollars == "flow" or (dollars in (None, "start") and a0 < cal[0] + pd.DateOffset(years=1))
+        lvl = 1.0 if near else float(idx[first[0]])
+        idx = np.where(np.arange(T) >= first[0], lvl * steps[k], idx)
     if len(first):
         j = first[0]
         freq = {"monthly": "a month", "quarterly": "a quarter", "semiannual": "every six months", "yearly": "a year"}[
             getattr(p, f"{kind}_freq")]
-        p.notes.append(f"{kind.capitalize()}s: ${amount:,.0f} {freq} in {label}, indexed to CPI as published (each month's "
-                       f"figure from about two weeks after the month); first paid {cal[j].date()} as "
+        per = {"monthly": 12, "quarterly": 4, "semiannual": 2, "yearly": 1}[getattr(p, f"{kind}_freq")]
+        how = ("indexed once a year (Portfolio Visualizer's convention: the amount is fixed for each year of the flow "
+               "and stepped up by the past year's CPI a year after the first payment and every year after, so the first year's "
+               f"payments total exactly ${amount * per * idx[j] * mult[j]:,.0f})" if annual else
+               "indexed to CPI as published (each month's figure from about two weeks after the month), so each payment "
+               "moves with the latest CPI; say 'inflation adjusted annually' (or 'with Portfolio Visualizer defaults') "
+               "for Portfolio Visualizer's once-a-year step-up")
+        p.notes.append(f"{kind.capitalize()}s: ${amount:,.0f} {freq} in {label}, {how}; first paid {cal[j].date()} as "
                        f"${amount * idx[j] * mult[j]:,.0f}.")
     return idx
 
@@ -2834,9 +3037,13 @@ def run(p: Portfolio) -> Result:
             b = int(cal.searchsorted(d))
             if 0 < b < T and cal[b] == d:
                 brk_on.setdefault(b, []).append(j)
-    rate = _daily_rate(cal, p.cash_rate)
-    borrow_extra = p.margin_rate / 252.0
-    fee_daily = p.expense_ratio / 252.0
+    # bars a year of this calendar (252; 365 when it has weekend bars, e.g. a crypto holding): interest, margin,
+    # expense ratio and borrow fees accrue per bar, so a year of bars carries one year's rate
+    from .metrics import periods_per_year
+    ppy = periods_per_year(cal)
+    rate = _daily_rate(cal, p.cash_rate, ppy)
+    borrow_extra = p.margin_rate / ppy
+    fee_daily = p.expense_ratio / ppy
     fees = 0.0
     sched = _schedule(cal, p.rebalance, getattr(p, "rebalance_day", None))
     bands = bool(p.drift_band or p.drift_band_relative)
@@ -2904,6 +3111,8 @@ def run(p: Portfolio) -> Result:
     margin_days: list = []
     lev_peak = (0.0, 0.0, None)       # (gross/equity, target gross, date): worst drift above target between rebalances
 
+    glide_start = cal[int(day0)] if p.glide else None      # the glide counts from the run's first real day
+    glide_log: list = []                                     # (date, target mix) at each glide rebalance
     shares = np.zeros(N)
     cash = p.capital
     interest = 0.0
@@ -3040,7 +3249,74 @@ def run(p: Portfolio) -> Result:
     def gross_now(prices) -> float:
         return float(np.abs(shares * _finite(px_now(prices))).sum())
 
+    # quiet days: nothing happens but interest on cash and the holdings' price moves (no flow, dividend, scheduled
+    # decision, delisting or security break; no drift band, borrowing, shorts, expense ratio or next-open fill).
+    # A stretch of them is valued at once (quiet_stretch) with the same arithmetic as the day-by-day loop below.
+    quiet = np.zeros(T, bool)
+    if FAST_QUIET_DAYS and T > 2 and not bands and not gated and not fee_daily and p.leverage <= 1 \
+            and not _has_short(p.tree) and p.fill == "close" and not p.target_vol:
+        quiet[1:] = True
+        quiet &= ~np.asarray(sched, bool) & ~np.asarray(contrib_days, bool) & ~np.asarray(wd_days, bool)
+        quiet &= ~np.asarray(div_day, bool)
+        for d_ in list(gone_on) + list(brk_on):
+            if 0 <= d_ < T:
+                quiet[d_] = False
+    loud_after = np.full(T + 1, T)            # the first day at or after i that is not quiet
+    for i_ in range(T - 1, -1, -1):
+        loud_after[i_] = loud_after[i_ + 1] if quiet[i_] else i_
+    rate_l = rate.tolist()
+
+    def quiet_stretch(i0: int, i1: int) -> bool:
+        """Days i0..i1-1, all quiet, valued in one go: cash earns the day's interest (a scalar loop, the same
+        operations as the loop below), the holdings are marked at the close (prices carried forward as px_now
+        does). Commits nothing and returns False when some day's equity is not positive (the loop handles it)."""
+        nonlocal cash, interest
+        n_ = i1 - i0
+        cs, it = cash, interest
+        cseq = np.empty(n_)
+        eseq = np.empty(n_)
+        for k in range(n_):
+            r = rate_l[i0 + k - 1]
+            e = cs * r if cs >= 0 else cs * (r + borrow_extra)
+            cs += e
+            it += e
+            cseq[k] = cs
+            eseq[k] = e
+        blk = C[i0:i1]
+        prev = last_px.copy()
+        if np.isfinite(blk).all():
+            PX = blk
+            prev = blk[-1].copy()
+        else:
+            PX = blk.copy()
+            for k in range(n_):
+                row = PX[k]
+                np.copyto(prev, row, where=np.isfinite(row))
+                PX[k] = prev
+        PXf = PX if np.isfinite(PX).all() else np.nan_to_num(PX)
+        M = shares * PXf
+        eq = np.empty(n_)
+        for k in range(n_):
+            eq[k] = cseq[k] + _nansum(M[k])
+        if not (eq > 0).all():
+            return False
+        equity[i0:i1] = eq
+        mvals[i0:i1] = M
+        weights[i0:i1] = M / eq[:, None]
+        cashw[i0:i1] = cseq / eq
+        inc_int[i0:i1] = eseq
+        cash, interest = cs, it
+        last_px[:] = prev
+        return True
+
+    skip_to = 0
     for i in range(T):
+        if i < skip_to:
+            continue
+        if quiet[i] and pending_target is None and cash >= 0 and loud_after[i] - i >= 2 and not (shares < 0).any():
+            if quiet_stretch(i, int(loud_after[i])):
+                skip_to = int(loud_after[i])
+                continue
         o, c = O[i], C[i]
         # a security break (data.security_breaks: a new security spliced into the series, e.g. shares cancelled in a
         # bankruptcy and new ones listed under the same symbol): the old holding is settled at its last close, at no
@@ -3073,19 +3349,22 @@ def run(p: Portfolio) -> Result:
                 smv = 0.0       # no short position: the market value of the shorts is 0
             if smv > 0 and cash > 0 and r > 0 and p.short_rebate_spread:
                 # short sale proceeds (part of cash) earn the rate less the rebate spread, floored at zero
-                earned -= min(smv, cash) * min(r, p.short_rebate_spread / 252.0)
+                earned -= min(smv, cash) * min(r, p.short_rebate_spread / ppy)
             cash += earned
             interest += earned
             inc_int[i] = earned
             if smv > 0 and BF.any():
                 for j in np.flatnonzero((short_mv > 0) & (BF > 0)):
-                    fee = float(short_mv[j]) * BF[j] / 252.0
+                    fee = float(short_mv[j]) * BF[j] / ppy
                     cash -= fee
                     tcash[j] -= fee
                     tcom[j] += fee
                     ledger.append((cal[i], tick[j], "fee", 0.0, -fee, 0.0))
             if fee_daily:
                 held = float(np.nansum(np.abs(shares) * np.nan_to_num(last_px)))
+                if p.expense_on == "equity":
+                    # net of leverage: on the account's value (holdings less borrowing), not on every $ held
+                    held = min(held, max(cash + float(np.nansum(shares * np.nan_to_num(last_px))), 0.0))
                 cash -= held * fee_daily
                 fees += held * fee_daily
         if div_day[i]:
@@ -3209,7 +3488,11 @@ def run(p: Portfolio) -> Result:
         decide = sched[i]
         rebalanced_at_close = False
         if decide:
-            new = ev.eval(p.tree, base + i)
+            if p.glide:
+                new = glide_mix(p, cal[i], glide_start)
+                glide_log.append((cal[i], dict(new)))
+            else:
+                new = ev.eval(p.tree, base + i)
             if p.target_vol:
                 new, k = _vol_target(p, ev, new, base + i)
                 vol_scale.append((cal[i], k))
@@ -3368,6 +3651,9 @@ def run(p: Portfolio) -> Result:
         res.extras["depleted"] = depleted["date"]
     res.extras["flows_requested"] = pd.Series(req_flows if day0 else np.concatenate([[0.0], req_flows]), index=idx_all,
                                               name="flows")
+    if glide_log:
+        res.extras["glide_targets"] = pd.DataFrame([w for _, w in glide_log],
+                                                   index=pd.DatetimeIndex([d for d, _ in glide_log])).fillna(0.0)
     res.extras["day0"] = day0          # bought at day 0's close (the first day's return counts); benchmarks follow
     pad = (lambda a: a) if day0 else (lambda a: np.concatenate([[0.0], a]))
     res.extras["income"] = pd.DataFrame({"dividends": pad(inc_div), "interest": pad(inc_int)}, index=idx_all)
@@ -3396,7 +3682,10 @@ def _vol_target(p: Portfolio, ev: "_Evaluator", new: dict[str, float], i: int) -
                 "the tree's weights were used unscaled then.")
         k = min(1.0, cap)
     else:
-        vol = float(np.std(R @ w, ddof=1) * np.sqrt(252))
+        if getattr(ev, "_ppy", None) is None:
+            from .metrics import periods_per_year
+            ev._ppy = periods_per_year(ev.cal)       # 252, or 365 on a seven-day calendar
+        vol = float(np.std(R @ w, ddof=1) * np.sqrt(ev._ppy))
         k = cap if vol <= 1e-12 else min(cap, float(p.target_vol) / vol)
     return {t: x * k for t, x in risky.items()}, k
 

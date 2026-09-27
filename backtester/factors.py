@@ -589,6 +589,15 @@ def analyze(returns: pd.Series, model: str = "ff3", freq: str = "monthly", start
         df = df[keep]
         per_year, min_obs = 12, 24
     else:
+        if len(r) > 2 and metrics.periods_per_year(r.index) != metrics.TRADING_DAYS:
+            # weekend bars (a seven-day calendar, e.g. a crypto holding): compound the returns onto the factors'
+            # trading days, so a Monday's return includes the weekend's move instead of dropping it
+            fi = f.index[(f.index >= r.index[0]) & (f.index <= r.index[-1])]
+            g = (1 + r).cumprod()
+            g = g.reindex(g.index.union(fi)).ffill().reindex(fi)
+            r = g.pct_change().dropna()
+            notes.append("Daily regression: the returns have weekend bars (a seven-day calendar), so they are "
+                         "compounded onto the factors' trading days (a Monday's return includes the weekend).")
         fd = f.reindex(r.index).dropna(subset=cols + ["RF"])
         r = r.reindex(fd.index)
         df = pd.concat([r.rename("r"), fd], axis=1, join="inner").dropna(subset=["r", "RF"] + cols)
