@@ -66,11 +66,14 @@ def portfolio_targets(p: Portfolio) -> tuple[str, dict[str, float], list[str]]:
     return str(cal[-1].date()), w, list(p.notes)
 
 
-def signal_targets(s, account_value: float, entry_orders: list | None = None
+def signal_targets(s, account_value: float, entry_orders: list | None = None, catch_up: dict | None = None
                    ) -> tuple[str, dict[str, float], list[str], dict[str, float]]:
     """-> as_of, {ticker: weight}, notes, {ticker: fixed shares} (fixed_shares sizing, and limit/stop entries,
     which are sized at their order price). For limit / stop entries, the engine's working entry orders
-    (signals.entry_orders) are appended to `entry_orders` when a list is given."""
+    (signals.entry_orders) are appended to `entry_orders` when a list is given. `catch_up` (a dict, when given)
+    receives {ticker: entry date} for the positions the backtest already holds from an entry that has passed (an
+    earlier session, or today's open / intraday level): an account without them would be catching up, not
+    following a signal due now."""
     from . import signals
     res = runner.run(s)
     notes: list[str] = []
@@ -99,6 +102,12 @@ def signal_targets(s, account_value: float, entry_orders: list | None = None
             sign = -1 if r.side == "short" else 1
             if px and eq > 0:
                 held[r.ticker] = held.get(r.ticker, 0.0) + sign * float(getattr(r, "exit_shares", r.shares)) * px / eq
+            if catch_up is not None:
+                ed = str(pd.Timestamp(r.entry_date).date())
+                # a market entry at today's close is the usual one-day-late market-on-close order, not a catch-up
+                due_now = ed == as_of and s.entry_fill == "close" and s.entry_order == "market"
+                if not due_now:
+                    catch_up[r.ticker] = min(catch_up.get(r.ticker, ed), ed)
     fixed: dict[str, float] = {}
     if s.entry_order != "market":
         # limit / stop entries: the orders the engine has working for the next session, at the engine's levels
@@ -176,12 +185,14 @@ def todays_orders(spec, account_value: float, holdings_text: str = "", whole_sha
     current = parse_holdings(holdings_text)
     fixed: dict[str, float] = {}
     pend: list[dict] = []
+    catch = {}
     if isinstance(spec, Portfolio):
         as_of, target, notes = portfolio_targets(spec)
         order_type = "MOC" if spec.fill == "close" else "MKT"
     else:
         spec.validate()
-        as_of, target, notes, fixed = signal_targets(spec, account_value, pend)
+        catch: dict = {}
+        as_of, target, notes, fixed = signal_targets(spec, account_value, pend, catch)
         order_type = "MKT"
     lvl_orders = {e["ticker"]: e for e in pend}
     rows = []
@@ -208,6 +219,9 @@ def todays_orders(spec, account_value: float, holdings_text: str = "", whole_sha
         row = {"ticker": t, "side": side, "shares": round(abs(delta), 6), "est_price": px,
                "value": round(abs(delta) * px, 2) if px else None, "current_shares": cur,
                "target_shares": tgt, "target_weight": round(w, 6), "price_date": px_date}
+        if t in catch and side != "hold" and abs(tgt) > abs(cur) + 1e-9 and tgt * cur >= 0 and t not in lvl_orders:
+            # the backtest already holds this position (entered catch[t]); the account has less of it
+            row["catch_up"] = catch[t]
         e = lvl_orders.get(t)
         if e is not None and side != "hold":
             row.update({"order_type": "LMT" if e["order"] == "LIMIT" else "STP", "order_price": e["price"],

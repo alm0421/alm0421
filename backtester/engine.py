@@ -35,6 +35,12 @@ for fills at the open or intraday (the day's volume is not known yet).
 Prices are split-adjusted as quoted; dividends are paid in cash on the ex-date (and charged to
 shorts), so share counts, per-share commissions and whole-share sizing are realistic.
 Signals use data up to the close of the signal bar ("at the close" = market-on-close order).
+
+Warm-up: until the entry rules can first fire (every indicator has a value; never past the first entry signal)
+idle cash earns no interest, so the statistics, which start there, start at the starting capital (as a portfolio
+starts trading on its warm-up day). Margin (backtester/margin.py, shared with portfolios): Reg T 2x / portfolio
+margin 4x, leveraged ETFs at the maintenance margin times their leverage factor; a margin call cuts pro rata to the
+lower of the leverage cap and the exposure at which equity is 125% of the maintenance requirement.
 """
 from __future__ import annotations
 
@@ -47,6 +53,7 @@ import pandas as pd
 
 from . import calendar as _cal
 from . import costs, data, expr
+from . import margin as _margin
 from .strategy import Strategy
 
 INTRADAY_REASONS = ("stop loss", "ATR stop", "trailing stop", "chandelier stop", "breakeven stop", "stop level", "take profit",
@@ -129,6 +136,36 @@ def _daily_rate(index: pd.DatetimeIndex, spec) -> np.ndarray:
     return np.full(len(index), float(spec) / 252.0)
 
 
+def _warmup_bar(strat, cal, tick, C, namespaces, long_sig, short_sig) -> int | None:
+    """The bar on which the entry rules can first fire (report.warmup's date: every indicator of the entry rules
+    has a value on the ticker with the longest history), when that is after the first bar and no entry signal comes
+    before it; else None. No cash interest accrues up to it (see run)."""
+    if not len(cal) or not tick or strat.cash_rate in (None, 0, 0.0, False, ""):
+        return None
+    try:
+        firsts = [int(np.flatnonzero(~np.isnan(C[:, j]))[0]) if (~np.isnan(C[:, j])).any() else len(cal)
+                  for j in range(len(tick))]
+        t0 = tick[int(np.argmin(firsts))]
+        ns = namespaces.get(t0)
+        # an indicator with no value anywhere yet (data ending inside the warm-up): the whole run is warm-up, so a run
+        # truncated inside the warm-up earns what the full run earns up to that day (nothing)
+        end = pd.Timestamp.max
+        ds = [expr.first_defined(r, ns, never=end) for r in (strat.entry, getattr(strat, "short_entry", None)) if r]
+        ds = [d for d in ds if d is not None]
+    except Exception:  # noqa: BLE001 - a Python-function rule or an unusual namespace: no warm-up trim
+        return None
+    if not ds:
+        return None
+    wi = int(cal.searchsorted(max(ds))) if max(ds) != end else len(cal) - 1
+    # never past the first entry signal (a rule such as "a or b" can fire before all its indicators are warm): both
+    # bounds depend only on data up to them, so a run truncated at any date earns the same interest before it
+    sig = np.flatnonzero((long_sig | short_sig).any(axis=1)) if long_sig.ndim == 2 else np.flatnonzero(long_sig | short_sig)
+    if len(sig):
+        wi = min(wi, int(sig[0]))
+    wi = min(wi, len(cal) - 1)
+    return wi if wi > 0 else None
+
+
 _NS_CACHE: dict = {}      # (ticker, id(bars)) -> (bars, Namespace): indicators are reused by the next run on the same data
 
 
@@ -184,6 +221,15 @@ def _union_index(indexes: list[pd.DatetimeIndex]) -> pd.DatetimeIndex | None:
 
 
 def _prepare(strat: Strategy):
+    """_prepare_bars with Python-function rules streamed only from the run's first day (expr.STREAM_FROM)."""
+    tok = expr.STREAM_FROM.set(None)
+    try:
+        return _prepare_bars(strat, tok)
+    finally:
+        expr.STREAM_FROM.reset(tok)
+
+
+def _prepare_bars(strat: Strategy, _stream_tok=None):
     tickers = [data.canonical(t) for t in strat.universe]
     if strat.universe_name == "NDX" and not strat.point_in_time:
         # "today's members only": the current member list (not every former member without a membership filter)
@@ -260,12 +306,17 @@ def _prepare(strat: Strategy):
         for x in re.findall(r"""sym\(\s*["']([^"']+)["']\s*\)""", r))
     # the static open-time check (Strategy.validate) is backed by an empirical one on the longest history
     t0 = max(tick, key=lambda t: len(dfs[t]))
+    # Python-function rules: only the run's days are read, so they are streamed from its first day on
+    expr.STREAM_FROM.set(cal[0])
     # rules written as Python functions have no static check: cut the data at sampled dates and compare
-    for what, rule, kind in (("entry", strat.entry, "bool"), ("short entry", strat.short_entry, "bool"),
-                             ("exit", strat.exit_when, "bool"), ("order level", strat.entry_level, "value"),
-                             ("ranking", strat.rank_by, "value")):
+    ec = late_close and strat.entry_fill == "close"
+    for what, rule, kind, cf in (("entry", strat.entry, "bool", ec), ("short entry", strat.short_entry, "bool", ec),
+                                 ("exit", strat.exit_when, "bool", late_close and strat.exit_when_fill == "close"),
+                                 ("order level", strat.entry_level, "value", False),
+                                 ("ranking", strat.rank_by, "value", ec)):
         if callable(rule):
-            bad = expr.callable_check(rule, dfs[t0], t0, kind, window=(cal[0], cal[-1]))
+            # (with the namespace the run reads, so the run reuses this stream)
+            bad = expr.callable_check(rule, dfs[t0], t0, kind, window=(cal[0], cal[-1]), close_fill=cf)
             if bad:
                 nm = getattr(rule, "__name__", "")
                 label = f"{what} function {nm}()" if nm and not nm.startswith("<") else f"{what} function"
@@ -300,6 +351,12 @@ def _prepare(strat: Strategy):
             LVL[name] = (np.full((T, N), np.nan), np.full((T, N), np.nan))
     need_vol = strat.sizing == "volatility"
     need_adv = strat.slippage_model == "volume"
+    # a Python-function entry / ranking rule on a point-in-time index universe is only read while the ticker is a
+    # member: it is streamed on those days only (expr.STREAM_NEED)
+    pre_member = None
+    if strat.universe_name == "NDX" and strat.point_in_time and any(
+            callable(r) for r in (strat.entry, strat.short_entry, strat.rank_by)):
+        pre_member, _ = data.member_mask(tick, cal)
     for j, t in enumerate(tick):
         df = dfs[t]
         ns = _namespace(df, t)
@@ -330,19 +387,25 @@ def _prepare(strat: Strategy):
         if late_close:
             namespaces[t + " (close)"] = ns_close
 
-        def on_cal_bool(rule, _pos=pos, _have=have, at_close=False):
-            v = expr.evaluate(rule, ns_close if at_close else ns).to_numpy(dtype=bool)   # indexed like the ticker's data
+        need_j = cal[pre_member[:, j]] if pre_member is not None else None
+
+        def on_cal_bool(rule, _pos=pos, _have=have, at_close=False, need=None):
+            tok_n = expr.STREAM_NEED.set(need)
+            try:
+                v = expr.evaluate(rule, ns_close if at_close else ns).to_numpy(dtype=bool)   # indexed like the ticker's data
+            finally:
+                expr.STREAM_NEED.reset(tok_n)
             out = np.zeros(len(_pos), bool)
             out[_have] = v[_pos[_have]]
             return out
 
         entry_close = strat.entry_fill == "close"
         if strat.side in ("long", "both"):
-            long_sig[:, j] = on_cal_bool(strat.entry, at_close=entry_close)
+            long_sig[:, j] = on_cal_bool(strat.entry, at_close=entry_close, need=need_j)
         if strat.side == "short":
-            short_sig[:, j] = on_cal_bool(strat.entry, at_close=entry_close)
+            short_sig[:, j] = on_cal_bool(strat.entry, at_close=entry_close, need=need_j)
         if strat.side == "both":
-            short_sig[:, j] = on_cal_bool(strat.short_entry, at_close=entry_close)
+            short_sig[:, j] = on_cal_bool(strat.short_entry, at_close=entry_close, need=need_j)
         if strat.exit_when and not per_trade_exit:
             exit_[:, j] = on_cal_bool(strat.exit_when, at_close=strat.exit_when_fill == "close")
         if strat.entry_level:
@@ -353,7 +416,11 @@ def _prepare(strat: Strategy):
             now[:, j] = on_cal(lv.to_numpy())
             prev[:, j] = on_cal((lv if expr.open_safe(rule) else lv.shift(1)).to_numpy())
         if strat.rank_by:
-            r = expr.evaluate_value(strat.rank_by, ns_close if strat.entry_fill == "close" else ns).reindex(cal)
+            tok_n = expr.STREAM_NEED.set(need_j)
+            try:
+                r = expr.evaluate_value(strat.rank_by, ns_close if strat.entry_fill == "close" else ns).reindex(cal)
+            finally:
+                expr.STREAM_NEED.reset(tok_n)
         else:  # default preference: most liquid (20-day average dollar volume)
             r = (df["close"] * df["volume"]).rolling(20, min_periods=1).mean().reindex(cal)
         rank[:, j] = r.fillna(-np.inf if not strat.rank_ascending else np.inf).to_numpy()
@@ -411,6 +478,20 @@ def _prepare(strat: Strategy):
         live = valid & member
         dead = [t for j, t in enumerate(tick) if live[:, j].any() and not OK[live[:, j], j].any()]
         if dead and not ndx:
+            later = []
+            for t in dead:
+                try:
+                    ok_t = data.load(t)["open_ok"]
+                except Exception:  # noqa: BLE001 - a synthetic or test frame
+                    continue
+                ok_t = ok_t[ok_t.index > cal[-1]]
+                if ok_t.any():
+                    later.append(f"{t} from {ok_t.index[int(np.argmax(ok_t.to_numpy()))].date()}")
+            if later:
+                raise ValueError(f"{', '.join(dead)} has no quoted opening prices in this period: its early records' opens "
+                                 "were filled in from the close (open = close on most days while the price moved "
+                                 "several percent a day), so an open fill would really be the close. Real opens start "
+                                 f"later ({', '.join(later)}). Trade it at the close, or start after that.")
             raise ValueError(f"{', '.join(dead)} has no real opening prices (only a daily close, e.g. a mutual fund or a "
                              "simulated series), so it can't be bought at the open. Trade it at the close instead.")
         if dead:
@@ -453,6 +534,12 @@ def run(strat: Strategy) -> Result:
     T, N = C.shape
     slip = strat.slippage_bps / 1e4
     rate = _daily_rate(cal, strat.cash_rate)
+    warm_i = _warmup_bar(strat, cal, tick, C, namespaces, long_sig, short_sig)
+    if warm_i:
+        # as a portfolio starts trading on its warm-up day with the starting capital, the account earns nothing while
+        # the rules cannot fire yet: the statistics (which start on the warm-up day) start at the starting capital
+        rate = rate.copy()
+        rate[: warm_i + 1] = 0.0
     has = ~np.isnan(C)
     last_bar = np.array([np.flatnonzero(has[:, j])[-1] if has[:, j].any() else -1 for j in range(N)])
     delist = P["delist"]
@@ -781,10 +868,29 @@ def run(strat: Strategy) -> Result:
             if len(p.lots) < strat.pyramiding and p.lots[-1].bar != i:
                 open_pos(i, k, prices[k], at_open, sgn, prices)
             return
+        if sibling_held(k, i):
+            return
         if len(positions) >= strat.max_positions:
             slot_days.add(i)
             return
         open_pos(i, k, prices[k], at_open, sgn, prices)
+
+    sib = {}
+    if getattr(strat, "share_classes", "company") == "company" and N > 1:
+        grp = {t: g for g in data.SHARE_CLASSES for t in g}
+        for k, t in enumerate(tick):
+            g = grp.get(t)
+            if g:
+                sib[k] = [j for j, u in enumerate(tick) if j != k and grp.get(u) == g]
+    sibling_days: dict = {}
+
+    def sibling_held(k: int, i: int) -> bool:
+        """Share classes of one company (GOOG/GOOGL, ...) take one position slot: no second class while one is held."""
+        for j in sib.get(k, ()):
+            if j in positions:
+                sibling_days.setdefault("/".join(sorted((tick[k], tick[j]))), set()).add(i)
+                return True
+        return False
 
     def signals(i: int) -> list[tuple[int, int]]:
         out = [(k, 1) for k in np.flatnonzero(long_sig[i])] + [(k, -1) for k in np.flatnonzero(short_sig[i])]
@@ -1009,6 +1115,9 @@ def run(strat: Strategy) -> Result:
             if fill is None:
                 still.append(od)
                 continue
+            if k not in positions and sibling_held(k, i):
+                still.append(od)
+                continue
             if k not in positions and len(positions) >= strat.max_positions:
                 slot_days.add(i)
                 still.append(od)
@@ -1131,8 +1240,12 @@ def run(strat: Strategy) -> Result:
             # maintenance margin: equity must cover this fraction of gross exposure at the close; otherwise
             # every position is cut pro rata at the close until gross exposure is back to leverage x equity
             g = gross(c)
-            if g > 0 and equity[i] / g < strat.maintenance_margin:
-                cut = 1.0 - equity[i] * strat.leverage / g
+            need = sum(_margin.maintenance(tick[p.k], strat.maintenance_margin) * p.shares * c[p.k]
+                       for p in positions.values() if not np.isnan(c[p.k]))
+            if g > 0 and equity[i] < need * (1 - 1e-12):
+                # de-risk with a cushion (margin.py): to the lower of the leverage cap and the exposure at which
+                # equity is 125% of the maintenance requirement
+                cut = 1.0 - _margin.call_scale(equity[i], g, need, strat.leverage)
                 for p in list(positions.values()):
                     if not np.isnan(c[p.k]):
                         close_part(i, p, c[p.k], "margin call", at_open=False, fraction=min(max(cut, 0.0), 1.0))
@@ -1155,9 +1268,17 @@ def run(strat: Strategy) -> Result:
         more = f" and {len(margin_calls) - 5} more" if len(margin_calls) > 5 else ""
         strat.notes = [n for n in strat.notes if not n.startswith("Margin call")]
         strat.notes.append(f"Margin call on {', '.join(str(d) for d in margin_calls[:5])}{more}: equity fell below "
-                           f"{strat.maintenance_margin:.0%} of gross exposure, so positions were cut pro rata at the "
-                           f"close back to {strat.leverage:g}x (trades marked 'margin call').")
+                           f"its maintenance requirement ({strat.maintenance_margin:.0%} of gross exposure; the leverage "
+                           "factor times that for a leveraged ETF), so positions were cut pro rata at the close to the "
+                           f"lower of {strat.leverage:g}x and the exposure at which equity is "
+                           f"{_margin.MARGIN_CALL_CUSHION:.0%} of the requirement (trades marked 'margin call').")
 
+    if sibling_days:
+        strat.notes = [n for n in strat.notes if not n.startswith("Share classes:")]
+        strat.notes.append("Share classes: " + ", ".join(sorted(sibling_days)) + " are classes of one company, so an entry "
+                           "signal in one class was skipped while the other was held (one position per company; the "
+                           "first to signal, or the higher ranked / more liquid on the same day, is taken). Set "
+                           "share_classes 'separate' in the JSON spec to trade them as separate names.")
     if slot_days and N > 1 and not strat.rank_by:
         strat.notes = [n for n in strat.notes if not n.startswith("Slots:")]
         strat.notes.append(f"Slots: on {len(slot_days)} day(s) more tickers signalled than there were free position slots. "

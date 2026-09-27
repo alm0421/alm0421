@@ -224,7 +224,8 @@ def test_headline_rule_is_the_same_everywhere(fake, tmp_path):
     r = engine.run(Strategy(universe=["X"], entry="close > sma(close, 100)", hold_bars=2))
     A = report.analyze(r, rf=0.0, sensitivity=False, mc=False, detail=False)
     h = report.headline(A)
-    assert h["warmup"] and h["start_value"] == pytest.approx(A["stats"]["start_equity"]) and h["start_value"] > 10_000
+    # no interest during the warm-up (engine._warmup_bar): the stats start with the starting capital, as a portfolio's do
+    assert h["warmup"] and h["start_value"] == pytest.approx(A["stats"]["start_equity"]) and h["start_value"] == pytest.approx(10_000)
     assert h["rule"].startswith(f"Stats from {A['stats']['start']} (value ${A['stats']['start_equity']:,.2f}) after the warm-up")
     assert h["rule"] in report.console_summary(A)
     report.write_outputs(A, tmp_path, excel=False)
@@ -357,7 +358,12 @@ def test_gross_exposure_must_fit_the_maintenance_margin(fake):
     tree = {"weights": "specified", "w": [3.0, -2.0], "children": [{"asset": "U"}, {"asset": "B"}]}
     with pytest.raises(ValueError, match="gross exposure can reach 5x"):
         pf.Portfolio(tree=tree).validate()
-    pf.Portfolio(tree=tree, maintenance_margin=0.15).validate()
+    with pytest.raises(ValueError, match="gross exposure can reach 5x"):    # above portfolio margin's 4x too
+        pf.Portfolio(tree=tree, margin_account="portfolio", maintenance_margin=0.15).validate()
+    small = {"weights": "specified", "w": [2.5, -1.5], "children": [{"asset": "U"}, {"asset": "B"}]}   # 4x gross
+    with pytest.raises(ValueError, match="maintenance_margin"):
+        pf.Portfolio(tree=small, margin_account="portfolio").validate()
+    pf.Portfolio(tree=small, margin_account="portfolio", maintenance_margin=0.15).validate()
     assert pf.max_gross({"if": "close > 1", "on": "U", "then": tree, "else": {"cash": True}}) == 5.0
     with pytest.raises(ValueError, match="gross exposure"):
         pf.Portfolio(tree={"weights": "specified", "w": [1.5, -0.5], "children": [{"asset": "U"}, {"asset": "B"}]},

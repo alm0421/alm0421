@@ -216,7 +216,9 @@ never quietly drops them or swaps in a different ticker.
   exactly those dates; benchmarks that start later are in a separate table with their own dates). The equity
   chart has an after-inflation view.
 - When indicators need a warm-up (a 200-day average on the first bars of the data), the statistics start
-  on the first day every rule has a value, and the notes say so.
+  on the first day every rule has a value, and the notes say so. As a portfolio only starts trading then, a
+  signal strategy's idle cash earns no interest during the warm-up, so both start their statistics with the
+  starting capital.
 - Allocation over time and current holdings for portfolios. A cash-flow summary with money-weighted
   IRR. Trailing returns (3 months, YTD, 1, 3, 5, 10 years and the full period) for the portfolio and each
   benchmark, and per-asset statistics of the holdings. Trade distribution and excursion charts are only
@@ -330,22 +332,33 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   scales a portfolio's exposure towards that volatility (capped at its leverage). A benchmark can be a
   blend: "vs 60/40 SPY/AGG", `--benchmark "60 SPY 40 AGG"`.
 
-- **Prices and dividends.** Prices are daily and split-adjusted, as quoted. Dividends are paid in
+- **Prices and dividends.** Prices are daily and split-adjusted, as quoted. `tr` (the total-return price,
+  also `sym("X").tr`, `tret`, and every ranking or condition on total return) is a causal total-return index:
+  it equals the quoted close on the first bar and then grows by each day's total return. (Yahoo's adjusted
+  close is back-adjusted: its level on a date depends on dividends paid later, so `tr / close` read the
+  future; its day-to-day ratios, which returns use, are unchanged.) Dividends are paid in
   cash on the ex-date, and short positions pay them ("no dividends" / `dividends: false` turns this off: price-only). Idle cash earns the 3-month T-bill rate;
   borrowed cash pays it plus any margin rate.
 - **Shorts and margin (signal strategies).**
   - Short sale proceeds earn the T-bill rate minus `short_rebate_spread` (default 0.25%/yr, floored
     at zero), like a broker's short rebate. "full short rebate" sets it to 0, "no short rebate" to
     nothing earned.
-  - With leverage above 1x or any short, `maintenance_margin` (default 25%) is checked at every
-    close: if equity / gross exposure is below it, every position is cut pro rata at that close back
-    to the initial margin (1/leverage). The trades are marked "margin call" and the notes list the
-    dates. "no margin calls" turns the check off.
+  - One margin model for signal strategies and portfolios (`backtester/margin.py`). With leverage above 1x
+    or any short, the maintenance requirement is checked at every close: `maintenance_margin` (default 25%)
+    of each position's value, times the fund's leverage factor for a leveraged ETF (FINRA Rule 4210: TQQQ
+    3x -> 75%, SSO 2x -> 50%, capped at 100%). If equity is below the requirement, every position is cut
+    pro rata at that close to the lower of the target leverage and the exposure at which equity is 125% of
+    the requirement (a cushion, as a broker's liquidation restores: without it a target just inside the
+    limit would be called again on the next down close). The trades are marked "margin call" and the notes
+    list the dates. "no margin calls" turns the check off.
   - Leverage is what a broker would lend: under Regulation T (`margin_account: "reg_t"`, the default) at
-    most 2x overnight on stocks. Up to 4x needs a portfolio-margin account ("with portfolio margin",
-    `margin_account: "portfolio"`). The maintenance margin must be below the initial margin (1/leverage):
+    most 2x gross overnight. Up to 4x needs a portfolio-margin account ("with portfolio margin",
+    `margin_account: "portfolio"`). The maintenance requirement at the full target must be below the equity:
     4x with the default 25% maintenance is refused (every close below the entry would be a margin call);
-    say e.g. "4x leverage, with portfolio margin and a 15% maintenance margin".
+    say e.g. "4x leverage, with portfolio margin and a 15% maintenance margin". A leveraged ETF needs its
+    higher requirement to open as well (brokers apply the FINRA multiple to the initial margin), so
+    "hold TQQQ with 3x leverage" (9x the index) is refused: at most 1.33x on a 3x fund, and holding it
+    unleveraged already gives 3x exposure.
 - **Broker costs (signal strategies and portfolios).** Both engines charge them through one module,
   `backtester/costs.py` ("IBKR commissions" and "volume-based slippage" work in portfolio sentences too).
   - `commission_model: "ibkr_fixed"` ("IBKR commissions"): $0.005/share, min $1, max 1% of the
@@ -497,8 +510,14 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
     order levels) are causal by construction: each is called on the data up to bar i (a copy; `ns['sym']` and
     `data.load` are cut at the same bar) for every bar in order, and only the last value of each call is used,
     so a function that caches the largest frame it has seen, or computes `shift(-1)`, never sees a later row.
-    Reading files or the network while it runs raises an error. A 5,000-bar series takes a few seconds; a
-    note gives the timing. A function whose whole-history answer differs from its bar-by-bar one is refused
+    Reading files or the network while it runs raises an error. Only the bars a run reads are evaluated (from
+    its first day on), long streams are split into contiguous chunks run in forked worker processes (each walks
+    its chunk in order from the parent's state; a function whose answers depend on which earlier bars it was
+    called on - state kept between calls - disagrees at a chunk boundary and is streamed in one pass), and the
+    built-in indicators it calls through `ns` (`ns['rsi'](2)`, `ns['sma'](ns['close'], 20)`, ...) are answered
+    from one full-history computation cut at the bar (they are causal; checked against a direct computation on
+    the prefix on the first calls and every 200th after). A rule over one ticker x 20 years takes a few
+    seconds; a note gives the timing. A function whose whole-history answer differs from its bar-by-bar one is refused
     (below). Mark one `f.vectorized_causal = True` to call it once on the whole history instead (faster, with a
     warning note): only then does the empirical probe guard it: the function is run on the data cut at
     many dates chosen adversarially - the latest 40 bars one by one, every day an entry fires and the three
@@ -525,13 +544,19 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
     remains (member-month coverage about 48% in 2004, about 75% over 2004-2026). The report and the
     console summary put the coverage in the headline ("Survivorship: 75% of member-months have data (48%
     in 2004) - results are biased upward"). The figures cover the run's own period (its first to last trading
-    day) and are computed once, so the note, the report headline and the command line quote the same numbers,
+    day - after a portfolio's day-0 purchase bar) and are computed once, so the note, the report headline and
+    the command line quote the same numbers,
     with the biggest missing members by member-months and, as
     context, an equal-weight portfolio of the members with data against a fund holding the whole index
     (QQQE, else QQQ) over the same months. A free Tiingo key fills most of the gap (see Data).
   - Market-cap rankings and weights ("top 10 Nasdaq 100 stocks by market cap") start on the first day
     share counts cover at least 80% of the members (a note says so), and a note lists any rebalance where
     a top-N filter ranked fewer than N names or under 80% of its universe.
+  - Share classes of one company (GOOG/GOOGL, FOX/FOXA, LBTYA/LBTYK, BATRA/BATRK, LILA/LILAK, DISCA/DISCK,
+    NWS/NWSA) are one name: a top-N ranking counts the company once (by market cap: its full market cap) and
+    holds its more liquid class that day (higher 3-month average dollar volume), so "the top 10 by market cap"
+    is ten companies, not Alphabet twice. A signal strategy does not open a second class of a company while it
+    holds one. `share_classes: "separate"` in a spec treats the classes as separate names.
   - Before 2004 the earliest known list is used.
 - **Delistings.** When a held ticker's data ends more than a week before the backtest does (acquired or
   delisted), the position is sold at its last close on its last day (trades/orders marked `delisted`, and a
@@ -574,7 +599,12 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   - "Trade at the next open" needs real opening prices. A ticker with none in the period (a SIM series or a
     mutual fund: only a daily close) is refused, as in signal strategies ("SPYSIM has no real opening
     prices ... Trade at the close instead"). A day on which a ticker's open was not quoted (old data) fills
-    that ticker at the day's close, with a note ("Opens: ...").
+    that ticker at the day's close, with a note ("Opens: ..."). Opens count as not quoted on flat bars, where
+    most opens of the past quarter equal the previous close, and in stretches where over 30% of the past 60
+    sessions open exactly at the close while the typical day moves more than 1.5x its high-low range and at
+    least 0.2% (early AAPL / INTC / ERIC / VIX records, 1980-85: the "open" was filled in from the close; a
+    T-bill ETF that barely moves is not caught). A named ticker whose opens are all unquoted in the period is
+    refused for open fills, with the date its real opens start.
   - A period ends on the last *scheduled* NYSE session of the week/month/quarter as known that day: after an
     unscheduled closure (9/11) the rebalance happens on the first bar after it, not in hindsight on the bar
     before.
@@ -653,6 +683,11 @@ python -m backtester trade "buy QQQ when RSI(2) is below 10, sell when RSI(2) is
   next close, a day after the backtest's fill (a note says so). Next-open strategies trade as tested.
 - **Dry run.** `--dry-run` prints the order payloads and sends nothing; without keys it sizes a
   `--account-value` (default $10,000) account with no positions.
+- **Catch-up.** A position the backtest already holds from an entry that has passed (an earlier session, or
+  today's open / a limit fill) but the account doesn't is not an entry due now: by default (`--catch-up skip`)
+  no order is sent and a `*** ... CATCH-UP` line says so (wait for the next tested entry). `--catch-up market`
+  buys the difference with a day market order, labelled as a catch-up (it fills at today's price, not at the
+  tested entry, e.g. a limit level). A new entry due today always uses the tested order type and level.
 - **Secrets.** Keys are read from the environment only and never printed or logged (errors are scrubbed).
 - **Scheduled trading.** `.github/workflows/trade-alpaca.yml` is a template: it runs only when started by hand
   (with a dry-run switch) until you uncomment its `schedule`, and does nothing unless the repository secrets

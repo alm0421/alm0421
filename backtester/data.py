@@ -844,13 +844,44 @@ def member_mask(tickers: list[str], index: pd.DatetimeIndex) -> tuple[np.ndarray
     return out, first
 
 
+OPEN_EQ_CLOSE_SHARE = 0.30   # open == close on more than this share of a 60-session window ...
+OPEN_MOVE_VS_RANGE = 1.5     # ... while the typical day's move is this many times its high-low range ...
+OPEN_MIN_MOVE = 0.002        # ... and at least 0.2% of the price: the "open" was filled in from the close
+
+
+def synthetic_open_days(raw: pd.DataFrame) -> pd.Series:
+    """Days in stretches whose opening prices were not really quoted but filled in from the close (early AAPL, INTC,
+    ERIC and VIX records: open == close on over half the days of 1980-81, with a one-tick high-low range while the
+    price moved several percent a day). Such a bar is not flat (high > low), so the flat-bar check misses it.
+
+    A window is flagged when, over the 60 sessions before the day, open == close on more than OPEN_EQ_CLOSE_SHARE of
+    days AND the median close-to-close move is more than OPEN_MOVE_VS_RANGE times the median high-low range (the bars
+    cannot contain the day's move: the traded range was not recorded) AND at least OPEN_MIN_MOVE of the price (so a
+    T-bill ETF such as BIL, whose price barely moves and often opens at its close, is not flagged). Causal: judged
+    on the sessions before the day (on the first 10 sessions of a history, on those up to and including it)."""
+    o, h, lo, c = (pd.to_numeric(raw[k], errors="coerce") for k in ("open", "high", "low", "close"))
+    eq = ((o - c).abs() <= 1e-9 * c.abs().clip(lower=1)).astype(float)
+    move = (c - c.shift(1)).abs()
+    rng = h - lo
+
+    def roll(x, how):
+        r_prior = getattr(x.rolling(60, min_periods=10), how)().shift(1)
+        r_early = getattr(x.rolling(60, min_periods=1), how)()
+        return r_prior.where(r_prior.notna(), r_early)
+
+    share, mv, rg = roll(eq, "mean"), roll(move, "median"), roll(rng, "median")
+    flag = (share > OPEN_EQ_CLOSE_SHARE) & (mv > OPEN_MOVE_VS_RANGE * rg) & (mv > OPEN_MIN_MOVE * c.shift(1))
+    return flag.fillna(False).astype(bool)
+
+
 @lru_cache(maxsize=None)
 def load(ticker: str) -> pd.DataFrame:
     """Daily bars for `ticker`.
 
     open/high/low/close/volume are split-adjusted but NOT dividend-adjusted (prices as quoted, like a
     chart). `dividend` is the cash dividend per share on its ex-date; `adj_close` is the
-    total-return (dividend-reinvested) close; `tr` is the total-return index (adj_close / first close).
+    total-return (dividend-reinvested) close, rebased to the quoted close on the first bar so that its level is causal
+    (it is also the rule language's `tr`, see expr.causal_tr).
     """
     t = canonical(ticker)
     path = price_path(t)
@@ -895,6 +926,13 @@ def load(ticker: str) -> pd.DataFrame:
         # fixed-date holidays - so older rows are kept as they are)
         keep = np.array([d.year < 1972 or _cal.is_session(d) for d in df.index])
         df = df[keep]
+    # adj_close as a causal total-return index: Yahoo back-adjusts it (its level on a date reflects every LATER
+    # dividend), so rebase it to equal the quoted close on the first bar. Its bar-to-bar ratios (which depend only
+    # on that bar's own dividend) are unchanged; its level on a date then depends only on data up to that date.
+    ok = (df["adj_close"] > 0) & (df["close"] > 0)
+    if ok.any():
+        f0 = ok.idxmax()
+        df["adj_close"] = df["adj_close"] * (float(df.at[f0, "close"]) / float(df.at[f0, "adj_close"]))
     # opening prices that were never quoted: missing, or a flat bar (open = high = low = close), as
     # for mutual funds, simulated series and very old index data. Such an "open" is really the close.
     flat = (raw["open"] == raw["close"]) & (raw["high"] == raw["low"]) & (raw["high"] == raw["close"])
@@ -904,6 +942,7 @@ def load(ticker: str) -> pd.DataFrame:
     stale = (raw["open"] - raw["close"].shift(1)).abs() <= 1e-9 * raw["close"].abs().clip(lower=1)
     # causal: judged on the quarter up to the day before (so it never depends on later bars)
     df["open_ok"] &= ~(stale.astype(float).rolling(63, min_periods=20).mean().shift(1).fillna(0) > 0.5)
+    df["open_ok"] &= ~synthetic_open_days(raw)
     if repaired.any():
         # a repaired open is an estimate, not a quote: no fills at it
         df.loc[repaired.reindex(df.index, fill_value=False).to_numpy(), "open_ok"] = False

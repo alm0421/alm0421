@@ -379,10 +379,12 @@ def test_cash_flow_schedules():
 
 
 def test_high_portfolio_leverage_needs_a_margin_setting():
-    with pytest.raises(parser.ParseError, match="maintenance margin"):
-        parser.parse("hold 60% SPY and 40% TLT with 5x leverage")
-    p = port("hold 60% SPY and 40% TLT with 5x leverage, with a 15% maintenance margin")
-    assert (p.leverage, p.maintenance_margin) == (5, 0.15)
+    with pytest.raises(parser.ParseError, match="portfolio margin"):
+        parser.parse("hold 60% SPY and 40% TLT with 5x leverage, with a 15% maintenance margin")
+    with pytest.raises((ValueError, parser.ParseError), match="Regulation T"):
+        parser.parse("hold 60% SPY and 40% TLT with 3x leverage").validate()
+    p = port("hold 60% SPY and 40% TLT with 4x leverage, with portfolio margin and a 15% maintenance margin")
+    assert (p.leverage, p.maintenance_margin, p.margin_account) == (4, 0.15, "portfolio")
 
 
 # ------------------------------------------------------------------ strictness regressions found along the way

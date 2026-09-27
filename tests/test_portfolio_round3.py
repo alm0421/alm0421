@@ -177,10 +177,12 @@ def _identity(r):
 def test_four_x_through_a_30pct_slide_gets_margin_calls(fake):
     px = [100.0] * 5 + [100 * 0.95 ** k for k in range(1, 8)] + [100 * 0.95 ** 7] * 10   # -30% over 7 days
     fake["X"] = frame(px)
-    p = pf.Portfolio(tree={"asset": "X"}, rebalance="none", leverage=4, cash_rate=None)
+    # 4x needs portfolio margin and a maintenance margin below 25% (the same rules as signal strategies)
+    p = pf.Portfolio(tree={"asset": "X"}, rebalance="none", leverage=4, cash_rate=None, margin_account="portfolio",
+                     maintenance_margin=0.2)
     r = pf.run(p)
     mc = r.orders[r.orders.reason == "margin call"]
-    assert len(mc) == 7 and (mc.side == "sell").all()
+    assert len(mc) >= 3 and (mc.side == "sell").all()
     assert _gross_ok(r, 1 / p.maintenance_margin)
     assert (r.equity > 0).all()
     assert any(n.startswith("Margin call on") for n in p.notes)
@@ -189,7 +191,7 @@ def test_four_x_through_a_30pct_slide_gets_margin_calls(fake):
 
 def test_three_x_through_a_30pct_day_is_cut_back_and_four_x_is_wiped_out(fake):
     fake["X"] = frame([100, 100, 100, 70, 70, 75, 80])
-    p = pf.Portfolio(tree={"asset": "X"}, rebalance="none", leverage=3, cash_rate=None)
+    p = pf.Portfolio(tree={"asset": "X"}, rebalance="none", leverage=3, cash_rate=None, margin_account="portfolio")
     r = pf.run(p)
     d = fake["X"].index[3]
     assert r.equity[d] == pytest.approx(10_000 * (1 - 3 * 0.3))
@@ -198,7 +200,8 @@ def test_three_x_through_a_30pct_day_is_cut_back_and_four_x_is_wiped_out(fake):
     assert r.exposure[d] == pytest.approx(3.0)
     assert _gross_ok(r, 4.0) and _identity(r)
 
-    p4 = pf.Portfolio(tree={"asset": "X"}, rebalance="none", leverage=4, cash_rate=None)
+    p4 = pf.Portfolio(tree={"asset": "X"}, rebalance="none", leverage=4, cash_rate=None, margin_account="portfolio",
+                      maintenance_margin=0.2)
     r4 = pf.run(p4)
     assert (r4.equity >= 0).all()
     assert r4.equity[d:].eq(0).all()
@@ -234,9 +237,13 @@ def test_leverage_drift_between_rebalances_is_capped_and_reported(fake):
 
 def test_leverage_above_the_maintenance_limit_is_refused(fake):
     fake["X"] = frame([100] * 5)
+    with pytest.raises(ValueError, match="Regulation T"):
+        pf.Portfolio(tree={"asset": "X"}, leverage=3).validate()
     with pytest.raises(ValueError, match="maintenance_margin"):
-        pf.Portfolio(tree={"asset": "X"}, leverage=5).validate()
-    pf.Portfolio(tree={"asset": "X"}, leverage=5, maintenance_margin=0.15).validate()
+        pf.Portfolio(tree={"asset": "X"}, leverage=4, margin_account="portfolio").validate()   # 25% x 4 = 100%
+    pf.Portfolio(tree={"asset": "X"}, leverage=4, margin_account="portfolio", maintenance_margin=0.15).validate()
+    with pytest.raises(ValueError, match="portfolio-margin account allows"):
+        pf.Portfolio(tree={"asset": "X"}, leverage=5, margin_account="portfolio", maintenance_margin=0.15).validate()
 
 
 # ------------------------------------------------------------ schedules, bands, flows
@@ -337,8 +344,9 @@ def test_group_filter_real_data_speed_accounting_and_no_lookahead(monkeypatch):
 
 @needs_data
 def test_four_x_qqq_since_2000_never_exceeds_the_margin_limit():
-    p = pf.Portfolio(tree={"asset": "QQQ"}, rebalance="none", leverage=4, start="2000-01-01", end="2010-12-31")
+    p = pf.Portfolio(tree={"asset": "QQQ"}, rebalance="none", leverage=4, start="2000-01-01", end="2010-12-31",
+                     margin_account="portfolio", maintenance_margin=0.2)
     r = pf.run(p)
-    assert _gross_ok(r, 4.0)
+    assert _gross_ok(r, 5.0)
     assert (r.equity >= 0).all()
     assert (r.orders.reason == "margin call").any()

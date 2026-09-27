@@ -259,6 +259,34 @@ def adjusted_frame(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def causal_tr(df: pd.DataFrame) -> pd.Series:
+    """The total-return index `tr`, built forward from the frame's first bar: it equals the quoted close there and
+    then grows by each bar's total return (price change plus reinvested cash dividends, taken from adj_close's
+    bar-to-bar ratios, which depend only on that bar's own dividend).
+
+    Yahoo's adj_close is back-adjusted: its LEVEL on any date is the close scaled down for every dividend paid
+    AFTER that date, so a rule such as `tr / close > 0.99` read the future (MSFT's ratio fell below 1 years before
+    the dividends that caused it). Rebasing to the first bar keeps every ratio (returns, tret, rankings) exactly
+    as before and makes the level causal: truncating the data at D changes no value before D."""
+    c = df["close"]
+    if "adj_close" not in df:
+        return c
+    a = df["adj_close"]
+    ok = a.notna() & c.notna() & (a > 0) & (c > 0)
+    if not ok.any():
+        return a
+    first = ok.idxmax()
+    return a * (float(c.loc[first]) / float(a.loc[first]))
+
+
+class _LazyTR:
+    """Placeholder default series for tret / max_drawdown / ma_return / stdev_return: the namespace's `tr`."""
+    __slots__ = ("ns",)
+
+    def __init__(self, ns):
+        self.ns = ns
+
+
 class Bars:
     """Price fields of another ticker aligned to the current ticker's dates.
 
@@ -273,7 +301,7 @@ class Bars:
             ok = df["open_ok"].reindex(index).fillna(False).astype(bool)
             self.open = self.open.where(ok)
         self.volume = a["volume"]
-        self.tr = a["adj_close"] if "adj_close" in a else a["close"]
+        self.tr = causal_tr(df).reindex(index.union(df.index)).ffill().reindex(index)
 
 
 MONTH_BARS = 21     # a month of trading days: "12 month return" is ret(252)
@@ -343,7 +371,6 @@ class Namespace(dict):
             "open": df["open"].where(df["open_ok"]) if "open_ok" in df else df["open"],
             "high": df["high"], "low": df["low"], "close": c,
             "volume": df["volume"], "price": c,
-            "tr": df["adj_close"] if "adj_close" in df else c,
             "True": True, "False": False,
         })
         self.update(self._functions())
@@ -366,6 +393,7 @@ class Namespace(dict):
             "month": lambda: pd.Series(idx.month, index=idx),
             "year": lambda: pd.Series(idx.year, index=idx),
             "dollar_volume": lambda: c * df["volume"],
+            "tr": lambda: causal_tr(df),      # the causal total-return index (lazy: built when a rule reads it)
             "hl2": lambda: (df["high"] + df["low"]) / 2,
             "hlc3": lambda: (df["high"] + df["low"] + c) / 3,
             "ohlc4": lambda: (df["open"] + df["high"] + df["low"] + c) / 4,
@@ -428,6 +456,8 @@ class Namespace(dict):
             n = lookback_number(n)
             if n < 1:
                 raise ValueError("lookback periods must be at least 1")
+            if isinstance(x, _LazyTR):
+                x = x.ns["tr"]
             return x, n
 
         def lookback_number(n):
@@ -527,7 +557,7 @@ class Namespace(dict):
                 rsi_memo[n] = rsi_wilder(x, n)
             return rsi_memo[n].copy()
 
-        trs = df["adj_close"] if "adj_close" in df else c
+        trs = _LazyTR(self)     # the namespace's `tr`, looked up only when an indicator defaults to it
 
         def tret(*a):
             """Total return (dividends reinvested) over n bars."""
@@ -1628,8 +1658,9 @@ _ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "m
                  "aroon_osc", "cmf", "pivothigh", "pivotlow", "avwap", "supertrend_dir"}
 
 
-def first_defined(rule, ns) -> pd.Timestamp | None:
-    """First date on which every indicator call in `rule` has a value (NaN during its look-back), or None."""
+def first_defined(rule, ns, never=None) -> pd.Timestamp | None:
+    """First date on which every indicator call in `rule` has a value (NaN during its look-back), or None.
+    `never`: returned instead when some indicator has no value anywhere in the data (still warming up at its end)."""
     if not isinstance(rule, str) or not rule.strip() or ns is None:
         return None
     text = pine_to_rule(rule).strip()
@@ -1651,6 +1682,8 @@ def first_defined(rule, ns) -> pd.Timestamp | None:
         fv = v.first_valid_index()
         if fv is not None:
             first = fv if first is None else max(first, fv)
+        elif never is not None:
+            return never
     return first
 
 
@@ -2021,6 +2054,7 @@ def callable_lookahead_probe(fn, df: pd.DataFrame, ticker: str | None = None, ki
 # (Python cannot be sandboxed completely - a function could still dig through the interpreter's memory - but no
 # ordinary way of writing a rule reaches later data.)
 
+import contextvars as _cv  # noqa: E402
 import threading as _threading  # noqa: E402
 from contextlib import contextmanager as _contextmanager  # noqa: E402
 
@@ -2143,14 +2177,148 @@ def _last(out, kind: str):
 
 def _sub_namespace(ns, k: int):
     """ns cut after its k-th row (a copy of the bars, so nothing of the later rows is reachable through it)."""
-    base = ns.quoted_df.iloc[:k].copy()
     extra = {}
     for key in POSITION_VARS | {"highest_since_entry", "lowest_since_entry"}:
         v = dict.get(ns, key)
         if isinstance(v, pd.Series):
             extra[key] = v.iloc[:k].copy()
-    return Namespace(base, extra or None, ticker=ns.ticker, price_basis=ns.price_basis,
-                     month_lookbacks=ns.month_lookbacks, close_fill=getattr(ns, "close_fill", False))
+    return _PrefixNamespace(ns, k, extra or None)
+
+
+# built-in indicators a Python rule may call through its namespace (ns["rsi"](2)) whose value on a prefix of the
+# bars is the full-history value cut at the prefix (causal, as the no-lookahead tests require of every built-in):
+# on the k-th prefix they are answered from one full-history computation, cut at k (a copy), instead of recomputing
+# the indicator over the whole prefix at every bar. Only for calls on the prefix's own price series with literal
+# lookbacks; checked against a direct computation on the prefix on the first calls and periodically after.
+_PREFIX_MEMO_FNS = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "stdev", "zscore", "ret", "roc", "rsi", "tret",
+                    "max_drawdown", "ma_return", "stdev_return", "atr", "natr", "volatility", "drawdown", "bb_upper",
+                    "bb_lower", "macd", "macd_signal", "macd_hist", "stoch_k", "stoch_d", "cci", "willr", "obv", "mfi",
+                    "donchian_upper", "donchian_lower", "hma", "vwma"}
+_PREFIX_BASES = ("close", "open", "high", "low", "volume", "price", "tr")
+PREFIX_VERIFY_FIRST, PREFIX_VERIFY_EVERY = 3, 200
+
+
+def _same_series(a, b) -> bool:
+    if not isinstance(a, pd.Series) or not isinstance(b, pd.Series) or len(a) != len(b) or not a.index.equals(b.index):
+        return False
+    x, y = a.to_numpy(dtype=float, na_value=np.nan), b.to_numpy(dtype=float, na_value=np.nan)
+    both = np.isnan(x) & np.isnan(y)
+    with np.errstate(invalid="ignore"):
+        close = np.abs(x - y) <= 1e-9 * np.maximum(1.0, np.maximum(np.abs(x), np.abs(y)))
+    return bool((both | np.nan_to_num(close, nan=0.0).astype(bool)).all())
+
+
+def _prefix_memo_fn(sub, name: str, raw):
+    """ns[name] of a prefix namespace: the parent's full-history value cut at the prefix when called on the prefix's
+    own price series with literal lookbacks; otherwise (or when a check against the direct computation on the
+    prefix ever disagrees) the direct computation. `raw()` gives the prefix's own function, built only when needed."""
+    parent, k = sub._parent, sub._k
+
+    def g(*a, **kw):
+        if kw or (name in ("ret", "roc", "tret") and sub.month_lookbacks == "calendar"):
+            return raw()(*a, **kw)
+        sig = []
+        for x in a:
+            if isinstance(x, pd.Series):
+                col = next((b for b in _PREFIX_BASES if dict.get(sub, b) is x), None)
+                if col is None:
+                    return raw()(*a)
+                sig.append(("s", col))
+            elif type(x) in (int, float, bool, str):
+                sig.append(("v", x))
+            else:
+                return raw()(*a)
+        memo = parent.__dict__.setdefault("_prefix_memo", {})
+        key = (name, tuple(sig))
+        ent = memo.get(key)
+        if ent is None:
+            try:
+                full = parent[name](*[parent[v] if t == "s" else v for t, v in sig])
+            except Exception:  # noqa: BLE001 - the direct call reports it
+                return raw()(*a)
+            ok = isinstance(full, pd.Series) and len(full) == len(parent.df) and full.index.equals(parent.df.index)
+            ent = memo[key] = [full, 0] if ok else False
+        if ent is False:
+            return raw()(*a)
+        ent[1] += 1
+        out = ent[0].iloc[:k].copy()
+        if ent[1] <= PREFIX_VERIFY_FIRST or ent[1] % PREFIX_VERIFY_EVERY == 0:
+            direct = raw()(*a)
+            if not _same_series(direct, out):
+                memo[key] = False
+                return direct
+        return out
+    g.__name__ = name
+    return g
+
+
+class _PrefixNamespace(Namespace):
+    """The namespace of the first k bars of `parent`'s data, for one streamed call of a Python rule: its own copy of
+    those bars (on the parent's price basis: the adjusted bars are built forward, so the parent's cut at k equals
+    adjusting the cut), the price series, lazy variables and functions of a Namespace built on them, with the
+    built-in indicators in _PREFIX_MEMO_FNS answered from the parent's full-history values cut at k. Functions are
+    built on first use."""
+
+    def __init__(self, parent: Namespace, k: int, extra: dict | None = None):
+        dict.__init__(self)
+        self.price_basis, self.month_lookbacks = parent.price_basis, parent.month_lookbacks
+        src = parent.__dict__.get("_prefix_src")
+        if src is None:        # consolidated copies of the parent's bars, so each cut is one block copy
+            q = parent.quoted_df.copy()
+            src = parent._prefix_src = (q, q if parent.df is parent.quoted_df else parent.df.copy())
+        self.quoted_df = src[0].iloc[:k].copy()
+        self.df = self.quoted_df if src[1] is src[0] else src[1].iloc[:k].copy()
+        self.ticker = parent.ticker
+        self.close_fill = getattr(parent, "close_fill", False)
+        self.notes = []
+        self._parent, self._k, self._fns, self._rawfns = parent, k, False, None
+        df = self.df
+        c = df["close"]
+        self.update({
+            "open": df["open"].where(df["open_ok"]) if "open_ok" in df else df["open"],
+            "high": df["high"], "low": df["low"], "close": c,
+            "volume": df["volume"], "price": c,
+            "True": True, "False": False,
+        })
+        if extra:
+            self.update(extra)
+
+    def _raw(self, name: str):
+        if self._rawfns is None:
+            self._rawfns = self._functions()
+        return self._rawfns[name]
+
+    def _load_functions(self) -> None:
+        self._fns = True
+        if self._rawfns is None:
+            self._rawfns = self._functions()
+        for key, v in self._rawfns.items():
+            if key not in _PREFIX_MEMO_FNS:
+                self.setdefault(key, v)        # a positional extra of the same name wins, as in Namespace
+
+    def __missing__(self, key: str):
+        if key in _PREFIX_MEMO_FNS:       # a memoised built-in, wrapped when first read
+            f = self[key] = _prefix_memo_fn(self, key, lambda: self._raw(key))
+            return f
+        if not self._fns:
+            self._load_functions()
+            if dict.__contains__(self, key):
+                return dict.__getitem__(self, key)
+        return Namespace.__missing__(self, key)
+
+    def get(self, key, default=None):
+        if dict.__contains__(self, key) or key in _PREFIX_MEMO_FNS:
+            return self[key]
+        if not self._fns:
+            self._load_functions()
+        return dict.get(self, key, default)
+
+    def __contains__(self, key) -> bool:
+        if dict.__contains__(self, key) or key in _PREFIX_MEMO_FNS:
+            return True
+        if not self._fns:
+            self._load_functions()
+        return dict.__contains__(self, key)
 
 
 _STREAMED: dict = {}      # (fn, ticker, id(bars), basis, months, kind) -> (bars, Series, seconds)
@@ -2167,9 +2335,102 @@ def _fn_name(fn) -> str:
     return f"{nm}()" if nm and not nm.startswith("<") else "(function)"
 
 
+# The first date a caller needs a Python rule's answer on (the backtest's first day): stream_callable leaves the
+# bars before it unevaluated (False / NaN) instead of calling the function on every earlier prefix. Every bar that
+# is evaluated still sees only the data up to it, so the guarantee is unchanged; only unused answers are skipped.
+STREAM_FROM: _cv.ContextVar = _cv.ContextVar("backtester_stream_from", default=None)
+# Optional dates the caller reads (e.g. a Nasdaq-100 member's entry rule: only its days in the index); other bars stay
+# unevaluated. Like STREAM_FROM this only skips answers nobody reads.
+STREAM_NEED: _cv.ContextVar = _cv.ContextVar("backtester_stream_need", default=None)
+STREAM_WORKERS = 0      # 0: automatic (os.cpu_count(), at most 8); 1: never fork worker processes
+STREAM_PARALLEL_MIN = 1200   # bars to evaluate before a stream is split across forked worker processes
+
+
+@_contextmanager
+def stream_from(date, need=None):
+    """Evaluate Python-function rules only from `date` on (and, with `need`, only on those dates)."""
+    tok = STREAM_FROM.set(pd.Timestamp(date) if date is not None else None)
+    tok2 = STREAM_NEED.set(pd.DatetimeIndex(need) if need is not None else None)
+    try:
+        yield
+    finally:
+        STREAM_NEED.reset(tok2)
+        STREAM_FROM.reset(tok)
+
+
+def _stream_range(fn, ns, kind: str, pos) -> np.ndarray:
+    """Answers for the bars at positions `pos` (increasing): fn on the data (and namespace) cut at each bar."""
+    idx = ns.df.index
+    vals = np.zeros(len(pos), bool) if kind == "bool" else np.full(len(pos), np.nan)
+    tok = data.LOAD_CUTOFF.set(None)
+    try:
+        with io_blocked():
+            for n, i in enumerate(pos):
+                i = int(i)
+                data.LOAD_CUTOFF.set(idx[i])
+                sub = _sub_namespace(ns, i + 1)
+                vals[n] = _last(fn(sub.df, sub), kind)
+    finally:
+        data.LOAD_CUTOFF.reset(tok)
+    return vals
+
+
+_FORK_JOB: dict = {}
+
+
+def _fork_chunk(pos):
+    j = _FORK_JOB
+    return _stream_range(j["fn"], j["ns"], j["kind"], pos)
+
+
+def _stream_workers(n_bars: int) -> int:
+    import multiprocessing as _mp
+    import os as _os
+    if STREAM_WORKERS == 1 or n_bars < STREAM_PARALLEL_MIN or "fork" not in _mp.get_all_start_methods():
+        return 1
+    if _mp.current_process().daemon or _threading.current_thread() is not _threading.main_thread():
+        return 1           # inside a worker, or a web-request thread: no nested pools / forks from threads
+    cpus = STREAM_WORKERS or min(8, _os.cpu_count() or 1)
+    return max(1, min(cpus, n_bars // (STREAM_PARALLEL_MIN // 2)))
+
+
+def _stream(fn, ns, kind: str, pos: np.ndarray) -> np.ndarray:
+    """_stream_range over the positions `pos`, split into consecutive chunks run in forked worker processes when
+    long. Each worker starts from the parent's state as it was before this stream (so, like the sequential loop, it
+    has seen nothing of the bars it evaluates) and walks its chunk in increasing order: bar i is still answered
+    from fn on the data up to bar i only."""
+    w = _stream_workers(len(pos))
+    if w <= 1:
+        return _stream_range(fn, ns, kind, pos)
+    import multiprocessing as _mp
+    # chunks sized so each costs about the same (a call on a longer prefix costs more)
+    n = len(pos)
+    k = max(w * 3, 2)
+    cuts = sorted({int(round(n * ((j / k) ** 0.75))) for j in range(k + 1)} | {0, n})
+    parts = [(a, b) for a, b in zip(cuts[:-1], cuts[1:]) if b > a]
+    # each chunk also answers the next chunk's first bar: a function whose answer depends on which earlier bars it
+    # was called on (state kept between calls) disagrees there, and is then streamed in one sequential pass
+    _FORK_JOB.update(fn=fn, ns=ns, kind=kind)
+    try:
+        with _mp.get_context("fork").Pool(w) as pool:
+            outs = pool.map(_fork_chunk, [pos[a: min(b + 1, n)] for a, b in parts], chunksize=1)
+    except Exception:  # noqa: BLE001 - e.g. a result that cannot be pickled back: the plain loop
+        return _stream_range(fn, ns, kind, pos)
+    finally:
+        _FORK_JOB.clear()
+    for (a, b), o, nxt in zip(parts[:-1], outs[:-1], outs[1:]):
+        x, y = o[-1], nxt[0]
+        if not (x == y or (kind != "bool" and np.isnan(x) and np.isnan(y))):
+            return _stream_range(fn, ns, kind, pos)
+    return np.concatenate([o[: b - a] for (a, b), o in zip(parts, outs)])
+
+
 def stream_callable(fn, ns, kind: str = "bool") -> pd.Series:
     """Evaluate a Python-function rule causally (see the comment above): bar i's answer is the last value of
-    fn(df.iloc[:i+1], ns cut at i). Cached per function and data. A `vectorized_causal` function is called once."""
+    fn(df.iloc[:i+1], ns cut at i). Only the bars a caller reads are evaluated (from STREAM_FROM on, on STREAM_NEED's
+    dates when given; the rest stay False / NaN), long streams are split across forked worker processes, and results
+    are cached per function and data (reused when they cover the bars asked for). A `vectorized_causal` function is
+    called once."""
     import time as _time
     df = ns.df
     idx = df.index
@@ -2179,6 +2440,12 @@ def stream_callable(fn, ns, kind: str = "bool") -> pd.Series:
         if note not in ns.notes:
             ns.notes.append(note)
         return _as_bool(out, idx) if kind == "bool" else _as_value(out, idx)
+    want = np.ones(len(idx), bool)
+    frm, need = STREAM_FROM.get(), STREAM_NEED.get()
+    if frm is not None:
+        want &= np.asarray(idx >= frm)
+    if need is not None:
+        want &= np.asarray(idx.isin(need))
     positional = any(isinstance(dict.get(ns, k), pd.Series) for k in POSITION_VARS)
     try:
         key = None if positional else (fn, ns.ticker, id(ns.quoted_df), ns.price_basis, ns.month_lookbacks, kind,
@@ -2186,33 +2453,36 @@ def stream_callable(fn, ns, kind: str = "bool") -> pd.Series:
         hit = _STREAMED.get(key) if key is not None else None
     except TypeError:          # an unhashable callable object: not cached
         key, hit = None, None
-    if hit is not None and hit[0] is ns.quoted_df:
-        res, secs = hit[1], hit[2]
+    if hit is not None and hit[0] is ns.quoted_df and len(hit[3]) == len(want) and not (want & ~hit[3]).any():
+        res, secs, done = hit[1], hit[2], hit[3]
     else:
         t0 = _time.perf_counter()
         vals = np.zeros(len(idx), bool) if kind == "bool" else np.full(len(idx), np.nan)
-        tok = data.LOAD_CUTOFF.set(None)
+        pos = np.flatnonzero(want)
         try:
-            with io_blocked():
-                for i in range(len(idx)):
-                    data.LOAD_CUTOFF.set(idx[i])
-                    sub = _sub_namespace(ns, i + 1)
-                    vals[i] = _last(fn(sub.df, sub), kind)
-        finally:
-            data.LOAD_CUTOFF.reset(tok)
+            if len(pos):
+                vals[pos] = _stream(fn, ns, kind, pos)
+        finally:     # the prefix copies' source and the memoised indicators are only for this stream
+            ns.__dict__.pop("_prefix_src", None)
+            ns.__dict__.pop("_prefix_memo", None)
         secs = _time.perf_counter() - t0
-        res = pd.Series(vals, index=idx)
+        res, done = pd.Series(vals, index=idx), want
         if key is not None:
             if len(_STREAMED) > 512:
                 _STREAMED.clear()
-            _STREAMED[key] = (ns.quoted_df, res, secs)
+            _STREAMED[key] = (ns.quoted_df, res, secs, want)
     head = f"Python rule {_fn_name(fn)}: evaluated bar by bar"
     if not any(n.startswith(head) for n in ns.notes):
-        ns.notes.append(STREAM_NOTE.format(name=_fn_name(fn), n=len(idx), s=secs))
-    return res.copy()
+        ns.notes.append(STREAM_NOTE.format(name=_fn_name(fn), n=int(done.sum()), s=secs))
+    out = res.copy()
+    extra = done & ~want       # a cached stream covering more bars: those this caller does not read stay unevaluated
+    if extra.any():
+        out[extra] = False if kind == "bool" else np.nan
+    return out
 
 
-def callable_check(fn, df: pd.DataFrame, ticker: str | None = None, kind: str = "bool", window=None) -> str | None:
+def callable_check(fn, df: pd.DataFrame, ticker: str | None = None, kind: str = "bool", window=None,
+                   close_fill: bool = False) -> str | None:
     """Lookahead check of a Python-function rule before a run. A streamed function (the default) cannot use later
     data, but one that tries to - shift(-1), a centred window, a whole-series statistic, a cache of the largest frame
     it was given - answers differently when run once on the whole history; such a function is refused rather than
@@ -2220,8 +2490,11 @@ def callable_check(fn, df: pd.DataFrame, ticker: str | None = None, kind: str = 
     (callable_lookahead_probe). Returns a description of the problem, or None."""
     if getattr(fn, "vectorized_causal", False):
         return callable_lookahead_probe(fn, df, ticker, kind, window=window)
-    ns = Namespace(df, ticker=ticker)
-    streamed = (evaluate(fn, ns) if kind == "bool" else evaluate_value(fn, ns)).to_numpy()
+    ns = Namespace(df, ticker=ticker, close_fill=close_fill)
+    # streamed from the window's start (the bars the run reads); earlier bars are not compared
+    w0 = pd.Timestamp(window[0]) if window is not None and window[0] is not None else None
+    with stream_from(w0):
+        streamed = (evaluate(fn, ns) if kind == "bool" else evaluate_value(fn, ns)).to_numpy()
     try:
         full = call_guarded(fn, df, Namespace(df, ticker=ticker))
     except CallableIOError:
@@ -2236,6 +2509,8 @@ def callable_check(fn, df: pd.DataFrame, ticker: str | None = None, kind: str = 
         with np.errstate(invalid="ignore"):
             close = np.abs(a - b) <= 1e-9 * np.maximum(1.0, np.maximum(np.abs(a), np.abs(b)))
         ok = (np.isnan(a) & np.isnan(b)) | np.nan_to_num(close, nan=0.0).astype(bool)
+    if w0 is not None:
+        ok = ok | np.asarray(df.index < w0)
     bad = np.flatnonzero(~ok)
     if window is not None and len(bad):
         w0, w1 = (pd.Timestamp(x) if x is not None else None for x in window)

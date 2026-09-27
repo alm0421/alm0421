@@ -22,6 +22,13 @@ from .portfolio import short_name as _pf_short_name
 from .strategy import Strategy
 
 NUM = r"(\d+(?:\.\d+)?)"
+# a short-borrow fee in any common word order: "2% borrow fee", "2% annual borrow fee", "borrow fee 2%",
+# "borrow fee of 2% per year", "borrow cost: 2% a year", "2% borrowing cost on shorts" (group 1 or 2 is the rate)
+_BORROW_TAIL = (r"(?: (?:per|a|an) (?:year|annum)| annual(?:ly)?| yearly| p\.?a\.?)?"
+                r"(?: on (?:the |any |all )?(?:shorts?|short (?:positions?|sales?)))?")
+BORROW_FEE = (rf"(?:an? )?{NUM}% (?:(?:annual|annualized|yearly) )?(?:stock )?borrow(?:ing)? (?:fee|cost|rate)s?{_BORROW_TAIL}"
+              rf"|(?:an? )?(?:(?:annual|annualized|yearly) )?(?:stock )?(?:short )?borrow(?:ing)? (?:fee|cost|rate)s?"
+              rf"(?: of| at|:| =)? {NUM}%{_BORROW_TAIL}")
 
 WORD_NUMS = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
@@ -3279,7 +3286,7 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
     m = T.find(rf"(?:no more than|at most|max(?:imum)?|cap(?:ped)? at|limit(?:ed)? to) {NUM}% of (?:the )?(?:day's |daily |average )?(?:volume|adv)")
     if m:
         kw["max_volume_pct"] = float(m.group(1)) / 100
-    m = T.find(rf"{NUM}% (?:annual |yearly )?borrow(?:ing)? (?:fee|cost|rate)|borrow (?:fee|cost|rate) of {NUM}%")
+    m = T.find(rf"(?:(?:with|and|paying) )?(?:{BORROW_FEE})")
     if m:
         kw["borrow_fee"] = float(m.group(1) or m.group(2)) / 100
     m = T.find(rf"(?:(?:with|and|paying) )?(?:an? )?{NUM}% margin (?:interest|rate)|(?:(?:with|and|paying) )?(?:a )?margin (?:interest|rate)(?: of|:)? {NUM}%")
@@ -5073,13 +5080,14 @@ def parse_allocation(text: str) -> Portfolio:
         extra["maintenance_margin"] = float(m.group(1) or m.group(2)) / 100
     if T.find(r",? ?(?:(?:with|and) )?(?:no|without|ignore|ignoring) margin calls?"):
         extra["maintenance_margin"] = 0.0
+    if T.find(r",? ?(?:(?:with|using|on|in|and) )?(?:an? )?portfolio[- ]margin(?:ing)?(?: account)?"):
+        extra["margin_account"] = "portfolio"
     lev = extra.get("leverage", 1.0)
-    if "maintenance_margin" not in extra and lev > 4:
-        raise ParseError(f"{lev:g}x leverage is above what the default 25% maintenance margin allows (4x): every close would be "
-                         f"a margin call. Add e.g. 'with a {100 / lev * 0.9:.0f}% maintenance margin', or 'no margin calls'.")
+    if lev > 4:
+        raise ParseError(f"{lev:g}x leverage is more than a broker lends: Regulation T allows 2x overnight and a "
+                         "portfolio-margin account 4x (say 'with portfolio margin' and e.g. 'a 15% maintenance margin').")
     # short-selling costs: "1% borrow fee", "borrow fee of 1%", "2% borrowing cost"; the short rebate
-    m = T.find(rf",? ?(?:(?:with|and|paying) )?(?:an? )?{NUM}% (?:annual |yearly )?(?:stock )?borrow(?:ing)? (?:fee|cost|rate)s?"
-               rf"(?: on (?:the )?shorts?)?|,? ?(?:(?:with|and|paying) )?(?:an? )?borrow(?:ing)? (?:fee|cost|rate)s?(?: of|:)? {NUM}%")
+    m = T.find(rf",? ?(?:(?:with|and|paying) )?(?:{BORROW_FEE})")
     if m:
         extra["borrow_fee"] = float(m.group(1) or m.group(2)) / 100
     m = T.find(rf",? ?(?:(?:with|and) )?(?:a )?short rebate(?: spread)?(?: of)? {NUM}% (?:below|under|less than) (?:the )?(?:t-?bill|cash)(?: rate)?"

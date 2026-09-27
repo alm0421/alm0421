@@ -199,7 +199,8 @@ def build_orders(rows: list[dict], *, kind: str, as_of: str, tag: str, fill: str
                  stop_loss: float | None = None, take_profit: float | None = None,
                  exit_when: dict | None = None, standing: list[dict] | None = None,
                  fractional: bool = True, notes: list[str] | None = None,
-                 entry_exits: dict | None = None, after_fill: list | None = None) -> list[dict]:
+                 entry_exits: dict | None = None, after_fill: list | None = None,
+                 catch_up: str = "skip") -> list[dict]:
     """Alpaca order payloads for the reconciliation rows of orders.todays_orders.
 
     kind: "allocation" or "signal". fill: when the strategy trades ("close", "open", "next_open", "next_close").
@@ -213,9 +214,16 @@ def build_orders(rows: list[dict], *, kind: str, as_of: str, tag: str, fill: str
     protected, as in the backtest; a market-on-close entry can't carry a bracket at Alpaca, so its OCO exit pair
     is appended to `after_fill` (shown by a dry run, placed by the next run once the shares are held - before
     the first session they are exposed in).
+    Catch-up rows (row["catch_up"]: a position the backtest already holds from an entry that has passed, which the
+    account lacks): no entry the strategy tested is due, so nothing is bought silently. catch_up "skip" (the
+    default) sends no order and says so; "market" sends a day market order for the difference, labelled as a
+    catch-up (it fills at today's price, not at the backtest's entry).
     Pure: no network, no data."""
     notes = notes if notes is not None else []
+    if catch_up not in ("skip", "market"):
+        raise ValueError("catch_up must be 'skip' or 'market'")
     entry_levels = entry_levels or {}
+    caught: list[str] = []
     exit_when = exit_when or {}
     tif_fill = "opg" if fill in ("open", "next_open") else "cls"
     entry_exits = entry_exits or {}
@@ -248,6 +256,27 @@ def build_orders(rows: list[dict], *, kind: str, as_of: str, tag: str, fill: str
             continue
         entering = (side == "BUY" and cur >= 0 and tgt > cur) or (side == "SELL" and cur <= 0 and tgt < cur)
         role = "entry" if (kind == "signal" and entering) else ("exit" if kind == "signal" else "rebalance")
+        if kind == "signal" and entering and r.get("catch_up") and t not in entry_levels:
+            what = (f"{sym}: CATCH-UP - the backtest has held {tgt:g} shares since {r['catch_up']} but the account holds "
+                    f"{cur:g}")
+            if catch_up == "skip":
+                notes.append(what + ": no order sent (no entry is due today; the tested entry "
+                             + (f"was a {entry_order} order at its level" if entry_order != "market" else "has passed")
+                             + "). Use --catch-up market to buy the difference at market, or wait for the next entry.")
+                caught.append(sym)
+                continue
+            notes.append(what + f": sending a DAY MARKET order for {qty} shares (--catch-up market). It fills at "
+                         "today's price, not at the backtest's entry" + (f" (a {entry_order} order at its level)"
+                                                                        if entry_order != "market" else "") + ".")
+            o = {"symbol": sym, "qty": qty, "side": side.lower(), "type": "market", "time_in_force": "day",
+                 "client_order_id": _coid(tag, as_of, sym, "catchup")}
+            ex = entry_exits.get(t) or {}
+            _attach(o, ex.get("stop"), ex.get("target"))       # the backtest's current stop / target as a bracket
+            used_ids.add(o["client_order_id"])
+            (sells if side == "SELL" else buys).append(o)
+            if cur:
+                keep[t] = cur
+            continue
         o: dict = {"symbol": sym, "qty": qty, "side": side.lower(), "type": "market",
                    "client_order_id": _coid(tag, as_of, sym, role)}
         if kind == "signal" and role == "exit":
@@ -372,8 +401,10 @@ def _attach(o: dict, stop: float | None, target: float | None) -> None:
         o["stop_loss"] = {"stop_price": _px(float(stop))}
 
 
-def plan(spec, account_value: float, positions: dict[str, float] | None = None, fractional: bool = True) -> Plan:
-    """The orders that move the account from `positions` ({our ticker: shares}) to the strategy's target today."""
+def plan(spec, account_value: float, positions: dict[str, float] | None = None, fractional: bool = True,
+         catch_up: str = "skip") -> Plan:
+    """The orders that move the account from `positions` ({our ticker: shares}) to the strategy's target today.
+    catch_up: what to do about positions the backtest already holds that the account lacks (build_orders)."""
     from . import orders, signals
     from .portfolio import Portfolio
     positions = positions or {}
@@ -412,7 +443,7 @@ def plan(spec, account_value: float, positions: dict[str, float] | None = None, 
                                 entry_order=spec.entry_order, entry_levels=levels, valid_bars=spec.order_valid_bars,
                                 stop_loss=spec.stop_loss, take_profit=spec.take_profit, exit_when=exit_when,
                                 standing=standing, fractional=fractional, notes=notes,
-                                entry_exits=entry_exits, after_fill=after)
+                                entry_exits=entry_exits, after_fill=after, catch_up=catch_up)
         return Plan(as_of=rec["as_of"], account_value=account_value, orders=payloads, rows=rec["orders"],
                     notes=list(dict.fromkeys(notes)), after_fill=[a for a in after if a.get("qty")])
     return Plan(as_of=rec["as_of"], account_value=account_value, orders=payloads, rows=rec["orders"],

@@ -433,7 +433,7 @@ def test_trade_cli_dry_run_without_keys_prints_payloads(monkeypatch, capsys, fak
     fake_plan = broker.Plan(as_of="2026-09-25", account_value=5e3,
                             orders=[{"symbol": "X", "qty": "2", "side": "buy", "type": "market", "time_in_force": "cls",
                                      "client_order_id": "bt-1"}])
-    monkeypatch.setattr(broker, "plan", lambda spec, value, positions, fractional=True: fake_plan)
+    monkeypatch.setattr(broker, "plan", lambda spec, value, positions, fractional=True, **kw: fake_plan)
     fake["X"] = frame(walk(12, 300))
     spec = pf.Portfolio(tree={"asset": "X"})
     monkeypatch.setattr(cli.parser, "parse", lambda text: spec)
