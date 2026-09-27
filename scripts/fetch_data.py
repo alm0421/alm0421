@@ -888,7 +888,6 @@ SIM_EXPENSE_RATIOS = {
 }
 SIM_DRAG_CAP = 0.03          # a larger gap is model error, not costs: never haircut more than 3% a year
 SIM_DRAG: dict[str, dict] = {}   # ticker -> the drag applied this run (written to data/sims_drag.json)
-SIM_DRAG_FILE = ROOT / "data" / "sims_drag.json"
 
 
 def overlap_cagrs(model: pd.Series, fund: pd.Series) -> tuple[float, float, int, str, str] | None:
@@ -988,9 +987,10 @@ def haircut_model(t: str, sim_ret: pd.Series, reals: tuple[str, ...]) -> pd.Seri
     return net
 
 
-def write_sim_drag(path: Path = SIM_DRAG_FILE) -> None:
+def write_sim_drag(path: Path | None = None) -> None:
     """Merge this run's drags into data/sims_drag.json (a series that failed this run keeps its old entry, as
     its price file is kept too)."""
+    path = path or ROOT / "data" / "sims_drag.json"
     try:
         old = json.loads(path.read_text()).get("series", {}) if path.exists() else {}
     except Exception:  # noqa: BLE001
