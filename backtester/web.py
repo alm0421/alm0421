@@ -545,7 +545,7 @@ def api_tickers(_body=None):
     """Every ticker with price data, with the lists that group them (for autocomplete)."""
     m = data.universe_meta()
     return {"tickers": data.available_tickers(), "nasdaq100": data.nasdaq100(), "etfs": data.etfs(),
-            "indexes": m.get("indexes", []), "sims": list(data.sims())}
+            "indexes": m.get("indexes", []), "sims": list(data.sims()), "asset_classes": grid_asset_classes()}
 
 
 def api_compare(body):
@@ -564,22 +564,311 @@ def api_compare(body):
         raise ClientError("Pick at least two strategies to compare.")
     if len(specs) > 6:
         raise ClientError("Compare up to 6 strategies at a time.")
-    analyses = []
     for i, s in enumerate(specs):
         if not s.name or s.name == s.description[:80]:
             s.name = f"Strategy {chr(65 + i)}"
+    return _compare_run(specs)
+
+
+def _compare_run(specs, names=None) -> dict:
+    """Run the specs and write one multi-run (Compare) report; saved to the history like any compare."""
+    analyses = []
+    for s in specs:
         s.name = s.name[:40]
         analyses.append(report.analyze(runner.run(s), sensitivity=False))
     rid = _new_id("compare")
     report.write_outputs(analyses, RUNS / rid)
-    C = report.common_window_stats(analyses)
+    C = report.common_window_stats(analyses) if len(analyses) > 1 else None
     row = {"id": rid, "created": datetime.now().isoformat(timespec="seconds"), "kind": "compare",
            "label": " vs ".join(s.name for s in specs), "text": " | ".join(s.description for s in specs)}
     with LOCK:
         idx = _index()
         idx.insert(0, row)
         _save_index(idx)
-    return {"id": rid, "url": f"/r/{rid}/report.html", "common": report._clean(C)}
+    return {"id": rid, "url": f"/r/{rid}/report.html", "common": report._clean(C) if C is not None else None}
+
+
+# ------------------------------------------------------------------ allocation grid (Backtest page)
+#
+# Portfolio Visualizer's "Backtest Portfolio" form: rows of tickers or asset-class names x up to GRID_COLUMNS
+# columns of weights, shared settings (period, amount, cash flows, rebalancing, benchmark, fees, leverage).
+# Each column with weights becomes one fixed-weight Portfolio spec; they run together as a Compare report.
+
+GRID_COLUMNS = 3
+GRID_FREQS = {"monthly": "monthly", "quarterly": "quarterly", "semiannual": "semiannual", "semiannually": "semiannual",
+              "yearly": "yearly", "annual": "yearly", "annually": "yearly"}
+GRID_REBALANCE = ("none", "monthly", "quarterly", "semiannual", "yearly", "bands")
+# Portfolio Visualizer asset-class names offered by the grid's autocomplete (each resolves through the parser's
+# asset-class table to the longest-history series with data, e.g. "US Small Cap Value" -> VBRSIM)
+GRID_ASSET_CLASSES = (
+    "US Stock Market", "US Large Cap", "US Large Cap Value", "US Large Cap Growth", "US Mid Cap", "US Mid Cap Value",
+    "US Mid Cap Growth", "US Small Cap", "US Small Cap Value", "US Small Cap Growth", "International Stocks",
+    "International Developed Stocks", "International Small Cap", "International Small Cap Value",
+    "International Value", "Emerging Markets", "European Stocks", "Japan", "REITs", "Gold", "Commodities",
+    "Total Bond Market", "Short-Term Treasuries", "Intermediate-Term Treasuries", "Long-Term Treasuries", "TIPS",
+    "Corporate Bonds", "Long-Term Corporate Bonds", "High Yield Bonds", "Municipal Bonds", "International Bonds",
+    "Emerging Market Bonds", "T-Bills")
+
+
+def grid_asset_classes() -> list[str]:
+    """The asset-class names that resolve to a series with data."""
+    return [n for n in GRID_ASSET_CLASSES if parser._asset_class_ticker(n)]
+
+
+def _grid_asset(name: str) -> tuple[str | None, str | None]:
+    """A grid row -> (ticker, note) or (None, error). A ticker typed in capitals is the ticker when it has data
+    ("GOLD" is Barrick Gold); otherwise an asset-class name ("Gold", "US small cap value") comes first."""
+    n = " ".join(str(name or "").split())
+    if not n:
+        return None, None
+    have = set(data.available_tickers())
+    t = data.canonical(n)
+    if n == n.upper() and " " not in n and t in have:
+        return t, None
+    ac = parser._asset_class_ticker(n)
+    if ac:
+        return ac[0], f"'{n}' is read as {ac[0]}"
+    if " " not in n and t in have:
+        return t, None
+    s = data.suggest(t) if " " not in n else []
+    return None, (f"Unknown ticker or asset class '{n}'." + (f" Did you mean {', '.join(s)}?" if s else "")
+                  + " Asset classes are names such as 'US Stock Market', 'Total Bond Market' or 'US Small Cap Value'.")
+
+
+def _grid_date(v, end: bool) -> str | None:
+    """'1990' -> 1990-01-01 (start) / 1990-12-31 (end); '1990-05' -> 1990-05-01 / 1990-05-31; a date as is."""
+    import calendar as _calendar
+    v = str(v or "").strip()
+    if not v:
+        return None
+    m = re.fullmatch(r"(\d{4})(?:[-/](\d{1,2}))?(?:[-/](\d{1,2}))?", v)
+    if not m:
+        raise ClientError(f"Dates are a year (1990), a month (1990-05) or a day (1990-05-15); got {v!r}.")
+    y, mo, d = int(m.group(1)), m.group(2), m.group(3)
+    if d:
+        return f"{y:04d}-{int(mo):02d}-{int(d):02d}"
+    if mo:
+        mo = int(mo)
+        if not 1 <= mo <= 12:
+            raise ClientError(f"Bad month in {v!r}.")
+        return f"{y:04d}-{mo:02d}-{(_calendar.monthrange(y, mo)[1] if end else 1):02d}"
+    return f"{y:04d}-12-31" if end else f"{y:04d}-01-01"
+
+
+def _grid_num(v, what: str, default=None, lo=None, hi=None) -> float | None:
+    if v in (None, ""):
+        return default
+    try:
+        x = float(str(v).replace(",", "").replace("$", "").replace("%", "").strip())
+    except ValueError:
+        raise ClientError(f"{what}: {v!r} is not a number.")
+    if (lo is not None and x < lo) or (hi is not None and x > hi):
+        raise ClientError(f"{what} must be between {lo:g} and {hi:g} (got {x:g}).")
+    return x
+
+
+def _grid_year(v, end: bool, what: str):
+    """A flow's start / end year: N < 1900 = year N of the backtest (as Portfolio); a calendar year is 1 January
+    (start) or 31 December (end, inclusive)."""
+    if v in (None, ""):
+        return None
+    y = _grid_num(v, what, lo=1)
+    if y != int(y):
+        raise ClientError(f"{what} is a whole year (got {v}).")
+    y = int(y)
+    if y < 1900:
+        return y
+    return f"{y:04d}-12-31" if end else y
+
+
+def grid_specs(body: dict) -> tuple[list, list[str], list[str]]:
+    """The grid form -> (Portfolio specs, one per column with weights; notes; problems). Nothing is run."""
+    from .portfolio import Portfolio
+    problems: list[str] = []
+    notes: list[str] = []
+    rows = body.get("rows") or []
+    names = list(body.get("names") or [])
+    assets: list[tuple[str, list]] = []
+    seen: dict[str, str] = {}
+    for r in rows:
+        w = list((r or {}).get("w") or [])[:GRID_COLUMNS]
+        raw = str((r or {}).get("asset") or "").strip()
+        if not raw:
+            if any(x not in (None, "") for x in w):
+                problems.append("A row has weights but no ticker or asset class.")
+            continue
+        t, msg = _grid_asset(raw)
+        if t is None:
+            problems.append(msg)
+            continue
+        if msg and msg not in notes:
+            notes.append(msg + ".")
+        if t in seen:
+            problems.append(f"{raw} and {seen[t]} are both {t}: use one row per asset.")
+            continue
+        seen[t] = raw
+        assets.append((t, w))
+    cols = []
+    for c in range(GRID_COLUMNS):
+        ws = []
+        for t, w in assets:
+            v = w[c] if c < len(w) else None
+            if v in (None, ""):
+                continue
+            try:
+                x = float(v)
+            except (TypeError, ValueError):
+                problems.append(f"Portfolio {c + 1}: the weight of {t} ({v!r}) is not a number.")
+                continue
+            if x < 0:
+                problems.append(f"Portfolio {c + 1}: the weight of {t} is negative ({x:g}%).")
+            elif x > 0:
+                ws.append((t, x))
+        if not ws:
+            continue
+        tot = sum(x for _, x in ws)
+        if abs(tot - 100) > 0.01:
+            problems.append(f"Portfolio {c + 1}: the weights add up to {tot:g}%, not 100%.")
+        cols.append((c, ws))
+    if not cols and not problems:
+        problems.append("Enter weights (%) for at least one portfolio.")
+    try:
+        start, end = _grid_date(body.get("start"), False), _grid_date(body.get("end"), True)
+        capital = _grid_num(body.get("capital"), "Initial amount", 10_000.0, lo=0)
+        er = _grid_num(body.get("expense_ratio"), "Expense ratio (%)", 0.0, lo=0, hi=10) / 100
+        lev = _grid_num(body.get("leverage"), "Leverage", 1.0, lo=0.01, hi=10)
+        rb = str(body.get("rebalance") or "yearly")
+        if rb not in GRID_REBALANCE:
+            raise ClientError(f"Rebalancing must be one of {', '.join(GRID_REBALANCE)}.")
+        band = _grid_num(body.get("band"), "Rebalancing band (%)", 5.0, lo=0.01, hi=100) / 100 if rb == "bands" else None
+        flows = _grid_flows(body.get("flows") or [])
+    except ClientError as e:
+        problems.append(str(e))
+        return [], notes, problems
+    if start and end and start >= end:
+        problems.append(f"The period is empty: it starts on {start} and ends on {end}.")
+    bench = str(body.get("benchmark") or "").strip()
+    if bench:
+        bt, msg = _grid_asset(bench) if " " not in bench or parser._asset_class_ticker(bench) else (bench, None)
+        if bt is None:
+            problems.append("Benchmark: " + msg)
+        bench = bt or bench
+    if problems:
+        return [], notes, problems
+    specs = []
+    for c, ws in cols:
+        tree = ({"asset": ws[0][0]} if len(ws) == 1 else
+                {"weights": "specified", "w": [x / 100 for _, x in ws], "children": [{"asset": t} for t, _ in ws]})
+        label = ", ".join(f"{x:g}% {t}" for t, x in ws)
+        name = str(names[c] if c < len(names) and names[c] else f"Portfolio {c + 1}").strip()[:40]
+        kw = dict(tree=tree, capital=capital, start=start, end=end, expense_ratio=er, leverage=lev,
+                  rebalance="none" if rb == "bands" else rb, name=name, description=label, **flows)
+        if rb == "bands":
+            kw["drift_band_relative" if body.get("band_mode") == "relative" else "drift_band"] = band
+        if bench:
+            kw["benchmark"] = bench
+        try:
+            p = Portfolio(**kw)
+            p.validate()
+        except (ValueError, TypeError) as e:
+            problems.append(f"{name}: {e}")
+            continue
+        specs.append(p)
+    return specs, notes, problems
+
+
+def _grid_flows(rows: list) -> dict:
+    """Cash-flow phases -> Portfolio fields. A portfolio has one contribution schedule and one withdrawal schedule
+    (a $ amount and/or a % of the balance sharing one frequency and window), so the grid takes one contribution
+    phase and one withdrawal phase, in either order (e.g. contribute in years 1-20, then withdraw from year 21)."""
+    out: dict = {}
+    wd_window = None
+    n_c = n_wa = n_wp = 0
+    for i, f in enumerate(rows, 1):
+        f = f or {}
+        kind = str(f.get("kind") or "").lower()
+        if kind in ("", "none"):
+            continue
+        if kind not in ("contribute", "withdraw"):
+            raise ClientError(f"Cash flow {i}: choose contribute or withdraw.")
+        mode = str(f.get("mode") or "amount")
+        amt = _grid_num(f.get("amount"), f"Cash flow {i}: amount", None, lo=0)
+        if not amt:
+            continue
+        freq = GRID_FREQS.get(str(f.get("freq") or ("monthly" if kind == "contribute" else "yearly")).lower())
+        if not freq:
+            raise ClientError(f"Cash flow {i}: frequency must be monthly, quarterly, semiannual or annual.")
+        s_y = _grid_year(f.get("start_year"), False, f"Cash flow {i}: start year")
+        e_y = _grid_year(f.get("end_year"), True, f"Cash flow {i}: end year")
+        infl = bool(f.get("inflation"))
+        if kind == "contribute":
+            if mode == "pct":
+                raise ClientError(f"Cash flow {i}: contributions are a $ amount (a % of the balance can only be withdrawn).")
+            n_c += 1
+            if n_c > 1:
+                raise ClientError("One contribution phase per portfolio: merge the contribution rows (the backtest "
+                                  "has one contribution schedule, and one withdrawal schedule).")
+            out.update(contribution=amt, contribution_freq=freq, contribution_inflation=infl,
+                       contribution_start=s_y, contribution_end=e_y)
+            continue
+        if wd_window is not None and wd_window != (freq, s_y, e_y):
+            raise ClientError("A $ withdrawal and a % withdrawal must share the frequency and years (the backtest has "
+                              "one withdrawal schedule).")
+        wd_window = (freq, s_y, e_y)
+        out.update(withdrawal_freq=freq, withdrawal_start=s_y, withdrawal_end=e_y)
+        if mode == "pct":
+            n_wp += 1
+            if amt >= 100:
+                raise ClientError(f"Cash flow {i}: a withdrawal of {amt:g}% a year would empty the portfolio.")
+            per_year = {"monthly": 12, "quarterly": 4, "semiannual": 2, "yearly": 1}[freq]
+            out["withdrawal_pct"] = amt / 100 / per_year          # the grid's % is per year, split over the periods
+        else:
+            n_wa += 1
+            out.update(withdrawal=amt, withdrawal_inflation=infl)
+        if n_wa > 1 or n_wp > 1:
+            raise ClientError("One withdrawal phase per portfolio (a $ amount, a % of the balance, or both on the "
+                              "same schedule).")
+    return out
+
+
+def grid_share_token(grid: dict) -> str:
+    raw = json.dumps({"v": 1, "grid": grid}, separators=(",", ":"), sort_keys=True).encode()
+    return base64.urlsafe_b64encode(zlib.compress(raw, 9)).decode().rstrip("=")
+
+
+def decode_grid_share(token: str) -> dict:
+    try:
+        obj = json.loads(zlib.decompress(base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))))
+        if not (isinstance(obj, dict) and isinstance(obj.get("grid"), dict)):
+            raise ValueError
+        return obj["grid"]
+    except Exception:  # noqa: BLE001
+        raise ClientError("This share link is damaged or incomplete (copy the whole link and try again).")
+
+
+GRID_KEYS = ("rows", "names", "start", "end", "capital", "flows", "rebalance", "band", "band_mode", "benchmark",
+             "expense_ratio", "leverage")
+
+
+def api_grid(body):
+    """The Backtest page's allocation grid. action "check": validate and describe (no run); "share": a share
+    token for the form; "load": the form from a share token; "run" (default): run every column together."""
+    action = body.get("action") or "run"
+    if action == "load":
+        return {"grid": decode_grid_share(str(body.get("share") or ""))}
+    grid = {k: body[k] for k in GRID_KEYS if k in body}
+    specs, notes, problems = grid_specs(grid)
+    out = {"problems": problems, "notes": notes, "share": grid_share_token(grid),
+           "portfolios": [{"name": s.name, "interpretation": s.summary(), "tickers": s.universe} for s in specs]}
+    if action in ("check", "share") or problems:
+        if action == "run" and problems:
+            raise ClientError(" ".join(problems))
+        return out
+    j = _compare_run(specs, [s.name for s in specs])
+    out.update(j)
+    for s in specs:
+        out["notes"] += [f"{s.name}: {n}" for n in s.notes]
+    return out
 
 
 def _method_list(v) -> list[str] | None:
@@ -701,6 +990,23 @@ def api_montecarlo(body):
             s.forecast[data.canonical(t)] = (float(v["ret"]), float(v["vol"]))
     w = _weights(body)
     spec = None if w else _target_spec(body)
+    if body.get("glide_to"):
+        if not w:
+            raise ClientError("A glide path needs tickers with weights (the start mix), not a sentence or a saved run.")
+        s.glide_to = _weights({"weights": body["glide_to"]})
+        s.glide = str(body.get("glide") or "linear")
+        if s.glide not in mc.GLIDES:
+            raise ClientError(f"glide must be one of {', '.join(mc.GLIDES)}")
+        try:
+            s.glide_years = int(body["glide_years"]) if body.get("glide_years") not in (None, "") else None
+        except (TypeError, ValueError):
+            raise ClientError(f"Bad number of glide-path years: {body.get('glide_years')!r}")
+        if body.get("glide_points"):
+            try:
+                s.glide_points = mc.parse_glide_points(body["glide_points"]) if isinstance(body["glide_points"], str) \
+                    else [(float(a), float(b)) for a, b in body["glide_points"]]
+            except (TypeError, ValueError) as e:
+                raise ClientError(str(e))
     if w:
         s.weights = w
     elif spec is not None:
@@ -804,7 +1110,7 @@ def api_status(_body=None):
     st = data.data_status()
     st["last_bar"] = last_bar_date()
     return report._clean({"data": st, "examples": EXAMPLES, "nasdaq100": data.nasdaq100(),
-                          "sims": [{"ticker": t, "about": data.SIMS.get(t, "simulated long history")} for t in data.sims()],
+                          "sims": [{"ticker": t, "about": data.sim_about(t)} for t in data.sims()],
                           "etfs": data.etfs(), "funds": data.funds(), "indexes": m.get("indexes", []),
                           "former": m.get("former_members", []), "help": expr.HELP,
                           "tickers": data.available_tickers(), "factor_models": _factor_models()})
@@ -990,7 +1296,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             body = self._body()
             handlers = {
-                "/api/parse": api_parse, "/api/run": api_run, "/api/compare": api_compare,
+                "/api/parse": api_parse, "/api/run": api_run, "/api/compare": api_compare, "/api/grid": api_grid,
                 "/api/sweep": lambda b: api_research(b, "sweep"), "/api/walkforward": lambda b: api_research(b, "walkforward"),
                 "/api/optimize": lambda b: api_research(b, "optimize"), "/api/signals": api_signals,
                 "/api/paper": lambda b: api_paper(b, "POST"),

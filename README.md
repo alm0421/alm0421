@@ -16,13 +16,13 @@ python -m backtester "buy at the close Microsoft when it trades down 5 days in a
 
 | Page | What it does |
 |---|---|
-| **Backtest** | Type a strategy. The interpretation updates as you type, and the full report appears on the page. You can download Excel, CSV and JSON, save a PDF, or copy a share link that carries the full spec and settings, so opening it re-runs exactly the same backtest. "Today's orders" turns the strategy's current target into buy/sell orders for your account value and holdings (generic CSV, or an Interactive Brokers basket file). |
+| **Backtest** | Type a strategy. The interpretation updates as you type, and the full report appears on the page. You can download Excel, CSV and JSON, save a PDF, or copy a share link that carries the full spec and settings, so opening it re-runs exactly the same backtest. "Today's orders" turns the strategy's current target into buy/sell orders for your account value and holdings (generic CSV, or an Interactive Brokers basket file). Below it, the **asset allocation grid** (as Portfolio Visualizer's "Backtest Portfolio"): rows of tickers or asset-class names ("US Stock Market", "Total Bond Market", with autocomplete) x up to three portfolios of weights (totals per column; each must add up to 100%, unknown tickers are flagged), start/end as a year or a month, initial amount, cash-flow phases (contribute or withdraw, $ or % of the balance per year, frequency, inflation-adjusted, start/end year: one contribution and one withdrawal phase per portfolio), rebalancing (none, monthly, quarterly, semi-annual, annual, or absolute/relative bands), benchmark, expense ratio and leverage. "Run portfolios" builds one Portfolio spec per column and runs them together in a Compare report; "Copy share link" (`#backtest?g=...`) reopens the filled grid and re-runs it (API: `POST /api/grid`). |
 | **Build** | A block editor for portfolios (weighted groups, if/else switches and top-N filters, nested as deep as you like), like a Composer symphony: indicator pickers for conditions and rankings, eight weightings (equal, specified, inverse volatility, risk parity, min variance, max Sharpe, max diversification, market cap), drag and drop, duplicate, inline checks, leverage and expense ratio. It also has a form for every field of a signal strategy. Both convert to and from JSON files and from sentences, and both offer "Today's orders". |
 | **Gallery** | Library strategies and saved runs with their headline numbers. Fork one into the editor, or export/import a strategy JSON file. |
 | **Community** | Strategies people published with "Publish to the community gallery" (Backtest and Build pages: a name, an author and a description; the strategy is backtested first). Search, sort by CAGR, Sharpe or max drawdown, **Fork** into the editor or **Run**. Kept in `data/community.json` (`BACKTESTER_COMMUNITY` points elsewhere). |
 | **Compare** | Put several strategies (from history or typed) in one report. Every column is compared over the same period; a benchmark whose data starts later than that period is listed separately with its own dates. |
 | **Research** | A parameter sweep (`hold {1..5} days`) with a heatmap. Walk-forward optimisation (rolling or anchored). A portfolio optimiser: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity, max diversification, max return / max drawdown, max Omega (at a threshold return), target return, target volatility, inverse volatility and equal weight (pick any subset), with per-asset and group limits (`SPY+QQQ <= 70%`), the efficient frontier, an out-of-sample check and rolling (walk-forward) re-optimisation compared with the static weights. A target that can't be reached says what can ("the minimum achievable volatility is 9.1%"). **Inputs**: historical means by default, or your expected returns (and optionally volatilities and correlations), or **Black-Litterman** (market-cap, equal or given prior weights plus absolute/relative views with confidences; the posterior feeds every objective). **Benchmark-relative**: min tracking error (optionally with a return floor) and max information ratio against a ticker or blend. **Resampled frontier** (Michaud): average the optimal weights over N simulated histories. |
-| **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates, also per percentile of the paths (10th-90th, as Portfolio Visualizer; for contribute-then-withdraw plans measured from the balance when withdrawals start) (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), and any number of cash-flow phases (contribute, then withdraw). |
+| **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates, also per percentile of the paths (10th-90th, as Portfolio Visualizer; for contribute-then-withdraw plans measured from the balance when withdrawals start) (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), any number of cash-flow phases (contribute, then withdraw), and a glide path (e.g. 90/10 -> 40/60 over 30 years, linear or target-date shaped). |
 | **Factors** | Regress a ticker, portfolio, sentence or saved run on CAPM, Fama-French 3, Carhart 4, Fama-French 5 or FF5 + momentum for the US or a region (developed, developed ex US, Europe, Japan, Asia Pacific ex Japan, North America, emerging), AQR's quality (QMJ) and betting-against-beta (BAB) factors, and the bond factors TERM and DEF, monthly (French's official monthly files) or daily: loadings with t-stats, R², annualised alpha and rolling 36-month loadings. **Style analysis** (Sharpe 1992) finds the asset-class mix that best tracks the returns, with rolling 36-month weights. |
 | **Correlations** | The correlation matrix of daily or monthly total returns over a chosen period, a rolling correlation of any pair, and per-asset statistics (CAGR, volatility, Sharpe, max drawdown, best/worst year, first date of data), like Portfolio Visualizer's asset correlations. |
 | **Signals & paper** | Shows what a strategy says to do on the latest bar: new entries, open positions and target weights. You can also start a forward test ("paper trading") that only uses data arriving after you saved it. |
@@ -248,6 +248,7 @@ python -m backtester optimize SPY QQQ TLT GLD --constraint "SPY+QQQ <= 70%" --co
 python -m backtester montecarlo --weights "SPY 60 TLT 40" --balance 1000000 --years 30 --withdrawal 40000 [--model historical|normal|t|forecast]
 python -m backtester montecarlo "hold 60% SPY and 40% AGG, withdraw 4% per year adjusted for inflation, starting with $1,000,000" --model t
 python -m backtester montecarlo --weights "SPY 60 TLT 40" --withdrawal 40000 --age 65 --until-age 95 --stress worst_sequence
+python -m backtester montecarlo --weights "VTISIM 90 BNDSIM 10" --glide-to "VTISIM 40 BNDSIM 60" --years 30 --withdrawal 40000
 python -m backtester factors QQQ --model ff5 --freq monthly          # or --weights "SPY 60 TLT 40", a sentence, --run ID
 python -m backtester factors AGG --model ff3+bonds                   # models: capm ff3 carhart ff5 ff6 bonds ff3+bonds ...
 python -m backtester factors VGK --model europe_ff5                  # regional: <region>_ff3|ff5|carhart|ff6
@@ -663,6 +664,21 @@ overlap) and logs every candidate's score in `data/sims_log.txt`. The old large-
 big / high B/M alone) is too deep-value: tracking error 8.3% a year against VTV with 20% volatility against
 14.5%; 1/3 big-high + 2/3 big-neutral B/M tracks VTV with 3.6% and 16.5% volatility.
 
+**Fee and cost haircut.** The models are gross: index and Fama-French portfolio returns pay no expense
+ratio, trading costs, cash drag or tax leakage, and on their overlap they beat the funds by about 1-2% a year
+(VOTSIM 11.69% vs VOT 9.88%, VXUSSIM 7.36% vs VGTSX 5.95%, EFVSIM 7.69% vs EFV 6.03%). So before splicing,
+the data job takes a constant annual drag off each model segment (never off the real fund after it):
+`drag = max(expense ratio, min(3%, gap))`, where `gap` is how much the model's CAGR beat the fund that takes
+over from it on their overlap (full months, geometric: (1 + model) / (1 + fund) - 1, 0 when the fund did
+better) and the expense ratio is that fund's current one (a table in `scripts/fetch_data.py`, from the
+issuers' fund pages as of 2025; older, higher fees show up in the gap). The drag is taken daily in
+proportion to calendar time, so monthly-stepped models pay the same per year. With it, a model's CAGR on the
+overlap equals the fund's (unless the fund did better or the gap hit the 3% cap, which flags model error
+rather than costs). `data/sims_log.txt` logs each series' drag, its basis and the check; `data/sims_drag.json`
+holds the figures; SIM descriptions on the site and backtests that hold a SIM during its model period state
+it ("model periods are net of an estimated X%/yr fee/cost drag"). Series with no model (TIPSIM, HYGSIM,
+MUBSIM, EMBSIM: real funds only) are untouched.
+
 **Fund-exact series.** VTISIM, VXUSSIM, VWOSIM, VNQSIM, BNDSIM, VBSIM, VBRSIM, VBKSIM, VTVSIM and VUGSIM
 become the named fund as soon as it or its Vanguard mutual-fund twin (same index, same manager) exists, so a
 named portfolio run from 1972 holds, for example, the US market model until April 1992, VTSMX until
@@ -763,6 +779,15 @@ the start of each period, pro rata, and the portfolio is rebalanced on its sched
 - Withdrawals never take more than the balance: a path that cannot pay in full pays what is left and ends at
   zero (no negative balances). The results show the total actually withdrawn and the share of paths that
   fell short.
+- Glide path (`--glide-to "VTISIM 40 BNDSIM 60" [--glide-years 30] [--glide linear|target_date]
+  [--glide-points "0:0,10:0,20:50,30:100"]`, or "Glide path" under the weights on the site): `--weights` is the
+  start mix and the target moves once a year to the end mix, the portfolio being rebalanced to it at every year
+  boundary (and on its schedule in between). Linear: year 1 holds the start mix, year N the end mix, even steps
+  in between (90/10 -> 40/60 over 30 years moves 1.7 points a year). `target_date`: the start mix for the first
+  fifth of the glide, then de-risking that speeds up toward the end (40% of the move by 60% of the time), the
+  shape of published target-date glide paths. Custom points are (years elapsed: % of the way), joined linearly.
+  Returns are drawn for every asset of both mixes together, so correlations hold; the results list the target
+  mix by year. A glide path needs tickers and weights (not a sentence or a saved run).
 - Lifetime horizon (`--horizon mortality --age 65 --sex male|female|joint [--age2 63]`, or "a lifetime" on
   the site): the paths run until the chance of being alive falls below 0.1%, and the chance of success is
   weighted by survival - the sum over years of P(death that year) x P(money left at the end of that year),

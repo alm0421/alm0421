@@ -305,7 +305,7 @@ def _asset_class_ticker(phrase: str) -> tuple[str, str] | None:
         if re.fullmatch(pat, phrase.strip(), re.I):
             for t in opts:
                 if t in known:
-                    about = data.SIMS.get(t)
+                    about = data.sim_about(t) if t in data.SIMS else None
                     return t, (f"'{phrase.strip()}' ({label}) is read as {t}" + (f": {about}" if about else "")
                                + (". A long-history series that is the fund itself once the fund exists; name a fund "
                                   f"(e.g. {opts[-1]}) to use the fund alone" if t.endswith("SIM") else "")

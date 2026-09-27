@@ -6,6 +6,7 @@
     python -m backtester walkforward "buy QQQ when RSI(2) is below {5..20 step 5}, hold {1..5} days"
     python -m backtester optimize SPY QQQ TLT GLD --max-weight 0.6 --constraint "SPY+QQQ <= 70%" --rolling 12
     python -m backtester montecarlo --weights "SPY 60 TLT 40" --years 30 --withdrawal 40000 --balance 1000000
+    python -m backtester montecarlo --weights "VTISIM 90 BNDSIM 10" --glide-to "VTISIM 40 BNDSIM 60" --years 30
     python -m backtester factors QQQ --model ff5 --freq monthly      (models: capm ff3 carhart ff5 ff6 bonds ff3+bonds,
                                     <region>_ff3/ff5/carhart/ff6 for developed, dev (ex US), europe, japan,
                                     asia_pacific_ex_japan, north_america, emerging; add-ons ff5+qmj+bab; auto)
@@ -420,6 +421,13 @@ def cmd_montecarlo(argv: list[str]) -> int:
                    help="mortality: run until the SSA life table says nobody is left and weight success by survival (needs --age)")
     p.add_argument("--sex", choices=["male", "female", "joint"], default="male", help="for --horizon mortality")
     p.add_argument("--age2", type=float, help="--sex joint: the second person's age (default: --age)")
+    p.add_argument("--glide-to", metavar="WEIGHTS",
+                   help="glide path: the end mix, e.g. 'VTISIM 40 BNDSIM 60' (--weights is the start mix)")
+    p.add_argument("--glide-years", type=int, help="years to reach the end mix (default: --years)")
+    p.add_argument("--glide", choices=list(mc.GLIDES), default="linear",
+                   help="linear, or target_date (hold the start mix for the first fifth, then de-risk faster near the end)")
+    p.add_argument("--glide-points", metavar="YEAR:PCT,...",
+                   help="custom glide schedule, e.g. '0:0,10:0,20:50,30:100' (percent of the way to the end mix)")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     weights, spec = _load_target(a)
@@ -447,6 +455,12 @@ def cmd_montecarlo(argv: list[str]) -> int:
         s.weights = weights
     else:
         s.weights, s.series_name = mc.settings_from_spec(spec, s)
+    if a.glide_to:
+        s.glide_to, s.glide_years, s.glide = parse_weights(a.glide_to), a.glide_years, a.glide
+        if a.glide_points:
+            s.glide_points = mc.parse_glide_points(a.glide_points)
+    elif a.glide_years or a.glide_points:
+        raise ValueError("--glide-years / --glide-points need --glide-to (the end mix).")
     if not flows and spec is not None and hasattr(spec, "contribution"):
         flows = mc.flows_from_portfolio(spec)
     s.flows = flows

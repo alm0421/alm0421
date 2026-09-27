@@ -36,6 +36,17 @@ P(death in year k) x P(money left at the end of year k), plus P(alive at the end
 
 Withdrawals never take more than the balance: a path that cannot pay a withdrawal in full pays what is
 left, ends at zero (no negative balances, no borrowing) and has failed from then on.
+
+Glide path (Settings.glide_to): the target mix moves from `weights` (the start mix) to `glide_to` (the end mix)
+over `glide_years` = N years (default: the whole horizon), changing once a year: in year k + 1 (k = 0, 1, ...) the
+target is w0 + f(k / (N - 1)) (w1 - w0), so year 1 holds the start mix and year N (and every year after) the end
+mix; "90/10 -> 40/60 over 30 years" holds 40/60 in year 30.
+f is the schedule: "linear" (f(x) = x, e.g. 90/10 -> 40/60 over 30 years moves 1.67 points a year), "target_date"
+(TARGET_DATE_POINTS: the start mix for the first fifth of the glide, then de-risking that speeds up toward the
+target date, as target-date funds do) or explicit points (years elapsed, % of the way) joined linearly (year 0 is
+the first simulated year). The portfolio is
+rebalanced to the new target at every year boundary (whatever the rebalancing setting: that also rebalances
+within the year), and the asset returns are drawn for the union of both mixes, so the correlations hold.
 """
 from __future__ import annotations
 
@@ -49,6 +60,12 @@ from . import data
 MODELS = ("historical", "normal", "t", "forecast")
 PERCENTILES = (10, 25, 50, 75, 90)
 STEPS = {"monthly": 1, "quarterly": 3, "yearly": 12, "annual": 12, "none": 0}
+GLIDES = ("linear", "target_date")
+# target-date shape as (fraction of the glide years, fraction of the move from the start to the end mix): hold the
+# start mix for the first 20%, then move 40% of the way by 60% of the time and the rest in the final 40% (a convex
+# de-risking curve like the published target-date glide paths, which de-risk slowly far from the target date and
+# faster near it)
+TARGET_DATE_POINTS = ((0.0, 0.0), (0.2, 0.0), (0.6, 0.4), (1.0, 1.0))
 
 
 @dataclass
@@ -106,6 +123,10 @@ class Settings:
     horizon: str = "fixed"                        # "fixed" (years / until_age) or "mortality" (SSA life table)
     sex: str = "male"                             # mortality: "male", "female" or "joint" (a couple)
     age2: float | None = None                     # joint: the second person's age (default: the same age)
+    glide_to: dict[str, float] | None = None      # glide path: the end mix (weights = the start mix)
+    glide_years: int | None = None                # years to reach the end mix (default: the horizon)
+    glide: str = "linear"                         # "linear", "target_date", or ignored when glide_points is given
+    glide_points: list[tuple[float, float]] | None = None   # explicit schedule: (year, fraction of the way 0..1)
 
 
 # ------------------------------------------------------------------ history
@@ -180,9 +201,11 @@ def _draw_blocks(rng, n_hist: int, months: int, sims: int, block: int) -> np.nda
 
 def _portfolio_returns(A: np.ndarray, w: np.ndarray, rebalance_every: int) -> np.ndarray:
     """Monthly portfolio returns (sims, months) for asset returns A (sims, months, n) with target
-    weights w, rebalanced every `rebalance_every` months (0 = never)."""
+    weights w, rebalanced every `rebalance_every` months (0 = never). w is one mix (n,) or a target per month
+    (months, n) (a glide path): the holdings are also rebalanced whenever the next month's target differs."""
     sims, months, n = A.shape
-    hold = np.broadcast_to(w, (sims, n)).copy()
+    W = np.broadcast_to(np.asarray(w, dtype=float), (months, n)) if np.ndim(w) == 1 else np.asarray(w, dtype=float)
+    hold = np.broadcast_to(W[0], (sims, n)).copy()
     out = np.empty((sims, months))
     for m in range(months):
         before = hold.sum(axis=1)
@@ -190,9 +213,50 @@ def _portfolio_returns(A: np.ndarray, w: np.ndarray, rebalance_every: int) -> np
         after = hold.sum(axis=1)
         with np.errstate(divide="ignore", invalid="ignore"):
             out[:, m] = np.where(before > 0, after / before - 1, 0.0)
-        if rebalance_every and (m + 1) % rebalance_every == 0:
-            hold = np.maximum(after, 0)[:, None] * w[None, :]
+        nxt = W[min(m + 1, months - 1)]
+        if (rebalance_every and (m + 1) % rebalance_every == 0) or (m + 1 < months and not np.array_equal(nxt, W[m])):
+            hold = np.maximum(after, 0)[:, None] * nxt[None, :]
     return np.maximum(out, -1.0)
+
+
+def glide_fraction(k: int, years: int, schedule: str = "linear", points=None) -> float:
+    """How far (0 = the start mix, 1 = the end mix) the target has moved in year k + 1 of a glide over `years`
+    years: 0 in year 1, 1 in year `years` and after (with `points`: interpolated at k years elapsed)."""
+    k = max(int(k), 0)
+    if points:
+        pts = sorted((float(a), float(b)) for a, b in points)
+        return float(np.clip(np.interp(k, [a for a, _ in pts], [b for _, b in pts]), 0.0, 1.0))
+    if schedule not in (None, "", "linear", "target_date"):
+        raise ValueError(f"glide must be one of {GLIDES}")
+    x = min(k / (years - 1), 1.0) if years > 1 else float(k >= 1)
+    if schedule == "target_date":
+        return float(np.interp(x, [a for a, _ in TARGET_DATE_POINTS], [b for _, b in TARGET_DATE_POINTS]))
+    return x
+
+
+def glide_weights(w0: np.ndarray, w1: np.ndarray, months: int, years: int, schedule: str = "linear",
+                  points=None) -> np.ndarray:
+    """The target mix for each simulated month (months, n): constant within a year, moving once a year."""
+    f = np.array([glide_fraction(m // 12, years, schedule, points) for m in range(months)])
+    return (1 - f)[:, None] * np.asarray(w0)[None, :] + f[:, None] * np.asarray(w1)[None, :]
+
+
+def parse_glide_points(text: str) -> list[tuple[float, float]]:
+    """'0:0, 10:0, 20:50, 30:100' -> [(0, 0.0), (10, 0.0), (20, 0.5), (30, 1.0)] (year: % of the way)."""
+    out = []
+    for part in str(text).replace(";", ",").split(","):
+        if not part.strip():
+            continue
+        try:
+            y, v = part.split(":")
+            out.append((float(y), float(v.strip().rstrip("%")) / 100))
+        except ValueError:
+            raise ValueError(f"Glide points are 'year:percent of the way', e.g. '0:0, 10:0, 30:100' (got {part.strip()!r})")
+    if len(out) < 2:
+        raise ValueError("Give at least two glide points, e.g. '0:0, 30:100'.")
+    if any(not 0 <= v <= 1 for _, v in out) or any(y < 0 for y, _ in out):
+        raise ValueError("Glide points: years from 0 and percentages from 0 to 100.")
+    return out
 
 
 def simulate(P: np.ndarray, cum_infl: np.ndarray, start: float, flows: list[CashFlow]) -> dict:
@@ -369,15 +433,23 @@ def _history(s: Settings) -> tuple[pd.DataFrame, np.ndarray, list[str]]:
         return hist, np.ones(1), [s.series_name]
     if not s.weights:
         raise ValueError("Give tickers with weights (e.g. SPY 60, TLT 40) or a strategy.")
-    tick = [data.canonical(t) for t in s.weights]
-    w = np.array([float(v) for v in s.weights.values()])
-    if (w < 0).any():
-        raise ValueError("Weights must be positive.")
-    if w.sum() <= 0:
-        raise ValueError("Weights must add up to more than zero.")
-    w = w / w.sum()
+    # a glide path draws returns for every asset of the start and the end mix
+    tick = list(dict.fromkeys([data.canonical(t) for t in s.weights] + [data.canonical(t) for t in (s.glide_to or {})]))
+    w = _mix_vector(s.weights, tick, "Weights")
     hist = monthly_asset_returns(tick, s.start, s.end)
     return hist, w, tick
+
+
+def _mix_vector(weights: dict, tick: list[str], what: str) -> np.ndarray:
+    """A mix as a vector over `tick` (missing = 0), normalised to 1."""
+    w = np.zeros(len(tick))
+    for t, v in weights.items():
+        w[tick.index(data.canonical(t))] += float(v)
+    if (w < 0).any():
+        raise ValueError(f"{what} must be positive.")
+    if w.sum() <= 0:
+        raise ValueError(f"{what} must add up to more than zero.")
+    return w / w.sum()
 
 
 def run(s: Settings) -> dict:
@@ -405,6 +477,8 @@ def run(s: Settings) -> dict:
         raise ValueError("stress must be 'worst_sequence' or 'shock'")
     if not (100 <= s.sims <= 50_000):
         raise ValueError("Number of simulations must be between 100 and 50,000.")
+    if s.glide_to and s.series is not None:
+        raise ValueError("A glide path needs tickers with weights (a start mix and an end mix), not a strategy.")
     hist, w, tick = _history(s)
     if len(hist) < 36:
         raise ValueError(f"Need at least 36 months of common history; {', '.join(tick)} have {len(hist)}.")
@@ -487,7 +561,28 @@ def run(s: Settings) -> dict:
     cum_infl = np.concatenate([np.ones((sims, 1)), np.cumprod(1 + I, axis=1)], axis=1)
 
     rb = STEPS.get(s.rebalance, 12)
-    P = _portfolio_returns(A, w, rb) if n > 1 else A[:, :, 0]
+    glide = None
+    if s.glide_to:
+        w1 = _mix_vector(s.glide_to, tick, "End-mix weights")
+        gy = int(s.years if s.glide_years in (None, "") else s.glide_years)
+        if not 1 <= gy <= 100:
+            raise ValueError("The glide path runs over 1 to 100 years.")
+        sched = "custom" if s.glide_points else (s.glide or "linear")
+        W = glide_weights(w, w1, months, gy, s.glide, s.glide_points)
+        P = _portfolio_returns(A, W, rb)
+        path_years = list(range(1, s.years + 1))
+        mix = lambda v: ", ".join(f"{x:.0%} {t}" for t, x in zip(tick, v) if x > 1e-9)  # noqa: E731
+        glide = {"to": {t: float(x) for t, x in zip(tick, w1)}, "years": gy, "schedule": sched,
+                 "points": [list(p) for p in s.glide_points] if s.glide_points else None,
+                 "path": [{"year": y, "weights": {t: float(x) for t, x in zip(tick, W[(y - 1) * 12])}} for y in path_years]}
+        last = W[-1]
+        notes.append(f"Glide path ({'custom points' if s.glide_points else sched.replace('_', '-')}): from {mix(w)} to "
+                     f"{mix(w1)} over {gy} years, the target moving once a year and the portfolio rebalanced to it at "
+                     f"each year boundary" + (f" (and {s.rebalance} in between)" if rb and rb < 12 else "") + "; "
+                     + (f"the end mix is held from year {gy} on." if gy < s.years else
+                        f"in the final year the target is {mix(last)}."))
+    else:
+        P = _portfolio_returns(A, w, rb) if n > 1 else A[:, :, 0]
     if s.stress == "shock":
         k = min(12, months)
         shock = float(s.stress_shock)
@@ -525,7 +620,7 @@ def run(s: Settings) -> dict:
                      "weights": {t: float(x) for t, x in zip(tick, w)}, "start_balance": s.start_balance,
                      "years": s.years, "model": s.model, "block_months": s.block_months,
                      "inflation": "historical CPI" if fixed_infl is None else fixed_infl,
-                     "rebalance": s.rebalance, "sims": sims,
+                     "rebalance": s.rebalance, "sims": sims, "glide": glide,
                      "flows": [cf.describe() for cf in s.flows] or ["no cash flows"],
                      "history_start": hist.index[0].date(), "history_end": hist.index[-1].date(),
                      "history_months": len(hist), "t_df": t_df, "success_target": s.success_target,
@@ -687,7 +782,9 @@ def console(R: dict) -> str:
          + (f" (blocks of {st['block_months']} months)" if st["model"] == "historical" else ""),
          (f"Strategy: {st['name']} (its own monthly returns are resampled); start {money(st['start_balance'])}"
           if st.get("mode") == "strategy" else
-          "Portfolio: " + ", ".join(f"{w:.1%} {t}" for t, w in st["weights"].items())
+          "Portfolio: " + ", ".join(f"{w:.1%} {t}" for t, w in st["weights"].items() if w > 1e-12)
+          + (" gliding to " + ", ".join(f"{w:.1%} {t}" for t, w in st["glide"]["to"].items() if w > 1e-12)
+             + f" over {st['glide']['years']} years ({st['glide']['schedule'].replace('_', '-')})" if st.get("glide") else "")
           + f"; rebalanced {st['rebalance']}; start {money(st['start_balance'])}"),
          f"History {st['history_start']} -> {st['history_end']} ({st['history_months']} months); inflation {st['inflation']}",
          "Cash flows: " + "; ".join(st["flows"])]

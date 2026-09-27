@@ -92,6 +92,13 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 .tagchip { font-size:11px; color:var(--text-3); margin-right:6px; }
 .join { font-size:12px; color:var(--text-3); }
 #composerBox textarea { min-height:90px; font:12px ui-monospace,monospace; }
+/* allocation grid (Backtest page) */
+.gtbl th, .gtbl td { padding:3px 4px; }
+.gtbl input.gasset { width:100%; min-width:120px; }
+.gtbl input.gname { width:96px; font-weight:600; }
+.gtbl input.gw { width:72px; text-align:right; }
+.gtbl tr.gtot td, .gtbl tr.gtot th { font-weight:600; border-bottom:0; }
+@media (max-width: 600px) { .gtbl input.gasset { min-width:92px; } .gtbl input.gname { width:64px; } .gtbl input.gw { width:52px; padding:6px 4px; } .gflow input, .gflow select { max-width:100%; } }
 </style>
 </head>
 <body>
@@ -138,6 +145,40 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       <a class="btn small" id="openTab" target="_blank">Open report in new tab</a>
       <span id="dlLinks" class="row"></span></div>
     <iframe id="frame" title="Backtest report"></iframe>
+  </div>
+  <!-- ALLOCATION GRID (Portfolio Visualizer "Backtest Portfolio") -->
+  <div class="card" id="gridCard">
+    <h2>Backtest portfolios: asset allocation grid</h2>
+    <p class="note">One row per ticker or asset class (e.g. <code>VTI</code>, <code>US Stock Market</code>, <code>Total Bond Market</code>, <code>US Small Cap Value</code>) and up to three portfolios side by side. Each portfolio's weights must add up to 100%. The portfolios run together over the same period and settings in one comparison report.</p>
+    <div class="grid" id="gSettings">
+      <label>Start (year or month)<input id="g_start" placeholder="e.g. 1990 or 1990-05"></label>
+      <label>End (year or month)<input id="g_end" placeholder="latest data"></label>
+      <label>Initial amount ($)<input id="g_capital" type="number" value="10000" min="0"></label>
+      <label>Rebalancing<select id="g_rebalance"><option value="none">none (buy and hold)</option><option value="monthly">monthly</option><option value="quarterly">quarterly</option><option value="semiannual">semi-annually</option><option value="yearly" selected>annually</option><option value="bands">rebalancing bands</option></select></label>
+      <label>Band (%)<input id="g_band" type="number" value="5" min="0.1" step="0.5" disabled></label>
+      <label>Band type<select id="g_band_mode" disabled><option value="absolute">absolute (40% → 35-45%)</option><option value="relative">relative (40% → 30-50% at 25%)</option></select></label>
+      <label>Benchmark<input id="g_benchmark" data-tk="asset" placeholder="SPY (default)"></label>
+      <label>Expense ratio (%/yr)<input id="g_expense_ratio" type="number" value="0" min="0" step="0.01"></label>
+      <label>Leverage (x)<input id="g_leverage" type="number" value="1" min="0.1" max="10" step="0.1"></label>
+    </div>
+    <h3>Assets</h3>
+    <div class="xscroll"><table id="gTbl" class="gtbl"></table></div>
+    <div class="row" style="margin-top:6px"><button class="btn small" id="gAddRow" type="button">+ Add asset</button><button class="btn small" id="gExample" type="button">Example: 60/40 and three-fund</button><button class="btn small" id="gClear" type="button">Clear</button></div>
+    <h3>Cash flows</h3>
+    <p class="note">One row per phase, e.g. contribute $500 a month in years 1-20, then withdraw 4% a year from year 21. Years below 1900 count from the start of the backtest (year 1 = the first year); a calendar year (2030) also works. A % withdrawal is a share of the balance per year, split over the periods. Each portfolio takes one contribution phase and one withdrawal phase ($ and/or %, on one schedule).</p>
+    <div id="gFlows"></div>
+    <div class="row" style="margin-top:6px"><button class="btn small" id="gAddFlow" type="button">+ Add cash flow</button></div>
+    <div id="gMsgs" style="margin-top:8px"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" id="gRun">Run portfolios</button>
+      <button class="btn" id="gShare">Copy share link</button>
+      <span id="gStatus" class="note"></span>
+    </div>
+  </div>
+  <div id="gResult" class="hide">
+    <div class="row" style="margin-bottom:8px"><span class="note" id="gResultMeta"></span><span style="flex:1"></span><a class="btn small" id="gOpenTab" target="_blank">Open report in new tab</a></div>
+    <div id="gNotes"></div>
+    <iframe id="gFrame" title="Portfolio comparison report"></iframe>
   </div>
 </section>
 
@@ -363,7 +404,15 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
     <p class="note">Simulate thousands of possible futures for a portfolio: the range of balances over time, the chance the money lasts, and the highest safe withdrawal rate.</p>
     <div class="tabs2" id="mcSrc"><button data-v="weights" class="on">Tickers &amp; weights</button><button data-v="text">Sentence</button><button data-v="run">Saved run</button></div>
     <div id="mcSrcWeights"><label class="f">Tickers and weights<input id="mc_weights" class="w" value="SPY 60, TLT 40"></label>
-      <div class="note" id="mcSims" style="margin-top:4px"></div></div>
+      <div class="note" id="mcSims" style="margin-top:4px"></div>
+      <details id="mcGlide" style="margin-top:8px"><summary>Glide path (shift the mix over time)</summary>
+        <p class="note">The weights above are the start mix; the target moves once a year to the end mix and the portfolio is rebalanced to it every year (e.g. 90/10 → 40/60 over 30 years holds 40/60 in year 30).</p>
+        <div class="grid">
+          <label style="grid-column:1/-1">End mix (tickers and weights; empty = no glide path)<input id="mc_glide_to" class="w" placeholder="e.g. SPY 40, TLT 60"></label>
+          <label>Over (years)<input id="mc_glide_years" type="number" min="1" max="100" placeholder="the horizon"></label>
+          <label>Schedule<select id="mc_glide"><option value="linear">linear</option><option value="target_date">target-date (slow, then faster near the end)</option><option value="custom">custom points</option></select></label>
+          <label>Custom points (year:% of the way)<input id="mc_glide_points" placeholder="0:0, 10:0, 20:50, 30:100" disabled></label>
+        </div></details></div>
     <div id="mcSrcText" class="hide"><textarea id="mc_text" style="min-height:48px">hold 60% SPY and 40% AGG, rebalance annually</textarea>
       <p class="note">A fixed-weight portfolio is simulated from its assets. Anything with rules (switches, rotations, signals) is simulated by resampling the strategy's own monthly returns.</p></div>
     <div id="mcSrcRun" class="hide"><select id="mc_run" style="max-width:100%"></select></div>
@@ -904,9 +953,10 @@ window.addEventListener('blur', unpress);
   const errBoxes = new Map();
   // ---------- ticker autocomplete: every ticker box (list="tickerList" or data-tk) suggests from all tickers with data
   const AC = { box: null, input: null, items: [], sel: -1 };
-  function acAll() {
+  function acAll(i) {
     const s = new Set((STATUS && STATUS.tickers) || []);
     document.querySelectorAll('#tickerList option').forEach(o => s.add(o.value));
+    if (i && i.dataset.tk === 'asset') (window.ASSET_CLASS_NAMES || []).forEach(n => s.add(n));   // the allocation grid
     return [...s];
   }
   function acToken(i) {   // [start of the ticker being typed, its text]; several tickers are separated by commas or spaces
@@ -919,7 +969,7 @@ window.addEventListener('blur', unpress);
   function acShow(i) {
     const q = acToken(i)[1].trim().toUpperCase().replace(/^\$/, '');
     if (!q) return acHide();
-    const all = acAll(), pre = [], mid = [];
+    const all = acAll(i), pre = [], mid = [];
     for (const t of all) { const u = t.toUpperCase(); if (u.startsWith(q)) pre.push(t); else if (q.length > 1 && u.includes(q)) mid.push(t); }
     pre.sort((a, b) => a.length - b.length || a.localeCompare(b)); mid.sort((a, b) => a.length - b.length || a.localeCompare(b));
     const list = pre.concat(mid).slice(0, 12);
@@ -931,7 +981,7 @@ window.addEventListener('blur', unpress);
     const nd = (STATUS && new Set(STATUS.nasdaq100 || [])) || new Set(), ef = (STATUS && new Set(STATUS.etfs || [])) || new Set();
     AC.box.replaceChildren(...list.map((t, k) => {
       const d = el('div', { class: 'acitem', role: 'option', 'data-t': t }, t);
-      const tag = nd.has(t) ? 'Nasdaq-100' : ef.has(t) ? 'ETF' : /SIM$/.test(t) ? 'simulated' : '';
+      const tag = nd.has(t) ? 'Nasdaq-100' : ef.has(t) ? 'ETF' : /SIM$/.test(t) ? 'simulated' : / /.test(t) ? 'asset class' : '';
       if (tag) d.append(el('span', { class: 'm' }, tag));
       d.addEventListener('mousedown', e => { e.preventDefault(); acPick(k); });
       return d;
@@ -1636,6 +1686,7 @@ window.addEventListener('blur', unpress);
     tks.forEach(t => { ['ret', 'vol'].forEach(k => { const id = `mcf_${t}_${k}`; const l = el('label'); const i = el('input', { id, type: 'number', step: '0.1', placeholder: 'historical' }); i.value = keep[id] || ''; l.append(document.createTextNode(`${t} ${k === 'ret' ? 'return' : 'volatility'} (%/yr)`), i); g.append(l); }); });
   }
   $('mc_model').addEventListener('change', () => afterPress(drawForecast)); $('mc_weights').addEventListener('change', () => afterPress(drawForecast));
+  $('mc_glide').addEventListener('change', () => { $('mc_glide_points').disabled = $('mc_glide').value !== 'custom'; });
   $('mcRun').addEventListener('click', async () => {
     spin($('mcStatus'), 'simulating…'); $('mcRun').disabled = true;
     const body = { balance: +$('mc_balance').value, years: +$('mc_years').value, model: $('mc_model').value, block_months: +$('mc_block').value,
@@ -1646,6 +1697,10 @@ window.addEventListener('blur', unpress);
       horizon: $('mc_horizon').value, sex: $('mc_sex').value, age2: $('mc_age2').value === '' ? null : +$('mc_age2').value,
       flows: mcFlowsBody() };
     if (!body.flows.length) body.flows = [{ type: 'none' }];   // no cash flows (not the saved portfolio's)
+    if (mcSrc === 'weights' && $('mc_glide_to').value.trim()) {
+      body.glide_to = $('mc_glide_to').value; body.glide_years = $('mc_glide_years').value === '' ? null : +$('mc_glide_years').value;
+      body.glide = $('mc_glide').value === 'custom' ? 'linear' : $('mc_glide').value; if ($('mc_glide').value === 'custom') body.glide_points = $('mc_glide_points').value;
+    }
     if (mcSrc === 'weights') body.weights = $('mc_weights').value; else if (mcSrc === 'text') { body.text = $('mc_text').value; delete body.rebalance; } else { body.run_id = $('mc_run').value; delete body.rebalance; }
     if (body.model === 'forecast') { body.forecast = {}; mcTickers().forEach(tk => { const r = $(`mcf_${tk}_ret`), v = $(`mcf_${tk}_vol`); if (r && v && r.value !== '' && v.value !== '') body.forecast[tk] = { ret: +r.value / 100, vol: +v.value / 100 }; }); }
     try { MC = await api('/api/montecarlo', body); $('mcStatus').textContent = ''; drawMC(); }
@@ -1683,6 +1738,13 @@ window.addEventListener('blur', unpress);
     const model = { historical: `historical block bootstrap (${st.block_months}-month blocks)`, normal: 'multivariate normal', t: `multivariate Student-t (fitted df ${num(st.t_df, 1)})`, forecast: 'forecast returns with historical correlations' }[st.model];
     n.append(el('p', { class: 'note' }, `${st.sims.toLocaleString()} paths of ${st.years} years from ${usd(st.start_balance)}: ${who}. Model: ${model}, fitted on ${st.history_start} → ${st.history_end} (${st.history_months} complete months). Inflation: ${typeof st.inflation === 'number' ? pct(st.inflation, 1) + '/yr' : st.inflation}. Cash flows: ${st.flows.join('; ')} (the first at the start, as in the backtest).`));
     R.notes.forEach(x => n.append(el('div', { class: 'warn' }, x)));
+    if (st.glide && st.glide.path && st.glide.path.length) {   // the target mix at a few years of the glide path
+      const tk = Object.keys(st.glide.path[0].weights).filter(t => st.glide.path.some(p => p.weights[t] > 1e-9));
+      const last = st.glide.path.length, show = [...new Set([1, 5, 10, 15, 20, 25, 30, 40, 50, st.glide.years, last].filter(y => y >= 1 && y <= last))].sort((a, b) => a - b);
+      const tb = el('table', { id: 'mcGlideTbl' }), hr = el('tr'); ['Year'].concat(tk).forEach(h => hr.append(el('th', {}, h))); tb.append(hr);
+      show.forEach(y => { const p = st.glide.path[y - 1], tr = el('tr'); tr.append(el('td', {}, String(y))); tk.forEach(t => tr.append(el('td', { class: 'n' }, pct(p.weights[t] || 0, 1)))); tb.append(tr); });
+      const box = el('div', { class: 'xscroll', style: 'margin-top:8px' }); box.append(el('div', { class: 'note' }, `Glide path target by year (${st.glide.schedule.replace('_', '-')}, over ${st.glide.years} years):`), tb); n.append(box);
+    }
     if (R.settings.history_months < 240) n.append(el('div', { class: 'warn' }, `Only ${Math.round(R.settings.history_months / 12)} years of history feed the simulation. Long-history series (SPYSIM, TLTSIM, IEFSIM, SHYSIM, BILSIM) give a wider range of markets when they are available.`));
     drawFan();
     const sser = [{ name: 'Money left', color: css('--s1'), values: R.success_by_year }];
@@ -1856,6 +1918,150 @@ window.addEventListener('blur', unpress);
   const onRoute = () => { const p = location.hash.replace('#', '').split('?')[0]; if ((p === 'montecarlo' || p === 'factors') && !drawn) { drawn = true; drawForecast(); } };
   window.addEventListener('hashchange', onRoute); onRoute();
   let rs; window.addEventListener('resize', () => { clearTimeout(rs); rs = setTimeout(() => { if (MC && !$('p-montecarlo').classList.contains('hide')) drawMC(); }, 200); });
+})();
+</script>
+<script>
+// ---------- Backtest page: asset allocation grid (Portfolio Visualizer "Backtest Portfolio"). Rows of tickers or
+// asset-class names x up to 3 portfolios of weights; POST /api/grid runs one Portfolio spec per column together in a
+// Compare report. Share links: #backtest?g=<token>.
+(function () {
+  const NCOL = 3;
+  const G = { rows: [], names: ['', '', ''], flows: [] };
+  let TK = null, AC = [], lastShare = null;
+  const acLower = () => new Set(AC.map(a => a.toLowerCase()));
+  async function lists() {
+    if (TK) return;
+    try { const j = await api('/api/tickers'); TK = new Set(j.tickers || []); AC = j.asset_classes || []; window.ASSET_CLASS_NAMES = AC; }
+    catch (e) { TK = new Set(); }
+  }
+  const blankRow = () => ({ asset: '', w: Array(NCOL).fill('') });
+  function drawTable() {
+    const t = $('gTbl'); t.replaceChildren();
+    const hr = el('tr'); hr.append(el('th', {}, 'Asset'));
+    for (let c = 0; c < NCOL; c++) {
+      const th = el('th'); const i = el('input', { class: 'gname', 'aria-label': `Portfolio ${c + 1} name`, placeholder: `Portfolio ${c + 1}` });
+      i.value = G.names[c] || ''; i.addEventListener('input', () => { G.names[c] = i.value; lastShare = null; }); th.append(i); hr.append(th);
+    }
+    hr.append(el('th')); t.append(hr);
+    G.rows.forEach((r, k) => {
+      const tr = el('tr', { class: 'grow' });
+      const td = el('td'); const a = el('input', { class: 'gasset', 'data-tk': 'asset', 'aria-label': `Asset ${k + 1}`, placeholder: 'ticker or asset class' });
+      a.value = r.asset; a.addEventListener('input', () => { r.asset = a.value; changed(); }); a.addEventListener('change', () => { r.asset = a.value; changed(); });
+      td.append(a); tr.append(td);
+      for (let c = 0; c < NCOL; c++) {
+        const tdw = el('td'); const w = el('input', { class: 'gw', type: 'number', min: '0', max: '100', step: 'any', 'aria-label': `Asset ${k + 1} weight in portfolio ${c + 1} (%)`, placeholder: '%' });
+        w.value = r.w[c] ?? ''; w.addEventListener('input', () => { r.w[c] = w.value; changed(); }); tdw.append(w); tr.append(tdw);
+      }
+      const x = el('button', { class: 'btn small', type: 'button', title: 'remove this row', 'aria-label': `Remove asset ${k + 1}` }, '×');
+      x.addEventListener('click', () => { G.rows.splice(k, 1); if (!G.rows.length) G.rows.push(blankRow()); drawTable(); changed(); });
+      const tdx = el('td'); tdx.append(x); tr.append(tdx); t.append(tr);
+    });
+    const fr = el('tr', { class: 'gtot' }); fr.append(el('th', {}, 'Total'));
+    for (let c = 0; c < NCOL; c++) fr.append(el('td', { id: 'gTot' + c, style: 'padding-left:10px' }));
+    fr.append(el('td')); t.append(fr);
+    totals();
+  }
+  const colUsed = c => G.rows.some(r => r.asset.trim() && r.w[c] !== '' && r.w[c] != null);
+  const colTotal = c => G.rows.reduce((s, r) => s + (r.asset.trim() && r.w[c] !== '' && isFinite(+r.w[c]) ? +r.w[c] : 0), 0);
+  function totals() {
+    for (let c = 0; c < NCOL; c++) {
+      const e = $('gTot' + c); if (!e) continue;
+      const used = colUsed(c), tot = Math.round(colTotal(c) * 1000) / 1000;
+      e.textContent = used ? tot + '%' : '—'; e.classList.toggle('neg', used && Math.abs(tot - 100) > 0.01); e.classList.toggle('pos', used && Math.abs(tot - 100) <= 0.01);
+    }
+  }
+  function problems() {
+    const out = [], acs = acLower(), seen = new Map();
+    G.rows.forEach(r => {
+      const a = r.asset.trim(); if (!a) { if (r.w.some(x => x !== '' && x != null)) out.push('A row has weights but no ticker or asset class.'); return; }
+      const up = a.toUpperCase().replace(/^\$/, '');
+      const isAC = acs.has(a.toLowerCase().replace(/\s+/g, ' '));
+      if (!isAC && TK && TK.size && !/\s/.test(a) && !TK.has(up)) out.push(`Unknown ticker: ${up}. Pick one from the list, or an asset class such as US Stock Market.`);
+      const key = isAC ? a.toLowerCase() : up; if (seen.has(key)) out.push(`${a} appears twice: use one row per asset.`); seen.set(key, 1);
+      r.w.forEach((x, c) => { if (x !== '' && x != null && +x < 0) out.push(`Portfolio ${c + 1}: the weight of ${a} is negative.`); });
+    });
+    let any = false;
+    for (let c = 0; c < NCOL; c++) { if (!colUsed(c)) continue; any = true; const t = Math.round(colTotal(c) * 1000) / 1000; if (Math.abs(t - 100) > 0.01) out.push(`${G.names[c] || 'Portfolio ' + (c + 1)}: the weights add up to ${t}%, not 100%.`); }
+    if (!any) out.push('Enter weights (%) for at least one portfolio.');
+    return [...new Set(out)];
+  }
+  function showMsgs(list, isErr) { $('gMsgs').replaceChildren(...list.map(m => el('div', { class: isErr ? 'warn gmsg' : 'note gmsg', role: isErr ? 'alert' : null }, (isErr ? '⚠ ' : '') + m))); }
+  let msgTimer = null;
+  function changed() { lastShare = null; totals(); clearTimeout(msgTimer); msgTimer = setTimeout(() => afterPress(() => { const p = problems().filter(m => !/at least one portfolio/.test(m) || G.rows.some(r => r.asset.trim())); showMsgs(p, true); }, 'gridmsgs'), 300); }
+  // ---- cash flows
+  function drawFlows() {
+    const box = $('gFlows'); box.replaceChildren();
+    G.flows.forEach((f, k) => {
+      const row = el('div', { class: 'row gflow', style: 'margin:4px 0' });
+      const sel = (opts, key) => { const s = el('select', { 'aria-label': key }); opts.forEach(([v, l]) => { const o = el('option', { value: v }, l); if (String(f[key]) === v) o.selected = true; s.append(o); }); s.addEventListener('change', () => { f[key] = s.value; lastShare = null; if (key === 'mode') drawFlows(); }); return s; };
+      const num = (key, ph, w) => { const i = el('input', { type: 'number', min: '0', step: 'any', placeholder: ph, 'aria-label': key, style: `width:${w}px` }); i.value = f[key] ?? ''; i.addEventListener('input', () => { f[key] = i.value; lastShare = null; }); return i; };
+      const cb = el('input', { type: 'checkbox', 'aria-label': 'inflation-adjusted' }); cb.checked = !!f.inflation; cb.disabled = f.mode === 'pct'; cb.addEventListener('change', () => { f.inflation = cb.checked; lastShare = null; });
+      const infl = el('label', { class: 'note', style: 'display:inline-flex;gap:4px;align-items:center' }); infl.append(cb, document.createTextNode('inflation-adjusted'));
+      const x = el('button', { class: 'btn small', type: 'button', title: 'remove this cash flow', 'aria-label': `Remove cash flow ${k + 1}` }, '×');
+      x.addEventListener('click', () => { G.flows.splice(k, 1); drawFlows(); lastShare = null; });
+      row.append(sel([['contribute', 'Contribute'], ['withdraw', 'Withdraw']], 'kind'), sel([['amount', '$ amount'], ['pct', '% of balance / yr']], 'mode'),
+        num('amount', f.mode === 'pct' ? '%' : '$', 90), sel([['monthly', 'monthly'], ['quarterly', 'quarterly'], ['semiannual', 'semi-annually'], ['yearly', 'annually']], 'freq'), infl,
+        el('span', { class: 'note' }, 'years'), num('start_year', 'from', 70), el('span', { class: 'note' }, '–'), num('end_year', 'to', 70), x);
+      box.append(row);
+    });
+  }
+  // ---- settings, body, run, share
+  const SET = ['start', 'end', 'capital', 'rebalance', 'band', 'band_mode', 'benchmark', 'expense_ratio', 'leverage'];
+  const bandUi = () => { const b = $('g_rebalance').value === 'bands'; $('g_band').disabled = !b; $('g_band_mode').disabled = !b; };
+  $('g_rebalance').addEventListener('change', bandUi);
+  SET.forEach(k => $('g_' + k).addEventListener('input', () => { lastShare = null; }));
+  function body(action) {
+    const b = { action, rows: G.rows.filter(r => r.asset.trim() || r.w.some(x => x !== '')).map(r => ({ asset: r.asset.trim(), w: r.w.map(x => x === '' || x == null ? null : +x) })),
+      names: G.names.slice(), flows: G.flows.filter(f => f.amount !== '' && f.amount != null).map(f => ({ ...f })) };
+    SET.forEach(k => { const v = $('g_' + k).value; if (v !== '') b[k] = v; });
+    return b;
+  }
+  function fill(g) {
+    G.rows = (g.rows || []).map(r => ({ asset: r.asset || '', w: Array.from({ length: NCOL }, (_, c) => r.w && r.w[c] != null ? String(r.w[c]) : '') }));
+    while (G.rows.length < 3) G.rows.push(blankRow());
+    G.names = Array.from({ length: NCOL }, (_, c) => (g.names || [])[c] || '');
+    G.flows = (g.flows || []).map(f => ({ kind: f.kind || 'contribute', mode: f.mode || 'amount', amount: f.amount ?? '', freq: f.freq || 'monthly', inflation: !!f.inflation, start_year: f.start_year ?? '', end_year: f.end_year ?? '' }));
+    SET.forEach(k => { const e = $('g_' + k); if (g[k] != null) e.value = g[k]; else if (e.tagName !== 'SELECT') e.value = e.defaultValue; else e.value = ([...e.options].find(o => o.defaultSelected) || e.options[0]).value; });
+    bandUi(); drawTable(); drawFlows(); showMsgs([], false);
+  }
+  const shareUrl = tok => `${location.origin}${location.pathname}#backtest?g=${tok}`;
+  async function run() {
+    await lists();
+    const p = problems(); if (p.length) { showMsgs(p, true); return; }
+    $('gRun').disabled = true; $('gStatus').replaceChildren(el('span', { class: 'spin' }), document.createTextNode(' running…'));
+    try {
+      const j = await api('/api/grid', body('run'));
+      $('gStatus').textContent = ''; showMsgs([], false);
+      $('gResult').classList.remove('hide'); $('gFrame').src = j.url; $('gOpenTab').href = j.url;
+      $('gResultMeta').textContent = j.portfolios.map(x => x.name).join(' vs ');
+      $('gNotes').replaceChildren(...(j.notes || []).slice(0, 12).map(n => el('div', { class: 'note' }, 'Note: ' + n)));
+      lastShare = j.share; history.replaceState(null, '', `#backtest?g=${j.share}`);
+    } catch (e) { $('gStatus').textContent = ''; showMsgs(e.message.split(/(?<=\.) (?=Portfolio \d|Unknown|Cash flow|One |A \$)/), true); }
+    $('gRun').disabled = false;
+  }
+  async function share() {
+    try {
+      if (!lastShare) { const j = await api('/api/grid', body('share')); if (j.problems.length) { showMsgs(j.problems, true); return; } lastShare = j.share; }
+      const u = shareUrl(lastShare);
+      try { navigator.clipboard && navigator.clipboard.writeText(u).catch(() => {}); } catch (e) { /* no clipboard */ }
+      $('gStatus').replaceChildren(document.createTextNode('Link copied: '), el('a', { href: u, id: 'gShareLink' }, u.length > 90 ? u.slice(0, 90) + '…' : u));
+    } catch (e) { showMsgs([e.message], true); }
+  }
+  async function openShared(tok) {
+    if (tok === lastShare) return;
+    try { const j = await api('/api/grid', { action: 'load', share: tok }); await lists(); fill(j.grid); lastShare = tok; $('gridCard').scrollIntoView(); await run(); }
+    catch (e) { showMsgs([e.message], true); }
+  }
+  function fromHash() { const [p, qs] = location.hash.replace('#', '').split('?'); if ((p || 'backtest') === 'backtest' && qs) { const g = new URLSearchParams(qs).get('g'); if (g) openShared(g); } }
+  $('gRun').addEventListener('click', run);
+  $('gShare').addEventListener('click', share);
+  $('gAddRow').addEventListener('click', () => { G.rows.push(blankRow()); drawTable(); });
+  $('gAddFlow').addEventListener('click', () => { G.flows.push({ kind: G.flows.some(f => f.kind === 'contribute') ? 'withdraw' : 'contribute', mode: 'amount', amount: '', freq: G.flows.some(f => f.kind === 'contribute') ? 'yearly' : 'monthly', inflation: true, start_year: '', end_year: '' }); drawFlows(); });
+  $('gClear').addEventListener('click', () => fill({}));
+  $('gExample').addEventListener('click', () => fill({ rows: [{ asset: 'SPY', w: [60, null, null] }, { asset: 'AGG', w: [40, null, null] }, { asset: 'US Stock Market', w: [null, 40] },
+    { asset: 'International Stocks', w: [null, 20] }, { asset: 'Total Bond Market', w: [null, 40] }], names: ['60/40', 'Three-fund', ''], start: '2008', capital: 10000, rebalance: 'yearly' }));
+  window.addEventListener('hashchange', fromHash);
+  fill({}); lists().then(() => { changed(); fromHash(); });
 })();
 </script>
 </body>

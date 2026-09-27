@@ -78,7 +78,9 @@ def funds() -> list[str]:
 
 # Long-history simulated series built by scripts/fetch_data.py (build_sims): a total-return index
 # (close = adj_close, no dividends, volume 0, open = high = low = close) that uses a model before
-# the fund existed and the real fund's total return after.
+# the fund existed and the real fund's total return after. Every model period is net of an estimated fee/cost
+# drag (the fund's expense ratio, or the model's excess return over the fund on their overlap, capped at 3%/yr;
+# data/sims_drag.json): sim_about() appends each series' figure to these descriptions.
 SIMS = {"SPYSIM": "US stock market (Fama-French market return) from 1926, spliced into SPY",
         "TLTSIM": "20-year Treasuries priced from FRED yields from 1962, spliced into TLT",
         "IEFSIM": "~9-year Treasuries from the 10-year yield from 1962, spliced into IEF",
@@ -140,6 +142,65 @@ SIMS = {"SPYSIM": "US stock market (Fama-French market return) from 1926, splice
         "EWLSIM": "Swiss stocks: Fama-French Switzerland index (monthly steps) from 1975, spliced into EWL",
         "EWHSIM": "Hong Kong stocks: Fama-French Hong Kong index (monthly steps) from 1975, spliced into EWH",
         }
+
+
+def sim_drags() -> dict:
+    """{SIM: {drag, expense_ratio, fund, gap, overlap, months, basis, model_until}} from data/sims_drag.json,
+    written by scripts/fetch_data.py: the annual fee/cost drag taken off each model segment before the real fund
+    takes over (empty until the data job has built the series with it)."""
+    return _sim_drags(str(DATA / "sims_drag.json"))
+
+
+@lru_cache(maxsize=4)
+def _sim_drags(path: str) -> dict:
+    try:
+        return dict(json.loads(Path(path).read_text()).get("series") or {})
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def sim_drag_text(ticker: str) -> str:
+    """'model period net of an estimated 1.64%/yr fee/cost drag (...)', or '' (no model, or not built with one)."""
+    d = sim_drags().get(canonical(ticker))
+    if not d or d.get("drag") is None:
+        return ""
+    why = (f"{d['fund']} expense ratio {d['expense_ratio']:.2%}" if d.get("gap") is None or d["gap"] <= d["expense_ratio"]
+           else f"the model beat {d['fund']} by {d['gap']:.2%}/yr on {d['overlap']}"
+           + (f", capped at {sim_drags_cap():.0%}" if d["gap"] > d["drag"] + 1e-12 else ""))
+    return f"model period net of an estimated {d['drag']:.2%}/yr fee/cost drag ({why})"
+
+
+def sim_drags_cap() -> float:
+    try:
+        return float(json.loads((DATA / "sims_drag.json").read_text()).get("cap", 0.03))
+    except (OSError, ValueError, AttributeError, TypeError):
+        return 0.03
+
+
+def sim_about(ticker: str) -> str:
+    """The SIM's description, with its fee/cost drag when the data has one."""
+    t = canonical(ticker)
+    base = SIMS.get(t, "simulated long history")
+    d = sim_drag_text(t)
+    return f"{base}; {d}" if d else base
+
+
+def sim_drag_note(tickers, start=None, end=None) -> str | None:
+    """A backtest note for SIMs whose model period (before model_until) falls inside [start, end]."""
+    s = pd.Timestamp(start) if start is not None else pd.Timestamp.min
+    parts = []
+    for t in dict.fromkeys(canonical(x) for x in tickers):
+        d = sim_drags().get(t)
+        if not d or not d.get("drag") or not d.get("model_until"):
+            continue
+        until = pd.Timestamp(d["model_until"])
+        if until > s and (end is None or pd.Timestamp(end) >= s):
+            parts.append(f"{t} {d['drag']:.2%}/yr until {until.date()}")
+    if not parts:
+        return None
+    return ("Simulated series: the model periods are net of an estimated fee/cost drag (at least the fund's expense "
+            "ratio; the model's excess return over the fund on their overlap, capped at "
+            f"{sim_drags_cap():.0%}/yr): " + "; ".join(parts) + ". From those dates on each series is the real fund.")
 
 
 def is_sim(ticker: str) -> bool:
