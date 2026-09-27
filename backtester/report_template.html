@@ -61,7 +61,16 @@ h3 { font-size: 13px; margin: 14px 0 8px; font-weight: 600; color: var(--text-2)
 .pxwrap canvas.top { cursor: crosshair; touch-action: pan-y; }
 .pxwrap canvas.top.drag { cursor: grabbing; }
 .pxwrap canvas.top:focus { outline: none; }
-.pxwrap canvas.top[data-tool="hline"], .pxwrap canvas.top[data-tool="trend"] { cursor: cell; }
+.pxwrap canvas.top[data-tool="hline"], .pxwrap canvas.top[data-tool="trend"], .pxwrap canvas.top[data-tool="ray"],
+.pxwrap canvas.top[data-tool="rect"], .pxwrap canvas.top[data-tool="fib"] { cursor: cell; }
+.pxind { position: relative; }
+.pxmenu { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; width: min(280px, calc(100vw - 48px)); box-sizing: border-box;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); font-size: 12px; }
+.pxmenu label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pxmenu input { width: 72px; } .pxmenu select { max-width: 160px; }
+.pxmenu .row2 { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.pxmenu .indrow { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 .pxbar { margin: 0 0 8px; }
 .pxbar .btn, .pxbar select { font-size: 12px; padding: 4px 9px; }
 .btn.on, .seg button.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
@@ -222,11 +231,19 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     <div class="row"><h2>Price and trades <span class="pill runName"></span></h2>
       <div class="ctrls"><select id="pxTicker"></select>
         <div class="seg" id="pxRange"><button data-v="126">6M</button><button data-v="252" class="on">1Y</button><button data-v="1260">5Y</button><button data-v="0">All</button></div>
+        <div class="seg" id="pxView" title="Bar period: daily, or weekly / monthly candles resampled from the daily bars (each dated by its last session)"><button data-v="D" class="on">D</button><button data-v="W">W</button><button data-v="M">M</button></div>
         <div class="seg" id="pxStyle" title="Chart type"><button data-v="candles" class="on">Candles</button><button data-v="line">Line</button></div>
         <div class="seg" id="pxScale" title="Price scale"><button data-v="lin" class="on">Linear</button><button data-v="log">Log</button></div>
         <button class="btn" id="pxPrev" title="Earlier">◀</button><button class="btn" id="pxNext" title="Later">▶</button></div></div>
     <div class="ctrls noprint pxbar">
-      <div class="seg" id="pxTools" title="Drawing tools (drawings are kept in this browser)"><button data-v="hline" title="Horizontal line: click a price">― H-line</button><button data-v="trend" title="Trend line: drag, or click two points">╱ Trend</button><button id="pxDel" title="Delete the selected drawing (Delete key), or pick drawings to delete">✕ Delete</button><button id="pxClear" title="Remove every drawing on this ticker">Clear</button></div>
+      <div class="pxind"><button class="btn" id="pxIndBtn" aria-expanded="false" aria-controls="pxIndMenu" title="Add an indicator to the chart (for reading only: the rules are not changed)">＋ Indicator</button>
+        <div class="pxmenu hide" id="pxIndMenu" role="dialog" aria-label="Add an indicator">
+          <label>Indicator <select id="pxIndType"><option value="sma">SMA</option><option value="ema">EMA</option><option value="bb">Bollinger Bands</option><option value="rsi">RSI</option><option value="macd">MACD</option></select></label>
+          <div id="pxIndParams" class="row2"></div>
+          <div class="row2"><button class="btn" id="pxIndAdd">Add</button><button class="btn" id="pxIndClose">Close</button></div>
+          <div id="pxIndList"></div>
+        </div></div>
+      <div class="seg" id="pxTools" title="Drawing tools (drawings are kept in this browser)"><button data-v="hline" title="Horizontal line: click a price">― H-line</button><button data-v="trend" title="Trend line: drag, or click two points">╱ Trend</button><button data-v="ray" title="Ray: a line from the first point through the second, extended to the edge">→ Ray</button><button data-v="rect" title="Rectangle: drag between two corners">▭ Rect</button><button data-v="fib" title="Fibonacci retracement: drag from the swing's start to its end (0 at the end, 1 at the start)">Fib</button><button id="pxDel" title="Delete the selected drawing (Delete key), or pick drawings to delete">✕ Delete</button><button id="pxClear" title="Remove every drawing on this ticker">Clear</button></div>
       <button class="btn" id="pxReplay" title="Bar replay: step through time, revealing bars and trades one at a time">⏵ Replay</button>
     </div>
     <div class="ctrls noprint pxbar hide" id="pxReplayBar">
@@ -236,7 +253,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     </div>
     <div class="legend" id="pxLegend"></div>
     <div class="pxwrap" id="pxChart"></div>
-    <p class="note">Scroll to zoom, drag to pan, double-click to reset. The legend shows the values on the bar under the crosshair. ▲ entries and ▼ exits (short trades are drawn the other way round), with faint vertical lines through every pane. Dashed lines over each trade are its stop (red), trailing stop (orange, stepping up with the best price) and target (green). Every series the rules use is charted: price-scale indicators over the candles, the others in their own panes (click a pane's title to fold it, drag its bottom edge to resize it), other tickers the rule filters on in theirs. Weekly and monthly indicators (⌐) are drawn as steps: each holds the last completed period's value, as the rules read it. The strip at the bottom shows on which bars the entry and exit rules were true. Drawing tools add horizontal and trend lines; Replay reveals the bars and trades one at a time (click the chart to jump, ← → to step). Click a row in the trade list to jump to it (it stays highlighted).</p>
+    <p class="note">Scroll to zoom, drag to pan, double-click to reset. The legend shows the values on the bar under the crosshair. ▲ entries and ▼ exits (short trades are drawn the other way round), with faint vertical lines through every pane. Dashed lines over each trade are its stop (red), trailing stop (orange, stepping up with the best price) and target (green). Every series the rules use is charted: price-scale indicators over the candles, the others in their own panes (click a pane's title to fold it, drag its bottom edge to resize it), other tickers the rule filters on in theirs. Weekly and monthly indicators (⌐) are drawn as steps: each holds the last completed period's value, as the rules read it. The strip at the bottom shows on which bars the entry and exit rules were true. Drawing tools add horizontal lines, trend lines, rays, rectangles and Fibonacci retracements (0 at the second point, 1 at the first; kept in this browser per ticker); ＋ Indicator overlays an SMA, EMA or Bollinger Bands, or adds an RSI or MACD pane, computed in the browser from the chart's closes (for reading only: the rules and trades are not changed); D / W / M shows daily, weekly or monthly candles resampled from the daily bars. Replay reveals the bars and trades one at a time (click the chart to jump, ← → to step). Click a row in the trade list to jump to it (it stays highlighted).</p>
   </div>
 
   <div class="card" id="allocCard">
@@ -748,7 +765,10 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   // and trades one at a time.
   let pxRange = 252;
   const PX = { a: 0, b: 0, key: null, P: null, trades: [], byBar: new Map(), geo: null, hover: null, drag: null, raf: 0, series: [], log: false, focus: null,
-    style: 'candles', paneSt: {}, priceH: null, tool: 'cursor', sel: null, pending: null, resize: null, replay: null, timer: 0, speed: 5, draws: {} };
+    style: 'candles', paneSt: {}, priceH: null, tool: 'cursor', sel: null, pending: null, resize: null, replay: null, timer: 0, speed: 5, draws: {},
+    view: 'D', indMem: {}, keepWin: null };
+  const TWO = { trend: 'tr', ray: 'ray', rect: 'rect', fib: 'fib' }, TWO_T = new Set(Object.values(TWO));   // two-point drawings
+  const FIBS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
   const PX_MIN_BARS = 10, PANE_H = 118, PANE_GAP = 12, PRICE_H = 340, AXIS_H = 24, RS_H = 30, FOLD_H = 20, PANE_MIN = 40, EDGE = 5;
   const FONT = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
   const fmtV = v => !isNum(v) ? '—' : Math.abs(v) >= 1e5 ? compact(v) : num(v, Math.abs(v) < 10 ? 3 : 2);
@@ -773,15 +793,15 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       try { v = JSON.parse(localStorage.getItem(drawKey()) || 'null'); } catch (e) { v = null; }
       if (!Array.isArray(v)) { try { v = JSON.parse(localStorage.getItem(oldDrawKey()) || '[]'); legacy = true; } catch (e) { v = []; } }
       if (!Array.isArray(v)) v = [];
-      const idx = new Map(P.dates.map((d, i) => [d, i])), shown = [], hidden = [];
+      const idx = PX.idx || new Map(P.dates.map((d, i) => [d, i])), shown = [], hidden = [];
       const at = d => (idx.has(d) ? idx.get(d) : null);
       v.forEach(d => {
         if (!d || typeof d !== 'object') return;
         if (d.t === 'h' && isFinite(+d.v)) { shown.push({ t: 'h', v: +d.v }); return; }
-        if (d.t !== 'tr') return;
+        if (!TWO_T.has(d.t)) return;
         const i1 = legacy ? d.i1 : at(d.d1), i2 = legacy ? d.i2 : at(d.d2);
         if (i1 == null || i2 == null || !isFinite(i1) || !isFinite(i2) || i1 >= P.dates.length || i2 >= P.dates.length) hidden.push(d);
-        else shown.push({ t: 'tr', i1: +i1, v1: +d.v1, i2: +i2, v2: +d.v2 });
+        else shown.push({ t: d.t, i1: +i1, v1: +d.v1, i2: +i2, v2: +d.v2 });
       });
       PX.draws[PX.key] = shown; (PX.drawsOff = PX.drawsOff || {})[PX.key] = hidden.filter(d => d.d1 && d.d2);
     }
@@ -789,7 +809,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   }
   function saveDrawings() {
     const D = (PX.P || { dates: [] }).dates, day = i => D[Math.max(0, Math.min(D.length - 1, Math.round(i)))];
-    const out = drawings().map(d => (d.t === 'h' ? { t: 'h', v: d.v } : { t: 'tr', d1: day(d.i1), v1: d.v1, d2: day(d.i2), v2: d.v2 }));
+    const out = drawings().map(d => (d.t === 'h' ? { t: 'h', v: d.v } : { t: d.t, d1: day(d.i1), v1: d.v1, d2: day(d.i2), v2: d.v2 }));
     try { localStorage.setItem(drawKey(), JSON.stringify(out.concat((PX.drawsOff || {})[PX.key] || []))); } catch (e) { /* no storage */ }
     const t = pxTickerNow();
     Object.keys(PX.draws).forEach(k => { if (k !== PX.key && k.split('|').slice(1).join('|') === t) delete PX.draws[k]; });   // other runs re-read
@@ -810,13 +830,30 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     for (let j = ds.length - 1; j >= 0; j--) {
       const d = ds[j];
       if (d.t === 'h' && Math.abs(Y(d.v) - p.y) <= 5) return { type: 'drawing', j };
-      if (d.t === 'tr') {
-        const x1 = g.X(d.i1), y1 = Y(d.v1), x2 = g.X(d.i2), y2 = Y(d.v2), dx = x2 - x1, dy = y2 - y1, L = dx * dx + dy * dy || 1;
-        const u = Math.max(0, Math.min(1, ((p.x - x1) * dx + (p.y - y1) * dy) / L));
-        if (Math.hypot(p.x - x1 - u * dx, p.y - y1 - u * dy) <= 5) return { type: 'drawing', j };
+      if (d.t === 'h') continue;
+      const x1 = g.X(d.i1), y1 = Y(d.v1), x2 = g.X(d.i2), y2 = Y(d.v2);
+      if (d.t === 'tr' && segDist(p, x1, y1, x2, y2) <= 5) return { type: 'drawing', j };
+      if (d.t === 'ray') { const e = rayEnd(g, x1, y1, x2, y2); if (segDist(p, x1, y1, e[0], e[1]) <= 5) return { type: 'drawing', j }; }
+      if (d.t === 'rect') {
+        const xa = Math.min(x1, x2), xb = Math.max(x1, x2), ya = Math.min(y1, y2), yb = Math.max(y1, y2);
+        if (((Math.abs(p.x - xa) <= 5 || Math.abs(p.x - xb) <= 5) && p.y >= ya - 5 && p.y <= yb + 5)
+          || ((Math.abs(p.y - ya) <= 5 || Math.abs(p.y - yb) <= 5) && p.x >= xa - 5 && p.x <= xb + 5)) return { type: 'drawing', j };
       }
+      if (d.t === 'fib' && p.x >= Math.min(x1, x2) - 5 && p.x <= Math.max(x1, x2) + 5
+        && FIBS.some(f => Math.abs(Y(d.v2 + (d.v1 - d.v2) * f) - p.y) <= 5)) return { type: 'drawing', j };
     }
     return null;
+  }
+  function segDist(p, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1, L = dx * dx + dy * dy || 1, u = Math.max(0, Math.min(1, ((p.x - x1) * dx + (p.y - y1) * dy) / L));
+    return Math.hypot(p.x - x1 - u * dx, p.y - y1 - u * dy);
+  }
+  // a ray runs from its first point through the second to the edge of the price pane
+  function rayEnd(g, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    if (Math.abs(dx) < 1e-9) { const rp = g.regions[0]; return [x1, dy >= 0 ? rp.y + rp.h : rp.y]; }
+    const xe = dx > 0 ? g.l + g.iw : g.l;
+    return [xe, y1 + (xe - x1) * dy / dx];
   }
   function setTool(t) {
     PX.tool = t; PX.pending = null;
@@ -844,10 +881,10 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       if (hit && hit.type === 'resize') { PX.resize = { k: hit.k, y: p.y, h: hit.h }; pxTop.setPointerCapture(ev.pointerId); return; }
       if (hit && hit.type === 'plate') { const pn = PX.P.panes[hit.k - 1]; if (pn) { const st = paneSt(pn.name); st.fold = !st.fold; pxSchedule(null); } return; }
       if (PX.tool === 'hline' && inPrice) { drawings().push({ t: 'h', v: g.scales[0].inv(p.y) }); PX.sel = drawings().length - 1; saveDrawings(); setTool('cursor'); pxSchedule(p); return; }
-      if (PX.tool === 'trend' && inPrice) {
+      if (TWO[PX.tool] && inPrice) {
         const i = barAt(p.x), v = g.scales[0].inv(p.y);
         if (PX.pending) { finishTrend(i, v); return; }
-        PX.pending = { t: 'tr', i1: i, v1: v, i2: i, v2: v, down: true, x: p.x, y: p.y }; pxTop.setPointerCapture(ev.pointerId); pxSchedule(p, true); return;
+        PX.pending = { t: TWO[PX.tool], i1: i, v1: v, i2: i, v2: v, down: true, x: p.x, y: p.y }; pxTop.setPointerCapture(ev.pointerId); pxSchedule(p, true); return;
       }
       if (PX.tool === 'erase') { if (hit && hit.type === 'drawing') { drawings().splice(hit.j, 1); PX.sel = null; saveDrawings(); pxSchedule(p, true); } return; }
       if (hit && hit.type === 'drawing') { PX.sel = hit.j; pxSchedule(p, true); return; }
@@ -857,7 +894,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     });
     function finishTrend(i, v) {
       const d = PX.pending; PX.pending = null;
-      drawings().push({ t: 'tr', i1: d.i1, v1: d.v1, i2: i, v2: v }); PX.sel = drawings().length - 1; saveDrawings(); setTool('cursor'); pxSchedule(null, true);
+      drawings().push({ t: d.t, i1: d.i1, v1: d.v1, i2: i, v2: v }); PX.sel = drawings().length - 1; saveDrawings(); setTool('cursor'); pxSchedule(null, true);
     }
     pxTop.addEventListener('pointermove', ev => {
       const p = pxLocal(ev);
@@ -910,7 +947,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     if (PX.replay != null && a > PX.replay - 2) { a = Math.max(0, PX.replay - 2); b = Math.min(n, a + w); }   // keep revealed bars in view
     PX.a = a; PX.b = b;
   }
-  function pxRangeWindow() { const n = PX.P.dates.length, w = pxRange ? Math.min(pxRange, n) : n; const b = pxRange ? Math.min(n, Math.max(w, PX.b || n)) : n; pxSetWindow(b - w, b); }
+  function pxRangeWindow() { const n = PX.P.dates.length, per = PX.view === 'W' ? 5 : PX.view === 'M' ? 21 : 1, w = pxRange ? Math.min(Math.ceil(pxRange / per), n) : n; const b = pxRange ? Math.min(n, Math.max(w, PX.b || n)) : n; pxSetWindow(b - w, b); }
   function pxCustom() { [...$('pxRange').children].forEach(x => x.classList.remove('on')); }
   function pxReset() { pxRange = 252; [...$('pxRange').children].forEach(x => x.classList.toggle('on', x.dataset.v === '252')); PX.b = PX.replay != null ? Math.min(PX.P.dates.length, PX.replay + 30) : PX.P.dates.length; pxRangeWindow(); }
   function pxSchedule(p, overlayOnly) {
@@ -945,6 +982,129 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     });
     return chartLoads[f];
   }
+  // ---- bar period (daily / weekly / monthly candles resampled from the daily bars) and indicators added from the
+  // menu (computed here from the chart's closes, for reading only: the rules never see them)
+  function pxResample(P, view) {
+    if (view !== 'W' && view !== 'M') return P;
+    P._rs = P._rs || {};
+    if (P._rs[view]) return P._rs[view];
+    const gkey = d => { if (view === 'M') return d.slice(0, 7); const t = Date.parse(d), dow = new Date(t).getUTCDay(); return new Date(t - ((dow + 6) % 7) * 864e5).toISOString().slice(0, 10); };
+    const ovk = Object.keys(P.overlays || {}), pn = (P.panes || []).map(q => ({ ...q, series: Object.fromEntries(Object.keys(q.series).map(k => [k, []])) }));
+    const out = { dates: [], o: [], h: [], l: [], c: [], overlays: Object.fromEntries(ovk.map(k => [k, []])), panes: pn, rs_exit: P.rs_exit, _map: new Map() };
+    if (P.step) out.step = P.step;
+    const hasRS = typeof P.rs === 'string' && P.rs.length === P.dates.length;
+    let cur = null, j = -1, bits = 0, rs = '';
+    const put = (arr, v, first) => { if (first || isNum(v)) arr[j] = v; };   // a period's value: its last one known
+    for (let i = 0; i < P.dates.length; i++) {
+      const g = gkey(P.dates[i]), first = g !== cur;
+      if (first) { if (j >= 0 && hasRS) rs += String.fromCharCode(48 + bits); cur = g; j++; bits = 0; out.o[j] = P.o[i]; out.h[j] = P.h[i]; out.l[j] = P.l[i]; }
+      else {
+        if (!isNum(out.o[j])) out.o[j] = P.o[i];
+        if (isNum(P.h[i])) out.h[j] = isNum(out.h[j]) ? Math.max(out.h[j], P.h[i]) : P.h[i];
+        if (isNum(P.l[i])) out.l[j] = isNum(out.l[j]) ? Math.min(out.l[j], P.l[i]) : P.l[i];
+      }
+      out.dates[j] = P.dates[i]; put(out.c, P.c[i], first);
+      ovk.forEach(k => put(out.overlays[k], P.overlays[k][i], first));
+      pn.forEach((q, qi) => Object.keys(q.series).forEach(k => put(q.series[k], P.panes[qi].series[k][i], first)));
+      if (hasRS) bits |= (P.rs.charCodeAt(i) - 48) & 3;
+      out._map.set(P.dates[i], j);
+    }
+    if (hasRS && j >= 0) out.rs = rs + String.fromCharCode(48 + bits);
+    return (P._rs[view] = out);
+  }
+  const IND = {
+    sma: { name: 'SMA', params: [['Length', 20, 1]] }, ema: { name: 'EMA', params: [['Length', 20, 1]] },
+    bb: { name: 'Bollinger Bands', params: [['Length', 20, 2], ['StdDev', 2, 0.1]] }, rsi: { name: 'RSI', params: [['Length', 14, 1]] },
+    macd: { name: 'MACD', params: [['Fast', 12, 1], ['Slow', 26, 1], ['Signal', 9, 1]] },
+  };
+  const indOk = d => d && IND[d.k] && Array.isArray(d.p) && d.p.length === IND[d.k].params.length && d.p.every(v => isFinite(+v) && +v > 0);
+  function userInds(t) {
+    let v = null;
+    try { v = JSON.parse(localStorage.getItem('bt-ind|' + t) || 'null'); } catch (e) { v = null; }
+    if (!Array.isArray(v)) v = PX.indMem[t] || [];
+    return v.filter(indOk);
+  }
+  function saveInds(t, v) { PX.indMem[t] = v; try { localStorage.setItem('bt-ind|' + t, JSON.stringify(v)); } catch (e) { /* no storage */ } }
+  function smaA(x, n) {
+    const out = new Array(x.length).fill(null); let s = 0, k = 0;
+    for (let i = 0; i < x.length; i++) {
+      if (!isNum(x[i])) { s = 0; k = 0; continue; }
+      s += x[i]; k++; if (k > n) { s -= x[i - n]; k = n; }
+      if (k === n) out[i] = s / n;
+    }
+    return out;
+  }
+  function emaA(x, n, alpha) {   // seeded with the average of the first n values (as TradingView's ta.ema / ta.rma)
+    const a = alpha || 2 / (n + 1), out = new Array(x.length).fill(null); let prev = null, k = 0, s = 0;
+    for (let i = 0; i < x.length; i++) {
+      if (!isNum(x[i])) { if (prev == null) { k = 0; s = 0; } else out[i] = prev; continue; }
+      if (prev == null) { s += x[i]; k++; if (k === n) { prev = s / n; out[i] = prev; } continue; }
+      prev = a * x[i] + (1 - a) * prev; out[i] = prev;
+    }
+    return out;
+  }
+  function stdA(x, n) {
+    const m = smaA(x, n);
+    return x.map((_, i) => { if (m[i] == null) return null; let s = 0; for (let j = i - n + 1; j <= i; j++) s += (x[j] - m[i]) ** 2; return Math.sqrt(s / n); });
+  }
+  function indCompute(d, c) {
+    const [a, b, s] = d.p.map(Number), lab = `${IND[d.k].name}(${d.p.join(', ')})`;
+    if (d.k === 'sma') return { overlay: { [lab]: smaA(c, a) } };
+    if (d.k === 'ema') return { overlay: { [lab]: emaA(c, a) } };
+    if (d.k === 'bb') { const m = smaA(c, a), sd = stdA(c, a);
+      return { overlay: { [`BB(${a}, ${b}) upper`]: m.map((v, i) => v == null ? null : v + b * sd[i]), [`BB(${a}) basis`]: m, [`BB(${a}, ${b}) lower`]: m.map((v, i) => v == null ? null : v - b * sd[i]) } }; }
+    if (d.k === 'rsi') {
+      const up = c.map((v, i) => i && isNum(v) && isNum(c[i - 1]) ? Math.max(0, v - c[i - 1]) : null), dn = c.map((v, i) => i && isNum(v) && isNum(c[i - 1]) ? Math.max(0, c[i - 1] - v) : null);
+      const au = emaA(up, a, 1 / a), ad = emaA(dn, a, 1 / a);
+      return { pane: { name: lab + ' +', series: { [lab]: au.map((u, i) => u == null || ad[i] == null ? null : ad[i] === 0 ? 100 : 100 - 100 / (1 + u / ad[i])) }, levels: [30, 70], range: [0, 100] } };
+    }
+    const f = emaA(c, a), sl = emaA(c, b), m = f.map((v, i) => v == null || sl[i] == null ? null : v - sl[i]), sg = emaA(m, s);
+    return { pane: { name: lab + ' +', series: { [`MACD(${a}, ${b})`]: m, [`signal(${s})`]: sg, [`macd_hist(${a}, ${b}, ${s})`]: m.map((v, i) => v == null || sg[i] == null ? null : v - sg[i]) }, levels: [0] } };
+  }
+  function pxChartData(raw, t) {
+    const V = pxResample(raw, PX.view), inds = userInds(t);
+    if (!inds.length) return V;
+    const C = { ...V, overlays: { ...(V.overlays || {}) }, panes: (V.panes || []).slice(), _t: null, _inds: inds.length };
+    inds.forEach(d => { const r = indCompute(d, V.c); if (r.overlay) Object.assign(C.overlays, r.overlay); else C.panes.push(r.pane); });
+    return C;
+  }
+  function pxRebuild() {   // after the bar period or the added indicators change: same ticker, same dates in view
+    if (!PX.P || !PX.key) return;
+    const D = PX.P.dates;
+    PX.keepWin = { d0: D[Math.max(0, Math.floor(PX.a))], d1: D[Math.min(D.length - 1, Math.ceil(PX.b) - 1)] };
+    delete PX.draws[PX.key]; PX.key = null; PX.focus = null; renderPrice();
+  }
+  function indParams() {
+    const k = $('pxIndType').value, box = $('pxIndParams'); box.replaceChildren();
+    IND[k].params.forEach(([lab, v, st], j) => { const inp = el('input', { type: 'number', id: 'pxIndP' + j, value: v, min: st, step: st }); const l = el('label', {}, lab + ' '); l.append(inp); box.append(l); });
+  }
+  function indList() {
+    const t = pxTickerNow(), box = $('pxIndList'); box.replaceChildren();
+    userInds(t).forEach((d, j) => {
+      const row = el('div', { class: 'indrow' }, `${IND[d.k].name}(${d.p.join(', ')})`), x = el('button', { class: 'btn', title: 'Remove', 'data-j': j }, '✕');
+      x.addEventListener('click', () => { const v = userInds(t); v.splice(j, 1); saveInds(t, v); indList(); pxRebuild(); });
+      row.append(x); box.append(row);
+    });
+  }
+  $('pxIndType').addEventListener('change', indParams);
+  $('pxIndBtn').addEventListener('click', () => {
+    const m = $('pxIndMenu'), open = m.classList.contains('hide');
+    m.classList.toggle('hide', !open); $('pxIndBtn').setAttribute('aria-expanded', String(open)); $('pxIndBtn').classList.toggle('on', open);
+    if (open) { if (!$('pxIndParams').children.length) indParams(); indList(); }
+  });
+  $('pxIndClose').addEventListener('click', () => { $('pxIndMenu').classList.add('hide'); $('pxIndBtn').setAttribute('aria-expanded', 'false'); $('pxIndBtn').classList.remove('on'); });
+  $('pxIndAdd').addEventListener('click', () => {
+    if (!PX.P) return;
+    const k = $('pxIndType').value, d = { k, p: IND[k].params.map((q, j) => { const v = +$('pxIndP' + j).value; return q[2] >= 1 ? Math.max(1, Math.round(v)) : v; }) };
+    if (!indOk(d)) return;
+    const t = pxTickerNow(), v = userInds(t);
+    if (!v.some(x => x.k === d.k && x.p.join() === d.p.join())) { v.push(d); saveInds(t, v); }
+    indList(); pxRebuild();
+  });
+  $('pxView').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b || !PX.P || b.dataset.v === PX.view) return;
+    PX.view = b.dataset.v; [...$('pxView').children].forEach(x => x.classList.toggle('on', x === b)); pxRebuild();
+  });
   function drawPrice() {
     const r = R();
     const tks = chartTickers(r);
@@ -966,14 +1126,15 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   function lowerBound(arr, v) { let a = 0, b = arr.length; while (a < b) { const c = (a + b) >> 1; if (arr[c] < v) a = c + 1; else b = c; } return a; }
   function renderPrice(focus) {
     pxDom();
-    const r = R(), t = $('pxTicker').value, P = (r.prices || {})[t];
-    if (!P) { if ((r.chart_files || {})[t]) showChart(t, focus); return; }
-    const key = sel + '|' + t, n = P.dates.length;
+    const r = R(), t = $('pxTicker').value, raw = (r.prices || {})[t];
+    if (!raw) { if ((r.chart_files || {})[t]) showChart(t, focus); return; }
+    const key = sel + '|' + t;
     if (PX.key !== key) {
       rpStop(true);
+      const P = pxChartData(raw, t), n = P.dates.length;
       PX.key = key; PX.P = P; PX.a = 0; PX.b = n; PX.sel = null; PX.pending = null;
       if (!P._t) P._t = P.dates.map(d => Date.parse(d));
-      const idx = new Map(P.dates.map((d, i) => [d, i]));
+      const idx = P._map || new Map(P.dates.map((d, i) => [d, i]));   // every daily date -> its bar (weekly / monthly views too)
       PX.idx = idx;
       // trade prices are as traded; the chart is split-adjusted: divide by the later-split factor of each date
       const onChart = tr => { const f = +tr.entry_split_factor || 1, g = +tr.exit_split_factor || 1; if (f === 1 && g === 1) return tr;
@@ -989,9 +1150,16 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       Object.keys(P.overlays || {}).forEach(k => PX.series.push({ name: k, values: P.overlays[k], color: color(ci++), pane: -1, step: steps.has(k) }));
       (P.panes || []).forEach((pn, pi) => Object.keys(pn.series).forEach(k => PX.series.push({ name: k, values: pn.series[k], color: isHist(k) ? css('--neutral') : color(ci++), pane: pi, hist: isHist(k), step: steps.has(k) })));
       pxRangeWindow();
+      if (PX.keepWin) {   // the same dates in view after switching the bar period or adding an indicator
+        const w = PX.keepWin; PX.keepWin = null;
+        const a = lowerBound(P.dates, w.d0), b = Math.min(n, lowerBound(P.dates, w.d1) + 1);
+        if (b > a) pxSetWindow(a, Math.max(b, a + Math.min(n, PX_MIN_BARS)));
+      }
       pxLegendBuild();
       pxBase.dataset.drawings = drawings().length;
+      pxBase.dataset.view = PX.view; pxBase.dataset.bars = n; pxBase.dataset.inds = (P._inds || 0);
     }
+    const P = PX.P, n = P.dates.length;
     if (focus) {
       const i = Math.max(0, lowerBound(P.dates, focus.from)), j = Math.min(n - 1, lowerBound(P.dates, focus.to || focus.from));
       if (PX.replay != null && j > PX.replay) rpStop(true);
@@ -1338,8 +1506,23 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
         ctx.fillStyle = ctx.strokeStyle; ctx.fillRect(g.l + g.iw - tw - 2, y - 8, tw, 16);
         ctx.fillStyle = css('--surface'); ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(lab, g.l + g.iw - 6, y);
       } else {
-        const x1 = g.X(d.i1), y1 = Y(d.v1), x2 = g.X(d.i2), y2 = Y(d.v2);
-        ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        const x1 = g.X(d.i1), y1 = Y(d.v1), x2 = g.X(d.i2), y2 = Y(d.v2), col = ctx.strokeStyle;
+        if (d.t === 'ray') { const e = rayEnd(g, x1, y1, x2, y2); ctx.moveTo(x1, y1); ctx.lineTo(e[0], e[1]); ctx.stroke(); }
+        else if (d.t === 'rect') {
+          const xa = Math.min(x1, x2), ya = Math.min(y1, y2), w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
+          ctx.globalAlpha = 0.1; ctx.fillStyle = col; ctx.fillRect(xa, ya, w, h); ctx.globalAlpha = 1; ctx.strokeRect(xa, ya, w, h);
+        } else if (d.t === 'fib') {
+          const xa = Math.min(x1, x2), xb = Math.max(x1, x2);
+          ctx.setLineDash([4, 4]); ctx.globalAlpha = 0.6; ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.globalAlpha = 1; ctx.setLineDash([]);
+          ctx.font = FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+          FIBS.forEach((f, k) => {
+            const v = d.v2 + (d.v1 - d.v2) * f, y = Math.round(Y(v)) + 0.5;
+            if (k) { ctx.globalAlpha = 0.07; ctx.fillStyle = color(k); ctx.fillRect(xa, Math.min(y, Y(d.v2 + (d.v1 - d.v2) * FIBS[k - 1])), xb - xa, Math.abs(y - Y(d.v2 + (d.v1 - d.v2) * FIBS[k - 1]))); ctx.globalAlpha = 1; }
+            ctx.strokeStyle = on ? col : color(k); ctx.beginPath(); ctx.moveTo(xa, y); ctx.lineTo(xb, y); ctx.stroke();
+            ctx.fillStyle = ctx.strokeStyle; ctx.fillText(`${f} (${num(v, 2)})`, xa + 2, y - 1);
+          });
+          ctx.strokeStyle = col;
+        } else { ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
         if (on) [[x1, y1], [x2, y2]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fillStyle = css('--surface'); ctx.fill(); ctx.stroke(); });
       }
     });

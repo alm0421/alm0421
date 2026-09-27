@@ -201,7 +201,11 @@ def preflight(spec) -> list[str]:
         pairs = [(r, t0) for r in rules if isinstance(r, str)]
     for rule, t in pairs:
         df = frames.get(t) if t in frames else data.load(t)
-        ns_ = Namespace(df, ticker=t)
+        if not is_pf and getattr(spec, "state_vars", None):
+            from .engine import strategy_namespace
+            ns_ = strategy_namespace(spec, df, t)     # with the Pine var state series the rules read
+        else:
+            ns_ = Namespace(df, ticker=t)
         d = rule_first_defined(rule, ns_)
         stop = end if end is not None else df.index[-1]
         if d is None:

@@ -295,9 +295,14 @@ def _probe_rules(spec) -> None:
     import pandas as pd
     z = pd.Series(0.0, index=df.index)
     pos = {k: z for k in ("bars_held", "entry_price", "pnl", "highest_since_entry", "lowest_since_entry")}
+    state = {}
+    if getattr(spec, "state_vars", None):
+        # a Pine script's `var` state (pv_<name>): the series the engine computes from the bars, causal by construction
+        from .pine_import import state_series
+        state = state_series(spec.state_vars, expr.Namespace(df, ticker="SPY"))
     for rule in _rules(spec):
         if isinstance(rule, str):
-            expr.evaluate_value(rule, expr.Namespace(df, extra=dict(pos), ticker="SPY"))
+            expr.evaluate_value(rule, expr.Namespace(df, extra={**state, **pos}, ticker="SPY"))
 
 
 def run_key(spec, rf="tbill", sensitivity=True) -> str:

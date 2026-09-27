@@ -194,7 +194,8 @@ def test_pine_higher_timeframe_filter():
 @needs_data
 def test_pine_partial_exit():
     s = pine("scale_out.pine")
-    assert s.universe == ["NVDA"] and s.scale_out == [{"at": pytest.approx(0.03), "fraction": pytest.approx(0.5)}]
+    assert s.universe == ["NVDA"] and s.scale_out == [{"at": pytest.approx(0.03), "fraction": pytest.approx(0.5),
+                                                          "after_fill": True}]   # from position_avg_price (round 11)
     assert s.take_profit == pytest.approx(0.06) and s.stop_loss == pytest.approx(0.05) and s.start == "2012-01-01"
 
 

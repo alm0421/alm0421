@@ -2751,6 +2751,82 @@ def _calls(rule: str, names=_CALL_NAMES) -> list[str]:
     return out
 
 
+# ----------------------------------------------------------------- trailing-stop activation
+
+# "once (it is) up 3%", "after the trade is up 1R", "when in profit by 2 ATR": how far the best price must move in
+# favour before a trailing stop applies. Group "an" is the number, "u" its unit (%, R, ATR or points).
+_ACT_WHEN = (r"(?:once|after|when|as soon as|if|only once|only after)(?: (?:it(?:'s| is| has| gets)?|the (?:trade|position|price|stock)"
+             r"(?:'s| is| has| gets)?|price is|we are|we're|i'm|i am|the gain is|the profit is|profit is|gains? (?:reach|reaches|hit|hits)))?"
+             r"(?: (?:up|gained|risen|rallied|moved up|moved|in profit|ahead|in the money|showing a (?:gain|profit) of))?(?: (?:by|at least|of))?")
+_ACT_AMT = (r" \+?(?:\$(?P<an2>\d+(?:\.\d+)?)|(?P<an>\d+(?:\.\d+)?) ?(?P<u>%|r\b|x (?:the )?(?:initial )?risk\b|times (?:the )?(?:initial )?risk\b|atrs?\b|"
+            r"points?\b|pts?\b|dollars?\b))(?: (?:in profit|gain|profit|up|higher|in (?:my |our |its |the trade's )?favou?r))?")
+_ACT_VERB = r"(?:(?:which |that |and )?(?:only )?(?:activat(?:es|ed|ing)|starts?(?: trailing)?|kicks? in|arms?|armed|begins?|turns? on)(?: only)?)"
+
+
+def _trail_activation(T: "Text", ex: dict, notes: list[str]) -> None:
+    """A trailing stop that only applies once the trade is up by some amount: "trailing stop 1% once up 3%", "10%
+    trailing stop once it is up 5%", "3 ATR trailing stop after 1R", "activate the trail after 1R". The activation
+    clause is consumed here, so it can never be read as part of the entry condition."""
+    trail = (r"(?:(?:with|use|and|add|place|plus) )?(?:a |an |the )?(?:(?:trailing|chandelier) stop(?:[- ]loss)?(?: of| at)? "
+             r"\d+(?:\.\d+)?(?:%| ?(?:x )?atrs?\b)|\d+(?:\.\d+)?(?:%| ?(?:x )?atr) (?:trailing|chandelier) stop(?:[- ]loss)?)")
+    pats = [rf"(?P<trail>{trail}),? (?:{_ACT_VERB} )?(?:{_ACT_WHEN}|at){_ACT_AMT}",
+            # "activate the trail after 1R", "start trailing once up 3%", "the trailing stop activates at +3%"
+            rf"(?:(?:and|then|with|plus) )?(?:(?:only )?(?:activate|arm|start|begin|turn on) (?:the |my |a )?(?:trail(?:ing stop(?:[- ]loss)?)?|trailing)"
+            rf"|(?:the |my )?(?:trail(?:ing stop(?:[- ]loss)?)?) {_ACT_VERB}) (?:{_ACT_WHEN}|at){_ACT_AMT}"]
+    for k, pat in enumerate(pats):
+        m = T.find(pat, consume=False)
+        if not m:
+            continue
+        if ex.get("trail_activation") or ex.get("trail_activation_points") or ex.get("trail_activation_r"):
+            raise ParseError(f"The trailing stop's activation is given twice ('{m.group(0).strip()}'); keep one.")
+        keep = m.group("trail") if k == 0 else ""
+        T.rest = T.rest[: m.start()] + " ; " + keep + " ; " + T.rest[m.end():]
+        v, u = (float(m.group("an2")), "points") if m.group("an2") else (float(m.group("an")), m.group("u").lower())
+        if v <= 0:
+            raise ParseError(f"'{m.group(0).strip()}': the activation distance must be above 0.")
+        if u == "%":
+            ex["trail_activation"] = v / 100
+            what = f"the best price since entry is {v:g}% in favour"
+        elif u.startswith(("r", "x", "times")):
+            ex["trail_activation_r"] = v
+            what = f"the best price since entry is {v:g}R in favour (R = the initial risk, entry price - initial stop)"
+        elif u.startswith("atr"):
+            raise ParseError(f"'{m.group(0).strip()}': a trail activation in ATRs is not supported; give it as a percentage "
+                             "('once up 3%') or an R multiple ('after 1R').")
+        else:
+            ex["trail_activation_points"] = v
+            what = f"the best price since entry is {v:g} points (dollars) in favour"
+        notes.append(f"Trail activation: the trailing stop applies only once {what} (from a bar's high, or low for a short); "
+                     "until then only the other stops protect the trade. It then trails the best price since entry.")
+        return
+
+
+_EXIT_WORDS = r"\b(?:stops?|stop[- ]loss|trail\w*|targets?|take[- ]profits?|profit target|break[- ]?even|chandelier)\b"
+
+
+def _exit_tail_guard(before: str, after: str) -> None:
+    """Exit clauses are never absorbed into the entry condition: when an exit phrase (stop / trail / target /
+    breakeven) was read but the words right after it in the same clause talk about the trade's progress ("... once up
+    3%", "... when it is 5% in profit"), refuse instead of letting them become an entry rule."""
+    import difflib
+    sm = difflib.SequenceMatcher(None, before, after, autojunk=False)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag not in ("replace", "delete") or not re.search(_EXIT_WORDS, before[i1:i2], re.I):
+            continue
+        tail = re.split(r"[,;.]", after[j2:].lstrip(" ;"), maxsplit=1)[0].strip()
+        if not tail or re.search(r"(?i)\bin a row\b|\b(?:days?|bars?|sessions?|weeks?|months?)\b", tail):
+            continue
+        if re.match(r"(?i)(?:(?:which|that|and) )?(?:only )?(?:activat\w*|kicks? in|arm(?:s|ed)?|starts?|begins?|once|after|"
+                    r"as soon as|when|if|until|unless)\b", tail) and re.search(
+                r"(?i)(?:\bup|\bgained|\brisen|\brallied|\bahead|\bin profit|\bprofit of|\bgain of)(?: by| at least)? \+?\d+(?:\.\d+)? ?(?:%|r\b)"
+                r"|\d+(?:\.\d+)? ?(?:%|r\b) (?:in profit|gain|profit|up|in (?:my |our |its )?favou?r)", tail):
+            a = max(before.rfind(",", 0, i1), before.rfind(";", 0, i1)) + 1
+            phrase = (before[a:i2].strip(" ;,") + " " + tail).strip()
+            raise ParseError(f"'{phrase}': the part '{tail}' belongs to the exit, not to the entry condition, and it was not "
+                             "understood. Write e.g. 'trailing stop 1% once up 3%', 'move the stop to breakeven after +2%', "
+                             "or put the exit rule in backticks with 'sell when `...`'.")
+
+
 # ----------------------------------------------------------------- shared options
 
 class Text:
@@ -3565,6 +3641,119 @@ def _negative_lookbacks(t: str) -> None:
                          "(a negative one would look into the future, which is not allowed).")
 
 
+_SUBJ = r"(?:it|the price|price|the stock|the etf|the close|the candle|the bar|today|the day)"
+
+
+def _signal_phrases(t: str) -> str:
+    """Trader phrases of signal strategies rewritten into the vocabulary the parser reads (each with a note):
+    'exit on the opposite cross', 'breaks out above the Donchian channel (20)', 'crosses above 20 from below',
+    '1:3 risk reward', 'closes above the open', 'closes up on the day', 'an inside bar breaks to the upside',
+    'the 50 SMA is rising'; 'closes back inside' (inside what?) is refused with a question."""
+    # "crosses above 20 from below" / "crosses below 80 from above": the direction is already in the verb
+    t = _sub_outside(r"(?i)\b(cross(?:es|ed|ing)?(?: back)? (?:above|over|up through) [^,;`]+?) from below\b", r"\1", t)
+    t = _sub_outside(r"(?i)\b(cross(?:es|ed|ing)?(?: back)? (?:below|under|down through) [^,;`]+?) from above\b", r"\1", t)
+    m = _msearch(r"\bcross(?:es|ed|ing)?(?: back)? (?:above|over|up through) [^,;`]+? from above\b|"
+                 r"\bcross(?:es|ed|ing)?(?: back)? (?:below|under|down through) [^,;`]+? from below\b", t)
+    if m:
+        raise ParseError(f"'{m.group(0)}': a cross above comes from below (and a cross below from above); which one is it?")
+    # "exit on the opposite cross": the entry's crossing, the other way
+    mo = _msearch(r"\b(?P<v>sell|exit|close(?: out)?(?: the position)?|get out|cover)(?: it| the position)? (?:on|at|with|after|when "
+                  r"(?:there is|we get|it makes)) (?:the |an |a )?(?:opposite|reverse|opposing|inverse) cross(?:over|ing)?\b", t)
+    if mo:
+        before = t[: mo.start()]
+        dirs = re.findall(r"(?i)\bcross(?:es|ed|ing)?(?: back)? (above|over|up through|below|under|down through)\b", _mask(before, False))
+        dirs += [("above" if x.lower().startswith("crossover") or x.lower() == "golden" else "below")
+                 for x in re.findall(r"(?i)\b(crossover|crossunder|golden|death) cross\b|`[^`]*\b(crossover|crossunder)\(", before)
+                 if x]
+        ups = {("above" if d.lower() in ("above", "over", "up through") else "below") for d in dirs}
+        if len(ups) != 1:
+            raise ParseError(f"'{mo.group(0)}': the opposite of which cross? Say e.g. 'buy when the 10 day SMA crosses above "
+                             "the 30 day SMA, sell when it crosses below it'.")
+        way = "below" if ups == {"above"} else "above"
+        t = t[: mo.start()] + f"{mo.group('v').split()[0]} when it crosses {way} it" + t[mo.end():]
+        _note(f"'{mo.group(0)}' was read as the entry's crossing the other way: sell when it crosses {way} it (the first "
+              "close on the other side of the line).")
+    # "breaks out above the Donchian channel (20)", "closes above the upper Donchian channel (20)",
+    # "breaks below the 20 day Donchian channel"
+    def dc(m):
+        n = m.group("n1") or m.group("n2") or m.group("n3")
+        if not n:
+            raise ParseError(f"'{m.group(0).strip()}': a Donchian channel of how many days? e.g. 'breaks out above the "
+                             "Donchian channel (20)'.")
+        up = m.group("d").lower() in ("above", "over", "out above", "out of", "to the upside", "through")
+        _note(f"'{m.group(0).strip()}' = the close {'above the highest high' if up else 'below the lowest low'} of the "
+              f"{n} bars before (the Donchian channel as of the previous bar, the Turtle breakout).")
+        return f" donchian {n} day {'breakout' if up else 'breakdown'}"
+    t = _sub_outside(r"(?i)(?:\b(?:when |if )?)?(?<=\b)(?:(?:the )?(?:price|close|it|stock) )?(?:breaks?(?: out)?|closes|moves|pushes|trades)"
+                     r" (?P<d>out above|above|over|through|below|under|out of|down through) (?:the |its )?(?:(?P<n1>\d+)[- ]?(?:day|bar|period)? )?"
+                     r"(?:upper |lower )?donchian(?: channel)?(?: (?:high|low|band|upper|lower))?"
+                     r"(?: ?\((?P<n2>\d+)\)| (?P<n3>\d+)(?:[- ]?(?:day|bar|period)s?)?)?(?![\w(])", dc, t)
+    # "1:3 risk reward", "risk-reward of 1:3", "1:3 RR": a target at 3R
+    def rr(m):
+        a, b = float(m.group("a") or m.group("c")), float(m.group("b") or m.group("d"))
+        if a <= 0 or b <= 0:
+            raise ParseError(f"'{m.group(0).strip()}': both sides of the ratio must be positive.")
+        r_ = b / a
+        _note(f"'{m.group(0).strip()}' = a target at {r_:g}R: {r_:g} x the initial risk (entry price - stop) above the entry.")
+        return f" target {r_:g}R "
+    t = _sub_outside(r"(?i)(?:\b(?:with |and |for |using )?(?:an? )?)?(?<![\d.:])(?P<a>\d+(?:\.\d+)?) ?: ?(?P<b>\d+(?:\.\d+)?) "
+                     r"(?:risk[- /]?(?:to[- ])?reward|risk[- /]reward|r ?: ?r|rr|r/r)(?: ratio)?(?: target)?"
+                     r"|\b(?:a |with a |and a )?(?:risk[- /]?(?:to[- ])?reward|r ?: ?r|rr)(?: ratio)?(?: of)? (?P<c>\d+(?:\.\d+)?) ?: ?(?P<d>\d+(?:\.\d+)?)(?![\d.])",
+                     rr, t)
+    # a green candle: "closes above the open", "closes higher than it opened"; "closes up on the day": vs the prior close
+    def green(m):
+        up = m.group("d").lower() in ("above", "higher than", "over")
+        _note(f"'{m.group(0).strip()}' = {'close > open' if up else 'close < open'} (a {'green' if up else 'red'} candle: "
+              "the close against the same day's open).")
+        return f"`close {'>' if up else '<'} open`"
+    t = _sub_outside(rf"(?i)\b(?:{_SUBJ} )?closes? (?P<d>above|higher than|over|below|lower than|under) (?:(?:the|its|today's|the day's) open"
+                     r"(?:ing price)?|(?:where )?it opened|the opening price)\b", green, t)
+
+    def upday(m):
+        up = m.group("d").lower() in ("up", "higher", "green", "positive")
+        _note(f"'{m.group(0).strip()}' = the close {'above' if up else 'below'} the previous close "
+              f"(close {'>' if up else '<'} ref(close, 1)); for a candle that closes {'above' if up else 'below'} its own "
+              f"open say 'closes {'above' if up else 'below'} the open'.")
+        return f"`close {'>' if up else '<'} ref(close, 1)`"
+    t = _sub_outside(rf"(?i)\b(?:{_SUBJ} )?(?:closes?|finishes|ends) (?P<d>up|higher|down|lower) (?:on|for) the (?:day|session)\b", upday, t)
+    # "an inside bar breaks to the upside": today is inside yesterday's range; a buy stop above today's high works
+    # in the next session (the breakout), as other stop entries do
+    def inside(m):
+        up = m.group("d").lower() in ("upside", "up", "high")
+        _note(f"'{m.group(0).strip()}': the signal day is an inside bar (its high below the previous high and its low above "
+              f"the previous low), and the entry is a {'buy' if up else 'sell'} stop order at the inside bar's "
+              f"{'high' if up else 'low'}, working in the next session: it fills when the price breaks "
+              f"{'above' if up else 'below'} it (at the level, or at the open if it gaps through).")
+        return (f"`high < ref(high, 1) and low > ref(low, 1)` at a stop {'above' if up else 'below'} the "
+                f"{'high' if up else 'low'}")
+    t = _sub_outside(r"(?i)\b(?:an? |the )?inside (?:bar|day|candle) (?:breaks?(?: out)?|breakout) (?:to|on) the (?P<d>upside|downside)\b"
+                     r"|\b(?:an? |the )?inside (?:bar|day|candle) breaks? (?P<d2>up|down)\b", lambda m: inside(_Dir(m)), t)
+    # "closes back inside": inside what?
+    m = _msearch(r"\b(?:closes?|moves?|comes?|gets?|is) back inside\b(?!\s+(?:its |the )?(?:\d+[- ]day )?(?:bollinger|keltner|donchian|band|channel|range))", t)
+    if m:
+        raise ParseError(f"'{m.group(0)}' - back inside what? Say which band, e.g. 'closes back below its upper Bollinger "
+                         "band' (it was above the 20-day, 2-standard-deviation band and closes back under it), 'closes back "
+                         "above its lower Bollinger band', or write the rule in backticks, e.g. "
+                         "`ref(close, 1) > ref(bb_upper(20, 2), 1) and close < bb_upper(20, 2)`.")
+    # "the 50 SMA is rising": a moving average with its length and no unit
+    t = _sub_outside(r"(?i)\bthe (\d+) (sma|ema|wma|hma|ma|moving average)\b(?= (?:is |are )?(?:rising|falling|increasing|decreasing|"
+                     r"declining|trending|sloping|pointing|turning|going|moving|above|below|over|under|crosses|>|<))",
+                     r"the \1 day \2", t)
+    return t
+
+
+class _Dir:
+    """A match whose 'd' group falls back to 'd2' (two spellings of one phrase)."""
+
+    def __init__(self, m):
+        self.m = m
+
+    def group(self, k=0):
+        if k == "d":
+            return self.m.group("d") or self.m.group("d2")
+        return self.m.group(k)
+
+
 def parse_signal(text: str, holding: bool = False) -> Strategy:
     raw = text
     t = _normalize(text)
@@ -3587,6 +3776,7 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
     # "buy SPY at the open on Monday if it closed down on Friday": the weekday is a condition of the entry
     t = _sub_outside(r"(?i)\b((?:buy|short|go long|go short|sell short)\b[^,;]*?) on (monday|tuesday|wednesday|thursday|friday)s?"
                      r"((?: at the (?:next )?(?:open|close))?) (if|when|whenever|provided)\b", r"\1\3 \4 on \2 and", t)
+    t = _signal_phrases(t)
     # "sell when it falls 10% from its peak": a trailing stop from the highest price since entry
     mpk = _msearch(r"\b(?:and |then )?(?:sell|exit|get out|close (?:it|the position|out))(?: it| the position| them)?"
                    r"(?: at the close| at the next open)? (?:when|if|once|as soon as) (?:it|the price|the stock|the position|price|they)"
@@ -3702,6 +3892,7 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
 
     # ---- exits and stops (anywhere)
     ex: dict = {}
+    before_exits = T.rest
     for m in T.findall(rf"(?:sell|exit|close|take profits? on|take) (?:\d+% |{NUM}% )?(?:of (?:the )?(?:position|shares) )?(?:at|when (?:it(?:'s| is)? )?up) \+?{NUM}%(?: (?:gain|profit|up))?"):
         pass  # handled below via scale-out regex
     so = []
@@ -3751,6 +3942,7 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
             ex["trailing_atr"] = float(m.group("atr"))
         notes.append("Trail the rest: the trailing stop is armed only once the first scale-out has filled (from the next "
                      "bar), for the shares that are left; it trails the best price since entry.")
+    _trail_activation(T, ex, notes)
     # a trailing stop at the N-bar low: lowest(low, N) of the bars before each bar, moved up only
     m = T.find(r"(?:(?:with|use|and|place|set|put) )?(?:a |an |the )?trailing stop(?:[- ]loss)? (?:at|on|below|under|above|over) "
                r"(?:the |its )?(?:lowest low|low|highest high|high)? ?(?:of (?:the )?(?:last |past |prior |previous )?)?"
@@ -3840,6 +4032,7 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
         notes.append(f"Two trailing stops (a {ex['trailing_stop'] * 100:g}% trailing stop and a {ex['trailing_atr']:g} ATR "
                      "chandelier stop): both are active, one-cancels-other; at any moment the one closer to the price is the "
                      "one that can trigger.")
+    _exit_tail_guard(before_exits, T.rest)
     rest_wo_orders = _entry_order(T.rest)[3]
     if re.search(r"\b(?:stop|target|trailing)\b", rest_wo_orders, re.I) and re.search(r"\d", rest_wo_orders):
         mm = re.search(r"[^;]*\b(?:stop|target|trailing)\b[^;]*", rest_wo_orders, re.I)

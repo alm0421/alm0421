@@ -101,11 +101,17 @@ class Strategy:
     trailing_points: float | None = None         # a trailing stop this price distance (e.g. $3) from the best price
     trail_activation: float | None = None        # the trailing stops apply once the best price is this fraction in favour
     trail_activation_points: float | None = None  # ... or this price distance in favour (TradingView's trail_points)
+    trail_activation_r: float | None = None      # ... or this many R (initial risk) in favour ("activate the trail after 1R")
     breakeven_r: float | None = None             # breakeven stop armed once the best price is this many R in favour
     stop_covers_scale_outs: bool = True          # False: the stop / trailing stop / target cover only the shares not set
                                                  # aside for the scale-outs, which keep only their own limit orders
                                                  # (TradingView: strategy.exit(qty_percent = 50, limit = ...) with no stop)
     state_vars: list[dict] = field(default_factory=list)   # Pine `var` state (see pine_import.state_series)
+    exits_after_fill: list[str] = field(default_factory=list)   # "stop" / "target" (a scale-out: "after_fill": true): these exit orders
+                                                 # are placed only once the script has seen the position at a close
+                                                 # (TradingView: strategy.exit(stop = strategy.position_avg_price * 0.97)
+                                                 # is na while flat), so they are live from the bar after the first
+                                                 # close in the position: never on the fill bar
 
     # portfolio and sizing
     capital: float = 10_000.0
@@ -411,6 +417,7 @@ class Strategy:
                              "use target_level instead.")
         for name, label in (("trailing_points", "trailing distance (trailing_points)"),
                             ("trail_activation", "trail activation"), ("trail_activation_points", "trail activation (points)"),
+                            ("trail_activation_r", "trail activation (R)"),
                             ("breakeven_r", "breakeven trigger (R)")):
             v = getattr(self, name)
             if v is None:
@@ -421,22 +428,22 @@ class Strategy:
                 ok = False
             if not ok:
                 raise ValueError(f"the {label} must be a positive number (got {v!r})")
-        if (self.trail_activation or self.trail_activation_points) and not (self.trailing_stop or self.trailing_atr
+        if (self.trail_activation or self.trail_activation_points or self.trail_activation_r) and not (self.trailing_stop or self.trailing_atr
                                                                             or self.trailing_points):
             raise ValueError("a trail activation needs a trailing stop (trailing_stop, trailing_atr or trailing_points).")
         has_stop = (self.stop_loss or self.stop_atr or self.stop_level or self.trailing_stop or self.trailing_atr
                     or self.trailing_points)
-        needs_r = self.breakeven_r or any(isinstance(so, dict) and so.get("r") is not None for so in self.scale_out or [])
+        needs_r = self.breakeven_r or self.trail_activation_r or any(isinstance(so, dict) and so.get("r") is not None for so in self.scale_out or [])
         if needs_r and not has_stop:
             raise ValueError("An R multiple ('breakeven after 1R', 'sell a third at 1R') is measured from the initial risk, "
                              "the distance from the entry to the stop: add a stop, e.g. 'stop at the low of the entry bar' "
                              "or 'a 5% stop loss'.")
         for so in self.scale_out or []:
-            if not isinstance(so, dict) or "fraction" not in so or (("at" in so) == ("r" in so)):
-                raise ValueError("each scale_out needs a fraction and either at (a gain, 0.05 = +5%) or r (an R multiple), "
-                                 "e.g. {'at': 0.05, 'fraction': 0.5}")
+            if not isinstance(so, dict) or "fraction" not in so or sum(k in so for k in ("at", "r", "points")) != 1:
+                raise ValueError("each scale_out needs a fraction and one of at (a gain, 0.05 = +5%), r (an R multiple) or "
+                                 "points (a price distance from the entry, e.g. 3 = $3), e.g. {'at': 0.05, 'fraction': 0.5}")
             try:
-                ok = 0 < float(so["fraction"]) <= 1 and float(so.get("at", so.get("r"))) > 0
+                ok = 0 < float(so["fraction"]) <= 1 and float(so.get("at", so.get("r", so.get("points")))) > 0
             except (TypeError, ValueError):
                 ok = False
             if not ok:
@@ -451,6 +458,9 @@ class Strategy:
         if self.state_vars:
             from .pine_import import check_state_vars
             check_state_vars(self.state_vars)
+        if not isinstance(self.exits_after_fill, (list, tuple)) or any(
+                x not in ("stop", "target") for x in self.exits_after_fill):
+            raise ValueError("exits_after_fill must be a list of 'stop' and 'target' (a scale-out takes after_fill: true).")
 
     MAX_LEVERAGE = {"reg_t": 2.0, "portfolio": 4.0}
 
@@ -571,6 +581,8 @@ class Strategy:
             ex.append(f"the trailing stop starts once the price is +{f(self.trail_activation, '.1%')} in favour")
         if self.trail_activation_points:
             ex.append(f"the trailing stop starts once the price is {f(self.trail_activation_points, 'g')} points in favour")
+        if self.trail_activation_r:
+            ex.append(f"the trailing stop starts once the price is {f(self.trail_activation_r, 'g')}R in favour")
         if cur and (self.stop_atr or self.take_profit_atr):
             ex.append("ATR stops and targets use the current ATR (as of the previous close) on every bar")
         if self.breakeven_after:
@@ -586,12 +598,18 @@ class Strategy:
         if self.target_r:
             ex.append(f"target {f(self.target_r, 'g')}R ({f(self.target_r, 'g')} x the initial risk, entry - stop)")
         for so in self.scale_out or []:
-            lvl = f"{f(so.get('r'), 'g')}R" if so.get("r") is not None else f"+{f(so.get('at'), '.1%')}"
+            lvl = (f"{f(so.get('r'), 'g')}R" if so.get("r") is not None else
+                   f"${f(so.get('points'), 'g')} from the entry" if so.get("points") is not None else f"+{f(so.get('at'), '.1%')}")
             ex.append(f"sell {f(so.get('fraction'), '.0%')} at {lvl}")
         if self.trail_after_scale_out:
             ex.append("the trailing stop applies to the rest, from the first scale-out on")
         if not self.stop_covers_scale_outs:
             ex.append("the stop and target cover only the shares not set aside for the scale-outs")
+        af = list(self.exits_after_fill or []) + (["scale-out"] if any(isinstance(so, dict) and so.get("after_fill")
+                                                                        for so in self.scale_out or []) else [])
+        if af:
+            ex.append(f"the {' / '.join(af)} orders start the bar after the first "
+                      "close in the position (from strategy.position_avg_price)")
         if self.state_vars:
             ex.append(f"state kept bar to bar: {', '.join(str(v.get('name', '?')) for v in self.state_vars)}")
         if self.side == "both" and not ex:
