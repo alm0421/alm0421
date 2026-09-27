@@ -265,18 +265,59 @@ class Bars:
         self.tr = a["adj_close"] if "adj_close" in a else a["close"]
 
 
+MONTH_BARS = 21     # a month of trading days: "12 month return" is ret(252)
+
+
+def month_end_flags(idx: pd.DatetimeIndex) -> np.ndarray:
+    """True on each date that is the last session of its month: the next date of `idx` (after the last one, the next
+    NYSE session) falls in another month. Calendar knowledge only, no prices, so it is causal."""
+    if not len(idx):
+        return np.zeros(0, bool)
+    nxt = list(idx[1:]) + [_cal.next_sessions(idx[-1])[0]]
+    per = idx.to_period("M")
+    return np.asarray(per != pd.DatetimeIndex(nxt).to_period("M"))
+
+
+def calendar_month_return(x: pd.Series, months: int) -> pd.Series:
+    """Return over `months` calendar months, month-end to month-end, as Portfolio Visualizer and Antonacci measure
+    it: on every day, the change from the month-end `months` months before the last completed month-end (that day
+    itself when it is a month-end) to that month-end. Causal: a month's value is known on its last session."""
+    v = x.to_numpy(dtype=float)
+    pos = np.flatnonzero(month_end_flags(x.index))
+    out = np.full(len(v), np.nan)
+    if not len(pos):
+        return pd.Series(out, index=x.index)
+    per = x.index[pos].to_period("M")
+    me = pd.Series(v[pos], index=per)
+    me = me[~me.index.duplicated(keep="last")]
+    prev = me.reindex(per - months).to_numpy()
+    r = v[pos] / prev - 1
+    # each day carries its last completed month-end's value (NaN there stays NaN, it is not filled from before)
+    last = np.full(len(v), -1)
+    last[pos] = np.arange(len(pos))
+    last = np.maximum.accumulate(last)
+    ok = last >= 0
+    out[ok] = r[last[ok]]
+    return pd.Series(out, index=x.index)
+
+
 class Namespace(dict):
     """Evaluation namespace for one ticker; derived variables are lazy."""
 
     def __init__(self, df: pd.DataFrame, extra: dict[str, Any] | None = None, ticker: str | None = None,
-                 price_basis: str = "quoted"):
+                 price_basis: str = "quoted", month_lookbacks: str = "trading"):
         """price_basis "quoted": prices as quoted (split-adjusted; TradingView). "adjusted": open/high/low/close on
         a total-return basis (dividends reinvested, see adjusted_frame; Composer, Portfolio Visualizer), for this
-        ticker and for sym() of any other."""
+        ticker and for sym() of any other. month_lookbacks "calendar": ret / tret / tbill_ret over a whole number of
+        months (a multiple of 21 bars: 21, 63, 126, 252) are measured month-end to month-end over calendar months
+        (calendar_month_return) instead of over that many trading days."""
         super().__init__()
         if price_basis not in ("quoted", "adjusted"):
             raise ValueError("price_basis must be 'quoted' or 'adjusted'")
+        if month_lookbacks not in ("trading", "calendar"):
+            raise ValueError("month_lookbacks must be 'trading' or 'calendar'")
         self.price_basis = price_basis
+        self.month_lookbacks = month_lookbacks
         self.quoted_df = df        # the bars as quoted, for quoted(<expr>) on an adjusted basis
         if price_basis == "adjusted":
             df = adjusted_frame(df)
@@ -440,8 +481,12 @@ class Namespace(dict):
                 return x.shift(n, fill_value=False)
             return x.shift(n)
 
+        cal_months = self.month_lookbacks == "calendar"
+
         def ret(*a):
             x, n = pick(a, c, 1)
+            if cal_months and n % MONTH_BARS == 0:
+                return calendar_month_return(x, n // MONTH_BARS)
             return x / x.shift(n) - 1
 
         rsi_memo: dict = {}
@@ -460,6 +505,8 @@ class Namespace(dict):
         def tret(*a):
             """Total return (dividends reinvested) over n bars."""
             x, n = pick(a, trs, 1)
+            if cal_months and n % MONTH_BARS == 0:
+                return calendar_month_return(x, n // MONTH_BARS)
             return x / x.shift(n) - 1
 
         def tbill_ret(n=252):
@@ -469,6 +516,8 @@ class Namespace(dict):
                 return pd.Series(0.0, index=c.index)
             rr = r.reindex(c.index.union(r.index)).ffill().reindex(c.index).fillna(0.0)
             idx = (1 + rr / 252).cumprod()
+            if cal_months and int(n) % MONTH_BARS == 0:
+                return calendar_month_return(idx, int(n) // MONTH_BARS)
             return idx / idx.shift(int(n)) - 1
 
         def max_drawdown(*a):

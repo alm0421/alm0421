@@ -136,8 +136,9 @@ def test_cross_condition_in_an_if_node_has_a_note():
 # ------------------------------------------------------------------ 4. error messages
 
 def test_unknown_ticker_is_named_with_suggestions():
-    with pytest.raises(ParseError, match=r"(?i)unknown ticker ARKW \(closest: ARKK"):
-        parser.parse("hold ARKW and TQQQ")
+    if "ARKW" not in data.available_tickers():     # the data job may have downloaded it since
+        with pytest.raises(ParseError, match=r"(?i)unknown ticker ARKW \(closest: ARKK"):
+            parser.parse("hold ARKW and TQQQ")
     with pytest.raises(ParseError, match=r"(?i)unknown ticker TQQQX \(closest: TQQQ"):
         parser.parse("buy TQQQX when RSI(2) is below 10, hold 3 days")
 

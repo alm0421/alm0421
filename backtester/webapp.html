@@ -1834,7 +1834,8 @@ window.addEventListener('blur', unpress);
         tipRows: i => [['Correlation', num(ro.values[i])]] });
       $('kRollNote').textContent = `Over the pair's own common history from ${ro.start}; over the whole period ${num(ro.full_period)}. Latest ${num(ro.values[ro.values.length - 1])}.`;
     }
-    $('kStatTitle').textContent = `Asset statistics, ${R.stats_start} → ${R.stats_end}`;
+    $('kStatTitle').textContent = `Asset statistics, ${R.stats_start} → ${R.stats_end}` + (R.stats_basis === 'monthly'
+      ? ' (monthly returns, like the matrix; max drawdown from month-end values)' : ' (daily returns)');
     table($('kStats'), ['Asset', 'CAGR', 'Volatility', 'Sharpe', 'Sortino', 'Max drawdown', 'Best year', 'Worst year', 'Data since'],
       R.stats.map(x => [x.ticker, { t: pct(x.cagr), c: x.cagr >= 0 ? 'pos' : 'neg' }, pct(x.volatility, 1), num(x.sharpe), num(x.sortino), { t: pct(x.max_drawdown, 1), c: 'neg' }, pct(x.best_year, 1), pct(x.worst_year, 1), x.data_from]));
   }

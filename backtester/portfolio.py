@@ -46,6 +46,23 @@ def every_n(freq) -> tuple[int, str] | None:
     return (int(m.group(1)), m.group(2)) if m else None
 FLOW_FREQS = ("monthly", "quarterly", "semiannual", "yearly")
 NAV_WARMUP = 504   # trading days simulated before the start for the synthetic NAVs of groups
+_MONTH_RET = re.compile(r"\b(?:t?ret|tbill_ret)\((?:[^()]*?,\s*)?(\d+)\s*\)")
+
+
+def month_lookback_line(p) -> str | None:
+    """How the rules' month lookbacks are measured, for the interpretation and the report's notes; None when no
+    rule has a return over whole months (a multiple of 21 sessions)."""
+    ns = {int(n) for n in _MONTH_RET.findall(json.dumps(getattr(p, "tree", {}), default=str))}
+    ns = sorted(n for n in ns if n % expr.MONTH_BARS == 0)
+    if not ns:
+        return None
+    ms = ", ".join(f"{n // expr.MONTH_BARS}" for n in ns)
+    if getattr(p, "month_lookbacks", "trading") == "calendar":
+        return (f"Month lookbacks ({ms} months): calendar months, month-end to month-end (from the last completed "
+                "month-end), as Portfolio Visualizer and Antonacci measure them")
+    return (f"Month lookbacks ({ms} months): {expr.MONTH_BARS} trading days a month (12 months = 252 sessions), "
+            "not month-end to month-end; say 'using calendar months' (or month_lookbacks: \"calendar\" in a spec) to "
+            "measure them month-end to month-end as Portfolio Visualizer does")
 
 
 @dataclass
@@ -111,6 +128,9 @@ class Portfolio:
     # the target mix over target_vol_lookback days, capped at `leverage` (1 = never borrow); the rest is cash
     target_vol: float | None = None
     target_vol_lookback: int = 60
+    # "N month" lookbacks (ret / tret / tbill_ret over a multiple of 21 sessions): "trading" = that many sessions
+    # (12 months = 252), "calendar" = month-end to month-end over N calendar months (Portfolio Visualizer, Antonacci)
+    month_lookbacks: Literal["trading", "calendar"] = "trading"
     benchmark: str | dict | None = None          # comparison ticker for alpha/beta (default SPY), or a blend:
                                                  # "60 SPY 40 AGG" / {"SPY": 0.6, "AGG": 0.4} (rebalanced monthly)
     name: str = ""
@@ -133,6 +153,8 @@ class Portfolio:
             raise ValueError("slippage_model must be 'fixed' or 'volume'")
         if not 0 <= self.maintenance_margin < 1:
             raise ValueError("maintenance_margin must be at least 0 and below 1")
+        if self.month_lookbacks not in ("trading", "calendar"):
+            raise ValueError("month_lookbacks must be 'trading' or 'calendar'")
         if self.price_basis not in ("adjusted", "quoted"):
             raise ValueError("price_basis must be 'adjusted' (total-return prices, as Composer and Portfolio Visualizer) "
                              "or 'quoted' (prices as quoted, as TradingView)")
@@ -305,6 +327,9 @@ class Portfolio:
                                            "Portfolio Visualizer do" if self.price_basis == "adjusted" else
                                            "computed on prices as quoted (not adjusted for dividends), as TradingView does")
                          + "; trades and valuation use quoted prices plus cash dividends")
+        ml = month_lookback_line(self)
+        if ml:
+            lines.append(ml)
         cr = self.cash_rate
         lines.append("Cash: " + ("earns the 3-month T-bill rate" if cr == "tbill" else
                                  f"earns {float(cr):.2%}/yr" if cr else "earns nothing"))
@@ -1098,12 +1123,12 @@ def check_tree(p: "Portfolio") -> None:
 class _Namespaces(dict):
     """ticker -> expr.Namespace, each built on first use (a universe of hundreds of tickers mostly needs few)."""
 
-    def __init__(self, dfs: dict, basis: str):
+    def __init__(self, dfs: dict, basis: str, months: str = "trading"):
         super().__init__()
-        self.dfs, self.basis = dfs, basis
+        self.dfs, self.basis, self.months = dfs, basis, months
 
     def __missing__(self, t: str):
-        ns = self[t] = expr.Namespace(self.dfs[t], ticker=t, price_basis=self.basis)
+        ns = self[t] = expr.Namespace(self.dfs[t], ticker=t, price_basis=self.basis, month_lookbacks=self.months)
         return ns
 
 
@@ -1137,7 +1162,7 @@ class reuse_evaluations:
 def _reuse_key(p, cal, dfs, off) -> tuple:
     return (id(p.tree), json.dumps(p.tree, sort_keys=True, default=str), tuple((t, id(df)) for t, df in dfs.items()),
             len(cal), cal[0], cal[-1], off, p.price_basis, p.point_in_time, p.cash_rate, p.target_vol,
-            p.target_vol_lookback, p.leverage)
+            p.target_vol_lookback, p.leverage, getattr(p, "month_lookbacks", "trading"))
 
 
 class _Evaluator:
@@ -1151,7 +1176,8 @@ class _Evaluator:
     def __init__(self, p: Portfolio, cal: pd.DatetimeIndex, dfs: dict[str, pd.DataFrame], off: int = 0):
         self.p, self.cal, self.dfs, self.off = p, cal, dfs, off
         self.basis = getattr(p, "price_basis", "quoted") or "quoted"
-        self.ns = _Namespaces(dfs, self.basis)   # built when a rule first reads the ticker
+        self.months = getattr(p, "month_lookbacks", "trading") or "trading"
+        self.ns = _Namespaces(dfs, self.basis, self.months)   # built when a rule first reads the ticker
         self.cache: dict = {}
         self.close = {t: df["close"].reindex(cal).to_numpy() for t, df in dfs.items()}
         self._rets: dict = {}
@@ -1329,7 +1355,7 @@ class _Evaluator:
             v = pd.Series(self.nav(n), index=self.cal)
             df = pd.DataFrame({"open": v, "high": v, "low": v, "close": v, "volume": 0.0, "adj_close": v,
                                "dividend": 0.0}, index=self.cal)
-            self._nav_ns[k] = expr.Namespace(df, price_basis=self.basis)
+            self._nav_ns[k] = expr.Namespace(df, price_basis=self.basis, month_lookbacks=self.months)
         return self._nav_ns[k]
 
     def mrets(self, m) -> np.ndarray:
@@ -1708,7 +1734,9 @@ def warmup_dates(p, frames=None) -> tuple[pd.Timestamp | None, dict, dict]:
                     df = data.load(t)
                 except (FileNotFoundError, data.DataError, KeyError):
                     df = None
-            nss[t] = expr.Namespace(df, ticker=t, price_basis=basis) if df is not None else None
+            nss[t] = (expr.Namespace(df, ticker=t, price_basis=basis,
+                                     month_lookbacks=getattr(p, "month_lookbacks", "trading") or "trading")
+                      if df is not None else None)
         return nss[t]
 
     dates: list = []

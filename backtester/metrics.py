@@ -88,6 +88,16 @@ def _anchor_year(series: pd.Series):
     return None
 
 
+def monthly_max_drawdown(nav_: pd.Series) -> float:
+    """Max drawdown measured on month-end values only (plus the starting value), as Portfolio Visualizer reports
+    it: shallower than the daily one when the trough or the peak fell inside a month."""
+    s = nav_.dropna()
+    if len(s) < 2:
+        return float("nan")
+    me = pd.concat([s.iloc[:1], s.resample("ME").last().dropna()])
+    return float((me / me.cummax() - 1).min())
+
+
 def monthly_returns(nav_: pd.Series) -> pd.Series:
     me = nav_.resample("ME").last()
     first = nav_.iloc[0]
