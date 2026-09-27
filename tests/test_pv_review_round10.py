@@ -282,14 +282,16 @@ def test_named_portfolio_can_start_earlier_with_stated_proxies():
     assert not p.proxies
     runner.run(p)
     w = next(n for n in p.notes if n.startswith("Warning: You asked to start on 1980"))
-    assert "with proxies before inception" in w and "IEFSIM for TIPSIM" in w
+    # emerging markets have no data before 1989 (by design: no free source), so EEMSIM limits the start whatever
+    # other sleeves the data job extends (TIPSIM now reaches 1972)
+    assert "with proxies before inception" in w and "EFASIM for EEMSIM" in w
     q = parser.parse("Swensen portfolio, rebalance yearly, since 1980, with proxies before inception")
-    assert q.proxies == {"EEMSIM": "EFASIM", "TIPSIM": "IEFSIM"}
+    assert q.proxies.get("EEMSIM") == "EFASIM"
     assert "Before inception (opt-in proxies)" in q.summary()
     res = runner.run(q)
     assert res.equity.index[1] < pd.Timestamp("1980-01-10")
-    assert any(n.startswith("Proxy before inception (opt-in): IEFSIM (intermediate Treasuries) stands in for TIPSIM")
+    assert any(n.startswith("Proxy before inception (opt-in): EFASIM (developed ex-US stocks) stands in for EEMSIM")
                for n in q.notes)
-    assert res.holdings["TIPSIM"].loc["1985"].mean() > 0.1
+    assert res.holdings["EEMSIM"].loc["1985"].mean() > 0.02
     from backtester import runner as rn
     assert rn.from_dict(rn.to_dict(q)).proxies == q.proxies
