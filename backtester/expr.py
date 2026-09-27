@@ -1276,7 +1276,9 @@ TradingView (Pine) spellings are accepted and translated: close[1] -> ref(close,
   bb_upper(n, k) bb_lower(n, k) sma(close, n); supertrend(n, k) supertrend_dir(n, k); adx plus_di minus_di
   request.security(syminfo.tickerid, "W" / "M" / "D", x) -> weekly(x) / monthly(x) / x
   request.security("SPY", "D", close) -> sym("SPY").close (x may use SPY's open/high/low/close/volume
-  with indicators that take the series explicitly); lookahead = barmerge.lookahead_on is refused
+  with indicators that take the series explicitly); lookahead = barmerge.lookahead_on is refused unless the whole
+  expression is offset: request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on) (the
+  non-repainting idiom) -> ref(weekly(high), 1), the previous completed week's high
   math.abs math.max math.min math.log math.sqrt, na() nz() hl2 hlc3 ohlc4, true / false
 """
 
@@ -1388,13 +1390,17 @@ def _is_name(n, *ids) -> bool:
 
 
 def _security(node) -> ast.AST:
-    """request.security(symbol, timeframe, expr) -> expr / weekly(expr) / monthly(expr), on this ticker or another."""
+    """request.security(symbol, timeframe, expr) -> expr / weekly(expr) / monthly(expr), on this ticker or another.
+    With lookahead = barmerge.lookahead_on the expression must be offset (high[1]): TradingView's non-repainting idiom,
+    the previous completed period's value, which is ref(weekly(high), 1) - known from the first bar of the period."""
+    la_on = False
     for k in node.keywords:
         if k.arg == "lookahead":
             if not (isinstance(k.value, ast.Attribute) and _is_name(k.value.value, "barmerge")
-                    and k.value.attr == "lookahead_off"):
-                raise ValueError("request.security(..., lookahead = barmerge.lookahead_on) reads a higher timeframe bar "
-                                 "before it closes (lookahead) and is refused; leave lookahead off.")
+                    and k.value.attr in ("lookahead_off", "lookahead_on")):
+                raise ValueError("request.security(..., lookahead = ...): use barmerge.lookahead_off, or "
+                                 "barmerge.lookahead_on with an offset expression such as high[1].")
+            la_on = k.value.attr == "lookahead_on"
         elif k.arg not in ("gaps", "ignore_invalid_symbol", "symbol", "timeframe", "expression"):
             raise ValueError(f"request.security(): the argument {k.arg} is not supported")
     kw = {k.arg: k.value for k in node.keywords}
@@ -1407,9 +1413,21 @@ def _security(node) -> ast.AST:
             raise ValueError("request.security(): only (symbol, timeframe, expression[, gaps, lookahead]) is supported")
         for extra in args[3:]:
             if isinstance(extra, ast.Attribute) and extra.attr == "lookahead_on":
-                raise ValueError("request.security(..., barmerge.lookahead_on) reads a higher timeframe bar before it "
-                                 "closes (lookahead) and is refused; leave lookahead off.")
+                la_on = True
     sym_, tf, x = args[:3]
+    if la_on:
+        # only safe with an offset of at least one period on the whole expression: x[k] with lookahead_on is the
+        # value k periods before the period in progress, i.e. the completed period k-1 before the last one
+        k_ = (_literal(x.args[1]) if isinstance(x, ast.Call) and _is_name(x.func, "ref") and len(x.args) == 2
+              and not x.keywords else None)
+        if not (isinstance(k_, (int, float)) and not isinstance(k_, bool) and k_ >= 1 and float(k_).is_integer()):
+            raise ValueError("request.security(..., lookahead = barmerge.lookahead_on) reads a higher timeframe bar "
+                             "before it closes (lookahead) and is refused; leave lookahead off, or offset the whole "
+                             "expression by one period - request.security(syminfo.tickerid, \"W\", high[1], lookahead = "
+                             "barmerge.lookahead_on), the non-repainting idiom - for the previous completed period.")
+        k_ = int(k_)
+        x = x.args[0] if k_ == 1 else ast.Call(func=ast.Name(id="ref", ctx=ast.Load()), args=[x.args[0], ast.Constant(k_ - 1)],
+                                               keywords=[])
     if not (isinstance(tf, ast.Constant) and isinstance(tf.value, str) and tf.value.upper() in _TF):
         raise ValueError('request.security(): the timeframe must be "D", "W" or "M" (daily bars only; intraday '
                          'timeframes are not available)')
@@ -1440,6 +1458,11 @@ def _security(node) -> ast.AST:
                 n.args = [self.visit(a) for a in n.args]
                 return n
         x = _Other().visit(x)
+    if la_on:
+        # the previous completed period's value: as of the bar before, the higher timeframe series (which updates on
+        # a period's last session) still shows the period before the one in progress
+        inner = x if per is None else ast.Call(func=ast.Name(id=per, ctx=ast.Load()), args=[x], keywords=[])
+        return ast.Call(func=ast.Name(id="ref", ctx=ast.Load()), args=[inner, ast.Constant(1)], keywords=[])
     if per is None:
         return x
     return ast.Call(func=ast.Name(id=per, ctx=ast.Load()), args=[x], keywords=[])

@@ -1093,7 +1093,7 @@ def run(strat: Strategy) -> Result:
     dyn_levels = bool(strat.dynamic_levels and (strat.stop_level or strat.target_level))
     # levels that move in ways the report's chart can't rebuild from the entry: recorded bar by bar
     track_levels = stops_used and bool(strat.tv_compat or dyn_levels or strat.trailing_points or strat.trail_activation
-                                       or strat.trail_activation_points or strat.breakeven_r or strat.current_atr
+                                       or strat.trail_activation_points or strat.trail_activation_r or strat.breakeven_r or strat.current_atr
                                        or not strat.stop_covers_scale_outs)
     level_paths: dict = {}
 
@@ -1136,6 +1136,8 @@ def run(strat: Strategy) -> Result:
         if strat.trail_activation and (p.peak - e * (1 + s * strat.trail_activation)) * s < 0:
             return False
         if strat.trail_activation_points and (p.peak - (e + s * strat.trail_activation_points)) * s < 0:
+            return False
+        if strat.trail_activation_r and not (np.isfinite(p.risk) and (p.peak - (e + s * strat.trail_activation_r * p.risk)) * s >= 0):
             return False
         return True
 
@@ -1191,7 +1193,11 @@ def run(strat: Strategy) -> Result:
                  if x is not None]
         trail = [lv for lv, _ in trail_levels(p)]
         pick = (lambda xs: max(xs) if s == 1 else min(xs))
-        _, _, tgt = levels(p)
+        ungated[0] = True
+        try:
+            _, _, tgt = levels(p)
+        finally:
+            ungated[0] = False
         return (pick(fixed) if fixed else np.nan, pick(trail) if trail else np.nan, tgt if tgt is not None else np.nan)
 
     def so_level(p: Position, so: dict) -> float:
@@ -1199,6 +1205,8 @@ def run(strat: Strategy) -> Result:
         trade has no risk to measure)."""
         if so.get("r") is not None:
             return p.avg_price + p.sign * float(so["r"]) * p.risk if np.isfinite(p.risk) else np.nan
+        if so.get("points") is not None:     # a price distance (TradingView: profit = ticks, limit = avg price + x)
+            return p.avg_price + p.sign * float(so["points"])
         return p.avg_price * (1 + p.sign * float(so["at"]))
 
     def profit_levels(p: Position, tgt) -> list:
@@ -1207,11 +1215,22 @@ def run(strat: Strategy) -> Result:
         limit orders like the target; at the same level the scale-out comes first."""
         s = p.sign
         out = [(so_level(p, so), "scale out", j, float(so["fraction"]))
-               for j, so in enumerate(strat.scale_out or []) if j not in p.scaled and np.isfinite(so_level(p, so))]
+               for j, so in enumerate(strat.scale_out or []) if j not in p.scaled and np.isfinite(so_level(p, so))
+               and placed(p, "scale_out" if so.get("after_fill") else "")]
         if tgt is not None:
             out.append((tgt, "take profit", None, 1.0))
         out.sort(key=lambda x: (x[0] * s, x[2] is None))
         return out
+
+    AFTER_FILL = set(strat.exits_after_fill or []) | {"scale_out"}   # a scale-out says so itself (after_fill)
+    ungated = [False]        # the levels a position will have (the trade list's stop / target), placed or not yet
+
+    def placed(p: Position, kind: str) -> bool:
+        """exits_after_fill: an exit order the script places from strategy.position_avg_price exists only from the bar
+        after the first close in the position (an open fill's own bar, a close fill's next bar, are without it)."""
+        if kind not in AFTER_FILL or ungated[0]:
+            return True
+        return i >= p.entry_bar + (1 if p.lots[0].at_open else 2)
 
     def levels(p: Position):
         """(stop level or None, stop reason, target level or None)"""
@@ -1221,11 +1240,12 @@ def run(strat: Strategy) -> Result:
             return None, "", None
         cands = []
         a = atr_of(p, "stop")
-        if strat.stop_loss:
+        fixed_ok = placed(p, "stop")
+        if strat.stop_loss and fixed_ok:
             cands.append((e * (1 - s * strat.stop_loss), "stop loss"))
-        if strat.stop_atr and np.isfinite(a):
+        if strat.stop_atr and np.isfinite(a) and fixed_ok:
             cands.append((e - s * strat.stop_atr * a, "ATR stop"))
-        if np.isfinite(p.lvl_stop):
+        if np.isfinite(p.lvl_stop) and fixed_ok:
             cands.append((p.lvl_stop, "trailing stop" if strat.stop_ratchet else "stop level"))
         cands += trail_levels(p)      # "trail the rest": after the first scale-out; after the activation distance
         arm = p.arm_peak if np.isfinite(p.arm_peak) else p.peak
@@ -1236,6 +1256,8 @@ def run(strat: Strategy) -> Result:
         if cands:  # the tightest stop (closest to price) triggers first
             stop, why = max(cands, key=lambda c: c[0] * s)
         tgt = None
+        if not placed(p, "target"):
+            return stop, why, None
         if strat.take_profit:
             tgt = e * (1 + s * strat.take_profit)
         if strat.take_profit_atr and np.isfinite(a):
@@ -1557,7 +1579,7 @@ def run(strat: Strategy) -> Result:
     open_state = []
     for p in positions.values():
         stop, why, tgt = levels(p) if stops_used else (None, "", None)
-        so_levels = [{**({"r": float(so["r"])} if so.get("r") is not None else {"at": float(so["at"])}),
+        so_levels = [{**({k_: float(so[k_]) for k_ in ("r", "points", "at") if so.get(k_) is not None}),
                       "fraction": float(so["fraction"]), "level": float(so_level(p, so))}
                      for j, so in enumerate(strat.scale_out or []) if j not in p.scaled and np.isfinite(so_level(p, so))]
         open_state.append({

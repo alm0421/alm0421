@@ -284,6 +284,9 @@ def _pyexpr(text: str, line: int) -> ast.AST:
     funcs = getattr(_TLS, "funcs", None)
     if funcs:
         node = _Inline(funcs, line).visit(node)
+    ren = getattr(_TLS, "renames", None)
+    if ren:
+        node = _Rename(ren).visit(node)
     return node
 
 
@@ -653,10 +656,62 @@ CLOSE_ARGS = ["id", "comment", "qty", "qty_percent", "alert_message", "immediate
 def translate(text: str, ticker: str | None = None) -> Strategy:
     """A Pine strategy script as a Strategy (TradingView-compatible mode), with the translation in its notes."""
     _TLS.funcs = {}
+    _TLS.renames = {}
     try:
         return _translate(text, ticker)
     finally:
         _TLS.funcs = None
+        _TLS.renames = None
+
+
+_BUILTINS: set | None = None
+
+
+def _builtin_names() -> set:
+    """Every name the rule language (or Pine's own vocabulary) gives a meaning to: a script variable spelt the same
+    (`[macd, signal, hist] = ta.macd(...)`, `adx = ...`) is renamed internally so it never shadows it."""
+    global _BUILTINS
+    if _BUILTINS is None:
+        from . import expr as _expr
+        df = pd.DataFrame({c: [1.0, 1.0, 1.0] for c in ("open", "high", "low", "close", "volume")},
+                          index=pd.date_range("2020-01-01", periods=3))
+        names = set(_expr.Namespace(df))
+        names |= {"down_days", "up_days", "ibs", "gap", "range", "change", "dow", "day", "month", "year", "dollar_volume",
+                  "tr", "hl2", "hlc3", "ohlc4", "hlcc4", "true_range", "ha_open", "ha_high", "ha_low", "ha_close",
+                  "market_cap", "trading_day_of_month", "trading_days_left_in_month", "bars_held", "entry_price", "pnl",
+                  "side", "stop_price", "highest_since_entry", "lowest_since_entry", "signal", "time", "bar_index",
+                  "timenow", "time_close"}
+        names |= set(_expr._PINE_TA) | set(_expr._PINE_VARS)
+        _BUILTINS = {n for n in names if not n.startswith("_") and n not in ("True", "False", "na")}
+    return _BUILTINS
+
+
+def _user_name(nm: str) -> str:
+    """The internal name of a script variable being defined: pv_<name> when it shadows a built-in name."""
+    ren = getattr(_TLS, "renames", None)
+    if ren is None or nm == "_" or nm not in _builtin_names():
+        return nm
+    ren[nm] = "pv_" + nm
+    return ren[nm]
+
+
+class _Rename(ast.NodeTransformer):
+    """Script variables that shadow built-in names read as their internal pv_ names (a function being called keeps
+    its name: macd(...) is the indicator, macd the script's variable)."""
+
+    def __init__(self, ren):
+        self.ren = ren
+
+    def visit_Call(self, n):
+        n.args = [self.visit(a) for a in n.args]
+        for k in n.keywords:
+            k.value = self.visit(k.value)
+        if not isinstance(n.func, ast.Name):
+            n.func = self.visit(n.func)
+        return n
+
+    def visit_Name(self, n):
+        return ast.Name(id=self.ren[n.id], ctx=n.ctx) if n.id in self.ren else n
 
 
 class _StateNames(ast.NodeTransformer):
@@ -695,7 +750,12 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
         if m:
             tick = m.group(1).split(":")[-1]
             break
-    tick = tick or (ticker.strip() if isinstance(ticker, str) and ticker.strip() else None)
+    given = ticker.strip() if isinstance(ticker, str) and ticker.strip() else None
+    if given and tick and data.canonical(given.split(":")[-1]) != data.canonical(tick):
+        # the ticker given with the run (--tickers, the site's Ticker field) is the chart symbol: it wins
+        ctx.notes.append(f"Ticker: {data.canonical(given.split(':')[-1])} (as given with the run), not the script's "
+                         f"'// ticker: {tick}' comment.")
+    tick = (given.split(":")[-1] if given else None) or tick
     if not tick:
         raise PineImportError("Which ticker should this Pine script run on? Add a comment line such as '// ticker: SPY' "
                               "to the script, or give the ticker (the Ticker setting on the site, --tickers SPY on the "
@@ -762,7 +822,12 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
                 if not pm:
                     _refuse(line, f"the parameter {part!r} of {m.group(1)}() is not supported.")
                 params.append((pm.group(1), _pyexpr(pm.group(2), line) if pm.group(2) else None))
-            body = _pyexpr(m.group(3), line)
+            ren = getattr(_TLS, "renames", None) or {}
+            hidden = {p_: ren.pop(p_) for p_, _ in params if p_ in ren}     # a parameter is not the script's variable
+            try:
+                body = _pyexpr(m.group(3), line)
+            finally:
+                ren.update(hidden)
             for x in ast.walk(body):
                 if isinstance(x, ast.Name) and x.id in ctx.state:
                     _refuse(line, f"the function {m.group(1)}() reads the var {x.id}; functions may only use their "
@@ -920,7 +985,7 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
                 _refuse(line, f"ta.{base}() returns {len(vals)} values.")
             for nm, v in zip(names, vals):
                 if nm != "_":
-                    ctx.sym[nm] = ast.parse(v, mode="eval").body
+                    ctx.sym[_user_name(nm)] = ast.parse(v, mode="eval").body
             shown.append(f"line {line}: [{', '.join(names)}] = {', '.join(vals[:len(names)])}")
             continue
         # variable assignment
@@ -933,6 +998,7 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
                               "the top level (a value kept from bar to bar is declared with var and updated with :=).")
             if nm in ctx.state:
                 _refuse(line, f"{nm} is a var: update it with {nm} := ... (= would declare it again).")
+            shown_nm, nm = nm, _user_name(nm)
             used = _state_uses(node, ctx)
             if used:
                 ctx.uses.append((line, used))
@@ -940,16 +1006,16 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
                 v = _input_default(node, line)
                 v = _Inputs(ctx, line).visit(copy.deepcopy(v))
                 ctx.sym[nm] = v
-                shown.append(f"line {line}: {nm} = {ast.unparse(v)} (the input's default)")
+                shown.append(f"line {line}: {shown_nm} = {ast.unparse(v)} (the input's default)")
                 continue
             if _call_name(node).startswith("color.") or (isinstance(node, ast.Attribute) and _attr(node).startswith("color.")):
                 continue
             ctx.sym[nm] = node
             if _const(_Inputs(ctx, line).visit(copy.deepcopy(node))) is None:
                 try:
-                    shown.append(f"line {line}: {nm} = {_rule(node, ctx, line, 'display')}")
+                    shown.append(f"line {line}: {shown_nm} = {_rule(node, ctx, line, 'display')}")
                 except PineImportError:
-                    shown.append(f"line {line}: {nm} = {ast.unparse(node)}")
+                    shown.append(f"line {line}: {shown_nm} = {ast.unparse(node)}")
             continue
         _refuse(line, f"{s[:60]!r} is not supported by the importer.")
 
@@ -1126,11 +1192,20 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
 
     # ---- strategy.exit brackets
     ex: dict = {}
-    scale: list[tuple[float, float, int]] = []       # (level fraction, qty fraction of the entry, line)
+    scale: list[tuple] = []                           # (kind "at" / "points", level, qty fraction of the entry, line)
     rest_stop, rest_trail = {}, {}                   # the stop / trailing stop of the exit(s) for the rest
     part_stop: list[tuple[dict, int]] = []           # (stop, line) of each partial exit (qty_percent < 100)
     part_trail: list[tuple[dict, int]] = []
     lvl_expr: dict = {"stop_level": {}, "target_level": {}}   # side -> level text
+    after_fill: dict = {}                            # exit kind -> line: levels from strategy.position_avg_price
+
+    def uses_avg(key, line):
+        """The exit argument reads strategy.position_avg_price (na while flat, so the order exists only once the
+        script has seen the position at a close)."""
+        if key not in a:
+            return False
+        n_ = _Inputs(ctx, line).visit(copy.deepcopy(a[key]))
+        return any(_attr(x) == "strategy.position_avg_price" for x in ast.walk(n_))
 
     def put(field_, v, line):
         if field_ in ex and ex[field_] != v and not (isinstance(v, float) and abs(ex[field_] - v) < 1e-12):
@@ -1211,13 +1286,33 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
             k, v, per = level_of("stop")
             stop_f = as_fields(k, v, per, "stop", sides_x)
             got.append(describe(k, v, per, "stop"))
+            if uses_avg("stop", line) or uses_avg("loss", line):
+                after_fill.setdefault("stop", line)
         if "limit" in a or "profit" in a:
             k, v, per = level_of("limit")
+            avg_ = uses_avg("limit", line) or uses_avg("profit", line)
+            if avg_:
+                after_fill.setdefault("scale_out" if qp < 100 else "target", line)
             if qp < 100:
-                if k != "pct":
-                    _refuse(line, "a partial exit (qty_percent) is supported at a percentage target only.")
-                scale.append((v, qp / 100, line))
-                got.append(f"sell {qp:g}% of the entry at +{v:.2%}")
+                if k == "pct":
+                    scale.append(("at", v, qp / 100, line, avg_))
+                    got.append(f"sell {qp:g}% of the entry at +{v:.2%}")
+                else:
+                    # a fixed price distance from the entry: profit = ticks, limit = strategy.position_avg_price + x
+                    pts = set()
+                    for sg, t_ in (v.items() if k == "expr" else ()):
+                        mm = re.fullmatch(r"entry_price ([-+]) \(?(\d+(?:\.\d+)?)\)?", str(t_).strip())
+                        if not mm or (mm.group(1) == "+") != (sg == 1):
+                            pts = None
+                            break
+                        pts.add(float(mm.group(2)))
+                    if not pts or len(pts) != 1 or next(iter(pts)) <= 0:
+                        _refuse(line, "a partial exit (qty_percent) is supported at a percentage target "
+                                      "(strategy.position_avg_price * 1.05), a number of ticks (profit = 300) or a fixed "
+                                      "distance from the entry (strategy.position_avg_price + 5).")
+                    d_ = next(iter(pts))
+                    scale.append(("points", d_, qp / 100, line, avg_))
+                    got.append(f"sell {qp:g}% of the entry at ${d_:g} from the entry")
             else:
                 for f_, v_ in as_fields(k, v, per, "limit", sides_x).items():
                     if f_ == "target_level":
@@ -1312,11 +1407,11 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
             if f_ != rest:
                 _refuse(ln, f"the partial exit's {what} differs from the {what} on the rest of the position; different "
                             f"{what}s for parts of one position are not supported.")
-    for lvl, frac, ln in scale:
+    for _, lvl, frac, ln, _ in scale:
         if (rest_stop or rest_trail) and not any(l2 == ln for _, l2 in part_stop + part_trail):
             uncovered.append(ln)
     if uncovered:
-        if any(l2 not in uncovered for _, _, l2 in scale):
+        if any(l2 not in uncovered for _, _, _, l2, _ in scale):
             _refuse(uncovered[0], "some partial exits carry the stop and others don't; give every partial exit the same "
                                   "stop, or none.")
         ex["stop_covers_scale_outs"] = False
@@ -1342,16 +1437,29 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
                      "bar, it is recomputed on every bar from the previous close (dynamic levels); entry_price is "
                      "strategy.position_avg_price.")
     if scale:
-        if sum(f for _, f, _ in scale) > 1 + 1e-9:
+        if sum(f for _, _, f, _, _ in scale) > 1 + 1e-9:
             raise PineImportError("The partial exits (qty_percent) add up to more than 100%.")
+        if len({k_ for k_, _, _, _, _ in scale}) > 1:
+            raise PineImportError(f"Pine script line {scale[0][3]}: the partial exits mix percentage targets and price "
+                                  "distances (ticks / points), whose order depends on the entry price; use one kind.")
         left = 1.0
         so = []
-        for lvl, frac, _ in sorted(scale):
-            so.append({"at": lvl, "fraction": min(frac / left, 1.0)})
+        for kind_, lvl, frac, _, avg_ in sorted(scale, key=lambda x: x[1]):
+            so.append({kind_: lvl, "fraction": min(frac / left, 1.0), **({"after_fill": True} if avg_ else {})})
             left -= frac
         ex["scale_out"] = so
     if ex.get("atr_period") is None:
         ex.pop("atr_period", None)
+    if after_fill:
+        # (a scale-out carries its own after_fill flag: one from ticks and one from the average price can differ)
+        ex["exits_after_fill"] = [k_ for k_ in ("stop", "target") if k_ in after_fill]
+        notes.append(f"line {', '.join(map(str, sorted(set(after_fill.values()))))}: the "
+                     f"{' / '.join(k_ for k_ in ('stop', 'target', 'scale_out') if k_ in after_fill).replace('_', '-')} level is computed from "
+                     "strategy.position_avg_price, which is na until the script has run on a bar in the position, so - as "
+                     "in TradingView - that exit order is placed at the close of the "
+                     f"{'entry bar' if not poc else 'bar after the entry'} and can fill from the next bar on, never on the "
+                     "fill bar itself. (Outside TradingView-compatible mode, and for levels in ticks from the fill, the "
+                     "stop and target are live from the fill.)")
 
     # ---- the spec
     notes += [n for n in ctx.notes if n not in notes]     # notes the stop / target translation added
