@@ -1,0 +1,8 @@
+//@version=5
+// ticker: QQQ
+strategy("Pullback limit entry, channel stop", overlay=true, initial_capital=10000,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+if ta.rsi(close, 2) < 10 and close > ta.sma(close, 200)
+    strategy.entry("B", strategy.long, limit=close * 0.99)
+// a stop that moves with the market: the 10-day low, recomputed every bar
+strategy.exit("X", "B", stop=ta.lowest(low, 10), limit=strategy.position_avg_price * 1.05)

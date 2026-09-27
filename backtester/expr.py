@@ -952,6 +952,15 @@ class Namespace(dict):
             """x with missing values replaced by y (TradingView's nz())."""
             return _s(x, c).fillna(y)
 
+        def where(cond, a, b):
+            """a where cond is true, else b (TradingView's ternary cond ? a : b); a missing cond counts as false."""
+            m = _s(cond, c)
+            m = m.fillna(0).astype(bool) if m.dtype != bool else m
+            av, bv = _s(a, c), _s(b, c)
+            if av.dtype == bool and bv.dtype == bool:
+                return pd.Series(np.where(m.to_numpy(), av.to_numpy(), bv.to_numpy()), index=c.index)
+            return pd.Series(np.where(m.to_numpy(), av.to_numpy(dtype=float), bv.to_numpy(dtype=float)), index=c.index)
+
         def cross(a, b):
             """a crosses b in either direction (TradingView's ta.cross)."""
             return crossover(a, b) | crossunder(a, b)
@@ -1141,7 +1150,7 @@ class Namespace(dict):
             "aroon_up": aroon_up, "aroon_down": aroon_down, "aroon_osc": aroon_osc, "cmf": cmf,
             "pivothigh": pivothigh, "pivotlow": pivotlow, "avwap": avwap, "na": na, "nz": nz, "cross": cross,
             "crossover": crossover, "crossunder": crossunder, "count": count, "bars_since": bars_since,
-            "valuewhen": valuewhen, "diff": diff,
+            "valuewhen": valuewhen, "diff": diff, "where": where,
             "down_streak": down_streak, "up_streak": up_streak,
             "cummax": lambda x: series_arg(x, "cummax").cummax(), "cummin": lambda x: series_arg(x, "cummin").cummin(),
             "weekly_sma": lambda n, x=None: _periodic_sma("W-FRI", n, x),
@@ -1177,6 +1186,7 @@ Variables (per bar; prices are split-adjusted, as quoted):
   hl2 hlc3 ohlc4 hlcc4              price averages (hlc3 = typical price)   true_range
   ha_open ha_high ha_low ha_close   Heikin Ashi bars (as TradingView draws them)
   na(x) nz(x,y)                     x is missing / x with missing values replaced by y
+  where(cond,a,b)                   a where cond is true, else b (TradingView's cond ? a : b)
 Position variables (exit rules only):
   bars_held  entry_price  pnl (open trade return, 0.05 = +5%)
   highest_since_entry  lowest_since_entry
@@ -1521,11 +1531,11 @@ def pine_to_rule(text):
 # (abs(1), 1+0, 2 and 1) where a lookback belongs is refused outright, so the static open-time check below and
 # the runtime can never read the same argument differently.
 
-_VALUE_FUNCS = {"abs", "maximum", "minimum", "log", "sqrt"}          # element-wise maths on values
+_VALUE_FUNCS = {"abs", "maximum", "minimum", "log", "sqrt", "where"}  # element-wise maths on values
 _FREE_ARG_FUNCS = _VALUE_FUNCS | {"crossover", "crossunder", "cross", "sym", "weekly", "monthly", "_tf", "avwap",
                                   "nz", "na"}
 _SERIES_ONLY_FUNCS = {"cummax", "cummin", "down_streak", "up_streak", "bars_since"}
-_SCALAR_NAMES = {"entry_price"}                                       # position variable that is a number
+_SCALAR_NAMES = {"entry_price", "side"}                               # position variables that are numbers
 
 
 def _literal(node):

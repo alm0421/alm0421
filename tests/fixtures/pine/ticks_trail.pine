@@ -1,0 +1,16 @@
+//@version=5
+// ticker: SPY
+strategy("Ticks and trailing", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity,
+     default_qty_value=100)
+
+isUp(x) => x > x[1]
+fastLen = input.int(12)
+slowLen = close > open ? 26 : 26
+fast = ta.ema(close, fastLen)
+inLong = strategy.position_size > 0
+
+if ta.crossover(fast, ta.ema(close, 26)) and isUp(close) and not inLong
+    strategy.entry("B", strategy.long)
+
+// 1000 ticks = $10 stop; the trail starts 500 ticks ($5) in profit and trails 300 ticks ($3) behind
+strategy.exit("X", "B", trail_points=500, trail_offset=300, loss=1000)

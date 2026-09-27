@@ -384,7 +384,8 @@ def _ns(res: Result, t: str):
             df = data.load(t)
         except (FileNotFoundError, data.DataError, KeyError):
             return None
-    return expr.Namespace(df, ticker=t)
+    from .engine import strategy_namespace
+    return strategy_namespace(res.strategy, df, t) if getattr(res, "kind", "") == "signal" else expr.Namespace(df, ticker=t)
 
 
 def warmup(res: Result) -> tuple[pd.Timestamp | None, list[str]]:
@@ -859,7 +860,9 @@ def ticker_chart(res: Result, t: str, setup=None, seg: pd.DataFrame | None = Non
     L = chart_layout(_rules_list(res), t)
     if seg is None:
         seg = _chart_segment(res, t, res.trades["ticker"].nunique() > 1)
-    ns = expr.Namespace(res.prices[t], ticker=t)
+    from .engine import strategy_namespace
+    ns = (strategy_namespace(res.strategy, res.prices[t], t) if getattr(res, "kind", "") == "signal"
+          else expr.Namespace(res.prices[t], ticker=t))
     overlays, step = {}, []
     for c in L["overlays"]:
         v = _values(c, ns, seg.index)
@@ -1073,11 +1076,13 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
         flows = res.extras.get("flows")
         nv = nv[nv.index <= dep]
         nv_all = nv
-        stats = metrics.equity_stats(res.equity, rf, flows, first_bar=first_bar)
+        stats = metrics.equity_stats(res.equity, rf, flows, first_bar=first_bar,
+                                     years_from_first_bar=res.kind == "signal")
         stats["depleted"] = dep.date()
     else:
         dep = None
-        stats = metrics.equity_stats(res.equity, rf, flows if has_flows else None, first_bar=first_bar)
+        stats = metrics.equity_stats(res.equity, rf, flows if has_flows else None, first_bar=first_bar,
+                                     years_from_first_bar=res.kind == "signal")
     tstats = metrics.trade_stats(res.trades, stats["years"])
     no_trades = res.kind == "signal" and not (tstats.get("trades") or tstats.get("open_trades"))
     warnings = metrics.result_warnings(res.kind, stats, tstats, res.interest, has_flows)
@@ -1607,7 +1612,14 @@ def _trades_records(res: Result) -> list[dict]:
     if tr is None or tr.empty:
         return []
     tr = tr.copy()
-    return tr.reset_index().rename(columns={"index": "trade"}).to_dict("records")
+    recs = tr.reset_index().rename(columns={"index": "trade"}).to_dict("records")
+    paths = (res.extras or {}).get("level_paths") or {}
+    if paths:
+        for r in recs:      # the stop / target bar by bar where they move (dynamic levels, TradingView's trailing stops)
+            lv = paths.get(f"{r.get('ticker')}|{r.get('entry_date')}")
+            if lv:
+                r["lv"] = lv
+    return recs
 
 
 def _partial_text(year, row) -> str:

@@ -360,14 +360,19 @@ def annualise(growth, years):
     return -1.0 if growth <= 0 else float(growth) ** (1 / years) - 1
 
 
-def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, first_bar=None) -> dict:
+def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, first_bar=None,
+                 years_from_first_bar: bool = False) -> dict:
     """Statistics for an equity curve; time-weighted if flows are given. `first_bar`: the first real
-    bar when the series starts with the synthetic day-before point (only changes the dates shown)."""
+    bar when the series starts with the synthetic day-before point (changes the dates shown; with
+    years_from_first_bar - a signal strategy, in cash until the first bar's close - also the year count of
+    the CAGR, which then runs from the first bar, not from the day before it)."""
     nv = nav(equity, flows) if flows is not None and flows.abs().sum() > 0 else equity
     wiped_out = bool((nv <= 0).any())
     nv = floor_at_zero(nv)
     r = nv.pct_change().iloc[1:].fillna(0.0)
-    years = (nv.index[-1] - nv.index[0]).days / 365.25
+    t0 = pd.Timestamp(first_bar) if (years_from_first_bar and first_bar is not None
+                                     and nv.index[0] < pd.Timestamp(first_bar) < nv.index[-1]) else nv.index[0]
+    years = (nv.index[-1] - t0).days / 365.25
     total = nv.iloc[-1] / nv.iloc[0] - 1
     cagr = annualise(nv.iloc[-1] / nv.iloc[0], years) if years > 0 else np.nan
     rfd = rf_daily(r.index, rf)

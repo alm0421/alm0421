@@ -289,7 +289,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label>Chandelier stop (x ATR)<input id="s_trailing_atr" type="number" step="0.1"></label>
         <label>ATR period<input id="s_atr_period" type="number" min="1" value="14"></label>
         <label title="a stop at the entry price once the best price is this far in favour">Breakeven after (%)<input id="s_breakeven_after" type="number" step="0.1"></label>
-        <label title="partial exits: 'fraction@gain' in %, e.g. 50@10 = sell 50% at +10%; several separated by commas">Scale out (%@%)<input id="s_scale_out" placeholder="50@10, 25@20"></label>
+        <label title="partial exits: 'fraction@gain' in %, e.g. 50@10 = sell 50% at +10%, or 'fraction@NR', e.g. 33.33@1R = a third at 1R; several separated by commas">Scale out (%@%)<input id="s_scale_out" placeholder="50@10, 25@20"></label>
         <label title="arm the trailing / chandelier stop only after the first scale-out (trail the rest)">Trail after scale-out<select id="s_trail_after_scale_out"><option value="false">no</option><option value="true">yes</option></select></label>
         <label title="a stop price evaluated when the position opens, e.g. low, lowest(low, 5), entry_price - 2 * atr(14)">Stop level (rule)<input id="s_stop_level" placeholder="lowest(low, 5)"></label>
         <label title="a target price evaluated when the position opens; may use entry_price and stop_price">Target level (rule)<input id="s_target_level" placeholder="highest(high, 20)"></label>
@@ -1391,13 +1391,17 @@ window.addEventListener('blur', unpress);
   const pctStr = v => String(+(v * 100).toFixed(6));
   // fields shown in their own format: scale-outs as "fraction@gain" in %, cash interest as tbill / a rate in % (0 = none)
   const TO_TEXT = {
-    scale_out: v => (v || []).map(x => `${pctStr(x.fraction)}@${pctStr(x.at)}`).join(', '),
+    // (fractions to 10 decimals: "a third" is exactly 1/3 and must come back unchanged)
+    scale_out: v => (v || []).map(x => { const fr = String(+(x.fraction * 100).toFixed(10));
+      return x.r != null ? `${fr}@${+x.r}R` : `${fr}@${pctStr(x.at)}`; }).join(', '),
     cash_rate: v => v === 'tbill' ? 'tbill' : v == null || v === 0 ? '0' : pctStr(v),
   };
   const FROM_TEXT = {
     scale_out: t => t.split(/[,;]+/).map(x => x.trim()).filter(Boolean).map(x => {
+      const r = x.match(/^(\d+(?:\.\d+)?)\s*%?\s*@\s*\+?(\d+(?:\.\d+)?)\s*R$/i);
+      if (r) return { fraction: +r[1] / 100, r: +r[2] };
       const m = x.match(/^(\d+(?:\.\d+)?)\s*%?\s*@\s*\+?(\d+(?:\.\d+)?)\s*%?$/);
-      if (!m) throw new Error(`Scale out: '${x}' should be fraction@gain in %, e.g. 50@10 (sell 50% at +10%).`);
+      if (!m) throw new Error(`Scale out: '${x}' should be fraction@gain in %, e.g. 50@10 (sell 50% at +10%), or fraction@R, e.g. 33.33@1R.`);
       return { fraction: +m[1] / 100, at: +m[2] / 100 };
     }),
     cash_rate: t => { const x = t.trim().toLowerCase(); if (x === 'tbill' || x === 't-bill') return 'tbill'; if (x === 'none') return 0;

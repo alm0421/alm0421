@@ -1,0 +1,12 @@
+//@version=5
+// ticker: SPY
+strategy("RSI + ATR brackets", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity,
+     default_qty_value=50)
+atrv = ta.atr(14)
+if ta.crossover(ta.rsi(close, 14), 30)
+    strategy.entry("L", strategy.long)
+if ta.crossunder(ta.rsi(close, 14), 70)
+    strategy.entry("S", strategy.short)
+// re-evaluated on every bar in TradingView: the levels follow the current ATR
+strategy.exit("XL", from_entry="L", stop=strategy.position_avg_price - 2 * atrv, limit=strategy.position_avg_price + 3 * atrv)
+strategy.exit("XS", from_entry="S", stop=strategy.position_avg_price + 2 * atrv, limit=strategy.position_avg_price - 3 * atrv)
