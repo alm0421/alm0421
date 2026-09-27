@@ -170,7 +170,7 @@ import but do not export: no public export or schema names the keys of their par
 | Candles and channels | "on a bullish engulfing" / "a bearish engulfing candle" (daily candles: a down candle followed by an up candle whose body covers it - open at or below the previous close, close at or above the previous open, a larger body - and the mirror image), "a Donchian 55-day breakout" (the close above the highest high of the 55 bars before, `close > ref(highest(high, 55), 1)`; "breakdown": below the lowest low; also "breaks out above the Donchian channel (20)", "breaks below the 20 day Donchian channel"), "closes above the open" / "closes higher than it opened" (a green candle, `close > open`), "closes up on the day" (`close > ref(close, 1)`, against the previous close), "an inside bar breaks to the upside" (the signal day is an inside bar - high below the previous high, low above the previous low - and the entry is a buy stop at its high for the next session, as other stop entries; "to the downside": a sell stop at its low), "stochastic crosses above 20 from below" (the "from below" is implied), "the 50 SMA is rising" (a length without a unit is in days); "VIX closes back inside" is refused with a question (inside which band?), "tenkan crosses above kijun" (Ichimoku conversion / base lines), "the MACD line is below zero" |
 | Calendar | on Mondays, in October, last / first / third / second-to-last trading day of the month, first 3 trading days of the month |
 | Ranking | "buy the 5 Nasdaq 100 stocks with the lowest RSI(2) each day, hold 3 days" (up to 5 positions; free slots go to the lowest RSI(2)); with no rule or exit, "buy the 3 Nasdaq 100 stocks with the highest 20 day rate of change each week" is a weekly rotation (an equal-weight allocation re-chosen each week) |
-| Entries | at the close / at the open (same day, rules must be knowable at the open) / next open; limit or stop orders ("a limit 2% below the close"); pyramiding ("pyramid up to 3 entries": with no size given, each position's share is split across the entries); a gap rule with no timing ("buy QQQ when it gaps down 2%") fills at that day's open, when it becomes known; "on QQQ, go long when …" |
+| Entries | at the close / at the open (same day, rules must be knowable at the open) / next open; limit or stop orders ("a limit 2% below the close"); pyramiding ("pyramid up to 3 entries": with no size given, each position's share is split across the entries); a gap rule with no timing ("buy QQQ when it gaps down 2%") fills at that day's open, when it becomes known, 0.05% worse than the open print (below); "buy AAPL at the next open when it gaps down 2%" acts a day later; "buy the dip in NVDA: when it drops 10% from its 52 week high" (= `drawdown(close, 252) <= -0.1`, true on every day it is at least 10% below); "on QQQ, go long when …" |
 | Exits | hold N days, sell when …, "sell after 10 days or when RSI is above 70", "sell when it's over 70", "sell when it is falling", "sell when they turn down" (*it* / *they* = what the entry is about: its indicator, e.g. the 50-day MA of "buy when the 50 day moving average is rising", or the price; refused if the entry is about several things; shown as a **Warning**), a bare "RSI" takes the entry's period, "sell when it crosses back below", "sell when it crosses below it" (after "buy when close crosses above the 50 day MA": the close crossing back below that average), "sell when it crosses above the 20 day mean" (the 20-day SMA), "sell at the open when …" (same open if the rule is known at the open, e.g. a gap; otherwise checked at the close and sold at the next open), "cover at the next open when …", % stop, ATR stop, trailing / chandelier stop (both at once: whichever is closer to the price), "move the stop to breakeven after +2%", take profit, sell half at +X% ("and trail the rest with an 8% trailing stop": the trailing stop starts after the scale-out), "stop at the low of the entry bar", "stop at the 5 day low", "stop at `expr`", "target 2R" / "take profit at 2 times the risk", "target at the 20 day high", "cover when it closes above it", "sell a third at 1R" (a scale-out at 1 x the initial risk; "a third" is exactly 1/3), "breakeven after 1R", "1:3 risk reward" / "risk-reward of 1:3" (a target at 3R with the stated stop), "exit on the opposite cross" (the entry's crossing the other way), a trailing stop that starts once the trade is up: "trailing stop 1% once up 3%", "10% trailing stop once it is up 5%", "3 ATR trailing stop after 1R", "activate trail after 1R", "once up $5" (words about the trade's progress after a stop / target are never read as an entry condition: if they are not understood, the sentence is refused), "trailing stop at the 3 bar low" (on every bar the lowest low of the 3 bars before it, moved up only), "stop at yesterday's low" (the day before the entry day), "sell on the close" (= "sell at the close"), "sell when weekly RSI falls below 40" (a crossing of the weekly RSI(14)), "go long when the supertrend flips to up, go short when it flips to down". "buy TSLA while …" / "hold TSLA when …" with no exit: in the market while the condition holds |
 | Sizing | max N positions (with a short list of k < 10 tickers and no limit: k slots at 1/k each; otherwise 10 at 10%), X% per position, risk X% per trade (to the stop; with only a trailing stop, to its starting distance), target X% volatility, $X or N shares per trade (filled in full or skipped, see below), 2x leverage |
 | Pine in a sentence | `request.security(syminfo.tickerid, "W", ta.sma(close, 10))`, `ta.stoch(ta.rsi(close, 14), ta.rsi(close, 14), ta.rsi(close, 14), 14)`, `ta.rsi(close, 2)[1]`, with or without backticks |
@@ -181,7 +181,7 @@ import but do not export: no public export or schema names the keys of their par
 | Bounds on one value | "is less than -5% or greater than 5%" (either bound), "is not below 30 and not above 70" (= at least 30 and at most 70), "is above 79 and below 90". Bounds that contradict each other ("above 79 and below 30": never true) or cover every value ("below 30 or above 20": always true) are caught on the same indicator, window and ticker however the rule was written (sentence, Build page, JSON): a warning for portfolio conditions, requirements and exits, a refusal for an entry that can never be true |
 | Not | "if not SPY 10 day RSI is above 79 or QQQ 10 day RSI is above 79": 'not' applies to the condition right after it only (up to the next 'and' / 'or'), with a note; "not (A or B)" negates several |
 | Negation and more | "it is not the case that …", "not (… or …)", "max drawdown is worse (deeper) than 10%" = a fall of more than 10% (better / shallower = less), "the 20 day SMA of SPY crosses below its 50 day SMA" (true on the day it crosses), "the top 2 by 10 day RSI of A, B, C", "the highest / lowest 10 day RSI of A, B, C" (top / bottom 1), rebalance every N days / weeks / months |
-| Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, "when/whenever … hold X, otherwise Y", "unless … hold X, otherwise Y", "hold X unless …, in which case Y", top/bottom N by momentum/RSI/volatility, "…, weighted 70/30" (a filter's picks by rank: the best 70%, the next 30%), "the 2 of … with the highest …", "the best/worst performing of … over 10 days", "only if their 60 day return beats BIL's", "only if their 20 day RSI is above 50" (any indicator), rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
+| Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, "when/whenever … hold X, otherwise Y", "unless … hold X, otherwise Y", "hold X unless …, in which case Y", top/bottom N by momentum/RSI/volatility, "…, weighted 70/30" (a filter's picks by rank: the best 70%, the next 30%), "the 2 of … with the highest …", "the best/worst performing of … over 10 days", "each month buy the top 10 Nasdaq 100 stocks by 12 month return, equal weight" / "buy the top 10 … every month" / "each month hold the 10 … with the highest 12 month return" (= "hold the top 10 … by 12 month return, rebalance monthly"), "rotate monthly between SPY, EFA and TLT into whichever had the best 3 month return" (= "hold the top 1 of SPY, EFA and TLT by 3 month return, rebalance monthly"), "hold 100% SPY and short 50% SQQQ" (= a -50% weight; these rewrites are shown as a "Read as" note), "only if their 60 day return beats BIL's", "only if their 20 day RSI is above 50" (any indicator), rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
 | Directions in holdings | "buy/hold/go long X" = long; "short X", "go short X", "sell short X", "X short" = a short position (-100% of the slice plus the proceeds in cash); "sell X", "exit X", "cover X", "sell everything", "exit" in an if/otherwise branch = cash. "sell X" inside a list ("hold TQQQ and sell TMF") is refused as ambiguous. Two identical branches get a note; a comparison of a value with itself is refused |
 | Ranking by drawdown | "by max drawdown" and "by drawdown" both rank by the size of the drawdown (a positive number, as Composer): "top 1" selects the most drawn down, "bottom 1" or "smallest drawdown" the least; the notes say which |
 | Higher timeframes | the weekly RSI is above 50, weekly RSI(14), the monthly 10 SMA, weekly 20 EMA (computed on completed weeks/months only) |
@@ -603,9 +603,25 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
       announcement day; unscheduled closures (9/11, Hurricane Sandy) are never known in advance.
       `trading_days_left_in_month` counts the sessions AFTER today: 0 on the month's last session
       ("the last trading day of the month" is `trading_days_left_in_month == 0`).
+    - **Deciding on the open and filling at it.** A rule acted on at the same bar's open that reads that
+      open (`gap`, `open`, `sym("X").open`, an `open_safe` Python function) decides on the opening
+      auction's own print, which a market-on-open order cannot see. Such fills (entries, and exits with
+      `exit_when_fill: "open"`) are filled `open_reaction_bps` (default 5 = 0.05%) worse than the open
+      print: a trader who sees the print and trades seconds later. The interpretation says so, with a
+      **Warning** naming the rule; `open_reaction_bps: 0` fills at the print itself (optimistic, also
+      flagged), and "buy at the next open" (`entry_fill: "next_open"`) acts on the next day's open
+      instead. Rules that don't read today's open (`dow == 1`, `ref(close, 1) < ...`) fill at the print.
+    - Weekly / monthly values (`weekly_close()`, `weekly(x)`, `monthly_sma(n)`, ...) include today's
+      close on the last trading day of the period, so they are not known at the open. In a sentence
+      entering at the open they are read as the last period completed before today, `ref(weekly_close(),
+      1)` (on a Monday, last week's close; on a Friday, the week before), with a note; a spec with
+      `entry_fill: "open"` and a bare `weekly_close()` is refused with that rewrite suggested.
     - The check is a whitelist: the open, `gap`, calendar variables, `sym("X").open`, anything inside
       `ref(..., n)` with n ≥ 1, and one-series indicators given an open-safe series (`sma(open, 5)`;
       `sma(20)` means `sma(close, 20)` and is refused). Keyword arguments are refused at the open.
+    - Imports and names starting with an underscore (`__import__("os")`, `close.__class__`) are not part of
+      the rule language and are refused with that message; for arbitrary Python, write a sealed Python
+      function rule (below).
     - Lookbacks, lengths and offsets must be numbers written in the rule: `sma(close, abs(20))` or
       `ref(close, 2-1)` is an error everywhere, so the check and the calculation can't read a rule
       differently.
@@ -620,18 +636,43 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
     - **Data requests are cut at D.** `ns['sym']('SPY')`, `data.load` / `load_many` and the point-in-time data
       functions (`market_cap`, `tbill_rate`, `treasury_10y`, `yield_curve`, `shiller_known`, `cpi`,
       `factors`, ...) are answered by the backtester with the data up to D; any other data function, opening a
-      file (`open`, `io`, `os`/`posix.open`, `_io.FileIO` except for importing Python modules, pandas / numpy
-      readers), starting a process (`subprocess`, `os.system`, `fork`, `exec`) or a network connection is
+      file (`open`, `io`, `os`/`posix.open`, `io.open_code`, `_io.FileIO` except for importing Python modules,
+      pandas / numpy readers), starting a process (`subprocess`, `os.system`, `fork`, `exec`) or a network connection is
       refused with CallableIOError.
-    - **Data captured before the run is refused.** Everything the function carries in - the globals it names,
-      its closure, default arguments, attributes, and the same for the functions it calls - is inspected
-      before it is sent: a pandas object with a date index reaching past the first day it answers
-      (`FULL = data.load("SPY")` at module level, a dict of full price series), a numeric array, list or dict of
-      500+ values, or a string of 100,000+ characters is refused ("Lookahead: the Python rule f() uses future
-      data: global 'FULL' is a DataFrame of 8,472 rows dated up to 2026-09-25, captured outside the run").
-      Load data inside the function instead (it is cut at each day).
+    - **What the function carries in is measured, all of it, and must fit a rule's parameters.** Before it
+      is sent, everything it would carry by value is walked with no depth limit: the globals its code names,
+      its closure cells, default and keyword-default arguments, attributes, the same for every function it
+      calls, the objects, bound methods (`LIST.__getitem__`) and partials it holds (what pickle would ship),
+      the attributes of its own classes, the attributes of its own modules (a module outside the standard
+      library, installed packages and the backtester, named as a global or imported inside the function),
+      and its code's constants. Together these may hold at most **64 values in one list / tuple / dict /
+      set / array / pandas object and 256 in all** (numbers, strings, entries, elements), **strings of up to
+      256 characters (2,048 in all), integers of up to 64 bits**, and code of up to 32 kB of bytecode with
+      2,000 constants (a literal of at most 64 values / 256 characters; docstrings are not shipped). Anything
+      more is refused with LeakError naming the variable ("Lookahead: the Python rule f() may use future
+      data: global 'FLAGS' is a list of 8,472 values, captured outside the run"); a pandas object dated past
+      the first day it answers is refused as certainly future data ("... uses future data: global 'FULL' is a
+      DataFrame of 8,472 rows dated up to 2026-09-25"). That covers a price history, a list / tuple /
+      string / bytes of later up and down days, a big integer used as a bitmask, a string of date + flag
+      pairs, and the same through a default argument, function attribute, closure, class attribute, a
+      module's global or data nested at any depth. Legitimate parameters fit: a few numbers, a dict of
+      settings, a lookup table of up to 64 entries, a list of tickers. Load data inside the function
+      instead (it is cut at each day). As a backstop, every object actually pickled is checked on its own
+      against the same limits, and the whole packed function against 1 MB.
+    - **Nothing else reaches the sealed process.** It starts with an almost empty environment (`PATH`,
+      `HOME`, `LANG`, `LC_*`, `TZ` and the Python path variables, each at most 4,096 characters; a variable
+      the script set, `os.environ["X"] = ...`, is not passed), no file descriptors but its pipe to the
+      backtester (and stderr for `print`), and an import path of existing folders only. It may read files
+      only under the standard library, installed packages and the backtester package: a module of your own
+      is read only while the import system loads it, and is then measured like a captured value (a
+      `results.py` holding a list of later outcomes is refused when the rule imports it). Data files,
+      other source files read as text, `io.open_code`, `_io.open` and `FileIO` on anything else are
+      refused.
     - **Not covered:** native code (ctypes, a C extension) can read whatever the operating system lets the
-      process read. No ordinary way of writing a rule reaches later data.
+      process read; so can module code of your own that runs while it is imported (it can read its own
+      source text, e.g. data hidden in comments). The limits bound how much a function can carry; they
+      cannot stop knowledge typed into a rule by hand (a dozen known crash dates written as constants) -
+      no backtester can. No ordinary way of writing a rule reaches later data.
     Speed: about 1.5 ms per bar per call of overhead (a 2,000-bar stream of a typical rule takes 2-4 s on one
     core); long streams are split into chunks answered by several children at once (each chunk still fed day by
     day; a function whose answers depend on which earlier days it was called on is detected at the chunk

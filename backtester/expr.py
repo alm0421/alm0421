@@ -1987,6 +1987,12 @@ def compile_expr(text: str):
 _MISSING_OPERAND = re.compile(r"(?P<op>[<>]=?|==|!=)\s*(?:$|\)|,|\band\b|\bor\b)|(?:^|\(|,|\band\b|\bor\b|\bnot\b)\s*(?P<op2>[<>]=?|==|!=)")
 
 
+_IMPORT_REFUSED = ("{what} is not allowed in rules: imports and names starting with an underscore (dunder names such "
+                   "as __import__, __class__, __builtins__) are not part of the rule language, which only reads the "
+                   "price data (see `python -m backtester --help-expr`). For arbitrary Python, write the rule as a "
+                   "Python function through the API (it runs sealed, see README).")
+
+
 @lru_cache(maxsize=4096)
 def _compile_expr(text: str):
     mm = _MISSING_OPERAND.search(text)
@@ -1995,7 +2001,13 @@ def _compile_expr(text: str):
         raise ValueError(f"`{text}`: the comparison `{mm.group('op') or mm.group('op2')}` is missing a number or indicator on "
                          f"{'its right' if mm.group('op') else 'its left'} side. Enter the threshold to compare with (an empty "
                          "one is never read as 0).")
+    if re.search(r"(?:^|[\s;(])(?:import|from\s+\S+\s+import)\s", text):
+        raise ValueError(_IMPORT_REFUSED.format(what="`import`"))
     tree = ast.parse(text, mode="eval")
+    for node in ast.walk(tree):      # before the argument checks, so the message says what is wrong
+        nm = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
+        if nm is not None and nm.startswith("_"):
+            raise ValueError(_IMPORT_REFUSED.format(what=f"`{nm}`"))
     _check_timeframes(tree)
     _check_arguments(tree)
     for node in ast.walk(tree):
@@ -2274,6 +2286,66 @@ def open_safe(rule) -> bool:
         return False
 
     return ok(tree)
+
+
+def reads_todays_open(rule) -> bool:
+    """True if `rule`, evaluated at a bar's open, reads that bar's opening price: `open` or `gap` (today's open
+    against yesterday's close) or sym("X").open outside ref(..., n >= 1). A rule acted on at the same open then
+    decides on the auction's own print, which a market-on-open order cannot see (engine: open_reaction_bps). A Python
+    function marked open_safe is assumed to read it."""
+    if callable(rule):
+        return bool(getattr(rule, "open_safe", False))
+    if not isinstance(rule, str) or not rule.strip():
+        return False
+    try:
+        tree = ast.parse(pine_to_rule(rule).strip(), mode="eval")
+    except SyntaxError:
+        return False
+
+    def reads(node) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in ("open", "gap")
+        if isinstance(node, ast.Attribute) and node.attr == "open" and _is_sym(node.value):
+            return True
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ref" and node.args:
+            n = _literal(node.args[1]) if len(node.args) > 1 else 1
+            if n is not None and n >= 1:
+                return False                     # yesterday's (or earlier) open: known before today's auction
+        return any(reads(c) for c in ast.iter_child_nodes(node))
+    return reads(tree)
+
+
+# completed-period values: known at the close of the period's last session, so at the open they are the period
+# completed before today only from the next bar on (ref(..., 1))
+_PERIODIC_CALLS = {"weekly_close", "monthly_close", "weekly", "monthly", "weekly_sma", "weekly_ema", "weekly_rsi",
+                   "weekly_ret", "monthly_sma", "monthly_ema", "monthly_rsi", "monthly_ret"}
+
+
+def open_time_periodic(rule) -> str | None:
+    """`rule` with each weekly / monthly value (weekly_close(), weekly(x), monthly_sma(n), ...) read as the last
+    period completed before today (ref(<call>, 1)), when that makes the rule open-safe; else None.
+    weekly_close() is the last completed week's close as of a day's close: on a week's last session that is today's
+    close, not known at the open. At the open the last completed week is the one before today, which is exactly
+    ref(weekly_close(), 1) (on Monday: Friday's value, the week just ended)."""
+    if callable(rule) or not isinstance(rule, str):
+        return None
+    try:
+        tree = ast.parse(pine_to_rule(rule).strip(), mode="eval")
+    except SyntaxError:
+        return None
+    changed = [False]
+
+    class Lag(ast.NodeTransformer):
+        def visit_Call(self, node):
+            if isinstance(node.func, ast.Name) and node.func.id == "ref":
+                return node                                  # already about an earlier bar
+            if isinstance(node.func, ast.Name) and node.func.id in _PERIODIC_CALLS:
+                changed[0] = True
+                return ast.Call(func=ast.Name(id="ref", ctx=ast.Load()), args=[node, ast.Constant(1)], keywords=[])
+            self.generic_visit(node)
+            return node
+    out = ast.unparse(Lag().visit(tree))
+    return out if changed[0] and open_safe(out) else None
 
 
 _SYM_OVERRIDE: dict = {}   # lookahead probe: perturbed copies of other tickers' data

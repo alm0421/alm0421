@@ -123,10 +123,11 @@ def test_closures_and_globals_over_full_data_are_refused(fake):
     def in_a_dict(d, ns):
         return _tomorrow_up(box["prices"]["X"], d)
     for fn in (closure, default_arg, nested, in_a_dict):
-        with pytest.raises(sandbox.LeakError, match="uses future data") as e:
+        # a dated frame "uses" future data; a bare array of 800 numbers "may use" it (over the capture budget)
+        with pytest.raises(sandbox.LeakError, match="uses? future data") as e:
             expr.evaluate(fn, expr.Namespace(df, ticker="X"))
         assert "captured outside the run" in str(e.value)
-        with pytest.raises(ValueError, match="uses future data"):
+        with pytest.raises(ValueError, match="uses? future data"):
             engine.run(Strategy(cash_rate=None, universe=["X"], entry=fn, hold_bars=1))
     with pytest.raises(sandbox.LeakError, match="global 'FULL_GLOBAL'"):
         expr.evaluate(_uses_global, expr.Namespace(df, ticker="X"))
@@ -139,17 +140,25 @@ def _uses_global(d, ns):
     return _tomorrow_up(FULL_GLOBAL, d)
 
 
-def test_small_constants_and_past_data_are_allowed(fake):
+def test_small_constants_are_allowed_and_captured_past_data_is_measured(fake):
     df = walk(4)
     fake["X"] = df
     weights = [0.1] * 10
-    past = df.iloc[:100].copy()            # ends before the first day the rule answers
+    level = float(df.close.iloc[:100].mean())      # a number computed from data before the run: one value
 
     def ok(d, ns):
-        return (d.close > past.close.mean() * sum(weights)) & (d.close > d.close.shift(1))
+        return (d.close > level * sum(weights)) & (d.close > d.close.shift(1))
     with expr.stream_from(df.index[200]):
         s = expr.evaluate(ok, expr.Namespace(df, ticker="X"))
     assert s.iloc[200:].any() and not s.iloc[:200].any()
+    # round 12: a captured frame, even one ending before the run, is data (its values could encode anything) and
+    # counts against the capture budget (64 values)
+    past = df.iloc[:100].copy()
+
+    def with_past(d, ns):
+        return d.close > past.close.mean()
+    with expr.stream_from(df.index[200]), pytest.raises(sandbox.LeakError, match="variable 'past' captured by"):
+        expr.evaluate(with_past, expr.Namespace(df, ticker="X"))
 
 
 # ------------------------------------------------------------ 4. data.load in a vectorized rule is cut

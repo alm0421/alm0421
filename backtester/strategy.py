@@ -49,6 +49,19 @@ TV_NOTE = "TradingView-compatible mode: entries and rule exits with no timing st
 
 
 
+OPEN_REACTION_HEAD = "Warning: Decided on today's open and filled at that open:"
+
+
+def _periodic_hint(rule, open_time_periodic) -> str:
+    """A hint when a weekly / monthly value is what keeps the rule from being known at the open."""
+    rw = open_time_periodic(rule)
+    if not rw:
+        return ""
+    return (" Weekly / monthly values such as weekly_close() include today's close on the last trading day of the "
+            "period (the period completes at that close); at the open the last completed period is the one before "
+            f"today, which is ref(..., 1): `{rw}`.")
+
+
 @dataclass
 class Strategy:
     universe: list[str]
@@ -138,6 +151,10 @@ class Strategy:
     commission_per_share: float = 0.0            # $ per share
     commission_pct: float = 0.0                  # fraction of traded value
     slippage_bps: float = 0.0                    # per side, in basis points
+    open_reaction_bps: float = 5.0               # a fill at the open of the same bar whose rule reads that open (gap,
+                                                 # open): filled this many bps worse than the open print (0.05%), as a
+                                                 # trader reacting to the printed open seconds later (an order cannot be
+                                                 # conditioned on its own auction price); 0 = at the print itself
     max_volume_pct: float | None = None          # cap each order at this fraction of the bar's volume
     cash_rate: str | float | None = "tbill"      # interest on idle cash: "tbill", annual rate, or None
     margin_rate: float = 0.0                     # annual rate charged on borrowed cash (added to T-bill)
@@ -171,7 +188,7 @@ class Strategy:
 
     def validate(self) -> None:
         from . import expr
-        from .expr import compile_expr, open_safe, pine_to_rule
+        from .expr import compile_expr, open_safe, open_time_periodic, pine_to_rule, reads_todays_open
         if not self.universe:
             raise ValueError("universe is empty")
         for name in ("entry", "short_entry", "exit_when", "entry_level", "rank_by", "stop_level", "target_level"):
@@ -243,7 +260,8 @@ class Strategy:
                     raise ValueError(
                         "entry_fill 'open' needs a rule known at the open, but this rule uses today's "
                         "close/high/low (e.g. ret(1) or rsi(2) default to today's close). Wrap those parts "
-                        "in ref(..., 1) to use yesterday's value, or use entry_fill 'next_open'.")
+                        "in ref(..., 1) to use yesterday's value, or use entry_fill 'next_open'."
+                        + _periodic_hint(rule, open_time_periodic))
         if self.entry_order != "market":
             if not self.entry_level:
                 raise ValueError("limit/stop entries need entry_level (e.g. 'close * 0.98')")
@@ -273,7 +291,15 @@ class Strategy:
         if self.exit_when_fill == "open" and self.exit_when and not open_safe(self.exit_when):
             raise ValueError("exit_when_fill 'open' needs an exit rule known at the open (e.g. gap, dow); this one uses "
                              "today's close/high/low. Use exit_when_fill 'next_open' to check it at the close and sell "
-                             "at the next open.")
+                             "at the next open." + _periodic_hint(self.exit_when, open_time_periodic))
+        if not isinstance(self.open_reaction_bps, (int, float)) or isinstance(self.open_reaction_bps, bool) \
+                or not 0 <= self.open_reaction_bps < 1000:
+            raise ValueError("open_reaction_bps must be a number of basis points from 0 (fill at the open print) "
+                             "up to 1000")
+        note = self.open_reaction_note(reads_todays_open)
+        self.notes = [n for n in self.notes if not n.startswith(OPEN_REACTION_HEAD) or n == note]
+        if note and note not in self.notes:
+            self.notes.append(note)
         for name, label in (("commission", "commission per order"), ("commission_per_share", "commission per share"),
                             ("commission_pct", "commission (% of value)"), ("slippage_bps", "slippage"),
                             ("borrow_fee", "borrow fee"), ("margin_rate", "margin rate"),
@@ -508,6 +534,39 @@ class Strategy:
                 and any(n.startswith("No holding period stated: exiting at the first close after entry") for n in self.notes)):
             self.hold_bars = 0
 
+    def open_reaction_rules(self, reads=None) -> dict:
+        """{"entry" / "short entry" / "exit": rule} for the same-bar open fills whose rule reads that open (they get
+        open_reaction_bps)."""
+        if reads is None:
+            from .expr import reads_todays_open as reads
+        out = {}
+        if self.entry_fill == "open" and self.entry_order == "market":
+            for k, r in (("entry", self.entry), ("short entry", self.short_entry)):
+                if r and reads(r):
+                    out[k] = r
+        if self.exit_when_fill == "open" and self.exit_when and reads(self.exit_when):
+            out["exit"] = self.exit_when
+        return out
+
+    def open_reaction_note(self, reads=None) -> str | None:
+        rules = self.open_reaction_rules(reads)
+        if not rules:
+            return None
+        what = " and ".join(f"the {k} rule `{r if isinstance(r, str) else getattr(r, '__name__', 'a function')}`"
+                            for k, r in rules.items())
+        bps = float(self.open_reaction_bps)
+        if bps:
+            fill = (f"so these fills are {bps / 100:.2f}% worse than the open print (open_reaction_bps = {bps:g}: a "
+                    "trader seeing the printed open and trading seconds later); set open_reaction_bps to 0 to fill at "
+                    "the open print itself")
+        else:
+            fill = ("and open_reaction_bps is 0, so these fills are at the open print itself, which assumes the order "
+                    "knew its own auction price (optimistic)")
+        return (f"{OPEN_REACTION_HEAD} {what} {'reads' if len(rules) == 1 else 'read'} today's opening price and "
+                f"{'is' if len(rules) == 1 else 'are'} acted on at that same open. A market-on-open order cannot be "
+                f"conditioned on its own auction price, {fill}. To act on the next open instead, say 'buy at the next "
+                "open' (entry_fill / exit_when_fill 'next_open').")
+
     def hold_text(self) -> str:
         """The time exit in words: exactly N bars after the entry bar, at the configured fill."""
         n = self.hold_bars
@@ -543,7 +602,12 @@ class Strategy:
                 return default if v in (None, "") else str(v)
 
         side = {"long": "Buy", "short": "Short", "both": "Long/short"}.get(self.side, str(self.side))
-        fill = {"close": "at the close of the signal day", "open": "at the open of the signal day",
+        react = self.open_reaction_rules()
+        at_open = "at the open of the signal day"
+        if "entry" in react or "short entry" in react:
+            at_open += (f" ({float(self.open_reaction_bps) / 100:.2f}% worse than the open print: the rule reads that "
+                        "open)" if self.open_reaction_bps else " (at the open print, which the rule reads)")
+        fill = {"close": "at the close of the signal day", "open": at_open,
                 "next_open": "at the next day's open",
                 "next_close": "at the next day's close"}.get(self.entry_fill, f"at {self.entry_fill}")
         if self.entry_order != "market":
@@ -563,6 +627,8 @@ class Strategy:
             ex.append(self.hold_text())
         if self.exit_when:
             when = {"close": "same close", "open": "same open", "next_open": "next open"}[self.exit_when_fill]
+            if "exit" in react and self.open_reaction_bps:
+                when += f", {float(self.open_reaction_bps) / 100:.2f}% worse than the open print"
             ex.append(f"when {self.exit_when} ({when})")
         if self.stop_loss:
             ex.append(f"stop loss {f(self.stop_loss, '.1%')}")

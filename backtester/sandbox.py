@@ -7,24 +7,34 @@ function never runs in the backtester's process. It runs in a fresh child proces
 that imported pandas / numpy / backtester but never loaded any data:
 
   - the function is shipped by value (its code, the globals it names, its closure and defaults; functions of
-    installed libraries and of the backtester by reference). Everything shipped is inspected first (pack): a
-    pandas object with a date index reaching past the first day the function answers, a numeric array / list / dict
-    of 500+ values or a 100 kB string is refused with LeakError - that is data captured before the run
-    (FULL = data.load("SPY") at module level, a closure over a dict of full series), which would let the function
-    read later prices. Load data inside the function instead (ns["sym"], data.load, the history argument): those
-    are cut at each day.
+    installed libraries and of the backtester by reference). Everything it carries is measured first (_Scanner,
+    with no depth limit: globals, closure cells, defaults, keyword defaults, attributes, the functions it calls,
+    held objects / bound methods / partials, its own classes' and modules' attributes, its code's constants) and
+    must fit a rule's parameters: at most MAX_ITEMS (64) values in one container / array / pandas object and
+    MAX_TOTAL_ITEMS (256) in all, strings of MAX_TEXT (256) characters (MAX_TEXT_TOTAL in all), integers of
+    MAX_INT_BITS (64) bits, MAX_CODE_BYTES of bytecode. Anything more - a price history, a list / string / bytes /
+    bitmask of later outcomes - is refused with LeakError naming the variable; a pandas object dated past the first
+    day the function answers is refused as future data. Every object actually pickled is checked again on its own
+    (_Packer). Load data inside the function instead (ns["sym"], data.load, the history argument): those are cut
+    at each day.
+  - the process starts with an almost empty environment (ENV_KEEP; a variable the script set is not passed), no
+    inherited file descriptors but its pipe (and stderr), and an import path of existing folders only; a module
+    of the user's own that it imports is measured the same way after it runs (_UserModuleGuard), and its files
+    are readable only while the import system loads it.
   - the bars are sent one day at a time: at the moment it answers day D the child has received nothing after D,
     so nothing in its memory (frames, stack, gc) is later than D.
   - data.load / sym() and the other point-in-time data functions (market_cap, tbill_rate, treasury_10y, cape...)
     are forwarded to the backtester, which answers them cut at D; every other data function is refused.
   - file, process and network access is refused at the Python level in the child (open, io / os / posix open,
-    FileIO, pandas / numpy readers, sockets, subprocess, os.fork / exec / spawn).
+    io.open_code, FileIO - except the standard library's, installed packages' and the backtester's own files -,
+    pandas / numpy readers, sockets, subprocess, os.fork / exec / spawn).
   - each stream (one function on one ticker) or call gets its own fresh child, so state a function keeps
     (a global, a default dict) starts empty and only ever saw the days up to the current one.
 
 What is not prevented: native code (ctypes, a C extension) or anything else below Python can read what the
-operating system lets the process read (the price files, other processes' memory). No ordinary way of writing a
-rule reaches later data.
+operating system lets the process read (the price files, other processes' memory); module code of the user's own
+can read its own source while it is imported. The limits bound how much a function carries; they cannot stop
+knowledge typed into a rule by hand. No ordinary way of writing a rule reaches later data.
 
 Long streams are split into consecutive chunks answered by several children at once (each chunk is still fed day
 by day); a function whose answers depend on which earlier days it was called on (kept state) is detected at the
@@ -48,8 +58,17 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-BIG = 500                 # values in one captured container that count as data
-BIG_TEXT = 100_000        # characters / bytes in one captured string
+# What a function may carry by value (see _Scanner): enough for a rule's parameters (a few numbers, a small lookup
+# table, a list of tickers), not enough for data (a price history, a list of later up / down days, a bitmask).
+MAX_ITEMS = 64            # values in one container / array / pandas object (a small lookup table fits)
+MAX_TOTAL_ITEMS = 256     # values in all: numbers / strings it holds, container entries, array / pandas elements
+MAX_TEXT = 256            # characters / bytes in one string
+MAX_TEXT_TOTAL = 2048     # characters / bytes in all its strings
+MAX_INT_BITS = 64         # bits in one integer
+MAX_CODE_BYTES = 32_768   # bytecode of the function and the functions it calls (shipped by value)
+MAX_CODE_CONSTS = 2_000   # constants in that code
+MAX_CODE_TEXT = 8_192     # characters in the code's string literals
+MAX_PAYLOAD = 1_000_000   # bytes in the whole packed function (a backstop)
 IN_CHILD = False          # True inside a sandbox child (a rule calling evaluate() there runs in-process)
 STATS: dict = {"jobs": 0, "steps": 0}
 
@@ -64,10 +83,12 @@ class SandboxError(RuntimeError):
 
 # ================================================================ packing a function by value
 
-_PKG_DIR = os.path.dirname(os.path.abspath(__file__))
+_PKG_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
 def _lib_roots() -> tuple[str, ...]:
+    """Where the standard library and installed packages live (never a folder holding the user's own code: a root
+    containing the working directory or the backtester's checkout is left out)."""
     import sysconfig
     roots = {sys.prefix, sys.base_prefix, sys.exec_prefix}
     for k in ("stdlib", "platstdlib", "purelib", "platlib"):
@@ -78,7 +99,15 @@ def _lib_roots() -> tuple[str, ...]:
     for p in sys.path:
         if p and ("site-packages" in p or "dist-packages" in p):
             roots.add(p)
-    return tuple(os.path.abspath(r) + os.sep for r in roots if r)
+    mine = [os.path.realpath(os.getcwd()) + os.sep, os.path.dirname(_PKG_DIR) + os.sep]
+    out = []
+    for r in roots:
+        if not r:
+            continue
+        r = os.path.realpath(r) + os.sep
+        if not any(m.startswith(r) for m in mine):
+            out.append(r)
+    return tuple(out)
 
 
 _LIB = None
@@ -95,7 +124,7 @@ def _library_module(modname: str | None) -> bool:
     f = getattr(mod, "__file__", None)
     if f is None:
         return modname in sys.builtin_module_names or modname.split(".")[0] in sys.builtin_module_names
-    f = os.path.abspath(f)
+    f = os.path.realpath(f)
     if f.startswith(_PKG_DIR + os.sep):
         return True
     if _LIB is None:
@@ -161,115 +190,331 @@ def _import(name: str):
     return importlib.import_module(name)
 
 
-def _describe(obj, cutoff) -> str | None:
-    """Why `obj` (on its own, not its contents) is data that could reach past `cutoff`, or None."""
+class _Dated(LeakError):
+    """A captured pandas object / date array reaching past the cutoff (certainly later data)."""
+
+
+class _TooMuch(LeakError):
+    """More captured information than a rule's parameters need (could be data, e.g. a list of later outcomes)."""
+
+
+def _dated(obj, cutoff) -> str | None:
+    """A pandas object / datetime array whose dates reach past `cutoff`: a description, or None."""
     if isinstance(obj, (pd.Series, pd.DataFrame, pd.Index)):
         idx = obj if isinstance(obj, pd.Index) else obj.index
-        kind = type(obj).__name__
-        if isinstance(idx, pd.DatetimeIndex):
-            if len(idx) and cutoff is not None:
-                last = idx.max()
-                try:
-                    past = last > pd.Timestamp(cutoff)
-                except TypeError:        # tz-aware vs naive
-                    past = True
-                if past:
-                    return f"a {kind} of {len(obj):,} rows dated up to {last.date()}"
-            return None
-        if len(obj) >= BIG:
-            return f"a {kind} of {len(obj):,} rows"
+        if isinstance(idx, pd.DatetimeIndex) and len(idx) and cutoff is not None:
+            last = idx.max()
+            try:
+                past = last > pd.Timestamp(cutoff)
+            except TypeError:        # tz-aware vs naive
+                past = True
+            if past:
+                return f"a {type(obj).__name__} of {len(obj):,} rows dated up to {last.date()}"
         return None
-    if isinstance(obj, np.ndarray):
-        if obj.dtype.kind in "fciub" and obj.size >= BIG:
-            return f"an array of {obj.size:,} numbers"
-        if obj.dtype.kind == "M" and obj.size and cutoff is not None and obj.max() > np.datetime64(pd.Timestamp(cutoff)):
+    if isinstance(obj, np.ndarray) and obj.dtype.kind == "M" and obj.size and cutoff is not None:
+        if obj.max() > np.datetime64(pd.Timestamp(cutoff)):
             return f"an array of {obj.size:,} dates up to {pd.Timestamp(obj.max()).date()}"
-        return None
-    if isinstance(obj, (list, tuple, set, frozenset)) and len(obj) >= BIG:
-        nums = sum(1 for x in list(obj)[:2000] if isinstance(x, (int, float, np.number)) and not isinstance(x, bool))
-        if nums >= min(len(obj), 2000) // 2:
-            return f"a {type(obj).__name__} of {len(obj):,} numbers"
-        return None
-    if isinstance(obj, dict) and len(obj) >= BIG:
-        return f"a dict of {len(obj):,} entries"
-    if isinstance(obj, (str, bytes, bytearray, memoryview)) and len(obj) >= BIG_TEXT:
-        return f"a {type(obj).__name__} of {len(obj):,} characters"
     return None
 
 
-def _scan(obj, label: str, cutoff, seen: set, depth: int = 0):
-    """Walk what a function carries (named, for the message) and raise LeakError at the first piece of data."""
-    if id(obj) in seen or depth > 8:
-        return
-    seen.add(id(obj))
-    d = _describe(obj, cutoff)
-    if d:
-        raise LeakError(f"{label} is {d}")
-    if isinstance(obj, (pd.Series, pd.DataFrame, pd.Index, np.ndarray, str, bytes, bytearray, type, types.ModuleType)):
-        return
-    if isinstance(obj, types.FunctionType):
-        if not _by_value(obj):
+def _is_docstring_code(code) -> bool:
+    """Whether co_consts[0] of `code` is its docstring (a def's code; not a comprehension / class body)."""
+    if sys.version_info >= (3, 14):
+        return bool(code.co_flags & 0x4000000)          # CO_HAS_DOCSTRING
+    return bool(code.co_consts) and isinstance(code.co_consts[0], str) and \
+        (not code.co_name.startswith("<") or code.co_name == "<lambda>") and bool(code.co_flags & 0x2)  # NEWLOCALS
+
+
+def _ship_code(code):
+    """`code` with docstrings longer than MAX_TEXT dropped (documentation is not shipped: it could carry data)."""
+    consts = list(code.co_consts)
+    changed = False
+    for i, c in enumerate(consts):
+        if isinstance(c, types.CodeType):
+            n = _ship_code(c)
+            if n is not c:
+                consts[i], changed = n, True
+    if _is_docstring_code(code) and len(consts[0]) > MAX_TEXT:
+        consts[0], changed = None, True
+    return code.replace(co_consts=tuple(consts)) if changed else code
+
+
+def limits_text() -> str:
+    return (f"a Python rule or portfolio function may carry at most {MAX_ITEMS} values in one list / tuple / dict / "
+            f"array / pandas object and {MAX_TOTAL_ITEMS} in all, strings of up to {MAX_TEXT} characters "
+            f"({MAX_TEXT_TOTAL:,} in all) and integers of up to {MAX_INT_BITS} bits; its code at most "
+            f"{MAX_CODE_BYTES // 1024} kB of bytecode, {MAX_CODE_CONSTS:,} constants and literals of up to "
+            f"{MAX_ITEMS} values / {MAX_TEXT} characters")
+
+
+class _Scanner:
+    """Measures everything a function carries by value against one budget and raises LeakError naming the first
+    variable over it: the globals its code names, its closure cells, defaults, keyword defaults and attributes, and
+    the same recursively for the functions it calls; the objects, bound methods and partials it holds (what pickle
+    would ship for them); user classes' attributes; user modules' attributes (modules outside the standard library,
+    installed packages and the backtester, named as globals or imported in the code); and the constants and size of
+    the code itself. Library modules, functions and classes are shipped by reference and carry nothing."""
+
+    def __init__(self, cutoff):
+        self.cutoff = cutoff
+        self.items = 0
+        self.text = 0
+        self.consts = 0
+        self.ctext = 0
+        self.cbytes = 0
+        self.seen: set = set()
+        self.keep: list = []           # keeps scanned temporaries alive (so their ids stay unique)
+
+    # ---- budget
+    def _items(self, n: int, label: str, desc: str):
+        if n > MAX_ITEMS:
+            raise _TooMuch(f"{label} is {desc}")
+        self.items += n
+        if self.items > MAX_TOTAL_ITEMS:
+            raise _TooMuch(f"{label} is {desc}, which brings what it carries to over {MAX_TOTAL_ITEMS} values")
+
+    def _text(self, n: int, label: str, kind: str):
+        if n > MAX_TEXT:
+            raise _TooMuch(f"{label} is a {kind} of {n:,} characters")
+        self.text += n
+        if self.text > MAX_TEXT_TOTAL:
+            raise _TooMuch(f"{label} is a {kind} of {n:,} characters, which takes the text it carries past "
+                           f"{MAX_TEXT_TOTAL:,} characters")
+
+    @staticmethod
+    def _int_bits(v, label: str):
+        b = abs(int(v)).bit_length()
+        if b > MAX_INT_BITS:
+            raise _TooMuch(f"{label} is an integer of {b:,} bits")
+
+    # ---- code
+    def _code(self, code, owner: str):
+        if id(code) in self.seen:
             return
-        st = _fn_state(obj)
-        nm = obj.__name__
-        for n, v in st["globals"].items():
-            _scan(v, f"global {n!r}" + (f" (used by {nm}())" if depth else ""), cutoff, seen, depth + 1)
-        for n, v in zip(obj.__code__.co_freevars, st["cells"]):
-            _scan(v, f"variable {n!r} captured by {nm}()", cutoff, seen, depth + 1)
-        for v in (st["defaults"] or ()):
-            _scan(v, f"a default argument of {nm}()", cutoff, seen, depth + 1)
-        for v in (st["kwdefaults"] or {}).values():
-            _scan(v, f"a default argument of {nm}()", cutoff, seen, depth + 1)
-        for n, v in st["dict"].items():
-            _scan(v, f"attribute {n!r} of {nm}()", cutoff, seen, depth + 1)
-        return
-    if isinstance(obj, types.MethodType):
-        _scan(obj.__func__, label, cutoff, seen, depth + 1)
-        _scan(obj.__self__, f"the object {label} belongs to", cutoff, seen, depth + 1)
-        return
-    if isinstance(obj, dict):
-        for k, v in list(obj.items())[:5000]:
-            _scan(k, label, cutoff, seen, depth + 1)
-            _scan(v, f"{label}[{k!r}]" if isinstance(k, (str, int)) else label, cutoff, seen, depth + 1)
-        return
-    if isinstance(obj, (list, tuple, set, frozenset)):
-        for v in list(obj)[:5000]:
-            _scan(v, label, cutoff, seen, depth + 1)
-        return
-    import functools
-    if isinstance(obj, functools.partial):
-        for v in (obj.func, *obj.args, *(obj.keywords or {}).values()):
-            _scan(v, label, cutoff, seen, depth + 1)
-        return
-    dct = getattr(obj, "__dict__", None)
-    if isinstance(dct, dict) and not isinstance(obj, type):
-        _scan(dct, f"{label} (an object)", cutoff, seen, depth + 1)
+        self.seen.add(id(code))
+        self.keep.append(code)
+        self.cbytes += len(code.co_code)
+        if self.cbytes > MAX_CODE_BYTES:
+            raise _TooMuch(f"the code of {owner}() (with the functions it calls) is over {MAX_CODE_BYTES:,} bytes of "
+                           "bytecode")
+        doc = _is_docstring_code(code)
+        todo = [c for i, c in enumerate(code.co_consts) if not (i == 0 and doc)]
+        while todo:
+            c = todo.pop()
+            if isinstance(c, types.CodeType):
+                self._code(c, owner)
+                continue
+            self.consts += 1
+            if self.consts > MAX_CODE_CONSTS:
+                raise _TooMuch(f"the code of {owner}() holds over {MAX_CODE_CONSTS:,} constants")
+            if isinstance(c, bool) or c is None:
+                continue
+            if isinstance(c, int):
+                self._int_bits(c, f"a constant in the code of {owner}()")
+            elif isinstance(c, (str, bytes)):
+                if len(c) > MAX_TEXT:
+                    raise _TooMuch(f"a literal in the code of {owner}() is a {type(c).__name__} of {len(c):,} "
+                                   "characters")
+                self.ctext += len(c)
+                if self.ctext > MAX_CODE_TEXT:
+                    raise _TooMuch(f"the literals in the code of {owner}() hold over {MAX_CODE_TEXT:,} characters")
+            elif isinstance(c, (tuple, frozenset)):
+                if len(c) > MAX_ITEMS:
+                    raise _TooMuch(f"a literal in the code of {owner}() has {len(c):,} values")
+                todo.extend(c)
+
+    # ---- values
+    def walk(self, root, label: str):
+        stack = [(root, label, True)]
+        while stack:
+            obj, lab, top = stack.pop()
+            stack.extend(reversed(self._visit(obj, lab, top) or ()))
+
+    def _visit(self, obj, lab: str, top: bool):
+        if obj is None or isinstance(obj, (bool, np.bool_)) or obj is Ellipsis or obj is NotImplemented:
+            return None
+        if id(obj) in self.seen:
+            return None
+        self.seen.add(id(obj))
+        self.keep.append(obj)
+        if isinstance(obj, (int, np.integer)):
+            self._int_bits(obj, lab)
+            if top:
+                self._items(1, lab, "a number")
+            return None
+        if isinstance(obj, (float, complex, np.floating, np.complexfloating)):
+            if top:
+                self._items(1, lab, "a number")
+            return None
+        if isinstance(obj, (str, bytes, bytearray, memoryview)):
+            n = obj.nbytes if isinstance(obj, memoryview) else len(obj)
+            self._text(n, lab, type(obj).__name__)
+            if top:
+                self._items(1, lab, f"a {type(obj).__name__}")
+            return None
+        if isinstance(obj, (pd.Series, pd.DataFrame, pd.Index)):
+            d = _dated(obj, self.cutoff)
+            if d:
+                raise _Dated(f"{lab} is {d}")
+            self._items(int(obj.size), lab, f"a {type(obj).__name__} of {int(obj.size):,} values")
+            kids = []
+            if isinstance(obj, (pd.Series, pd.Index)) and obj.dtype == object:
+                kids += [(v, lab, False) for v in list(obj)]
+            if isinstance(obj, (pd.Series, pd.DataFrame)) and obj.index.dtype == object:
+                kids.append((obj.index, f"the index of {lab}", False))       # its text (its length is counted)
+            if isinstance(obj, pd.DataFrame):
+                kids.append((obj.columns, f"the columns of {lab}", False))
+            return kids
+        if isinstance(obj, np.ndarray):
+            d = _dated(obj, self.cutoff)
+            if d:
+                raise _Dated(f"{lab} is {d}")
+            self._items(int(obj.size), lab, f"an array of {obj.size:,} values")
+            if obj.dtype == object:
+                return [(v, lab, False) for v in obj.ravel().tolist()]
+            return None
+        if isinstance(obj, np.generic):
+            return None
+        if isinstance(obj, types.ModuleType):
+            if _library_module(obj.__name__):
+                return None
+            if obj.__name__ in ("__main__", "__mp_main__"):
+                raise _TooMuch(f"{lab} is the script's __main__ module (pass values, not the module)")
+            return [(v, f"attribute {k!r} of module {obj.__name__}", True) for k, v in list(vars(obj).items())
+                    if not (k.startswith("__") and k.endswith("__"))]
+        if isinstance(obj, types.FunctionType):
+            if not _by_value(obj):
+                return None
+            nm = obj.__name__
+            self._code(obj.__code__, nm)
+            st = _fn_state(obj)
+            used = f" (used by {nm}())" if not lab.startswith(f"{nm}(") else ""
+            kids = [(v, f"global {n!r}{used}", True) for n, v in st["globals"].items()]
+            kids += [(v, f"variable {n!r} captured by {nm}()", True)
+                     for n, v in zip(obj.__code__.co_freevars, st["cells"]) if not (isinstance(v, str) and v == _EMPTY)]
+            kids += [(v, f"a default argument of {nm}()", True) for v in (st["defaults"] or ())]
+            kids += [(v, f"default argument {k!r} of {nm}()", True) for k, v in (st["kwdefaults"] or {}).items()]
+            kids += [(v, f"attribute {k!r} of {nm}()", True) for k, v in st["dict"].items()]
+            for n in sorted(_code_names(obj.__code__)):          # `import mymodule` inside the function
+                m = sys.modules.get(n)
+                if isinstance(m, types.ModuleType) and not _library_module(n):
+                    kids.append((m, f"module {n} (imported by {nm}())", True))
+            return kids
+        if isinstance(obj, types.CodeType):
+            self._code(obj, lab)
+            return None
+        if isinstance(obj, types.MethodType):
+            return [(obj.__func__, lab, True), (obj.__self__, f"the object {lab} belongs to", True)]
+        if isinstance(obj, (types.BuiltinFunctionType, types.MethodWrapperType)):
+            s = getattr(obj, "__self__", None)
+            if s is None or isinstance(s, types.ModuleType):
+                return None
+            return [(s, f"the object {lab} is bound to", True)]
+        if isinstance(obj, (types.WrapperDescriptorType, types.MethodDescriptorType, types.GetSetDescriptorType,
+                            types.MemberDescriptorType, types.ClassMethodDescriptorType)):
+            return None
+        import functools
+        if isinstance(obj, functools.partial):
+            self._items(len(obj.args) + len(obj.keywords or {}), lab, "a partial")
+            return [(v, lab, False) for v in (obj.func, *obj.args, *(obj.keywords or {}).values())]
+        if isinstance(obj, (staticmethod, classmethod)):
+            return [(obj.__func__, lab, True)]
+        if isinstance(obj, property):
+            return [(f, lab, True) for f in (obj.fget, obj.fset, obj.fdel) if f is not None]
+        if isinstance(obj, dict):
+            self._items(len(obj), lab, f"a {type(obj).__name__} of {len(obj):,} entries")
+            kids = []
+            for k, v in list(obj.items()):
+                kids.append((k, lab, False))
+                kids.append((v, f"{lab}[{k!r}]" if isinstance(k, (str, int)) and len(repr(k)) < 40 else lab, False))
+            fac = getattr(obj, "default_factory", None)
+            if fac is not None:
+                kids.append((fac, lab, True))
+            return kids
+        if isinstance(obj, (list, tuple, set, frozenset)):
+            self._items(len(obj), lab, f"a {type(obj).__name__} of {len(obj):,} values")
+            return [(v, lab, False) for v in list(obj)]
+        if isinstance(obj, type):
+            if _library_module(getattr(obj, "__module__", None)):
+                return None
+            return [(v, f"class attribute {obj.__name__}.{k}", True) for k, v in list(vars(obj).items())
+                    if not (k.startswith("__") and k.endswith("__")) or k in ("__call__", "__init__", "__slots__")]
+        # any other object: what pickle would ship for it (its class, constructor arguments, state, items)
+        try:
+            rv = obj.__reduce_ex__(pickle.HIGHEST_PROTOCOL)
+        except Exception:  # noqa: BLE001 - it will not pickle either (reported when it is packed)
+            return None
+        if not isinstance(rv, tuple):
+            return None
+        import itertools
+        kids = [(type(obj), lab, True)]
+        if len(rv) > 1 and isinstance(rv[1], tuple):
+            self._items(len(rv[1]), lab, f"a {type(obj).__name__}")
+            kids += [(v, lab, False) for v in rv[1]]
+        if len(rv) > 2 and rv[2] is not None:
+            kids.append((rv[2], f"{lab} (a {type(obj).__name__})", False))
+        if len(rv) > 3 and rv[3] is not None:
+            got = list(itertools.islice(rv[3], MAX_ITEMS + 1))
+            self._items(len(got), lab, f"a {type(obj).__name__} of {len(got):,}+ values")
+            kids += [(v, lab, False) for v in got]
+        if len(rv) > 4 and rv[4] is not None:
+            got = list(itertools.islice(rv[4], MAX_ITEMS + 1))
+            self._items(len(got), lab, f"a {type(obj).__name__} of {len(got):,}+ entries")
+            for k, v in got:
+                kids += [(k, lab, False), (v, lab, False)]
+        return kids
 
 
 class _Packer(pickle.Pickler):
+    """Pickles a function by value. Backstop behind _Scanner: every object actually shipped is checked on its own (a
+    container / array of more than MAX_ITEMS values, a string over MAX_TEXT characters, an integer over MAX_INT_BITS
+    bits, a pandas object dated past the cutoff), except the packer's own records (code bytes, function state)."""
+
     def __init__(self, f, cutoff):
         super().__init__(f, protocol=pickle.HIGHEST_PROTOCOL)
         self.cutoff = cutoff
+        self.internal: set = set()
+        self.keep: list = []
 
-    def persistent_id(self, obj):     # every object shipped is checked (a backstop behind _scan's named walk)
-        d = _describe(obj, self.cutoff)
+    def _mine(self, *objs):
+        for o in objs:
+            self.internal.add(id(o))
+            self.keep.append(o)
+
+    def persistent_id(self, obj):
+        if id(obj) in self.internal:
+            return None
+        d = _dated(obj, self.cutoff)
         if d:
-            raise LeakError(f"it carries {d}")
-        if isinstance(obj, (pd.Series, pd.DataFrame, pd.Index)):
-            # judged as a whole (e.g. a series ending before the cutoff): its own arrays are not judged again
+            raise _Dated(f"it carries {d}")
+        if isinstance(obj, (pd.Series, pd.DataFrame, pd.Index, np.ndarray)):
+            if obj.size > MAX_ITEMS:
+                raise _TooMuch(f"it carries a {type(obj).__name__} of {obj.size:,} values")
+            if isinstance(obj, np.ndarray):
+                return None
+            # judged as a whole: its own arrays are not judged again
             return ("pandas", pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL))
+        if isinstance(obj, (list, tuple, set, frozenset, dict)) and len(obj) > MAX_ITEMS:
+            raise _TooMuch(f"it carries a {type(obj).__name__} of {len(obj):,} values")
+        if isinstance(obj, (str, bytes, bytearray)) and len(obj) > MAX_TEXT:
+            raise _TooMuch(f"it carries a {type(obj).__name__} of {len(obj):,} characters")
+        if isinstance(obj, int) and not isinstance(obj, bool) and abs(obj).bit_length() > MAX_INT_BITS:
+            raise _TooMuch(f"it carries an integer of {abs(obj).bit_length():,} bits")
         return None
 
     def reducer_override(self, obj):
         if isinstance(obj, types.FunctionType) and _by_value(obj):
-            code = obj.__code__
-            return (_make_function, (marshal.dumps(code), obj.__name__, obj.__qualname__,
-                                     getattr(obj, "__module__", None) or "__main__", len(code.co_freevars),
-                                     id(obj.__globals__)),
-                    _fn_state(obj), None, None, _set_function_state)
+            code = marshal.dumps(_ship_code(obj.__code__))
+            st = _fn_state(obj)
+            if isinstance(st["doc"], str) and len(st["doc"]) > MAX_TEXT:
+                st["doc"] = None
+            args = (code, obj.__name__, obj.__qualname__, getattr(obj, "__module__", None) or "__main__",
+                    len(obj.__code__.co_freevars), id(obj.__globals__))
+            self._mine(code, args, st, st["globals"], st["cells"], *args[1:4])
+            return (_make_function, args, st, None, None, _set_function_state)
         if isinstance(obj, types.ModuleType):
             if not _library_module(obj.__name__) and obj.__name__ in ("__main__", "__mp_main__"):
-                raise LeakError("it uses the script's __main__ module as a value")
+                raise _TooMuch("it uses the script's __main__ module as a value")
             return (_import, (obj.__name__,))
         return NotImplemented
 
@@ -285,23 +530,35 @@ def _unpack(payload: bytes):
     return _Unpacker(io.BytesIO(payload)).load()
 
 
+_ADVICE = ("A function only gets the data up to each day; data loaded or computed before the run (e.g. FULL = "
+           "data.load('SPY') at module level, a list of later outcomes, a closure over full price series) would let "
+           "it read later prices. Load it inside the function instead: ns['sym']('SPY') or data.load('SPY') in a "
+           "rule, the `history` argument in a portfolio function - both are cut at each day.")
+
+
+def leak_message(what: str, name: str | None, e: LeakError, cutoff=None) -> str:
+    who = f"the {what} {name}()" if name else f"the {what}"
+    past = f" and reaching past {pd.Timestamp(cutoff).date()}" if cutoff is not None else ""
+    if isinstance(e, _Dated):
+        return f"Lookahead: {who} uses future data: {e}, captured outside the run{past}. {_ADVICE}"
+    return (f"Lookahead: {who} may use future data: {e}, captured outside the run. To keep data out, "
+            f"{limits_text()}. {_ADVICE}")
+
+
 def pack(fn, cutoff=None, what: str = "Python rule") -> bytes:
-    """`fn` by value, refused (LeakError) when it carries data that reaches past `cutoff` (see the module doc)."""
+    """`fn` by value, refused (LeakError) when it carries data captured outside the run: more than a rule's
+    parameters need (see _Scanner and the MAX_ limits), or a pandas object dated past `cutoff`."""
     if not callable(fn):
         raise TypeError(f"{what} must be a function")
     name = getattr(fn, "__name__", "") or "(function)"
     try:
-        _scan(fn, f"{name}()", cutoff, set())
+        _Scanner(cutoff).walk(fn, f"{name}()")
         buf = io.BytesIO()
         _Packer(buf, cutoff).dump(fn)
+        if buf.tell() > MAX_PAYLOAD:
+            raise _TooMuch(f"it packs into {buf.tell():,} bytes")
     except LeakError as e:
-        raise LeakError(
-            f"Lookahead: the {what} {name}() uses future data: {e}, captured outside the run"
-            f"{f' and reaching past {pd.Timestamp(cutoff).date()}' if cutoff is not None else ''}. A function "
-            "only gets the data up to each day; data loaded before the run (e.g. FULL = data.load('SPY') at "
-            "module level, or a closure over full price series) would let it read later prices. Load it inside "
-            "the function instead: ns['sym']('SPY') or data.load('SPY') in a rule, the `history` argument in a "
-            "portfolio function - both are cut at each day.") from None
+        raise LeakError(leak_message(what, name, e, cutoff)) from None
     except (pickle.PicklingError, TypeError, AttributeError) as e:
         raise SandboxError(f"The {what} {name}() cannot be sent to the sealed evaluator: {e}. Python rules must be "
                            "plain functions (def or lambda) using picklable values.") from None
@@ -361,12 +618,24 @@ _SERVER_LOCK = threading.Lock()
 _SERVER: dict = {}      # pid -> (Popen, socket path, authkey, tmpdir)
 
 
+# the only environment variables a sandbox process starts with (the rest of the backtester's environment - which a
+# script could fill with data: os.environ["X"] = ... - never reaches it); each at most 4,096 characters
+ENV_KEEP = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR", "SYSTEMROOT", "PYTHONHOME",
+            "PYTHONNOUSERSITE", "PYTHONDONTWRITEBYTECODE", "VIRTUAL_ENV")
+
+
+def _sys_path() -> list[str]:
+    """The backtester's import path as the child gets it: existing directories and archives only (no other text)."""
+    return [p for p in sys.path if isinstance(p, str) and len(p) <= 4096 and (p == "" or os.path.exists(p))]
+
+
 def _child_env() -> dict:
-    env = dict(os.environ)
+    env = {k: v for k in ENV_KEEP if (v := os.environ.get(k)) is not None and len(v) <= 4096}
     root = os.path.dirname(_PKG_DIR)
-    env["PYTHONPATH"] = root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    extra = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p and os.path.isdir(p)]
+    env["PYTHONPATH"] = os.pathsep.join([root] + extra)
     import json
-    env["BACKTESTER_SANDBOX_SYSPATH"] = json.dumps([p for p in sys.path if isinstance(p, str)])
+    env["BACKTESTER_SANDBOX_SYSPATH"] = json.dumps(_sys_path())
     return env
 
 
@@ -388,7 +657,7 @@ def _server():
         key = secrets.token_bytes(16)
         proc = subprocess.Popen([sys.executable, "-m", "backtester.sandbox", "serve", path, key.hex()],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=_child_env(),
-                                cwd=os.getcwd())
+                                cwd=os.getcwd(), close_fds=True)
         line = proc.stdout.readline()
         if line.strip() != b"ready":
             proc.kill()
@@ -416,7 +685,7 @@ atexit.register(_shutdown)
 def _connect():
     if not _use_fork_server():
         proc = subprocess.Popen([sys.executable, "-m", "backtester.sandbox", "job"], stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE, env=_child_env(), cwd=os.getcwd())
+                                stdout=subprocess.PIPE, env=_child_env(), cwd=os.getcwd(), close_fds=True)
         return _PipeConn(proc.stdout, proc.stdin, proc)
     from multiprocessing.connection import Client
     for attempt in range(2):
@@ -507,12 +776,13 @@ def _answer_rpc(msg, cut):
 class Job:
     """One fresh child running one packed function."""
 
-    def __init__(self, payload: bytes, spec: dict, feed=None):
+    def __init__(self, payload: bytes, spec: dict, feed=None, cut=None):
         self.conn = _connect()
-        self.cut = None
+        self.cut = cut           # data requests while the function is rebuilt (a user module's import) are cut too
         self.feed, self.limit = feed, 0      # a streamed rule: its data, and the rows sent so far
         STATS["jobs"] += 1
-        self._send(("job", payload, {**spec, "sys_path": [p for p in sys.path if isinstance(p, str)]}))
+        self._send(("job", payload, {**spec, "sys_path": _sys_path(),
+                                     "cutoff": None if cut is None else pd.Timestamp(cut).value}))
         self._wait()
 
     def _send(self, msg):
@@ -625,7 +895,7 @@ def _extras_of(ns) -> dict:
 
 
 def _run_chunk(payload, feed: _RuleFeed, spec: dict, pos: np.ndarray, kind: str) -> np.ndarray:
-    job = Job(payload, spec, feed)
+    job = Job(payload, spec, feed, cut=feed.idx[int(pos[0])] if len(pos) else None)
     try:
         out = np.zeros(len(pos), bool) if kind == "bool" else np.full(len(pos), np.nan)
         have = 0
@@ -682,7 +952,8 @@ def call(fn, ns, kind: str, cutoff=None, what: str = "Python rule", payload: byt
     if payload is None:
         payload = pack(fn, cutoff if cutoff is not None else (idx[0] if len(idx) else None), what)
     feed = _RuleFeed(ns, _extras_of(ns))
-    job = Job(payload, {**feed.spec(ns, kind), "mode": "call"})
+    first = cutoff if cutoff is not None else (idx[0] if len(idx) else None)
+    job = Job(payload, {**feed.spec(ns, kind), "mode": "call"}, cut=first)
     try:
         raw = job.ask(("call", feed.block(0, len(idx))), idx[-1] if len(idx) else None)
     finally:
@@ -696,7 +967,8 @@ def call_prefixes(fn, ns, kind: str, cuts, payload: bytes, feed: "_RuleFeed | No
     {position: answers array, or the exception the call raised}."""
     idx = ns.df.index
     feed = feed or _RuleFeed(ns, _extras_of(ns))
-    job = Job(payload, {**feed.spec(ns, kind), "mode": "call"})
+    first = min((int(x) for x in cuts), default=None)
+    job = Job(payload, {**feed.spec(ns, kind), "mode": "call"}, cut=idx[first] if first is not None else None)
     out: dict = {}
     have = 0
     try:
@@ -727,7 +999,8 @@ class PortfolioSession:
         self.have = {t: 0 for t in frames}
         self.last = None
         spec = {"mode": "portfolio", "tickers": {t: (p[0], p[1], frames[t].index.name) for t, p in self.parts.items()}}
-        self.job = Job(pack(fn, first_date, "portfolio function"), spec)
+        self.job = Job(pack(fn, first_date, "portfolio function"), {**spec, "what": "portfolio function"},
+                       cut=first_date)
 
     def __call__(self, date) -> dict:
         date = pd.Timestamp(date)
@@ -794,6 +1067,75 @@ class _OverrideProxy:
         return default if v is None else v
 
 
+_CHILD: dict = {"cutoff": None, "what": "Python rule"}
+_IMPORTING: set = set()      # (child) files of the user module the import system is loading right now
+
+
+def _read_roots() -> tuple[str, ...]:
+    global _LIB
+    if _LIB is None:
+        _LIB = _lib_roots()
+    return _LIB + (_PKG_DIR + os.sep,)
+
+
+def _may_read(file, mode) -> bool:
+    """(child) Files a sealed process may read: the code and data of the standard library, installed packages and
+    the backtester package, and the source / bytecode of a user module while the import system loads it (then
+    measured, see _UserModuleGuard). Nothing else (no data files, no other source files as text)."""
+    if not isinstance(file, (str, bytes, os.PathLike)) or any(c in str(mode) for c in "wax+"):
+        return False
+    path = os.path.realpath(os.fsdecode(file))
+    return path.startswith(_read_roots()) or path in _IMPORTING
+
+
+class _GuardedLoader:
+    """(child) Loads a user module with its own files readable, then measures it like a captured value."""
+
+    def __init__(self, loader, spec):
+        self._loader = loader
+        self._paths = {os.path.realpath(p) for p in (spec.origin, spec.cached) if p}
+
+    def create_module(self, spec):
+        return self._loader.create_module(spec) if hasattr(self._loader, "create_module") else None
+
+    def exec_module(self, module):
+        new = self._paths - _IMPORTING
+        _IMPORTING.update(new)
+        try:
+            self._loader.exec_module(module)
+        finally:
+            _IMPORTING.difference_update(new)
+        try:
+            _Scanner(_CHILD["cutoff"]).walk(module, f"module {module.__name__}")
+        except LeakError as e:
+            raise LeakError(leak_message(_CHILD["what"], None, e, _CHILD["cutoff"]) + " (A module of your own that "
+                            "a function imports is measured the same way when the sealed evaluator imports it.)") \
+                from None
+
+    def __getattr__(self, name):
+        return getattr(self._loader, name)
+
+
+class _UserModuleGuard:
+    """(child) A meta path finder in front of the others: a module imported from outside the library roots (a
+    module of your own, found through sys.path) is loaded by _GuardedLoader."""
+
+    def find_spec(self, name, path=None, target=None):
+        spec = None
+        for f in sys.meta_path:
+            if f is self or not hasattr(f, "find_spec"):
+                continue
+            spec = f.find_spec(name, path, target)
+            if spec is not None:
+                break
+        if spec is None or spec.loader is None or not spec.origin or not spec.has_location:
+            return spec
+        if os.path.realpath(spec.origin).startswith(_read_roots()):
+            return spec
+        spec.loader = _GuardedLoader(spec.loader, spec)
+        return spec
+
+
 def _harden():
     """Child: data functions forwarded to the backtester (cut at the current day), files / processes / network
     refused for good."""
@@ -815,30 +1157,39 @@ def _harden():
             setattr(data, name, refuse_data)
     expr._SYM_OVERRIDE = _OverrideProxy()
 
+    # the environment: only the basics (the backtester already starts the server with ENV_KEEP; this also covers
+    # the one-process fallback)
+    keep = {k: os.environ[k] for k in ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TZ") if k in os.environ}
+    os.environ.clear()
+    os.environ.update(keep)
+    sys.dont_write_bytecode = True
+
     import _io
     import posix
 
-    real_fileio, real_open = _io.FileIO, _io.open
-
-    def code_file(file, mode) -> bool:
-        # the import system reads module code through _io.open / _io.FileIO: Python source, bytecode, extensions
-        name = os.fsdecode(file) if isinstance(file, (str, bytes, os.PathLike)) else ""
-        return (name.endswith((".py", ".pyc", ".so", ".pyd")) and "w" not in mode and "a" not in mode
-                and "+" not in mode and not name.startswith("/proc"))
+    real_fileio, real_open, real_open_code = _io.FileIO, _io.open, _io.open_code
 
     class FileIO(real_fileio):
         def __init__(self, file, mode="r", *a, **k):
-            if not code_file(file, mode):
+            if not _may_read(file, mode):
                 expr._refuse("open a file")
             super().__init__(file, mode, *a, **k)
 
-    def open_code_only(file, mode="r", *a, **k):
-        if not code_file(file, mode):
+    def open_readable(file, mode="r", *a, **k):
+        if not _may_read(file, mode):
             expr._refuse("open a file")
         return real_open(file, mode, *a, **k)
+
+    def open_code(path):
+        if not _may_read(path, "rb"):
+            expr._refuse("open a file")
+        return real_open_code(path)
     _io.FileIO = FileIO
     io.FileIO = FileIO
-    _io.open = open_code_only
+    _io.open = open_readable
+    _io.open_code = open_code
+    io.open_code = open_code
+    sys.meta_path.insert(0, _UserModuleGuard())
 
     def no(what):
         def f(*a, **k):
@@ -950,8 +1301,14 @@ def _job(conn, hardened: bool = False):
         for p in reversed(spec.get("sys_path", [])):
             if p not in sys.path:
                 sys.path.insert(0, p)
+        global _LIB
+        _LIB = None
+        _CHILD["cutoff"] = pd.Timestamp(spec["cutoff"]) if spec.get("cutoff") is not None else None
+        _CHILD["what"] = spec.get("what", "Python rule")
         try:
             fn = _unpack(payload)
+        except LeakError:
+            raise
         except Exception as e:  # noqa: BLE001
             raise SandboxError(f"could not rebuild the function in the sealed evaluator: {type(e).__name__}: {e}") \
                 from None
@@ -1067,9 +1424,13 @@ def _serve(path: str, key: bytes):
     alive_r, alive_w = os.pipe()     # EOF in the children when the server is gone
     taken_r, taken_w = os.pipe()     # a child took a connection: fork a replacement
 
+    null_fd = os.open(os.devnull, os.O_RDONLY)
+
     def idle_child():
         os.close(alive_w)
         os.close(taken_r)
+        os.dup2(null_fd, 0)          # nothing of the server's is readable: stdin is /dev/null
+        os.close(null_fd)
         signal.signal(signal.SIGCHLD, signal.SIG_DFL)
         try:
             _harden()

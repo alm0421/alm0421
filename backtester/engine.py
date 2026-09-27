@@ -623,6 +623,14 @@ def run(strat: Strategy) -> Result:
                 "the trades are sized and listed in shares as traded.")
         SF = np.ones_like(SF)
     slip = strat.slippage_bps / 1e4
+    # a same-bar open fill whose rule reads that open: filled open_reaction_bps worse than the print (strategy.py)
+    react_rules = strat.open_reaction_rules()
+    react = float(strat.open_reaction_bps) / 1e4
+
+    def react_for(sgn: int) -> float:
+        key = "short entry" if strat.side == "both" and sgn < 0 else "entry"
+        return react if key in react_rules else 0.0
+    react_exit = react if "exit" in react_rules else 0.0
     rate = _daily_rate(cal, strat.cash_rate)
     warm_i = _warmup_bar(strat, cal, tick, C, namespaces, long_sig, short_sig)
     if warm_i:
@@ -1376,7 +1384,7 @@ def run(strat: Strategy) -> Result:
                 continue
             if strat.exit_when and strat.exit_when_fill == "open":  # open-safe rule, acted on at today's open
                 if p.exit_sig[i] if p.exit_sig is not None else exit_sig[i, k]:
-                    close_part(i, p, o[k], "exit rule", at_open=True)
+                    close_part(i, p, o[k] * (1 - p.sign * react_exit), "exit rule", at_open=True)
                     continue
             if stops_used:
                 stop, why, tgt = levels(p)
@@ -1398,6 +1406,12 @@ def run(strat: Strategy) -> Result:
             todays_open = ranked_pairs(signals(i), max(i - 1, 0))  # rank with yesterday's values
         for n_, (k, sgn) in enumerate(pending_mkt_open + todays_open):
             S["tv_sb"] = i - 1 if n_ < len(pending_mkt_open) and i > 0 else None   # the order's signal bar
+            r_ = react_for(sgn) if n_ >= len(pending_mkt_open) else 0.0
+            if r_ and not np.isnan(o[k]):
+                px_ = o.copy()
+                px_[k] = o[k] * (1 + sgn * r_)       # reacting to the printed open: a little worse than the print
+                want(i, k, sgn, px_, at_open=True)
+                continue
             want(i, k, sgn, o, at_open=True)
         S["tv_sb"] = None
         pending_mkt_open = []
