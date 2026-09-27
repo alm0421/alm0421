@@ -57,8 +57,31 @@ def _flag(v) -> bool:
     raise ValueError(v)
 
 
+def _cash_rate(v):
+    """The site's cash-interest setting: "tbill", "none" / 0 (no interest), or an annual rate in percent."""
+    t = str(v).strip().lower()
+    if t in ("tbill", "t-bill", "t-bills"):
+        return "tbill"
+    if t in ("none", "nothing", "no", "off", "0", "0.0"):
+        return 0.0
+    r = float(t.rstrip("%")) / 100
+    if not 0 <= r < 1:
+        raise ValueError(v)
+    return r
+
+
+def _commission_model(v):
+    t = str(v).strip().lower()
+    if t in ("none", "off"):
+        return ""
+    if t not in ("ibkr_fixed", "ibkr_tiered"):
+        raise ValueError(v)
+    return t
+
+
 OPTION_KEYS = {"capital": float, "start": str, "end": str, "slippage_bps": float, "commission": float,
-               "benchmark": str, "name": str, "tv_compat": _flag}
+               "benchmark": str, "name": str, "tv_compat": _flag, "cash_rate": _cash_rate, "dividends": _flag,
+               "commission_per_share": float, "commission_model": _commission_model, "price_basis": str}
 
 
 class ClientError(Exception):
@@ -123,6 +146,10 @@ def _options(body: dict) -> dict:
             out[k] = typ(v)
         except (TypeError, ValueError):
             raise ClientError(f"Bad value for {k}: {v!r}")
+    if out.get("commission_model") == "":
+        del out["commission_model"]   # "none": keep what the strategy says
+    if "price_basis" in out and out["price_basis"] not in ("adjusted", "quoted"):
+        raise ClientError(f"Bad value for price_basis: {out['price_basis']!r} (adjusted or quoted)")
     return out
 
 
@@ -138,6 +165,8 @@ def _coerce_spec_dict(d: dict) -> dict:
             continue
         v = d[f.name]
         has_default = f.default is not dataclasses.MISSING or f.default_factory is not dataclasses.MISSING
+        if v is None and f.name == "cash_rate":
+            continue   # null is meaningful here: cash earns nothing (the default is the T-bill rate)
         if (v is None or (isinstance(v, str) and not v.strip())) and has_default:
             del d[f.name]  # blank -> the default (e.g. position_size -> leverage / max_positions)
             continue
@@ -174,6 +203,19 @@ def decode_share(token: str) -> dict:
         raise ClientError("This share link is damaged or incomplete (copy the whole link and try again).")
 
 
+def _tv_switch(spec, ov: dict) -> None:
+    """The TradingView-compatible setting changed on a saved spec: its cash interest and dividends follow the mode's
+    defaults (TradingView: no interest, no dividends) unless the options set them too. Entry timing stays as saved."""
+    if "tv_compat" not in ov or not hasattr(spec, "dividends") or bool(ov["tv_compat"]) == bool(spec.tv_compat):
+        return
+    on = bool(ov["tv_compat"])
+    if "cash_rate" not in ov and spec.cash_rate in (("tbill",) if on else (None, 0, 0.0)):
+        spec.cash_rate = None if on else "tbill"
+    if "dividends" not in ov:
+        spec.dividends = None     # the mode's default (validate: credited unless TradingView-compatible)
+    spec.notes = [n for n in spec.notes if not n.startswith("TradingView-compatible mode")]
+
+
 def _spec(body: dict):
     ov = _options(body)
     if body.get("share"):
@@ -185,6 +227,7 @@ def _spec(body: dict):
         if d.get("universe_name") == "NDX" and not d.get("universe") and "tree" not in d:
             d["universe"] = data.nasdaq100_ever()
         spec = runner.from_dict(d)
+        _tv_switch(spec, ov)
         for k, v in ov.items():
             if hasattr(spec, k):
                 setattr(spec, k, v)

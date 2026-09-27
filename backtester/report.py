@@ -1027,9 +1027,14 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
             warnings.append({"code": "interpretation", "level": "warn", "message": "Check the interpretation",
                              "detail": n[len("Warning:"):].strip()})
     # Nasdaq-100 point-in-time universes: the survivorship coverage belongs in the headline, not only in the notes
-    if any(isinstance(n, str) and n.startswith("Survivorship:") for n in s.notes) and len(res.equity):
+    sv_note = next((n for n in s.notes if isinstance(n, str) and n.startswith("Survivorship:")), None)
+    if sv_note and len(res.equity):
         try:
-            sv = data.survivorship(str(res.equity.index[0].date()), str(res.equity.index[-1].date()))
+            # the period the run's note was computed for (its first and last trading day), so the headline quotes the
+            # same figures; for a saved run without it, the equity's first real day (index 0 is the anchor before it)
+            win = data.coverage_window(sv_note) or (str(res.equity.index[min(1, len(res.equity) - 1)].date()),
+                                                    str(res.equity.index[-1].date()))
+            sv = data.survivorship(*win)
         except Exception:  # noqa: BLE001 - a caveat must never break a report
             sv = None
         if sv:

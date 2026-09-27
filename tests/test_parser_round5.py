@@ -48,7 +48,7 @@ def comparisons(rule: str) -> list[tuple[str, str, str]]:
 OSCS = [
     ("RSI", "rsi(close, 7)", "79"),
     ("relative strength index", "rsi(close, 7)", "30"),
-    ("stochastic", "stoch_k(7, 3)", "80"),
+    ("stochastic", "stoch_k(7, 1)", "80"),
     ("CCI", "cci(7)", "100"),
     ("Williams %R", "willr(7)", "-80"),
     ("MFI", "mfi(7)", "20"),
@@ -112,7 +112,7 @@ def test_indicator_lookback_fuzz_signal(osc, phr, cmp):
 @pytest.mark.parametrize("text,rule", [
     ("if the RSI of QQQ over 10 days is greater than 79 then hold UVXY else hold TQQQ", "rsi(close, 10) > 79"),
     ("if QQQ RSI over 10 days is above 79 then hold UVXY else hold TQQQ", "rsi(close, 10) > 79"),
-    ("if the stochastic of QQQ over 14 days is above 80 then hold UVXY else hold TQQQ", "stoch_k(14, 3) > 80"),
+    ("if the stochastic of QQQ over 14 days is above 80 then hold UVXY else hold TQQQ", "stoch_k(14, 1) > 80"),
     ("if the ADX of QQQ over 20 days is above 25 then hold UVXY else hold TQQQ", "adx(20) > 25"),
     ("if the Williams %R of QQQ over 10 days is below -80 then hold UVXY else hold TQQQ", "willr(10) < -80"),
     ("if the MFI of QQQ over 10 days is below 20 then hold UVXY else hold TQQQ", "mfi(10) < 20"),

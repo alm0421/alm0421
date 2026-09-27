@@ -128,8 +128,13 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label>Benchmark<input id="o_benchmark" list="tickerList" placeholder="SPY"></label>
         <label>Risk-free for Sharpe<select id="o_rf"><option value="tbill">3-month T-bills</option><option value="0">0%</option></select></label>
         <label>Name<input id="o_name" placeholder="optional label"></label>
-        <label title="Unstated entry timing fills at the next open (process_orders_on_close = false); a stop and a target hit on one bar follow TradingView's open-high-low-close path">TradingView-compatible<select id="o_tv_compat"><option value="">off</option><option value="true">on</option></select></label>
-      </div></details>
+        <label title="Unstated entry timing fills at the next open (process_orders_on_close = false); a stop and a target hit on one bar follow TradingView's open-high-low-close path; cash earns nothing and dividends are not credited unless asked for">TradingView-compatible<select id="o_tv_compat"><option value="">as described (off)</option><option value="true">on</option><option value="false">off</option></select></label>
+        <label title="interest on idle cash: the 3-month T-bill rate, none, or a fixed annual rate in %">Cash interest<input id="o_cash_rate" list="cashRates" placeholder="as described"></label>
+        <label title="credit cash dividends on the ex-date (signal strategies; portfolios always receive them)">Dividends<select id="o_dividends"><option value="">as described</option><option value="true">credited</option><option value="false">not credited (price-only)</option></select></label>
+        <label>Commission ($ per share)<input id="o_commission_per_share" type="number" step="0.001"></label>
+        <label>Commission model<select id="o_commission_model"><option value="">as described</option><option value="ibkr_fixed">IBKR fixed</option><option value="ibkr_tiered">IBKR tiered</option></select></label>
+        <label title="portfolios: what the rules' indicators are computed on">Indicator prices<select id="o_price_basis"><option value="">as described</option><option value="adjusted">total return</option><option value="quoted">as quoted (TradingView)</option></select></label>
+      </div><datalist id="cashRates"><option value="tbill"><option value="none"></datalist></details>
     <div class="row" style="margin-top:12px">
       <button class="btn primary" id="runBtn">Run backtest</button>
       <button class="btn" id="toBuild">Edit as blocks</button>
@@ -253,6 +258,9 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label>Start<input id="p_start" type="date"></label><label>End<input id="p_end" type="date"></label>
       </div>
       <div class="note" id="rebalNote"></div>
+      <details id="p_advBox" style="margin-top:8px"><summary>Advanced fields (JSON: every other field of the portfolio, carried unchanged)</summary>
+        <p class="note">Fields without a control above (e.g. flow schedules, cash interest, dividends, commissions per order, warm-up, maintenance margin) are kept here exactly as loaded and run with the portfolio. Edit them as JSON.</p>
+        <textarea id="p_advanced" style="min-height:90px;font:12px ui-monospace,monospace">{}</textarea></details>
     </div>
     <div id="bSignal" class="hide">
       <div class="grid">
@@ -266,11 +274,21 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label style="grid-column:1/-1">Exit rule<input id="s_exit_when" class="w" placeholder="close > sma(close, 5)"></label>
         <label>Hold bars<input id="s_hold_bars" type="number" min="0" placeholder="none"></label>
         <label>Exit fill<select id="s_hold_exit_fill"><option>close</option><option>open</option></select></label>
+        <label title="when a rule exit fills: at that close, at that open (open-safe rules only), or checked at the close and filled at the next open">Exit rule fill<select id="s_exit_when_fill"><option>close</option><option>open</option><option>next_open</option></select></label>
+        <label>Order valid (bars)<input id="s_order_valid_bars" type="number" min="1" value="1"></label>
         <label>Stop loss (%)<input id="s_stop_loss" type="number" step="0.1"></label>
         <label>Take profit (%)<input id="s_take_profit" type="number" step="0.1"></label>
         <label>Trailing stop (%)<input id="s_trailing_stop" type="number" step="0.1"></label>
         <label>ATR stop (x)<input id="s_stop_atr" type="number" step="0.1"></label>
+        <label>Take profit (x ATR)<input id="s_take_profit_atr" type="number" step="0.1"></label>
         <label>Chandelier stop (x ATR)<input id="s_trailing_atr" type="number" step="0.1"></label>
+        <label>ATR period<input id="s_atr_period" type="number" min="1" value="14"></label>
+        <label title="a stop at the entry price once the best price is this far in favour">Breakeven after (%)<input id="s_breakeven_after" type="number" step="0.1"></label>
+        <label title="partial exits: 'fraction@gain' in %, e.g. 50@10 = sell 50% at +10%; several separated by commas">Scale out (%@%)<input id="s_scale_out" placeholder="50@10, 25@20"></label>
+        <label title="arm the trailing / chandelier stop only after the first scale-out (trail the rest)">Trail after scale-out<select id="s_trail_after_scale_out"><option value="false">no</option><option value="true">yes</option></select></label>
+        <label title="a stop price evaluated when the position opens, e.g. low, lowest(low, 5), entry_price - 2 * atr(14)">Stop level (rule)<input id="s_stop_level" placeholder="lowest(low, 5)"></label>
+        <label title="a target price evaluated when the position opens; may use entry_price and stop_price">Target level (rule)<input id="s_target_level" placeholder="highest(high, 20)"></label>
+        <label title="R-multiple target: entry ± R × (entry − initial stop)">Target (R multiple)<input id="s_target_r" type="number" step="0.1"></label>
         <label>Max positions<input id="s_max_positions" type="number" value="1"></label>
         <label>Sizing<select id="s_sizing"><option>percent</option><option>fixed_dollars</option><option>fixed_shares</option><option>risk</option><option>volatility</option></select></label>
         <label>% of equity per position<input id="s_position_size" type="number" step="1"></label>
@@ -279,14 +297,24 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label>Fixed amount ($ or shares)<input id="s_fixed_amount" type="number"></label>
         <label>Leverage (x)<input id="s_leverage" type="number" step="0.1" value="1"></label>
         <label>Pyramiding<input id="s_pyramiding" type="number" value="1"></label>
+        <label title="when more tickers signal than there are free slots, prefer this value (rule language)">Rank by (rule)<input id="s_rank_by" placeholder="most liquid"></label>
+        <label>Rank order<select id="s_rank_ascending"><option value="false">highest first</option><option value="true">lowest first</option></select></label>
         <label>Slippage (bps)<input id="s_slippage_bps" type="number" value="0"></label>
         <label>Commission ($/order)<input id="s_commission" type="number" step="0.01" value="0"></label>
+        <label>Commission ($/share)<input id="s_commission_per_share" type="number" step="0.001" value="0"></label>
         <label>Commission (%)<input id="s_commission_pct" type="number" step="0.01" value="0"></label>
+        <label>Commission model<select id="s_commission_model"><option value="">none</option><option value="ibkr_fixed">IBKR fixed</option><option value="ibkr_tiered">IBKR tiered</option></select></label>
         <label>Borrow fee (%/yr)<input id="s_borrow_fee" type="number" step="0.1" value="0"></label>
+        <label title="tbill (the 3-month T-bill rate), or an annual rate in %; 0 = none">Cash interest<input id="s_cash_rate" list="cashRates" value="tbill"></label>
+        <label>Dividends<select id="s_dividends"><option value="">default (credited; not in TradingView mode)</option><option value="true">credited</option><option value="false">not credited</option></select></label>
+        <label>Benchmark<input id="s_benchmark" list="tickerList" placeholder="SPY"></label>
         <label>Starting capital ($)<input id="s_capital" type="number" value="10000"></label>
         <label>Start<input id="s_start" type="date"></label><label>End<input id="s_end" type="date"></label>
         <label>TradingView-compatible<select id="s_tv_compat"><option value="false">off</option><option value="true">on</option></select></label>
       </div>
+      <details id="s_advBox" style="margin-top:8px"><summary>Advanced fields (JSON: every other field of the strategy, carried unchanged)</summary>
+        <p class="note">Fields without a control above (e.g. margin, short rebate, volume caps, point-in-time membership, min order) are kept here exactly as loaded and run with the strategy. Edit them as JSON.</p>
+        <textarea id="s_advanced" style="min-height:90px;font:12px ui-monospace,monospace">{}</textarea></details>
       <details style="margin-top:8px"><summary>Rule language reference</summary><pre class="help" id="helpExpr"></pre></details>
     </div>
     <details style="margin-top:10px"><summary>JSON (edit directly or paste a strategy.json)</summary>
@@ -559,7 +587,7 @@ window.addEventListener('blur', unpress);
     if (p === 'library') loadLibrary();
     if (p === 'gallery') loadGallery();
     if (p === 'community') loadCommunity();
-    if (p === 'build' && buildMode === 'portfolio') buildPreview();
+    if (p === 'build') buildPreview();
     if (qs) {
       const q = new URLSearchParams(qs);
       if (q.get('s') && p === 'backtest') openShared(q.get('s'));
@@ -570,8 +598,15 @@ window.addEventListener('blur', unpress);
   window.addEventListener('hashchange', route);
 
   // ---------- backtest
-  const opt = () => { const o = {}; ['capital', 'start', 'end', 'slippage_bps', 'commission', 'benchmark', 'name', 'tv_compat'].forEach(k => { const v = $('o_' + k).value; if (v !== '') o[k] = v; }); return o; };
+  // every setting of the Backtest page (each overrides the sentence, or the shared / opened spec)
+  const OPT_KEYS = ['capital', 'start', 'end', 'slippage_bps', 'commission', 'benchmark', 'name', 'tv_compat', 'cash_rate', 'dividends',
+    'commission_per_share', 'commission_model', 'price_basis'];
+  const opt = () => { const o = {}; OPT_KEYS.forEach(k => { const v = $('o_' + k).value; if (v !== '') o[k] = v; }); return o; };
   let timer = null, lastSpec = null;
+  // a strategy opened from a share link or the gallery is kept whole (every field, not only what the sentence says):
+  // while the text is unchanged, runs and previews use that spec with the settings above applied on top
+  let baseSpec = null, baseText = null;
+  const fromBase = () => (baseSpec && $('text').value === baseText ? baseSpec : null);
   let interpSeq = 0;
   // The old interpretation and notes stay until the new ones arrive (no reflow in between), and the swap waits
   // while a button is being pressed (afterPress), so the Run / Share button never moves under the pointer.
@@ -590,7 +625,8 @@ window.addEventListener('blur', unpress);
     const t = $('text').value.trim();
     if (!t) { lastSpec = null; showInterp('Type a strategy above; its interpretation appears here as you type.'); return; }
     try {
-      const j = await api('/api/parse?soft=1', { text: t, options: opt() });
+      const base = fromBase();
+      const j = await api('/api/parse?soft=1', base ? { spec: base, options: opt() } : { text: t, options: opt() });
       if (seq !== interpSeq) return;   // a newer edit is being interpreted
       lastSpec = j.spec; showInterp(j.interpretation, false, j.notes);
     } catch (e) { if (seq !== interpSeq) return; lastSpec = null; showInterp(e.message, true); }
@@ -616,10 +652,13 @@ window.addEventListener('blur', unpress);
     $('runBtn').disabled = true; $('runStatus').replaceChildren(el('span', { class: 'spin' }), document.createTextNode(' running…'));
     try {
       const rf = $('o_rf').value === '0' ? 0 : 'tbill';
-      const body = extra && extra.share ? { share: extra.share } : extra && extra.spec ? { spec: extra.spec, rf } : { text: t, options: opt(), rf };
+      const base = fromBase();
+      const body = extra && extra.share ? { share: extra.share } : extra && extra.spec ? { spec: extra.spec, rf }
+        : base ? { spec: base, options: opt(), rf } : { text: t, options: opt(), rf };
       const j = await api('/api/run', body);
       $('runStatus').textContent = j.reused ? 'Same strategy, settings and data as a saved run: showing that run.' : '';
-      if (extra && extra.spec) { $('text').value = j.spec.description || extra.spec.name || ''; $('interp').classList.remove('err'); $('interp').textContent = j.interpretation; lastSpec = j.spec; }
+      if (extra && extra.spec) { $('text').value = j.spec.description || extra.spec.name || ''; $('interp').classList.remove('err'); $('interp').textContent = j.interpretation; lastSpec = j.spec;
+        baseSpec = j.spec; baseText = $('text').value; }
       showResult(j.id, metaLine(j.summary));
       lastShare = j.share; shareText = $('text').value;
       history.replaceState(null, '', `#backtest?s=${j.share}`);
@@ -632,9 +671,18 @@ window.addEventListener('blur', unpress);
       const j = await api('/api/share', { share: tok });
       const s = j.spec;
       $('text').value = s.description || '';
-      ['capital', 'start', 'end', 'slippage_bps', 'commission', 'benchmark', 'name'].forEach(k => { $('o_' + k).value = s[k] == null ? '' : s[k]; });
+      // every setting the link carries goes back into the form, and the whole spec is kept: a change of one setting
+      // (capital, say) re-runs this spec with that change, never a re-read of the sentence that drops the rest
+      ['capital', 'start', 'end', 'slippage_bps', 'commission', 'commission_per_share', 'name'].forEach(k => { $('o_' + k).value = s[k] == null ? '' : s[k]; });
+      $('o_benchmark').value = s.benchmark == null ? '' : typeof s.benchmark === 'object' ? Object.entries(s.benchmark).map(([t, w]) => `${+(w * 100).toFixed(4)} ${t}`).join(' ') : s.benchmark;
+      $('o_tv_compat').value = s.tv_compat ? 'true' : '';
+      $('o_cash_rate').value = s.cash_rate === 'tbill' ? 'tbill' : s.cash_rate == null || s.cash_rate === 0 ? 'none' : String(+(s.cash_rate * 100).toFixed(6));
+      $('o_dividends').value = s.dividends === false ? 'false' : s.dividends === true && s.tv_compat ? 'true' : '';
+      $('o_commission_model').value = s.commission_model || '';
+      $('o_price_basis').value = s.price_basis || '';
       $('o_rf').value = j.rf === 0 || j.rf === '0' ? '0' : 'tbill';
       $('interp').classList.remove('err'); $('interp').textContent = j.interpretation; lastSpec = s;
+      baseSpec = s; baseText = $('text').value;
       lastShare = tok; shareText = $('text').value;
       await runBacktest({ share: tok });
     } catch (e) { $('interp').classList.add('err'); $('interp').textContent = e.message; }
@@ -1193,25 +1241,118 @@ window.addEventListener('blur', unpress);
     buildMode = m; [...$('buildMode').children].forEach(b => b.classList.toggle('on', b.dataset.v === m));
     $('bPortfolio').classList.toggle('hide', m !== 'portfolio'); $('bSignal').classList.toggle('hide', m !== 'signal');
     $('buildHelp').textContent = m === 'portfolio' ? 'Build an allocation like a Composer symphony: weighted groups, if/else switches and top-N filters, nested as deep as you like. Pick indicators for conditions and rankings (or switch a block to rule text), drag ⠿ to move blocks, and fix anything marked in red before running.'
-      : 'Every field of a signal strategy. Rules use the rule language, e.g. rsi(2) < 10 and close > sma(close, 200).';
+      : 'Every field of a signal strategy: the common ones below, the rest in "Advanced fields". Rules use the rule language, e.g. rsi(2) < 10 and close > sma(close, 200).';
+    // the interpretation shown belongs to the mode on screen: refresh it (and drop the other mode's)
+    $('buildInterp').classList.add('hide'); $('buildInterp').textContent = '';
+    if (location.hash.startsWith('#build')) { try { buildPreview(); } catch (e) { /* before the editor is set up */ } }
   }
   $('buildMode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setBuildMode(b.dataset.v); });
   const P_FIELDS = ['rebalance', 'drift_band', 'fill', 'capital', 'contribution', 'contribution_freq', 'withdrawal', 'withdrawal_pct', 'withdrawal_freq', 'inflation_adjust', 'slippage_bps', 'commission_pct', 'leverage', 'margin_rate', 'expense_ratio', 'target_vol', 'price_basis', 'benchmark', 'start', 'end'];
-  const S_FIELDS = ['side', 'entry_fill', 'entry_order', 'entry_level', 'entry', 'short_entry', 'exit_when', 'hold_bars', 'hold_exit_fill', 'stop_loss', 'take_profit', 'trailing_stop', 'stop_atr', 'trailing_atr', 'max_positions', 'sizing', 'position_size', 'risk_per_trade', 'target_vol', 'fixed_amount', 'leverage', 'pyramiding', 'slippage_bps', 'commission', 'commission_pct', 'borrow_fee', 'capital', 'start', 'end', 'tv_compat'];
-  const PCT = new Set(['drift_band', 'withdrawal_pct', 'commission_pct', 'stop_loss', 'take_profit', 'trailing_stop', 'position_size', 'risk_per_trade', 'target_vol', 'borrow_fee', 'margin_rate', 'expense_ratio']);
+  const S_FIELDS = ['side', 'entry_fill', 'entry_order', 'entry_level', 'order_valid_bars', 'entry', 'short_entry', 'exit_when', 'exit_when_fill', 'hold_bars', 'hold_exit_fill',
+    'stop_loss', 'take_profit', 'trailing_stop', 'stop_atr', 'take_profit_atr', 'trailing_atr', 'atr_period', 'breakeven_after', 'scale_out', 'trail_after_scale_out',
+    'stop_level', 'target_level', 'target_r', 'max_positions', 'sizing', 'position_size', 'risk_per_trade', 'target_vol', 'fixed_amount', 'leverage', 'pyramiding',
+    'rank_by', 'rank_ascending', 'slippage_bps', 'commission', 'commission_per_share', 'commission_pct', 'commission_model', 'borrow_fee', 'cash_rate', 'dividends',
+    'benchmark', 'capital', 'start', 'end', 'tv_compat'];
+  // not form fields and not carried in "Advanced fields": the universe (its own box), the run's notes and the
+  // sentence it came from (the description is rebuilt from the rules when they are edited here)
+  const S_OWN = ['universe', 'universe_name', 'notes', 'description'], P_OWN = ['tree', 'notes', 'description', 'kind', 'name'];
+  const PCT = new Set(['drift_band', 'withdrawal_pct', 'commission_pct', 'stop_loss', 'take_profit', 'trailing_stop', 'position_size', 'risk_per_trade', 'target_vol', 'borrow_fee', 'margin_rate', 'expense_ratio', 'breakeven_after']);
   // fields missing from the spec go back to the form's own defaults (not blank selects)
   const formDefault = e => e.tagName === 'SELECT' ? ([...e.options].find(o => o.defaultSelected) || e.options[0] || { value: '' }).value : e.defaultValue;
-  function toForm(prefix, fields, spec) { fields.forEach(f => { const e = $(prefix + f); if (!e) return; let v = spec[f]; if (v == null || (!(f in spec))) { e.value = f in spec ? '' : formDefault(e); return; } if (PCT.has(f) && v !== '') v = +(v * 100).toFixed(6); if (typeof v === 'boolean') v = String(v); e.value = v; }); }
-  function fromForm(prefix, fields) { const o = {}; fields.forEach(f => { const e = $(prefix + f); if (!e) return; let v = e.value; if (v === '') return; if (v === 'true' || v === 'false') v = v === 'true'; else if (e.type === 'number') v = +v; if (PCT.has(f)) v = v / 100; o[f] = v; }); return o; }
+  const pctStr = v => String(+(v * 100).toFixed(6));
+  // fields shown in their own format: scale-outs as "fraction@gain" in %, cash interest as tbill / a rate in % (0 = none)
+  const TO_TEXT = {
+    scale_out: v => (v || []).map(x => `${pctStr(x.fraction)}@${pctStr(x.at)}`).join(', '),
+    cash_rate: v => v === 'tbill' ? 'tbill' : v == null || v === 0 ? '0' : pctStr(v),
+  };
+  const FROM_TEXT = {
+    scale_out: t => t.split(/[,;]+/).map(x => x.trim()).filter(Boolean).map(x => {
+      const m = x.match(/^(\d+(?:\.\d+)?)\s*%?\s*@\s*\+?(\d+(?:\.\d+)?)\s*%?$/);
+      if (!m) throw new Error(`Scale out: '${x}' should be fraction@gain in %, e.g. 50@10 (sell 50% at +10%).`);
+      return { fraction: +m[1] / 100, at: +m[2] / 100 };
+    }),
+    cash_rate: t => { const x = t.trim().toLowerCase(); if (x === 'tbill' || x === 't-bill') return 'tbill'; if (x === 'none') return 0;
+      if (isNaN(+x)) throw new Error(`Cash interest: '${t}' should be tbill or an annual rate in % (0 = none).`); return +x / 100; },
+  };
+  function toForm(prefix, fields, spec) { fields.forEach(f => { const e = $(prefix + f); if (!e) return; let v = spec[f];
+    if (TO_TEXT[f] && prefix === 's_') { e.value = f in spec ? TO_TEXT[f](v) : formDefault(e); return; }
+    if (v == null || (!(f in spec))) { e.value = f in spec ? '' : formDefault(e); return; } if (PCT.has(f) && v !== '') v = +(v * 100).toFixed(6); if (typeof v === 'boolean') v = String(v); e.value = v; }); }
+  function fromForm(prefix, fields) { const o = {}; fields.forEach(f => { const e = $(prefix + f); if (!e) return; let v = e.value;
+    if (FROM_TEXT[f] && prefix === 's_') { if (v.trim() !== '' || f === 'scale_out') o[f] = FROM_TEXT[f](v); return; }
+    if (v === '') return; if (v === 'true' || v === 'false') v = v === 'true'; else if (e.type === 'number') v = +v; if (PCT.has(f)) v = v / 100; o[f] = v; }); return o; }
+  // "Advanced fields": every field of the loaded spec without a control, carried through unchanged (and editable)
+  function advanced(prefix) {
+    const t = $(prefix + 'advanced').value.trim();
+    if (!t) return {};
+    let o;
+    try { o = JSON.parse(t); } catch (e) { throw new Error('Advanced fields: not valid JSON (' + e.message + ').'); }
+    if (!o || typeof o !== 'object' || Array.isArray(o)) throw new Error('Advanced fields: expected a JSON object {...}.');
+    return o;
+  }
+  function setAdvanced(prefix, spec, fields, own) {
+    const adv = {};
+    Object.keys(spec).forEach(k => { if (!fields.includes(k) && !own.includes(k)) adv[k] = spec[k]; });
+    $(prefix + 'advanced').value = JSON.stringify(adv, null, 2);
+    const n = Object.keys(adv).length; $(prefix + 'advBox').querySelector('summary').textContent = `Advanced fields (JSON: ${n} other field${n === 1 ? '' : 's'} of the ${prefix === 's_' ? 'strategy' : 'portfolio'}, carried unchanged)`;
+  }
   let buildName = '';   // the loaded portfolio's name (gallery, import), kept for its runs
   function specFromEditor() {
-    if (buildMode === 'portfolio') return Object.assign({ kind: 'allocation', tree: JSON.parse(JSON.stringify(tree)) }, buildName ? { name: buildName } : {}, fromForm('p_', P_FIELDS));
-    const s = fromForm('s_', S_FIELDS);
+    if (buildMode === 'portfolio') return Object.assign({ kind: 'allocation' }, advanced('p_'), { tree: JSON.parse(JSON.stringify(tree)) }, buildName ? { name: buildName } : {}, fromForm('p_', P_FIELDS));
+    const s = Object.assign({}, advanced('s_'), fromForm('s_', S_FIELDS));
     const u = $('s_universe').value.trim();
     if (u.toUpperCase() === 'NDX') { s.universe = (STATUS && STATUS.nasdaq100) || []; s.universe_name = 'NDX'; }
-    else s.universe = u.split(/[\s,]+/).filter(Boolean).map(x => x.toUpperCase());
-    ['short_entry', 'exit_when', 'entry_level'].forEach(k => { if (!s[k]) s[k] = null; });
+    else { s.universe = u.split(/[\s,]+/).filter(Boolean).map(x => x.toUpperCase()); if (s.universe_name === 'NDX') delete s.universe_name; }
+    ['short_entry', 'exit_when', 'entry_level', 'stop_level', 'target_level', 'rank_by'].forEach(k => { if (!s[k]) s[k] = null; });
     return s;
+  }
+  // Guard: the spec loaded into the editor (a sentence, a file, a share link, the gallery) must run unchanged unless
+  // the user changed it here. Both are normalised by the server (every field, defaults filled in) and compared; a
+  // field that differs without having been edited would be lost, so the run is refused and the field named.
+  let guard = null;   // {mode, orig: normalised loaded spec, edited: Set of fields changed in the editor, ack}
+  const GUARD_IGNORE = new Set(['notes', 'description', 'kind']);
+  function sameVal(a, b) {
+    if (a === undefined) a = null; if (b === undefined) b = null;
+    if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+    if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return a === b;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    const ks = new Set([...Object.keys(a), ...Object.keys(b)]);
+    for (const k of ks) if (!sameVal(a[k], b[k])) return false;
+    return true;
+  }
+  function guardStart(spec) {
+    const g = guard = { mode: spec.tree ? 'portfolio' : 'signal', orig: null, edited: new Set(), ack: null };
+    api('/api/parse?soft=1', { spec: exportable(spec) }).then(j => { if (guard === g) g.orig = j.spec; }).catch(() => {});
+  }
+  function guardEdit(e) {
+    if (!guard || !e.target || !e.target.id) return;
+    const id = e.target.id;
+    if (id === 's_advanced' || id === 'p_advanced') { guard.edited.add('*advanced'); return; }
+    if (/^[sp]_/.test(id)) guard.edited.add(id.slice(2));
+  }
+  ['input', 'change'].forEach(ev => { $('bSignal').addEventListener(ev, guardEdit); $('bPortfolio').addEventListener(ev, guardEdit); });
+  ['input', 'change', 'click', 'drop'].forEach(ev => $('tree').addEventListener(ev, () => { if (guard) guard.edited.add('tree'); }));
+  // fields of the normalised run spec that differ from the loaded one without having been edited
+  function guardLost(run) {
+    if (!guard || !guard.orig || guard.mode !== buildMode) return [];
+    const o = guard.orig, ed = guard.edited, adv = ed.has('*advanced');
+    const advKeys = new Set(Object.keys(advanced(buildMode === 'portfolio' ? 'p_' : 's_')));
+    const out = [];
+    new Set([...Object.keys(o), ...Object.keys(run)]).forEach(k => {
+      if (GUARD_IGNORE.has(k) || ed.has(k) || (adv && (advKeys.has(k) || !(buildMode === 'portfolio' ? P_FIELDS : S_FIELDS).includes(k)))) return;
+      if (k === 'universe' && (o.universe_name === 'NDX' || ed.has('universe'))) return;
+      if (k === 'universe_name' && ed.has('universe')) return;
+      const nv = v => (k === 'cash_rate' && (v == null || v === 0) ? 0 : v);
+      if (!sameVal(nv(o[k]), nv(run[k]))) out.push(k);
+    });
+    return out;
+  }
+  const showVal = v => { const t = JSON.stringify(v === undefined ? null : v); return t.length > 60 ? t.slice(0, 60) + '…' : t; };
+  async function guardCheck(spec) {
+    if (!guard || !guard.orig || guard.mode !== buildMode) return null;
+    const j = await api('/api/parse?soft=1', { spec });
+    const lost = guardLost(j.spec);
+    if (!lost.length) return null;
+    return lost.map(k => `${k}: loaded ${showVal(guard.orig[k])}, would run ${showVal(j.spec[k])}`);
   }
   // specs from sentences, files and other tools may leave out lookbacks: fill in the simulator's defaults
   // (20 days for inverse volatility, 60 for the optimiser weightings) so the editor shows what will run
@@ -1235,8 +1376,10 @@ window.addEventListener('blur', unpress);
       try {
         const j = await api('/api/parse?soft=1', { spec: specFromEditor() });
         if (seq !== prevSeq) return;
+        const lost = guardLost(j.spec);
         $('buildInterp').classList.remove('hide', 'err');
-        $('buildInterp').textContent = j.interpretation + (j.notes && j.notes.length ? '\n' + j.notes.map(n => 'Note: ' + n).join('\n') : '');
+        $('buildInterp').textContent = j.interpretation + (j.notes && j.notes.length ? '\n' + j.notes.map(n => 'Note: ' + n).join('\n') : '')
+          + (lost.length ? '\nWarning: differs from the loaded strategy without an edit here: ' + lost.join(', ') : '');
       } catch (e) { if (seq === prevSeq) { $('buildInterp').classList.remove('hide'); $('buildInterp').textContent = e.message; } }
     }, 500);
   }
@@ -1258,8 +1401,9 @@ window.addEventListener('blur', unpress);
     if (spec && spec.spec && typeof spec.spec === 'object') spec = spec.spec;   // a gallery/export wrapper
     if (!spec || typeof spec !== 'object' || (!spec.tree && !spec.entry)) throw new Error('Not a strategy: expected a portfolio (with "tree") or a signal strategy (with "entry").');
     if (spec.tree) { setBuildMode('portfolio'); tree = withDefaults(JSON.parse(JSON.stringify(spec.tree))); if (spec.benchmark && typeof spec.benchmark === 'object') spec = { ...spec, benchmark: Object.entries(spec.benchmark).map(([t, w]) => `${+(w * 100).toFixed(4)} ${t}`).join(' ') };
-      toForm('p_', P_FIELDS, spec); rebalTouched = 'rebalance' in spec; $('rebalNote').textContent = ''; draw(); }
-    else { setBuildMode('signal'); toForm('s_', S_FIELDS, spec); $('s_universe').value = spec.universe_name === 'NDX' ? 'NDX' : (spec.universe || []).join(', '); }
+      toForm('p_', P_FIELDS, spec); setAdvanced('p_', spec, P_FIELDS, P_OWN); rebalTouched = 'rebalance' in spec; $('rebalNote').textContent = ''; draw(); }
+    else { setBuildMode('signal'); toForm('s_', S_FIELDS, spec); setAdvanced('s_', spec, S_FIELDS, S_OWN); $('s_universe').value = spec.universe_name === 'NDX' ? 'NDX' : (spec.universe || []).join(', '); }
+    guardStart(spec);
     $('specJson').value = JSON.stringify(spec, null, 2); buildName = spec.tree && spec.name ? spec.name : '';
     $('buildShare').classList.add('hide'); buildShare = null;
   }
@@ -1267,6 +1411,7 @@ window.addEventListener('blur', unpress);
   function exportable(spec) { const s = JSON.parse(JSON.stringify(spec)); delete s.notes; if (s.universe_name === 'NDX') delete s.universe; return s; }
   function exportSpec(spec, name) { download((name || spec.name || 'strategy').replace(/[^\w-]+/g, '-').slice(0, 60) + '.json', JSON.stringify(exportable(spec), null, 2), 'application/json'); }
   function validateSignalForm() {
+    try { advanced('s_'); FROM_TEXT.scale_out($('s_scale_out').value); FROM_TEXT.cash_rate($('s_cash_rate').value || 'tbill'); } catch (e) { return [e.message]; }
     const u = $('s_universe').value.trim();
     if (u.toUpperCase() === 'NDX') return [];
     const ts = u.split(/[\s,]+/).filter(Boolean).map(x => x.toUpperCase());
@@ -1298,7 +1443,16 @@ window.addEventListener('blur', unpress);
     if (probs.length) { $('buildStatus').replaceChildren(el('span', { class: 'err' }, probs.join(' '))); return; }
     $('buildStatus').replaceChildren(el('span', { class: 'spin' }), document.createTextNode(' running…'));
     try {
-      const j = await api('/api/run', { spec: specFromEditor() });
+      const spec = specFromEditor();
+      const lost = await guardCheck(spec);
+      const key = lost && lost.join('|');
+      if (lost && guard.ack !== key) {   // refused once; a second click on the same differences runs anyway
+        guard.ack = key;
+        $('buildStatus').replaceChildren(el('span', { class: 'err', id: 'buildLost' }, 'Not run: the editor would change fields you did not edit, so the strategy would not be the one loaded. '
+          + lost.join('; ') + '. Edit them (or "Advanced fields"), or click Run again to run it as shown.'));
+        return;
+      }
+      const j = await api('/api/run', { spec });
       $('buildStatus').textContent = (j.summary.label || (j.summary.kind === 'allocation' ? 'Portfolio' : 'Strategy')) + ' · ' + metaLine(j.summary)
         + (j.reused ? ' · same spec and data as a saved run (reopened it)' : '');
       $('buildInterp').classList.remove('hide');   // the whole interpretation: entry, exits, holding period, sizing, costs

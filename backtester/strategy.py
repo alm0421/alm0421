@@ -45,6 +45,14 @@ class Strategy:
                                                  # at the entry price (breakeven) is added; armed from the next bar
     atr_period: int = 14
     scale_out: list[dict] = field(default_factory=list)   # [{"at": 0.05, "fraction": 0.5}, ...]
+    trail_after_scale_out: bool = False          # "sell half at +10% and trail the rest": the trailing / chandelier
+                                                 # stop is armed only once the first scale-out has filled
+    # stop / target at a price expression evaluated once, when the position opens, with the data known at the fill:
+    # a fill at the close reads that bar; a fill at the open (same-day, next-day, limit/stop) reads the previous bar
+    # unless the expression is open-safe. May use entry_price (the fill); target_level may also use stop_price.
+    stop_level: str | None = None                # e.g. "low" (the entry bar's low), "lowest(low, 5)", "entry_price - 2 * atr(14)"
+    target_level: str | None = None              # e.g. "highest(high, 20)", "entry_price + 2 * (entry_price - stop_price)"
+    target_r: float | None = None                # R-multiple target: entry +/- target_r x (entry - initial stop)
 
     # portfolio and sizing
     capital: float = 10_000.0
@@ -87,6 +95,8 @@ class Strategy:
     # (open -> high -> low -> close when the open is nearer the high, else open -> low -> high -> close) instead of
     # assuming the stop hit first
     tv_compat: bool = False
+    dividends: bool | None = None                # credit cash dividends on the ex-date (charge them to shorts);
+                                                 # None: yes, except in TradingView-compatible mode (price-only, as TV)
 
     # period
     start: str | None = None
@@ -100,14 +110,21 @@ class Strategy:
         from .expr import compile_expr, open_safe, pine_to_rule
         if not self.universe:
             raise ValueError("universe is empty")
-        for name in ("entry", "short_entry", "exit_when", "entry_level", "rank_by"):
+        for name in ("entry", "short_entry", "exit_when", "entry_level", "rank_by", "stop_level", "target_level"):
             v = getattr(self, name)
             if isinstance(v, str):   # TradingView spellings (close[1], ta.sma) -> the rule language
                 setattr(self, name, pine_to_rule(v))
+        for name in ("stop_level", "target_level"):
+            v = getattr(self, name)
+            if v is not None and not callable(v) and not (isinstance(v, str) and v.strip()):
+                setattr(self, name, None)
         if not any([self.hold_bars is not None, self.exit_when, self.stop_loss, self.take_profit, self.trailing_stop,
-                    self.stop_atr, self.take_profit_atr, self.trailing_atr, self.breakeven_after, self.side == "both"]):
+                    self.stop_atr, self.take_profit_atr, self.trailing_atr, self.breakeven_after, self.side == "both",
+                    self.stop_level, self.target_level, self.target_r]):
             raise ValueError("strategy needs at least one exit rule (hold_bars, exit_when, stop_loss, "
-                             "take_profit, trailing_stop, stop_atr, trailing_atr, breakeven_after)")
+                             "take_profit, trailing_stop, stop_atr, trailing_atr, breakeven_after, stop_level, "
+                             "target_level, target_r)")
+        self._check_levels()
         if self.breakeven_after is not None and not self.breakeven_after > 0:
             raise ValueError("breakeven_after must be positive (0.02 = move the stop to the entry price after +2%)")
         if self.min_order is None or self.min_order < 0:
@@ -129,6 +146,13 @@ class Strategy:
             v = getattr(self, name)
             if v is not None and v < 0:
                 raise ValueError(f"{name} cannot be negative (write 0.05 for 5%)")
+        for name, label in (("stop_loss", "stop loss"), ("trailing_stop", "trailing stop"), ("take_profit", "take profit"),
+                            ("stop_atr", "ATR stop"), ("trailing_atr", "chandelier stop"),
+                            ("take_profit_atr", "ATR take profit"), ("breakeven_after", "breakeven trigger")):
+            v = getattr(self, name)
+            if v is not None and not isinstance(v, bool) and isinstance(v, (int, float)) and v == 0:
+                raise ValueError(f"A {label} of 0 would exit at the entry price at once (every trade would close on its "
+                                 f"first check). Use a positive distance, e.g. 5% or 2 ATR, or leave it out.")
         if self.side in ("long", "both"):
             for name, label in (("stop_loss", "stop loss"), ("trailing_stop", "trailing stop")):
                 v = getattr(self, name)
@@ -157,9 +181,10 @@ class Strategy:
             if self.entry_fill not in ("next_open", "close"):
                 self.entry_fill = "next_open"
         if self.sizing == "risk" and not (self.risk_per_trade and (self.stop_loss or self.stop_atr or self.trailing_stop
-                                                                    or self.trailing_atr)):
-            raise ValueError("risk sizing needs risk_per_trade and a stop (stop_loss, stop_atr, trailing_stop or trailing_atr)")
-        if self.sizing == "risk" and not (self.stop_loss or self.stop_atr):
+                                                                    or self.trailing_atr or self.stop_level)):
+            raise ValueError("risk sizing needs risk_per_trade and a stop (stop_loss, stop_atr, stop_level, trailing_stop "
+                             "or trailing_atr)")
+        if self.sizing == "risk" and not (self.stop_loss or self.stop_atr or self.stop_level):
             what = (f"{self.trailing_stop:.0%} below the entry" if self.trailing_stop
                     else f"{self.trailing_atr:g} x ATR({self.atr_period}) from the entry")
             if not any(n.startswith("Risk sizing:") for n in self.notes):
@@ -192,8 +217,33 @@ class Strategy:
                                  "trading. Use 0 for none.")
         if not isinstance(self.tv_compat, bool):
             raise ValueError("tv_compat must be true or false")
+        if self.dividends is None:
+            self.dividends = not self.tv_compat          # TradingView's strategy tester credits no dividends
+        if not isinstance(self.dividends, bool):
+            raise ValueError("dividends must be true or false")
+        if not isinstance(self.trail_after_scale_out, bool):
+            raise ValueError("trail_after_scale_out must be true or false")
+        if self.trail_after_scale_out:
+            if not self.scale_out:
+                raise ValueError("'trail the rest' (trail_after_scale_out) needs a scale-out first, e.g. 'sell half at +10% "
+                                 "and trail the rest with an 8% trailing stop'.")
+            if not (self.trailing_stop or self.trailing_atr):
+                raise ValueError("'trail the rest' needs a trailing distance: e.g. 'trail the rest with an 8% trailing stop' "
+                                 "(trailing_stop) or 'with a 3 ATR chandelier stop' (trailing_atr).")
         if self.tv_compat and not any(n.startswith("TradingView-compatible mode") for n in self.notes):
             self.notes.append(TV_NOTE)
+        self.notes = [n for n in self.notes if not n.startswith("TradingView-compatible returns:")]
+        if self.tv_compat:
+            no_cash = self.cash_rate in (None, 0, 0.0, False, "")
+            cash = ("cash earns nothing (TradingView pays no interest; say 'with interest on cash' to add it)" if no_cash else
+                    "cash earns the 3-month T-bill rate (TradingView pays none; say 'cash earns nothing' to match it)" if self.cash_rate == "tbill" else
+                    f"cash earns {self.cash_rate}/yr (TradingView pays none; say 'cash earns nothing' to match it)")
+            div = ("dividends are not credited (TradingView's strategies receive none, and its default charts are "
+                   "split-adjusted, not dividend-adjusted; say 'with dividends' to credit them)" if not self.dividends else
+                   "dividends are credited on the ex-date (TradingView credits none; say 'no dividends' to match it)")
+            self.notes.append(f"TradingView-compatible returns: {cash}; {div}."
+                              + (" These are price-only returns, as TradingView's strategy tester reports them."
+                                 if no_cash and not self.dividends else ""))
         if self.commission_model not in COMMISSION_MODELS:
             raise ValueError(f"commission_model must be one of {sorted(k for k in COMMISSION_MODELS if k)} or null")
         if self.slippage_model not in ("fixed", "volume"):
@@ -222,6 +272,34 @@ class Strategy:
                               f"(raised from {self.leverage:g}x).")
             self.leverage = need
             self._check_margin(f"{need:.0%} per position needs {need:g}x leverage: ")
+
+    LEVEL_VARS = {"stop_level": {"entry_price"}, "target_level": {"entry_price", "stop_price"}}
+
+    def _check_levels(self) -> None:
+        """stop_level / target_level: rule-language price expressions evaluated once, when a position opens;
+        target_r: a multiple of the initial risk (entry - stop)."""
+        from .expr import compile_expr, names_in
+        for name, allowed in self.LEVEL_VARS.items():
+            rule = getattr(self, name)
+            if rule is None:
+                continue
+            if callable(rule) or not isinstance(rule, str):
+                raise ValueError(f"{name} must be a rule-language expression (text), e.g. 'lowest(low, 5)'")
+            compile_expr(rule)
+            bad = names_in(rule) & ({"bars_held", "pnl", "highest_since_entry", "lowest_since_entry", "stop_price"} - allowed)
+            if bad:
+                raise ValueError(f"{name} {rule!r} uses {', '.join(sorted(bad))}, which is not known when the position opens "
+                                 f"(it may use {' and '.join(sorted(allowed))}).")
+        if self.target_r is not None:
+            try:
+                ok = float(self.target_r) > 0 and not isinstance(self.target_r, bool)
+            except (TypeError, ValueError):
+                ok = False
+            if not ok:
+                raise ValueError(f"target_r must be a positive multiple of the risk (got {self.target_r!r})")
+            if not (self.stop_loss or self.stop_atr or self.stop_level or self.trailing_stop or self.trailing_atr):
+                raise ValueError("An R-multiple target ('target 2R', 'take profit at 2 times the risk') needs a stop to "
+                                 "measure the risk from: add e.g. 'stop at the low of the entry bar' or 'a 5% stop loss'.")
 
     MAX_LEVERAGE = {"reg_t": 2.0, "portfolio": 4.0}
 
@@ -279,6 +357,8 @@ class Strategy:
         unknown = set(d) - known
         if unknown:
             raise ValueError(f"unknown strategy field(s): {', '.join(sorted(unknown))}")
+        if d.get("tv_compat") is True and "cash_rate" not in d:
+            d = {**d, "cash_rate": None}   # TradingView-compatible mode: cash earns nothing unless the spec says so
         return cls(**d)
 
     def summary(self) -> str:
@@ -325,8 +405,16 @@ class Strategy:
             ex.append(f"chandelier stop {f(self.trailing_atr, 'g')}x ATR({self.atr_period}) from {extreme}")
         if self.breakeven_after:
             ex.append(f"stop moves to breakeven (the entry price) after +{f(self.breakeven_after, '.1%')}")
+        if self.stop_level:
+            ex.append(f"stop at {self.stop_level} (fixed when the position opens)")
+        if self.target_level:
+            ex.append(f"target at {self.target_level} (fixed when the position opens)")
+        if self.target_r:
+            ex.append(f"target {f(self.target_r, 'g')}R ({f(self.target_r, 'g')} x the initial risk, entry - stop)")
         for so in self.scale_out or []:
             ex.append(f"sell {f(so.get('fraction'), '.0%')} at +{f(so.get('at'), '.1%')}")
+        if self.trail_after_scale_out:
+            ex.append("the trailing stop applies to the rest, from the first scale-out on")
         if self.side == "both" and not ex:
             ex.append("opposite signal")
         lines.append("Exit: " + ("; ".join(ex) if ex else "none"))
@@ -378,7 +466,8 @@ class Strategy:
         lines.append("Costs: " + (", ".join(costs) if costs else "none"))
         cr = self.cash_rate
         lines.append("Cash: " + ("earns the 3-month T-bill rate" if cr == "tbill" else
-                                 f"earns {f(cr, '.2%')}/yr" if cr else "earns nothing"))
+                                 f"earns {f(cr, '.2%')}/yr" if cr else "earns nothing")
+                     + ("; dividends are not credited (price-only)" if self.dividends is False else ""))
         if self.start or self.end:
             lines.append(f"Period: {self.start or 'start of data'} to {self.end or 'latest'}")
         return "\n".join(lines)

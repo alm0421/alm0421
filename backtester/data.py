@@ -399,15 +399,36 @@ def spinoff_days_uncached(ticker: str, threshold: float = SPINOFF_SHARE) -> pd.D
     return df.index[(big.fillna(False).to_numpy() | flagged)]
 
 
-def coverage_note(start, end) -> str | None:
+@lru_cache(maxsize=64)
+def coverage_figures(start, end) -> dict | None:
+    """The survivorship figures of a Nasdaq-100 (point-in-time) run over [start, end] - the share of member-months with
+    usable data, the worst year and the biggest missing members - computed once, so the run's note, the report's
+    headline and the command line all quote the same numbers for the same period."""
     c = coverage(start, end)
     if c.empty:
         return None
-    tot = (c["members"]).sum()
-    got = (c["with_data"]).sum()
+    tot, got = float(c["members"].sum()), float(c["with_data"].sum())
     worst = c.loc[c["coverage"].idxmin()]
-    note = (f"Survivorship: {got / tot:.0%} of index member-months in this period have usable price data "
-            f"(lowest {worst['coverage']:.0%} in {int(worst['year'])}). The rest are mostly companies that were acquired "
+    return {"coverage": got / tot if tot else 0.0, "worst_coverage": float(worst["coverage"]),
+            "worst_year": int(worst["year"]), "missing": list(missing_members(start, end))}
+
+
+_COVERAGE_WINDOWS: dict[str, tuple[str, str]] = {}   # note text -> the (start, end) its figures cover
+
+
+def coverage_window(note: str) -> tuple[str, str] | None:
+    """The period a coverage_note was computed for (the run's first and last trading day), so the report's headline
+    uses exactly the same period - and therefore the same figures - as the note."""
+    return _COVERAGE_WINDOWS.get(note)
+
+
+def coverage_note(start, end) -> str | None:
+    fig = coverage_figures(str(pd.Timestamp(start).date()), str(pd.Timestamp(end).date()))
+    if fig is None:
+        return None
+    start, end = str(pd.Timestamp(start).date()), str(pd.Timestamp(end).date())
+    note = (f"Survivorship: {fig['coverage']:.0%} of index member-months in this period have usable price data "
+            f"(lowest {fig['worst_coverage']:.0%} in {fig['worst_year']}). The rest are mostly companies that were acquired "
             f"or went bankrupt; free data sources no longer carry them, so the former members that are included "
             f"are almost all companies still trading today and results lean optimistic.")
     gaps = [g for g in _membership_gaps(membership())
@@ -415,12 +436,15 @@ def coverage_note(start, end) -> str | None:
     if gaps:
         note += (" Membership snapshots are missing for " + ", ".join(gaps)
                  + "; the last known list is carried forward across those gaps.")
-    miss = missing_members(start, end)
+    miss = fig["missing"]
     if miss:
         dl = delisted()
         note += (" Biggest missing members (member-months without usable data): "
                  + ", ".join(f"{t} ({n}{'; ' + dl[t]['history'] if dl.get(t, {}).get('history') else ''})" for t, n in miss)
                  + ". " + TIINGO_HINT)
+    if len(_COVERAGE_WINDOWS) > 2000:
+        _COVERAGE_WINDOWS.clear()
+    _COVERAGE_WINDOWS[note] = (start, end)
     return note
 
 
@@ -460,13 +484,10 @@ def missing_members(start=None, end=None, n: int = 6) -> tuple[tuple[str, int], 
 def survivorship(start, end) -> dict | None:
     """Headline figures for a Nasdaq-100 (point-in-time) run over [start, end]: the share of member-months with
     data, the worst year, the biggest missing members, and a rough bias estimate (bias_estimate)."""
-    c = coverage(start, end)
-    if c.empty:
+    fig = coverage_figures(str(pd.Timestamp(start).date()), str(pd.Timestamp(end).date()))
+    if fig is None:
         return None
-    tot, got = float(c["members"].sum()), float(c["with_data"].sum())
-    worst = c.loc[c["coverage"].idxmin()]
-    out = {"coverage": got / tot if tot else 0.0, "worst_coverage": float(worst["coverage"]),
-           "worst_year": int(worst["year"]), "missing": list(missing_members(start, end))}
+    out = dict(fig, missing=list(fig["missing"]))
     out["headline"] = (f"Survivorship: {out['coverage']:.0%} of member-months have data ({out['worst_coverage']:.0%} in "
                        f"{out['worst_year']}) - results are biased upward")
     try:
