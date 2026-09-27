@@ -2489,7 +2489,7 @@ def funds_meta_batch(universe: list[str], entries: dict, today: str, budget: int
 def fetch_funds_meta(universe: list[str], path: Path | None = None, today: str | None = None) -> dict:
     """data/funds_meta.json: fund metadata (extract_fund_meta) for the ETFs and mutual funds of the universe, a
     rotating batch per run; an entry that fails to refresh is kept."""
-    path = path or FUNDS_META_FILE
+    path = path or (ROOT / "data" / "funds_meta.json")   # from ROOT at call time (tests point ROOT elsewhere)
     today = today or str(pd.Timestamp.today().date())
     try:
         doc = json.loads(path.read_text())
