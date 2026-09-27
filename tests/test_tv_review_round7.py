@@ -227,7 +227,7 @@ def test_pine_translations(pine, rule):
     ("ta.bb(close, 20, 2) > 0", "bb_upper"),
     ("ta.supertrend(3, 10) > 0", "supertrend_dir"),
     ("ta.dmi(14, 14) > 0", "adx"),
-    ("ta.stoch(open, high, low, 14) < 20", "ta.stoch"),
+    ("ta.stoch(close, 14) < 20", "ta.stoch takes"),   # other sources are translated since round 9 (stoch(x, h, l, n))
 ])
 def test_pine_refusals(pine, msg):
     with pytest.raises(ValueError, match=msg):

@@ -78,6 +78,11 @@ def test_it_flips_without_a_signal_to_reverse_is_refused():
         parser.parse("buy SPY when RSI(2) is below 10, sell when it flips to bearish")
 
 
+def test_ta_stoch_of_other_sources():
+    assert expr.pine_to_rule("ta.stoch(open, high, low, 14) < 20") == "stoch(open, high, low, 14) < 20"
+    assert expr.pine_to_rule("ta.stoch(close, high, low, 14) < 20") == "stoch_k(14, 1) < 20"
+
+
 def test_stoch_rsi_matches_tradingview_definition():
     df = rand_bars(300, seed=5)
     ns = expr.Namespace(df)
