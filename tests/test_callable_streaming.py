@@ -123,14 +123,15 @@ def test_legitimate_callables_give_the_same_answers(fake):
 def test_vectorized_causal_skips_streaming_but_is_still_probed(fake):
     df = walk(5)
     fake["X"] = df
-    calls = []
+    from backtester import sandbox
 
     def fast(d, ns):
-        calls.append(len(d))
         return d.close > d.close.shift(1)
     fast.vectorized_causal = True
+    jobs, steps = sandbox.STATS["jobs"], sandbox.STATS["steps"]
     s = expr.evaluate(fast, expr.Namespace(df, ticker="X"))
-    assert calls == [len(df)] and s.sum() > 0
+    # one call on the whole history (in one sealed process), not bar by bar
+    assert sandbox.STATS["jobs"] == jobs + 1 and sandbox.STATS["steps"] == steps and s.sum() > 0
 
     def leaky(d, ns):
         return d.close.shift(-1) > d.close

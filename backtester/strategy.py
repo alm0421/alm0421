@@ -141,7 +141,8 @@ class Strategy:
     max_volume_pct: float | None = None          # cap each order at this fraction of the bar's volume
     cash_rate: str | float | None = "tbill"      # interest on idle cash: "tbill", annual rate, or None
     margin_rate: float = 0.0                     # annual rate charged on borrowed cash (added to T-bill)
-    borrow_fee: float = 0.0                      # annual fee on short market value
+    borrow_fee: float | None = None              # annual fee on short market value; None: margin.default_borrow_fee
+                                                 # per ticker (5% leveraged/inverse ETPs, 0.3% others); 0: none
     short_rebate_spread: float = 0.0025          # short sale proceeds earn the cash rate minus this (floored at 0)
     maintenance_margin: float = 0.25             # with leverage or shorts: if equity / gross exposure is below this
                                                  # at a close, positions are cut pro rata back to 1/leverage
@@ -169,6 +170,7 @@ class Strategy:
     notes: list[str] = field(default_factory=list)
 
     def validate(self) -> None:
+        from . import expr
         from .expr import compile_expr, open_safe, pine_to_rule
         if not self.universe:
             raise ValueError("universe is empty")
@@ -206,6 +208,9 @@ class Strategy:
             if self.hold_bars == 0 and not (self.hold_exit_fill == "close" and self.enters_before_close()):
                 raise ValueError("hold_bars 0 (exit at the close of the entry bar) needs an entry before the close: at the "
                                  "open, the next open, or a limit/stop order. Otherwise hold at least 1 bar.")
+        if any(expr.xrank_calls(r) for r in (self.entry, self.short_entry, self.exit_when, self.rank_by)) \
+                and not (self.universe_name or len(self.universe or []) >= 2):
+            raise ValueError(expr.XRANK_NEEDS_UNIVERSE)
         for name in ("stop_loss", "trailing_stop", "take_profit"):
             v = getattr(self, name)
             if v is not None and v < 0:
@@ -481,8 +486,8 @@ class Strategy:
         why = why or ""
         if init > 1 + 1e-9:
             _m.refuse(why, init, maint, lev, self.maintenance_margin, self.margin_account, worst)
-        if lev > 1 + 1e-12 and self.maintenance_margin and maint >= 1 - 1e-12:
-            if worst and _m.factor(worst) > 1:
+        if lev > 1 + 1e-12 and self.maintenance_margin and maint > 1 - _m.MARGIN_BUFFER + 1e-12:
+            if maint < 1 - 1e-12 or (worst and _m.factor(worst) > 1):
                 _m.refuse(why, init, maint, lev, self.maintenance_margin, self.margin_account, worst)
             raise ValueError(f"{why or 'T'}{'t' if why else ''}he {self.maintenance_margin:.0%} maintenance margin is not below the initial margin of "
                              f"{self.leverage:g}x leverage ({1 / self.leverage:.0%}): every close below the entry price would "
@@ -655,6 +660,8 @@ class Strategy:
             costs.append(f"borrowing at the T-bill rate + {f(self.margin_rate, '.2%')}")
         if self.borrow_fee:
             costs.append(f"{f(self.borrow_fee, '.2%')}/yr borrow fee")
+        elif self.borrow_fee is None and self.side != "long":
+            costs.append("assumed borrow fees on shorts (5%/yr leveraged or inverse ETFs, 0.3%/yr others)")
         if self.side != "long" and self.short_rebate_spread and self.cash_rate not in (None, 0, 0.0, False, ""):
             costs.append(f"short proceeds earn the cash rate less {f(self.short_rebate_spread, '.2%')}")
         if (self.side != "long" or (self.leverage or 1) > 1) and self.maintenance_margin:

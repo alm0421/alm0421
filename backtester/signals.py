@@ -113,6 +113,22 @@ def scan(spec) -> dict:
     sig, assumed = [], False
     if spec.entry_order != "market":
         return _scan_level_orders(spec, res, out, exits, standing)
+    xtab = {}
+    if any(expr.xrank_calls(r) for r in (spec.entry, spec.short_entry, spec.rank_by)):
+        # xrank(): the universe's percentiles on the scanned day, as the engine computes them
+        from .engine import _xrank_tables, _union_index
+        dfs_x = {}
+        for t in spec.universe:
+            try:
+                d_ = data.load(t).loc[:last]
+            except data.DataError:
+                continue
+            if len(d_):
+                dfs_x[data.canonical(t)] = d_
+        cal_x = _union_index([d_.index for d_ in dfs_x.values()])
+        if cal_x is not None and len(dfs_x) > 1:
+            mem = data.member_mask(list(dfs_x), cal_x)[0] if spec.universe_name == "NDX" and spec.point_in_time else None
+            xtab = _xrank_tables(spec, dfs_x, list(dfs_x), cal_x, mem)
     for t in spec.universe:
         t = data.canonical(t)
         df = data.load(t).loc[:last]   # a run that ends earlier (spec.end) is scanned as of its last day
@@ -136,6 +152,8 @@ def scan(spec) -> dict:
             assumed = assumed or bool({"open", "gap"} & expr.names_in(spec.entry if isinstance(spec.entry, str) else ""))
         else:
             ns = strategy_namespace(spec, df, t)
+        if xtab:
+            ns.xrank_table = xtab.get(t, {})
         rules = [("long" if spec.side != "short" else "short", spec.entry)]
         if spec.side == "both":
             rules.append(("short", spec.short_entry))

@@ -152,7 +152,8 @@ class Portfolio:
                                                  # (backtester/margin.py): Reg T at most 2x, portfolio margin 4x
     expense_ratio: float = 0.0                   # annual fee on invested assets, charged daily
     short_rebate_spread: float = 0.0025          # short sale proceeds earn the cash rate minus this (floored at 0)
-    borrow_fee: float = 0.0                      # annual fee on the market value of short positions, charged daily
+    borrow_fee: float | None = None              # annual fee on the market value of short positions, charged daily;
+                                                 # None: margin.default_borrow_fee per ticker; 0: none
     # statistics start once every asset a filter / ranking / weighting measures has its full lookback ("all"),
     # or once enough of them have one to fill the filter's slots ("first")
     warmup: Literal["all", "first"] = "all"
@@ -194,6 +195,7 @@ class Portfolio:
         maint = lev * max_requirement(self.tree, lambda t: _m.maintenance(t, mm) if t else mm)
         gross = max_gross(self.tree) * lev
         worst = max(tickers_in(self.tree, index_universes=False), key=_m.factor, default=None)
+        book = _book_text(self.tree, lev)
         if init > 1 + 1e-9:
             if not (worst and _m.factor(worst) > 1):
                 raise ValueError(f"The portfolio's gross exposure can reach {gross:.3g}x its equity (the sum of the absolute "
@@ -202,11 +204,11 @@ class Portfolio:
                                     "account up to 4x is possible: say 'with portfolio margin' (margin_account "
                                     "'portfolio') and a maintenance margin below 1/leverage, e.g. 'a 15% maintenance margin'."
                                     if acct == "reg_t" else "a portfolio-margin account allows (4x)."))
-            _m.refuse("", init, maint, lev, mm, acct, worst)
+            _m.refuse("", init, maint, lev, mm, acct, worst, book=book, gross=gross)
         borrowing = gross > 1 + 1e-9 or _has_short(self.tree)
-        if borrowing and mm and maint >= 1 - 1e-9:
-            if worst and _m.factor(worst) > 1:
-                _m.refuse("", init, maint, lev, mm, acct, worst)
+        if borrowing and mm and maint > 1 - _m.MARGIN_BUFFER + 1e-12:
+            if maint < 1 or (worst and _m.factor(worst) > 1):
+                _m.refuse("The portfolio is refused: ", init, maint, lev, mm, acct, worst, book=book, gross=gross)
             raise ValueError(f"The portfolio's gross exposure can reach {gross:.3g}x its equity, and the {mm:.0%} "
                              f"maintenance_margin allows less than {1 / mm:.3g}x: every close below the entry would be a "
                              "margin call. Use smaller weights or less leverage, or a lower maintenance_margin (0 turns "
@@ -241,6 +243,10 @@ class Portfolio:
             if int(self.target_vol_lookback) < 5:
                 raise ValueError("target_vol_lookback must be at least 5 days")
         self._check_margin()
+        if "xrank(" in json.dumps(self.tree, default=str):
+            raise ValueError("xrank() is for signal strategies over a universe (buy when a stock is in the bottom decile "
+                             "of its universe...); in a portfolio, rank with a filter instead, e.g. 'the 5 with the "
+                             "lowest 20 day return'.")
         if self.share_classes not in ("company", "separate"):
             raise ValueError("share_classes must be 'company' (one slot per company) or 'separate'")
         if self.benchmark not in (None, ""):
@@ -297,7 +303,7 @@ class Portfolio:
                 raise ValueError(f"{label} cannot be negative (got {f}={v!r}): a negative cost would pay you for "
                                  "trading or holding. Use 0 for none.")
         for f in ("short_rebate_spread", "borrow_fee"):
-            if not 0 <= float(getattr(self, f)) < 1:
+            if getattr(self, f) is not None and not 0 <= float(getattr(self, f)) < 1:
                 raise ValueError(f"{f} is an annual fraction between 0 and 1 (0.01 = 1% a year)")
         if self.start and self.end and pd.Timestamp(self.start) >= pd.Timestamp(self.end):
             raise ValueError(f"The period is reversed or empty: it starts on {self.start} but ends on {self.end}.")
@@ -413,7 +419,9 @@ class Portfolio:
             costs.append(f"margin rate T-bills + {self.margin_rate:.2%} on any borrowing")
         if _has_short(self.tree):
             costs.append(f"short proceeds earn the cash rate less {self.short_rebate_spread:.2%}/yr"
-                         + (f", {self.borrow_fee:.2%}/yr borrow fee on shorts" if self.borrow_fee else ""))
+                         + (f", {self.borrow_fee:.2%}/yr borrow fee on shorts" if self.borrow_fee else
+                            ", assumed borrow fees on shorts (5%/yr leveraged or inverse ETFs, 0.3%/yr others)"
+                            if self.borrow_fee is None else ""))
         if self.leverage > 1 or _has_short(self.tree):
             costs.append(f"{self.maintenance_margin:.0%} maintenance margin (margin calls cut positions at the close)"
                          if self.maintenance_margin else "no margin calls")
@@ -540,6 +548,20 @@ def _has_short(n: dict) -> bool:
     return any(_has_short(k) for k in _kids(n))
 
 
+def _short_tickers(n) -> list[str]:
+    """Tickers a negative weight can short (every ticker under a negatively weighted child)."""
+    out: list[str] = []
+    if not isinstance(n, dict):
+        return out
+    if n.get("weights") == "specified":
+        for w, k in zip(n.get("w") or [], n.get("children") or []):
+            if w < 0:
+                out += tickers_in(k, index_universes=False)
+    for k in _kids(n):
+        out += _short_tickers(k)
+    return list(dict.fromkeys(out))
+
+
 def _has_rules(n) -> bool:
     """Does the tree evaluate indicators (if-nodes, filters, look-back weightings)?"""
     if not isinstance(n, dict):
@@ -616,6 +638,17 @@ def _ndx_by_mcap(n) -> bool:
         if any("market_cap" in str(f.get(k) or "") for k in ("by", "require")) or f.get("weights") == "market_cap":
             return True
     return any(_ndx_by_mcap(k) for k in _kids(n))
+
+
+def _book_text(tree, lev: float = 1.0) -> str | None:
+    """'200% TQQQ, -100% SQQQ' for a tree of fixed weights over several assets (the positions a margin message
+    describes), else None."""
+    if not isinstance(tree, dict) or tree.get("weights") != "specified":
+        return None
+    kids = tree.get("children") or []
+    if len(kids) < 2 or not all(isinstance(k, dict) and "asset" in k for k in kids):
+        return None
+    return ", ".join(f"{float(w) * lev:.0%} {k['asset']}" for w, k in zip(tree.get("w") or [], kids))
 
 
 def max_requirement(n, req) -> float:
@@ -1748,6 +1781,18 @@ class _Evaluator:
                 self.note("Market-cap weighting needs single assets: groups were equal-weighted.")
                 return eq
             mc = np.array([self.mcap(t)[i] for t in members])
+            # a share class's market_cap is its company's divided by the company's listed classes (data.market_cap):
+            # the classes held here stand for the whole company (GOOGL alone at Alphabet's value, not half of it;
+            # GOOG and GOOGL together at half each), as the ranking counts it (_one_class_per_company)
+            grp = {t: g for g in data.SHARE_CLASSES for t in g}
+            held = {}
+            for t in members:
+                if grp.get(data.canonical(t)):
+                    held[grp[data.canonical(t)]] = held.get(grp[data.canonical(t)], 0) + 1
+            for j, t in enumerate(members):
+                g = grp.get(data.canonical(t))
+                if g:
+                    mc[j] = mc[j] * data._class_divisor(t) / held[g]
             ok = np.isfinite(mc) & (mc > 0)
             if ok.all():
                 return [float(x) for x in mc / mc.sum()]
@@ -1765,6 +1810,24 @@ class _Evaluator:
             self.p.notes.append(msg)
 
     # ------------------------------------------------------------ the tree
+    def _custom(self, n: dict, d) -> dict:
+        """A custom node's weights on `d`: fn(d, history) in its sealed session (a new one when asked about an
+        earlier day than the last, e.g. a sub-tree's NAV evaluated before the main pass)."""
+        from . import sandbox
+        sessions = self.__dict__.setdefault("_sessions", {})
+        s = sessions.get(id(n))
+        if s is None or (s.last is not None and d < s.last):
+            if s is not None:
+                s.close()
+            frames = {t: self.dfs[data.canonical(t)] for t in n["tickers"]}
+            s = sessions[id(n)] = sandbox.PortfolioSession(n["custom"], frames, d)
+        w = s(d)
+        for t, x in w.items():
+            why = data.not_investable(t) if x > 0 else None
+            if why:
+                raise ValueError(f"The portfolio function gave {t} a weight on {pd.Timestamp(d).date()}: {why}")
+        return w
+
     def eval(self, n: dict, i: int) -> dict[str, float]:
         rows = self._rows.get(id(n))
         if rows is not None:
@@ -1786,15 +1849,9 @@ class _Evaluator:
         if "custom" in n:
             # Python API: fn(date, history) -> {ticker: weight}; history holds data up to and including date
             d = self.cal[i]
-            # copies (a slice could reach the whole frame through its buffer), with files, the network and
-            # data.load beyond `d` out of reach while the function runs (see expr.stream_callable)
-            hist = {t: self.dfs[data.canonical(t)].loc[:d].copy() for t in n["tickers"]}
-            tok = data.LOAD_CUTOFF.set(d)
-            try:
-                with expr.io_blocked():
-                    w = n["custom"](d, hist) or {}
-            finally:
-                data.LOAD_CUTOFF.reset(tok)
+            # run in a sealed process fed each ticker's rows up to `d` only, data.load there cut at `d`, files and
+            # the network refused, and data the function captured before the run refused (sandbox.py)
+            w = self._custom(n, d)
             tot = sum(max(v, 0) for v in w.values())
             if tot > 1 + 1e-9:
                 raise ValueError(f"custom weights on {d.date()} add up to {tot:.2%}")
@@ -2432,8 +2489,39 @@ def _end_at_series_end(p: "Portfolio", dfs: dict, cal: pd.DatetimeIndex) -> pd.D
     return out
 
 
+def held_tickers(n: dict) -> list[str]:
+    """The tickers the tree may hold (tickers_in without the ones only read by conditions, and without the inputs of
+    a custom function, whose returned weights are checked instead)."""
+    out: list[str] = []
+
+    def walk(x):
+        if "asset" in x:
+            out.append(data.canonical(x["asset"]))
+        elif "weights" in x:
+            for k in x["children"]:
+                walk(k)
+        elif "if" in x:
+            walk(x["then"])
+            walk(x["else"])
+        elif "filter" in x:
+            u = x.get("universe", "children")
+            if u == "children":
+                for k in x.get("children") or []:
+                    walk(k)
+            elif isinstance(u, list):
+                out.extend(data.canonical(t) for t in u)
+            if x.get("fallback"):
+                walk(x["fallback"])
+    walk(n)
+    return list(dict.fromkeys(out))
+
+
 def run(p: Portfolio) -> Result:
     p.validate()
+    for t in held_tickers(p.tree):
+        why = data.not_investable(t)
+        if why:
+            raise ValueError(why)
     names = tickers_in(p.tree)
     dfs = data.load_many(names)
     if p.proxies:
@@ -2655,6 +2743,12 @@ def run(p: Portfolio) -> Result:
     depleted = None
     mm = p.maintenance_margin
     mreq = np.array([_margin.maintenance(t, mm) for t in tick]) if N else np.zeros(0)   # per $ held (margin.py)
+    # annual borrow fee per ticker on shorts: the one given, else the assumed default (margin.default_borrow_fee)
+    BF = np.array([_margin.borrow_fee_of(t, p.borrow_fee) for t in tick]) if N else np.zeros(0)
+    if p.borrow_fee is None and _has_short(p.tree):
+        bn = _margin.borrow_note(_short_tickers(p.tree) or tick)
+        if bn not in p.notes:
+            p.notes.append(bn)
     margin_days: list = []
     lev_peak = (0.0, 0.0, None)       # (gross/equity, target gross, date): worst drift above target between rebalances
 
@@ -2809,9 +2903,9 @@ def run(p: Portfolio) -> Result:
             cash += earned
             interest += earned
             inc_int[i] = earned
-            if smv > 0 and p.borrow_fee:
-                for j in np.flatnonzero(short_mv > 0):
-                    fee = float(short_mv[j]) * p.borrow_fee / 252.0
+            if smv > 0 and BF.any():
+                for j in np.flatnonzero((short_mv > 0) & (BF > 0)):
+                    fee = float(short_mv[j]) * BF[j] / 252.0
                     cash -= fee
                     tcash[j] -= fee
                     tcom[j] += fee

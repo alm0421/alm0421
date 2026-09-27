@@ -190,6 +190,8 @@ import but do not export: no public export or schema names the keys of their par
 | Schedules and flows | semi-annually, relative bands ("drifts 25% relative to its target"), schedule + band ("rebalance quarterly or when any weight drifts more than 5%": every quarter AND whenever a weight leaves its band in between), fortnightly (every 2nd week-end); a band with no schedule, or "never rebalance" with if/else or filters, re-evaluates the rules every close and trades only when the target allocation changes or a holding leaves its band (Composer's threshold rebalancing), contributions/withdrawals for N years / starting in YEAR / from year N, growing X% a year |
 | Other | starting with $X, since/from/until YEAR, month names and months ("from March 2005 to June 2015", "since Jan 1999", "until 2020-06": the month's first / last day), weight-first lists without commas ("60% VTI 40% BND since 2010", "VTI 60 BND 40"), "rebalance when drift exceeds 5%" / "at 5% drift" / "rebalance when drift exceeds 25% relative" (a relative band) / "threshold rebalance 5%" / "5% threshold rebalancing" / "a 5% rebalance corridor" / "rebalance at 5% corridor" / "rebalance band 5%" (a band that can never trigger, e.g. 150% on 50/50, earns a warning that says what still trades: nothing after the first day, the calendar schedule, or, for a tree with if/else or filters, the switches), "inverse volatility weighted top 3 of … by 63 day return using a 10 day lookback" (the lookback of the weighting; refused when the weighting has none), "a 10% target volatility using 60 day volatility" (rescaled monthly unless you say otherwise), vs TICKER (incl. SPYSIM), a blended benchmark ("vs 60/40 SPY/AGG", "compared with 60% SPY and 40% AGG", "benchmark 60/40 SPY/AGG"; rebalanced like the portfolio unless stated: "vs 60/40 SPY/AGG rebalanced monthly" / "... never rebalanced"), "expense ratio 0.5%" / "0.5% expense ratio" / "expense ratio of 0.5%", "margin rate of fed funds plus 1%" / "margin rate T-bills + 1%" (borrowing at the base rate plus the spread; the data has no fed funds series, so the 3-month T-bill rate stands in, with a note: fed funds has run about 0.1% above it since 2009 and 0.3-1% above it before), versus T-bills, cash earns nothing / no interest on cash / with interest on cash, no dividends / with dividends / price-only returns (signal strategies), using today's members only; TradingView syntax without backticks ("when close > ta.sma(close, 200)", "when close crosses above ta.ema(close, 20)", "when close > ta.highest(high, 55)[1]"); a cross needs a direction ("crosses 70" is refused with the two readings) |
 | Valuation | "the Shiller CAPE is below 25" (`cape() < 25`), "the CAPE percentile is below 70%" (`cape_pct(0) < 0.7`: its rank among all values since 1881 known at the time; "... over the last 30 years" for a window), "the earnings yield is above the 10 year treasury yield" (`earnings_yield() > treasury_10y()`); the named tactical model "CAPE-based allocation" (between VTI and BND by default, or "between SPY and IEF"): 80/20 stocks/bonds while the CAPE is in the cheapest third of its history, 60/40 in the middle third, 40/60 in the dearest third, checked monthly. CAPE is Shiller's monthly data, used 4 months after the month it describes (see "Valuation data" below) |
+| Macro and calendar | "the yield curve is inverted" (`yield_curve() < 0`), "the 2s10s spread is below 0.5%"; "the day before Thanksgiving" (`days_to_holiday() == 0 and next_holiday_is("thanksgiving")`), "the last trading day before a holiday" (`days_to_holiday() == 0`), "the first trading day after a holiday" (`days_since_holiday() == 0`): from the published NYSE schedule, known at the open |
+| Cross-sectional | "in the bottom decile of 20 day return" (`xrank(ret(20)) <= 0.1`), "in the top quintile of 3 month return" (`xrank(ret(63)) > 0.8`): `xrank(x)` is the ticker's percentile (0..1, 1 = highest, ties averaged) of x among the universe's members that day (point-in-time members for the Nasdaq-100), for strategies over several tickers. Earnings dates are not available: no free point-in-time source of historical announcement dates exists (the free calendars list recent or upcoming dates, revised after the fact) |
 | Relative hurdles | "only if their 12 month return is above BIL's 12 month return" (each candidate vs BIL; also beats / exceeds / greater than / higher than, "above BIL" = the same indicator), "hold SPY if its 12 month return beats BIL's, otherwise IEF". A condition that compares a value with itself is refused |
 
 Anything else can be written in the **rule language** inside backticks
@@ -410,7 +412,9 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
     most 2x gross overnight. Up to 4x needs a portfolio-margin account ("with portfolio margin",
     `margin_account: "portfolio"`). The maintenance requirement at the full target must be below the equity:
     4x with the default 25% maintenance is refused (every close below the entry would be a margin call);
-    say e.g. "4x leverage, with portfolio margin and a 15% maintenance margin". A leveraged ETF needs its
+    say e.g. "4x leverage, with portfolio margin and a 15% maintenance margin". The requirement must also
+    leave at least 10% of the equity above it (`margin.MARGIN_BUFFER`): "hold TQQQ with 1.3x leverage" needs
+    97.5% (a 7.7% fall is a margin call) and is refused; 1.2x (90%) runs. A leveraged ETF needs its
     higher requirement to open as well (brokers apply the FINRA multiple to the initial margin), so
     "hold TQQQ with 3x leverage" (9x the index) is refused: at most 1.33x on a 3x fund, and holding it
     unleveraged already gives 3x exposure.
@@ -452,6 +456,15 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   an order the account can't pay for (cash plus the commission, within the leverage allowed, and any volume cap)
   is skipped, never cut to what the cash allows, and a **Warning** counts the skipped orders and lists the first
   dates. Share counts are whole shares as stated.
+- **Borrow fees on shorts.** Unless you give one ("borrow fee 2%": one rate for every short; "no borrow fee":
+  none), a short pays an assumed annual fee on its market value, charged daily (`margin.default_borrow_fee`):
+  5%/yr for leveraged, inverse and volatility ETPs (SQQQ, SOXS, UVXY, VXX, SH, ...: usually hard to borrow;
+  Interactive Brokers' indicative rates mostly sit at 3-10%/yr and spike higher when supply is short) and
+  0.3%/yr for other stocks and ETFs (the general-collateral rate of liquid names; a small or crowded stock can
+  cost 10-100%/yr, which the default does not know). A note names the rates used.
+- **Indexes are not tradable.** ^GSPC, ^VIX, ^NDX and the other `^` series (and yields) are calculated, not
+  securities: holding or trading one is refused in both engines with a proxy suggested (SPY, VIXY/VIXM, QQQ,
+  IWM, DIA, BIL, IEF, TLT). They stay usable in conditions: `sym("^VIX").close > 30`, "when VIX is above 20".
 - **Costs are never negative.** Negative slippage, commissions, borrow fees, margin rates or expense ratios are
   refused (in sentences, on the command line, in the site's options and in JSON specs).
   Volume caps on fills at the open use the previous day's volume.
@@ -597,27 +610,48 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
       `ref(close, 2-1)` is an error everywhere, so the check and the calculation can't read a rule
       differently.
   - Rules written as Python functions (the Python API: `entry=lambda df, ns: ...`, also exits, rankings and
-    order levels) are causal by construction: each is called on the data up to bar i (a copy; `ns['sym']` and
-    `data.load` are cut at the same bar) for every bar in order, and only the last value of each call is used,
-    so a function that caches the largest frame it has seen, or computes `shift(-1)`, never sees a later row.
-    Reading files or the network while it runs raises an error. Only the bars a run reads are evaluated (from
-    its first day on), long streams are split into contiguous chunks run in forked worker processes (each walks
-    its chunk in order from the parent's state; a function whose answers depend on which earlier bars it was
-    called on - state kept between calls - disagrees at a chunk boundary and is streamed in one pass), and the
-    built-in indicators it calls through `ns` (`ns['rsi'](2)`, `ns['sma'](ns['close'], 20)`, ...) are answered
-    from one full-history computation cut at the bar (they are causal; checked against a direct computation on
-    the prefix on the first calls and every 200th after). A rule over one ticker x 20 years takes a few
-    seconds; a note gives the timing. A function whose whole-history answer differs from its bar-by-bar one is refused
-    (below). Mark one `f.vectorized_causal = True` to call it once on the whole history instead (faster, with a
-    warning note): only then does the empirical probe guard it: the function is run on the data cut at
-    many dates chosen adversarially - the latest 40 bars one by one, every day an entry fires and the three
-    days before it, every day its answer changes, every day of a short run window, then a dense random grid
-    (up to 1,200 cuts, a few seconds) - and its output up to each cut must equal its output on the full data.
+    order levels) and portfolio `custom` functions (`f(date, history)`) never run in the backtester's own
+    process (`backtester/sandbox.py`). What is guaranteed:
+    - **The function only ever holds data up to the day it decides.** It is sent, by value, to a fresh child
+      process forked from a small server that loaded no data, and that child is fed the bars one day at a
+      time: when it answers day D it has received nothing after D, so nothing it can reach (its arguments,
+      `ns`, `inspect.stack()`, `gc.get_objects()`, a global it filled on earlier calls) is later than D. Each
+      stream (one function on one ticker) gets its own child, so kept state starts empty.
+    - **Data requests are cut at D.** `ns['sym']('SPY')`, `data.load` / `load_many` and the point-in-time data
+      functions (`market_cap`, `tbill_rate`, `treasury_10y`, `yield_curve`, `shiller_known`, `cpi`,
+      `factors`, ...) are answered by the backtester with the data up to D; any other data function, opening a
+      file (`open`, `io`, `os`/`posix.open`, `_io.FileIO` except for importing Python modules, pandas / numpy
+      readers), starting a process (`subprocess`, `os.system`, `fork`, `exec`) or a network connection is
+      refused with CallableIOError.
+    - **Data captured before the run is refused.** Everything the function carries in - the globals it names,
+      its closure, default arguments, attributes, and the same for the functions it calls - is inspected
+      before it is sent: a pandas object with a date index reaching past the first day it answers
+      (`FULL = data.load("SPY")` at module level, a dict of full price series), a numeric array, list or dict of
+      500+ values, or a string of 100,000+ characters is refused ("Lookahead: the Python rule f() uses future
+      data: global 'FULL' is a DataFrame of 8,472 rows dated up to 2026-09-25, captured outside the run").
+      Load data inside the function instead (it is cut at each day).
+    - **Not covered:** native code (ctypes, a C extension) can read whatever the operating system lets the
+      process read. No ordinary way of writing a rule reaches later data.
+    Speed: about 1.5 ms per bar per call of overhead (a 2,000-bar stream of a typical rule takes 2-4 s on one
+    core); long streams are split into chunks answered by several children at once (each chunk still fed day by
+    day; a function whose answers depend on which earlier days it was called on is detected at the chunk
+    boundaries and streamed in one pass); only the bars a run reads are evaluated, and the built-in indicators
+    it calls through `ns` (`ns['rsi'](2)`, ...) are answered from one full-history computation cut at the bars
+    the child has (checked against a direct computation on the first calls and every 200th). A note gives the
+    timing. A function whose whole-history answer differs from its bar-by-bar one is refused (below).
+    Mark one `f.vectorized_causal = True` to call it once on the whole history instead (faster, in a sealed
+    child too, its data requests cut at the last bar, with a warning note): only then does the empirical probe
+    guard it: the function is run on the data cut at many dates chosen adversarially - the latest 40 bars one by
+    one, every day an entry fires and the three days before it, every day its answer changes, every day of a
+    short run window, then a dense random grid (up to 1,200 cuts in batches, each batch in one child fed in
+    increasing order, within a few seconds) - and its output up to each cut must equal its output on the full
+    data.
     (A leak confined to a few days of a long history can still escape the random part.) `df.close.shift(-1)`, `rolling(..., center=True)` or
     `df.close.mean()` change when later rows are removed, and the run is refused ("Lookahead: the entry
     function uses future data: its result on D changes when the data after D is removed"). A function used
     at the open must be marked `f.open_safe = True` and is also run with that day's close/high/low/volume
-    perturbed. Portfolio `custom` functions only ever receive the history up to each date.
+    perturbed. Portfolio `custom` functions receive the history up to each date in the same kind of sealed
+    child (fed each rebalance date's new rows), and their weights may not name an index (below).
     - Behind it, every run at the open replays the rule on dates across the whole history with that
       day's close/high/low/volume replaced by other valid values (tiny to large), for every ticker the
       rule reads; any change in the decision rejects the spec.
@@ -625,8 +659,12 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   - Tests truncate all data at a date and check that no earlier trade changes.
 - **Survivorship.** "Nasdaq 100 stocks" means point-in-time membership from 2004 (monthly snapshots
   of the index list, with exact change days from the dated component-change table from 2007: SMCI counts from
-  2024-07-22, PLTR from 2024-12-23, not from the next month). A stock is only bought while it was in the index,
-  and former members are included where price history exists.
+  2024-07-22, PLTR from 2024-12-23, not from the next month). From a stock's first dated change on, the table
+  decides: after a dated removal it stays out until a dated addition, whatever a later (stale) monthly snapshot
+  says (CSGP removed 2020-07-20 is not a member on 2020-08-31; AVGO is out from 2015-11-11 until 2016-02-01);
+  after a dated addition it stays in until a dated removal, unless the snapshots leave it out for over half a
+  year (a removal or symbol change the table missed). A stock is only bought while it was in the index, and
+  former members are included where price history exists.
   - "using today's members only" trades the CURRENT member list (the latest snapshot plus the dated changes
     since) over the whole period with no membership filter: survivorship-biased by construction, and both
     engines add a warning saying so.
@@ -645,8 +683,9 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   - Share classes of one company (GOOG/GOOGL, FOX/FOXA, LBTYA/LBTYK, BATRA/BATRK, LILA/LILAK, DISCA/DISCK,
     NWS/NWSA) are one name: a top-N ranking counts the company once (by market cap: its full market cap) and
     holds its more liquid class that day (higher 3-month average dollar volume), so "the top 10 by market cap"
-    is ten companies, not Alphabet twice. A signal strategy does not open a second class of a company while it
-    holds one. `share_classes: "separate"` in a spec treats the classes as separate names.
+    is ten companies, not Alphabet twice, and market-cap weights count the class held at the company's full
+    value too (GOOGL alone at Alphabet's value; GOOG and GOOGL held together at half each). A signal strategy
+    does not open a second class of a company while it holds one. `share_classes: "separate"` in a spec treats the classes as separate names.
   - Before 2004 the earliest known list is used.
 - **Delistings.** When a held ticker's data ends more than a week before the backtest does (acquired or
   delisted), the position is sold at its last close on its last day (trades/orders marked `delisted`, and a
@@ -846,7 +885,14 @@ they are put on the same split basis as the prices, with counts that Yahoo still
 for a few weeks after a split corrected, and a jump of more than 15% only used once a second report confirms
 it. A market cap whose implied daily turnover (dollar volume / market cap) is outside 0.001%-100% is treated
 as unknown. Share classes of one company (GOOG/GOOGL, FOX/FOXA, ...) each get the company's value divided by
-the number of listed classes. Examples: AMZN about $1.7T in mid-2021, NVDA about $2.3T at the end of March
+the number of listed classes (ranking and market-cap weighting then count the company at its full value).
+
+**Spin-offs booked as splits.** Yahoo books some spin-offs as a "split" of the old price over the ex-date
+reference price (EBAY 2.376 on 2015-07-20, the PayPal spin-off; also AbbVie from ABT, GE HealthCare, ...). A
+split ratio no company splits by (not p/q with q up to 4, nor a 1-25% stock dividend) with no payout is read as
+the spin-off: the earlier bars go back to their traded prices (EBAY closed $66.29 on 2015-07-17, not $27.90),
+and the day pays the distribution's value in cash, keeping the adjusted close's total return, so share counts
+before the event are not inflated by the ratio. Examples: AMZN about $1.7T in mid-2021, NVDA about $2.3T at the end of March
 2024, AAPL about $3.0T at the end of 2023, AEP under $60B.
 
 **Nothing is ever deleted.** A failed or partial download never replaces a saved history: a refresh that
@@ -1076,8 +1122,16 @@ earnings interpolated to months, which S&P reports a quarter or two later (the n
 To stay point in time, month M's value is used only from the first day of month M+5 (`CAPE_LAG_MONTHS = 4` in
 `backtester/data.py`): the CAPE for January drives decisions from June 1. That lag is deliberately
 conservative; the tests check that truncating the prices at any date changes nothing before it, and the rules
-are open-safe (known before the open). `treasury_10y()` is FRED's daily 10-year yield as of each close (the
-monthly GS10 average, dated the next month's first day, before 1962).
+are open-safe (known before the open). `treasury_10y()` is FRED's daily 10-year yield (the monthly GS10
+average, dated the next month's first day, before 1962), `treasury_2y()` the 2-year (DGS2, from 1976) and
+`yield_curve()` the 10-year minus 2-year (FRED T10Y2Y, else DGS10 - DGS2; below 0 = inverted). FRED publishes
+a day's yields after the close, so a rule acted on at the close reads the previous session's value (at the next
+open, that day's). **Stale series:** a macro series is held forward only for a limited time after its last
+value became known (`data.MACRO_STALE_DAYS`: CAPE 62 days after its known date - its data month + 5 months -,
+daily yields and T-bills 10 days, CPI 50, factors 70); after that a rule reads it as unknown (NaN, so a
+condition on it is false and `tbill_ret` stops) and a note names the last available date, instead of
+repeating the last value for years. The data job reads Shiller's file from shillerdata.com (whose page serves
+the download link JSON-escaped; an older job fell back to the Yale copy, which stops at 2023-09).
 
 **Fund-exact series.** VTISIM, VXUSSIM, VWOSIM, VNQSIM, BNDSIM, VBSIM, VBRSIM, VBKSIM, VTVSIM and VUGSIM
 become the named fund as soon as it or its Vanguard mutual-fund twin (same index, same manager) exists, so a

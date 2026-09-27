@@ -64,7 +64,7 @@ def test_stop_loss_intraday_and_gap(fake):
 def test_take_profit_and_short(fake):
     fake["X"] = synthetic([(100, 100, 100, 100), (100, 100, 100, 100), (100, 101, 89, 95), (95, 95, 95, 95)])
     fake["X"].index = pd.bdate_range("2019-12-30", periods=4)
-    s = Strategy(cash_rate=None, universe=["X"], entry="dow == 1", side="short", take_profit=0.10, hold_bars=5)
+    s = Strategy(cash_rate=None, universe=["X"], entry="dow == 1", side="short", take_profit=0.10, hold_bars=5, borrow_fee=0)
     r = engine.run(s)
     t = r.trades.iloc[0]
     assert t.exit_reason == "take profit" and t.exit_price == pytest.approx(90)
@@ -346,7 +346,7 @@ def test_dividends_paid_to_longs_and_charged_to_shorts(fake):
     df.index = pd.bdate_range("2019-12-30", periods=4)
     fake["X"] = df
     for side, sign in (("long", 1), ("short", -1)):
-        r = engine.run(Strategy(cash_rate=None, universe=["X"], entry="dow == 0", side=side, hold_bars=3))
+        r = engine.run(Strategy(cash_rate=None, universe=["X"], entry="dow == 0", side=side, hold_bars=3, borrow_fee=0))
         t = r.trades.iloc[0]
         assert t.income == pytest.approx(sign * 0.5 * t.shares)
         assert r.equity.iloc[-1] == pytest.approx(10_000 + t.pnl)
@@ -668,7 +668,7 @@ def test_short_rebate_haircut(fake):
 
 def test_margin_call_cuts_positions_pro_rata(fake):
     fake["X"] = _week([(100, 100, 100, 100), (120, 120, 120, 120), (150, 150, 150, 150), (170, 170, 170, 170), (170, 170, 170, 170)])
-    s = Strategy(cash_rate=None, universe=["X"], entry="dow == 0", side="short", hold_bars=10)
+    s = Strategy(cash_rate=None, universe=["X"], entry="dow == 0", side="short", hold_bars=10, borrow_fee=0)
     r = engine.run(s)
     mc = r.trades[r.trades.exit_reason == "margin call"]
     assert len(mc) == 1 and str(mc.iloc[0].exit_date) == "2020-01-02" and mc.iloc[0].exit_price == 170
@@ -678,7 +678,7 @@ def test_margin_call_cuts_positions_pro_rata(fake):
     assert any(n.startswith("Margin call on 2020-01-02") for n in s.notes)
     assert r.equity.iloc[-1] == pytest.approx(10_000 + r.trades.pnl.sum())
     # disabled: no margin call
-    r2 = engine.run(Strategy(cash_rate=None, universe=["X"], entry="dow == 0", side="short", hold_bars=10, maintenance_margin=0))
+    r2 = engine.run(Strategy(cash_rate=None, universe=["X"], entry="dow == 0", side="short", hold_bars=10, maintenance_margin=0, borrow_fee=0))
     assert (r2.trades.exit_reason != "margin call").all()
     with pytest.raises(ValueError):
         Strategy(universe=["X"], entry="True", hold_bars=1, leverage=5).validate()   # 25% maintenance > 20% initial

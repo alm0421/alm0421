@@ -31,6 +31,26 @@ def canonical(ticker: str) -> str:
     return ALIASES.get(t, t)
 
 
+# Index levels, yields and other calculated series (Yahoo's ^ symbols): readable in conditions through sym(), but
+# nobody can buy or sell them, so holding or trading one is refused with an investable proxy suggested.
+INDEX_PROXIES = {"^GSPC": "SPY (or IVV / VOO)", "^SP500TR": "SPY (or IVV / VOO)", "^NDX": "QQQ (or QQQM)",
+                 "^DJI": "DIA", "^RUT": "IWM", "^VIX": "VIXY or VIXM (VIX futures ETFs; the spot index itself cannot be held)",
+                 "^VIX3M": "VIXM", "^IRX": "BIL or SHV (T-bill ETFs)", "^FVX": "IEI", "^TNX": "IEF",
+                 "^TYX": "TLT"}
+
+
+def not_investable(ticker: str) -> str | None:
+    """Why `ticker` cannot be held or traded (an index or other calculated series), or None."""
+    t = canonical(ticker)
+    if not t.startswith("^"):
+        return None
+    proxy = INDEX_PROXIES.get(t)
+    return (f"{t} is an index (a calculated series), not a security: it cannot be bought, sold or held, so a backtest "
+            f"that trades it means nothing in practice. "
+            + (f"Use an investable proxy such as {proxy}. " if proxy else "Use a fund that tracks it. ")
+            + f"It stays usable in conditions, e.g. `sym(\"{t}\").close > sma(sym(\"{t}\").close, 50)`.")
+
+
 def available_tickers() -> list[str]:
     out = {p.stem for p in PRICES.glob("*.csv")}
     if CUSTOM.exists():
@@ -742,25 +762,51 @@ def change_events(tickers: list[str]) -> dict[str, list[tuple[pd.Timestamp, bool
 
 def apply_changes(out: np.ndarray, tickers: list[str], index: pd.DatetimeIndex,
                   window_days: int = CHANGE_WINDOW_DAYS) -> np.ndarray:
-    """Exact change days on top of the monthly snapshots (in place): within `window_days` of a dated change of a
-    ticker (and never past its neighbouring changes), the change table decides - a member from the effective day
-    of an addition, not from the next month's snapshot; a member until the day before a removal. Elsewhere the
-    snapshots stand (so a change missing from the table, or a renamed symbol, costs only granularity)."""
+    """Exact change days on top of the monthly snapshots (in place). From a ticker's first dated change on, the
+    change table decides:
+      - out from a dated removal until the next dated addition: a later monthly snapshot that still lists the
+        name is stale (CSGP on 2020-08-31, removed 2020-07-20; AVGO in December 2015, removed 2015-11-11 and
+        re-added 2016-02-01; BATRK after 2016-06-20) and does not bring it back;
+      - a member from the effective day of an addition until the day before the next dated removal (a snapshot
+        that has not caught up yet does not drop it), unless the snapshots leave it out for more than
+        ADDITION_TRUST_SESSIONS sessions in a row: that is a removal or a symbol change the table does not record
+        (FB listed as META, KFT renamed MDLZ), and from there the snapshots decide again.
+    Before its first dated change the snapshots stand, except within `window_days` of that change (a member only
+    until the day before a removal / from the day of an addition). A ticker with no dated change keeps its
+    snapshots."""
     if not len(index):
         return out
     ev = change_events(list(tickers))
     w = pd.Timedelta(days=window_days)
     col = {t: j for j, t in enumerate(tickers)}
+    snap = out.copy()
     for t, lst in ev.items():
         j = col[t]
+        d0, joined0 = lst[0]
+        out[(index >= d0 - w) & (index < d0), j] = not joined0
         for n, (d, joined) in enumerate(lst):
-            lo = d - w if n == 0 else max(d - w, lst[n - 1][0])
-            hi = d + w if n == len(lst) - 1 else min(d + w, lst[n + 1][0])
-            before = (index >= lo) & (index < d)
-            after = (index >= d) & (index < hi)
-            out[before, j] = not joined
-            out[after, j] = joined
+            nxt = lst[n + 1][0] if n + 1 < len(lst) else None
+            pos = np.flatnonzero((index >= d) if nxt is None else ((index >= d) & (index < nxt)))
+            if not len(pos):
+                continue
+            if not joined:
+                out[pos, j] = False
+                continue
+            # force membership up to the first long absence in the snapshots (then they decide)
+            absent = ~snap[pos, j]
+            stop = len(pos)
+            run = 0
+            for k, a in enumerate(absent):
+                run = run + 1 if a else 0
+                if run > ADDITION_TRUST_SESSIONS:
+                    stop = k - run + 1
+                    break
+            out[pos[:stop], j] = True
+            out[pos[stop:], j] = snap[pos[stop:], j]
     return out
+
+
+ADDITION_TRUST_SESSIONS = 126     # half a year of snapshots without a dated addition's name: they win again
 
 
 TODAY_MEMBERS_WARNING = "Warning: survivorship bias - the universe is TODAY'S Nasdaq-100 members ({n} stocks, the latest membership list), traded over the whole period with no membership filter. They were chosen because they are in the index now (they survived and grew), which past-you could not know: results are biased upward, often strongly. Drop 'using today's members only' for point-in-time membership."
@@ -1025,6 +1071,63 @@ def _whole_ratio(r: float) -> bool:
     return False
 
 
+def _split_like(r: float) -> bool:
+    """A ratio a company actually splits (or pays a stock dividend) by: p/q with q <= 4 (2, 3, 3/2, 4/3, 5/4, 5/2...)
+    or its inverse (reverse splits) within 0.2%, or 1 + k% for a whole k up to 25 (stock dividends) within 0.1%. Not a ratio
+    like EBAY's 2.376 on 2015-07-20 (19/8): Yahoo books some spin-offs as a "split" of the pre-event price over the
+    ex-date reference price (PayPal from eBay)."""
+    if not r or r <= 0 or abs(r - 1) < 1e-9:
+        return True
+    for x in (r, 1.0 / r):
+        for q in range(1, 5):
+            p = round(x * q)
+            if p >= 1 and abs(p / q - x) <= 2e-3 * x:     # (GOOGL's 1.998 for the class C issue in 2014: 2)
+                return True
+    k = round((r - 1) * 100)
+    return 1 <= k <= 25 and abs(1 + k / 100 - r) <= 1e-3 * r
+
+
+def _spinoffs_booked_as_splits(raw: pd.DataFrame, days) -> tuple[pd.DataFrame, list]:
+    """Re-read a 'split' with a ratio no company splits by and no payout (see _split_like) as the spin-off it is:
+    the bars before the day go back to the prices as traded (x the ratio, volume / the ratio: EBAY closed $66.29, not
+    $27.90, on 2015-07-17), the split is dropped, and the day pays the distribution's value in cash (the total return
+    kept equal to the adjusted close's: EBAY 2015-07-20 pays $39.30 per share, PayPal's value), so share counts before
+    the day are the real ones rather than inflated by the ratio. Returns (bars, log rows as in reconcile_actions)."""
+    raw = raw.copy()
+    for k in ("open", "high", "low", "close", "adj_close", "volume", "dividend", "split"):
+        if k in raw:
+            raw[k] = pd.to_numeric(raw[k], errors="coerce").astype(float)
+    raw["dividend"] = raw["dividend"].fillna(0.0)
+    raw["split"] = raw["split"].fillna(0.0)
+    log = []
+    mkt = _market_day_returns()
+    for day in days:
+        i = raw.index.get_loc(day)
+        if i == 0:
+            continue
+        r = float(raw["split"].iloc[i])
+        pc, cc = float(raw["close"].iloc[i - 1]), float(raw["close"].iloc[i])
+        a_prev, a_now = float(raw["adj_close"].iloc[i - 1]), float(raw["adj_close"].iloc[i])
+        if not (np.isfinite(a_prev) and a_prev > 0 and np.isfinite(a_now) and pc > 0):
+            continue
+        tr = a_now / a_prev                       # the day's total return by the adjusted close
+        pay = tr * pc * r - cc                    # per share, on the as-traded basis before the day
+        if not (0 < pay < pc * r):
+            continue
+        before = raw.index < day
+        for k in ("open", "high", "low", "close"):
+            if k in raw:
+                raw.loc[before, k] = raw.loc[before, k] * r
+        raw.loc[before, "dividend"] = raw.loc[before, "dividend"] * r
+        if "volume" in raw:
+            raw.loc[before, "volume"] = raw.loc[before, "volume"] / r
+        raw.iloc[i, raw.columns.get_loc("split")] = 0.0
+        raw.iloc[i, raw.columns.get_loc("dividend")] = pay
+        m = float(mkt.get(day, np.nan)) if len(mkt) else np.nan
+        log.append((day, "spinoff_as_split", r, 1.0, 0.0, pay, cc / pc - 1, tr - 1, tr - 1, m))
+    return raw, log
+
+
 @lru_cache(maxsize=1)
 def _market_day_returns() -> pd.Series:
     """SPY close-to-close returns (the reference market move for reconcile_actions), read from the file directly."""
@@ -1053,7 +1156,8 @@ def reconcile_actions(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
     eng = (c + d) / c.shift(1)
     adj = a / a.shift(1)
     cand_days = raw.index[((sp > 0) & ((sp - 1).abs() > 1e-9) & (d > 0) & ((eng - adj).abs() > CA_TOLERANCE)).to_numpy()]
-    if not len(cand_days):
+    spin_days = raw.index[((sp > 1 + 1e-9) & (d <= 0)).to_numpy() & np.array([not _split_like(x) for x in sp])]
+    if not len(cand_days) and not len(spin_days):
         CA_FIXES[t] = empty
         return raw, empty
     raw = raw.copy()
@@ -1105,6 +1209,9 @@ def reconcile_actions(t: str, raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
             raw.loc[before, "adj_close"] = raw.loc[before, "adj_close"] * (a_now / a_prev) / tr
         log.append((day, reading, r, r if keep_split else 1.0, dv, pay, float(eng.iloc[i]) - 1, tr - 1,
                     float(adj.iloc[i]) - 1, m))
+    if len(spin_days):     # last: a pure change of units for the bars before each (the readings above stand)
+        raw, spun = _spinoffs_booked_as_splits(raw, spin_days)
+        log = sorted(log + spun, key=lambda row: row[0])
     out = pd.DataFrame(log, columns=cols)
     CA_FIXES[t] = out
     return raw, out
@@ -1704,6 +1811,65 @@ def treasury_10y() -> pd.Series:
         return pd.Series(dtype=float)
     s = pd.concat(parts).sort_index()
     return s[~s.index.duplicated(keep="last")]
+
+
+def _fred_daily(sid: str) -> pd.Series:
+    f = DATA / "macro" / f"{sid}.csv"
+    if not f.exists():
+        return pd.Series(dtype=float)
+    d = pd.read_csv(f, parse_dates=["date"], index_col="date")["value"]
+    s = pd.to_numeric(d, errors="coerce").dropna() / 100
+    return s[~s.index.duplicated(keep="last")].sort_index()
+
+
+def treasury_2y() -> pd.Series:
+    """2-year Treasury yield (decimal) by day: FRED DGS2 (from 1976)."""
+    return _fred_daily("DGS2")
+
+
+def yield_curve() -> pd.Series:
+    """The 10-year minus 2-year Treasury yield (decimal; negative = inverted) by day: FRED T10Y2Y when downloaded,
+    else DGS10 - DGS2 on the days both are published (from 1976)."""
+    s = _fred_daily("T10Y2Y")
+    if not s.empty:
+        return s
+    a, b = _fred_daily("DGS10"), _fred_daily("DGS2")
+    if a.empty or b.empty:
+        return pd.Series(dtype=float)
+    return (a - b).dropna()
+
+
+# A macro series is only as current as its last published value. Held forward onto later bars for at most this many
+# calendar days after the date its last value became known; after that a rule reads it as unknown (NaN: comparisons
+# on it are false) instead of the last value repeated indefinitely (data/macro/shiller.csv once stopped at 2023-09
+# and cape() stayed frozen for years). Monthly series get their publishing rhythm plus slack, daily ones a week or so.
+MACRO_STALE_DAYS = {"cape": 62, "cape_pct": 62, "earnings_yield": 62, "treasury_10y": 10, "treasury_2y": 10,
+                    "yield_curve": 10, "tbill": 10, "cpi": 50, "factors": 70}
+MACRO_LABELS = {"cape": "Shiller CAPE", "cape_pct": "Shiller CAPE", "earnings_yield": "Shiller CAPE",
+                "treasury_10y": "the 10-year Treasury yield (FRED DGS10)", "treasury_2y": "the 2-year Treasury yield (FRED DGS2)",
+                "yield_curve": "the yield curve (FRED DGS10 - DGS2)", "tbill": "the 3-month T-bill rate (FRED DTB3)",
+                "cpi": "CPI (FRED CPIAUCNS)", "factors": "the Fama-French factors"}
+
+
+def stale_from(name: str, s: pd.Series) -> pd.Timestamp | None:
+    """The first day `s` (indexed by the day each value became known) counts as stale, or None."""
+    lim = MACRO_STALE_DAYS.get(name)
+    if lim is None or s is None or s.empty:
+        return None
+    return pd.Timestamp(s.index[-1]) + pd.Timedelta(days=lim)
+
+
+def stale_note(name: str, s: pd.Series) -> str:
+    last = pd.Timestamp(s.index[-1])
+    what = MACRO_LABELS.get(name, name)
+    if name in ("cape", "cape_pct", "earnings_yield"):
+        month = (last.to_period("M") - 1 - CAPE_LAG_MONTHS)
+        when = f"its last value describes {month} (known from {last.date()} after the {CAPE_LAG_MONTHS}-month reporting lag)"
+    else:
+        when = f"its last value is dated {last.date()}"
+    return (f"Stale data: {what} - {when}. From {stale_from(name, s).date()} on it is treated as unknown (NaN, so a "
+            "condition on it is false) instead of repeating that value; refresh the data (the 'Fetch price data' "
+            "workflow) to use it later.")
 
 
 @lru_cache(maxsize=1)

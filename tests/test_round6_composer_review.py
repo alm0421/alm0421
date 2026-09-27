@@ -63,7 +63,7 @@ def test_direction_words_in_lists():
 
 @needs("SPY")
 def test_short_holding_returns_minus_the_asset():
-    p = pf.Portfolio(tree=SHORT("SPY"), rebalance="daily", cash_rate=None, short_rebate_spread=0.0, start="2015-01-01",
+    p = pf.Portfolio(tree=SHORT("SPY"), rebalance="daily", cash_rate=None, short_rebate_spread=0.0, borrow_fee=0, start="2015-01-01",
                      end="2016-12-31", maintenance_margin=0.0)
     r = pf.run(p)
     eq = r.equity

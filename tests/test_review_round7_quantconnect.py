@@ -107,17 +107,19 @@ def test_open_safe_function_is_also_perturbed_at_the_open(fake):
 
 
 def test_probe_is_cached_per_function_and_data(fake):
+    from backtester import sandbox
     fake["X"] = frame(walk(6))
-    calls = []
 
-    def counted(df, ns):
-        calls.append(len(df))
+    def counted(df, ns):         # runs in a sealed process: counted through sandbox.STATS
         return df.close > df.close.shift(1)
+    s0 = sandbox.STATS["steps"]
     engine.run(Strategy(cash_rate=None, universe=["X"], entry=counted, hold_bars=1))
-    first = len(calls)
-    assert first > 5 and min(calls) < len(fake["X"])     # probed on cut data
+    first = sandbox.STATS["steps"] - s0
+    assert first > 5                                      # streamed on the data cut at each bar
+    j1 = sandbox.STATS["jobs"]
     engine.run(Strategy(cash_rate=None, universe=["X"], entry=counted, hold_bars=1))
-    assert len(calls) == first + 1                        # second run: only the real evaluation
+    # second run: the stream is reused, only the whole-history comparison call runs again
+    assert sandbox.STATS["steps"] - s0 == first and sandbox.STATS["jobs"] <= j1 + 1
 
 
 @needs_data

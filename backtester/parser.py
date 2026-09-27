@@ -31,6 +31,8 @@ _BORROW_TAIL = (r"(?: (?:per|a|an) (?:year|annum)| annual(?:ly)?| yearly| p\.?a\
 BORROW_FEE = (rf"(?:an? )?{NUM}% (?:(?:annual|annualized|yearly) )?(?:stock )?borrow(?:ing)? (?:fee|cost|rate)s?{_BORROW_TAIL}"
               rf"|(?:an? )?(?:(?:annual|annualized|yearly) )?(?:stock )?(?:short )?borrow(?:ing)? (?:fee|cost|rate)s?"
               rf"(?: of| at|:| =)? {NUM}%{_BORROW_TAIL}")
+# "no borrow fee": shorts cost nothing to borrow (the default assumes 5%/yr for leveraged / inverse ETFs, 0.3% others)
+NO_BORROW_FEE = r"(?:(?:with|and) )?(?:no |zero |without (?:a |any )?)(?:stock )?borrow(?:ing)? (?:fee|cost)s?(?: on (?:the )?shorts?)?"
 
 WORD_NUMS = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
@@ -1272,6 +1274,63 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
         return f"earnings_yield() {_cmp(m.group(1))} treasury_10y()"
     take(rf"(?:the )?(?:cape |cyclically adjusted |shiller )?earnings yield (?:is )?{CMPW} (?:the )?(?:10[- ]year|ten[- ]year) "
          r"(?:treasury |bond )?yield", ey_cmp)
+
+    # the yield curve (10-year minus 2-year Treasury yield, FRED): "the yield curve is inverted"
+    curve_w = (r"(?:the )?(?:treasury )?(?:yield curve|10[- ]?year ?(?:-|minus) ?2[- ]?year(?: treasury)?(?: yield)? spread|"
+               r"2s ?10s(?: spread)?|10s ?2s(?: spread)?|(?:10[- ]?2|2[- ]?10) spread)")
+
+    def curve_note():
+        _note("Yield curve = the 10-year minus the 2-year Treasury yield (FRED T10Y2Y, or DGS10 - DGS2): yield_curve() "
+              "in the rule language; a day's value is published after that day's close.")
+
+    def curve(m):
+        curve_note()
+        return "yield_curve() >= 0" if m.group(1) else "yield_curve() < 0"
+    take(rf"{curve_w} (?:is |was |stays? |remains? )?(not |un)?inverted", curve)
+
+    def curve_cmp(m):
+        curve_note()
+        return f"yield_curve() {_cmp(m.group(1))} {float(m.group(2)) / 100:g}"
+    take(rf"{curve_w} (?:is |was )?{CMPW} (-?\d+(?:\.\d+)?)(?:%| percent| percentage points?)", curve_cmp)
+    take(rf"{curve_w} (?:is )?(?:positive|upward sloping|normal)", lambda m: (curve_note(), "yield_curve() > 0")[1])
+
+    # holidays, from the published NYSE schedule: "the day before Thanksgiving", "the first trading day after a holiday"
+    hol_w = (r"(thanksgiving(?: day)?|christmas(?: day)?|new year'?s?(?: day)?|good friday|memorial day|labor day|"
+             r"independence day|july 4(?:th)?|the fourth of july|juneteenth|presidents'? day|president's day|mlk day|"
+             r"martin luther king(?: jr\.?)? day|a (?:market |stock market |trading )?holiday|(?:the )?next holiday)")
+
+    def hol_before(m):
+        name = m.group(1)
+        if name.startswith(("a ", "the next", "next")):
+            return "days_to_holiday() == 0"
+        from .calendar import holiday_key
+        return f'(days_to_holiday() == 0 and next_holiday_is("{holiday_key(name)}"))'
+
+    def hol_after(m):
+        name = m.group(1)
+        if name.startswith(("a ", "the next", "next")):
+            return "days_since_holiday() == 0"
+        from .calendar import holiday_key
+        return f'(days_since_holiday() == 0 and last_holiday_is("{holiday_key(name)}"))'
+    take(rf"(?:it is |on |its )?(?:the )?(?:last )?(?:trading )?(?:day|session) (?:before|ahead of|preceding) {hol_w}", hol_before)
+    take(rf"(?:it is |on |its )?(?:the )?(?:first )?(?:trading )?(?:day|session) (?:after|following) {hol_w}", hol_after)
+
+    # cross-sectional rank within the universe: "in the bottom decile of 20 day return" -> xrank(ret(20)) <= 0.1
+    frac = {"decile": 0.1, "quintile": 0.2, "quartile": 0.25, "tercile": 1 / 3, "third": 1 / 3, "half": 0.5}
+
+    def xsec(m):
+        if not ctx.base:
+            _unsupported("a cross-sectional rank of another ticker")
+        q = frac[m.group("q")] if m.group("q") else float(m.group("pct")) / 100
+        n = _period(m.group("n") or "1", m.group("u") or "day")
+        x = ctx.ret(n)
+        _note(f"'{m.group(0).strip()}': this ticker's percentile of its {n}-bar return among the universe's members that "
+              "day (xrank in the rule language; 1 = the highest).")
+        return f"xrank({x}) <= {q:.6g}" if m.group("side") in ("bottom", "lowest") else f"xrank({x}) > {1 - q:.6g}"
+    take(r"(?:it is |its |is )?(?:in |among )?the (?P<side>bottom|top|lowest|highest) (?:(?P<q>decile|quintile|quartile|tercile|third|half)|"
+         r"(?P<pct>\d+(?:\.\d+)?)%) (?:of (?:the |its )?(?:universe|index|stocks|members|tickers) )?(?:of|by|for|on|in) "
+         r"(?:its |the |their )?(?:(?P<n>\d+)[- ](?P<u>day|week|month|year|bar|session)s? )?(?:price )?(?:return|performance|change|momentum)",
+         xsec)
 
     # "not on Fridays" / "except in October"
     take(r"(?:but )?(?:not|except|excluding)(?: on)? (monday|tuesday|wednesday|thursday|friday)s?",
@@ -3967,6 +4026,8 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
     m = T.find(rf"(?:(?:with|and|paying) )?(?:{BORROW_FEE})")
     if m:
         kw["borrow_fee"] = float(m.group(1) or m.group(2)) / 100
+    elif T.find(NO_BORROW_FEE):
+        kw["borrow_fee"] = 0.0
     m = T.find(rf"(?:(?:with|and|paying) )?(?:an? )?{NUM}% margin (?:interest|rate)|(?:(?:with|and|paying) )?(?:a )?margin (?:interest|rate)(?: of|:)? {NUM}%")
     if m:
         kw["margin_rate"] = float(m.group(1) or m.group(2)) / 100
@@ -4947,6 +5008,11 @@ def _holding_side(it: str) -> tuple[str, str | None]:
     return t, None
 
 
+def _borrow_default(t: str) -> str:
+    from .margin import default_borrow_fee
+    return f"{default_borrow_fee(t):.1%}"
+
+
 def _short_node(kids: list[dict], what: str) -> dict:
     """A short position in a holding: -100% of it plus the sale proceeds (200% in all) in cash."""
     if len(kids) != 1 or "asset" not in kids[0]:
@@ -4954,8 +5020,10 @@ def _short_node(kids: list[dict], what: str) -> dict:
     tk = kids[0]["asset"]
     _note(f"'short {tk}' is a short position the size of its slice: -100% {tk} with the sale proceeds held as cash "
           f"(so the slice shows 200% cash). The proceeds earn the T-bill rate less the short rebate spread (0.25%/yr by "
-          f"default); a borrow fee is not charged unless set (borrow_fee in the JSON spec). Leveraged and inverse ETFs "
-          f"are often costly or impossible to borrow, and a short loses when {tk} rises, with no upper limit.")
+          f"default) and the short pays an assumed borrow fee ({_borrow_default(tk)}/yr for {tk}: 5% for leveraged, "
+          f"inverse and volatility ETPs, 0.3% for other tickers; say 'borrow fee 2%' to set it, 'no borrow fee' for "
+          f"none). Leveraged and inverse ETFs are often costly or impossible to borrow, and a short loses when {tk} "
+          f"rises, with no upper limit.")
     return {"weights": "specified", "w": [-1.0, 2.0], "children": [{"asset": tk}, {"cash": True}]}
 
 
@@ -6016,6 +6084,8 @@ def parse_allocation(text: str) -> Portfolio:
     m = T.find(rf",? ?(?:(?:with|and|paying) )?(?:{BORROW_FEE})")
     if m:
         extra["borrow_fee"] = float(m.group(1) or m.group(2)) / 100
+    elif T.find(rf",? ?{NO_BORROW_FEE}"):
+        extra["borrow_fee"] = 0.0
     m = T.find(rf",? ?(?:(?:with|and) )?(?:a )?short rebate(?: spread)?(?: of)? {NUM}% (?:below|under|less than) (?:the )?(?:t-?bill|cash)(?: rate)?"
                rf"|,? ?(?:(?:with|and) )?(?:no|full) short rebate(?: haircut)?")
     if m:
