@@ -250,6 +250,10 @@ def _prepare(strat: Strategy):
 
 def _prepare_bars(strat: Strategy, _stream_tok=None):
     tickers = [data.canonical(t) for t in strat.universe]
+    for t in tickers:
+        why = data.not_investable(t)
+        if why:
+            raise ValueError(why)
     if strat.universe_name == "NDX" and not strat.point_in_time:
         # "today's members only": the current member list (not every former member without a membership filter)
         cur = set(data.current_members())

@@ -31,6 +31,26 @@ def canonical(ticker: str) -> str:
     return ALIASES.get(t, t)
 
 
+# Index levels, yields and other calculated series (Yahoo's ^ symbols): readable in conditions through sym(), but
+# nobody can buy or sell them, so holding or trading one is refused with an investable proxy suggested.
+INDEX_PROXIES = {"^GSPC": "SPY (or IVV / VOO)", "^SP500TR": "SPY (or IVV / VOO)", "^NDX": "QQQ (or QQQM)",
+                 "^DJI": "DIA", "^RUT": "IWM", "^VIX": "VIXY or VIXM (VIX futures ETFs; the spot index itself cannot be held)",
+                 "^VIX3M": "VIXM", "^IRX": "BIL or SHV (T-bill ETFs)", "^FVX": "IEI", "^TNX": "IEF",
+                 "^TYX": "TLT"}
+
+
+def not_investable(ticker: str) -> str | None:
+    """Why `ticker` cannot be held or traded (an index or other calculated series), or None."""
+    t = canonical(ticker)
+    if not t.startswith("^"):
+        return None
+    proxy = INDEX_PROXIES.get(t)
+    return (f"{t} is an index (a calculated series), not a security: it cannot be bought, sold or held, so a backtest "
+            f"that trades it means nothing in practice. "
+            + (f"Use an investable proxy such as {proxy}. " if proxy else "Use a fund that tracks it. ")
+            + f"It stays usable in conditions, e.g. `sym(\"{t}\").close > sma(sym(\"{t}\").close, 50)`.")
+
+
 def available_tickers() -> list[str]:
     out = {p.stem for p in PRICES.glob("*.csv")}
     if CUSTOM.exists():

@@ -1717,7 +1717,12 @@ class _Evaluator:
                 s.close()
             frames = {t: self.dfs[data.canonical(t)] for t in n["tickers"]}
             s = sessions[id(n)] = sandbox.PortfolioSession(n["custom"], frames, d)
-        return s(d)
+        w = s(d)
+        for t, x in w.items():
+            why = data.not_investable(t) if x > 0 else None
+            if why:
+                raise ValueError(f"The portfolio function gave {t} a weight on {pd.Timestamp(d).date()}: {why}")
+        return w
 
     def eval(self, n: dict, i: int) -> dict[str, float]:
         rows = self._rows.get(id(n))
@@ -2380,8 +2385,39 @@ def _end_at_series_end(p: "Portfolio", dfs: dict, cal: pd.DatetimeIndex) -> pd.D
     return out
 
 
+def held_tickers(n: dict) -> list[str]:
+    """The tickers the tree may hold (tickers_in without the ones only read by conditions, and without the inputs of
+    a custom function, whose returned weights are checked instead)."""
+    out: list[str] = []
+
+    def walk(x):
+        if "asset" in x:
+            out.append(data.canonical(x["asset"]))
+        elif "weights" in x:
+            for k in x["children"]:
+                walk(k)
+        elif "if" in x:
+            walk(x["then"])
+            walk(x["else"])
+        elif "filter" in x:
+            u = x.get("universe", "children")
+            if u == "children":
+                for k in x.get("children") or []:
+                    walk(k)
+            elif isinstance(u, list):
+                out.extend(data.canonical(t) for t in u)
+            if x.get("fallback"):
+                walk(x["fallback"])
+    walk(n)
+    return list(dict.fromkeys(out))
+
+
 def run(p: Portfolio) -> Result:
     p.validate()
+    for t in held_tickers(p.tree):
+        why = data.not_investable(t)
+        if why:
+            raise ValueError(why)
     names = tickers_in(p.tree)
     dfs = data.load_many(names)
     if p.proxies:

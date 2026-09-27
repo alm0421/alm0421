@@ -92,3 +92,31 @@ def test_a_stale_snapshot_after_an_addition_does_not_drop_it_but_a_long_absence_
         assert (out["CCC"] == snap[:, 2]).all()
     finally:
         data.ndx_changes.cache_clear()
+
+
+# ------------------------------------------------------------ 8. indexes cannot be held or traded
+
+@needs_data
+@pytest.mark.skipif(not (data.PRICES / "^VIX.csv").exists(), reason="no ^VIX data")
+@pytest.mark.parametrize("sentence,proxy", [
+    ("buy ^VIX at the close when it is down 3 days in a row, hold 2 days", "VIXY"),
+    ("hold 50% ^GSPC and 50% ^VIX", "SPY"),
+])
+def test_holding_or_trading_an_index_is_refused_with_a_proxy(sentence, proxy):
+    with pytest.raises(ValueError, match=r"is an index.*cannot be bought") as e:
+        api.backtest(parser.parse(sentence))
+    assert proxy in str(e.value) and "sym(" in str(e.value)
+
+
+@needs_data
+@pytest.mark.skipif(not (data.PRICES / "^VIX.csv").exists(), reason="no ^VIX data")
+def test_indexes_stay_usable_in_conditions():
+    r = api.backtest(parser.parse("hold SPY when ^VIX is below 20, otherwise TLT, since 2020"))
+    assert r.equity.iloc[-1] > 0
+    s = api.backtest(parser.parse("buy SPY when `sym(\"^VIX\").close > 30`, hold 5 days, since 2018"))
+    assert len(s.trades)
+
+
+def test_not_investable():
+    assert data.not_investable("SPY") is None and data.not_investable("vix")      # the alias VIX is ^VIX
+    assert "QQQ" in data.not_investable("^NDX")
