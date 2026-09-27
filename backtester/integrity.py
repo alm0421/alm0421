@@ -46,6 +46,7 @@ SPLIT_JUMP = np.log(1.45)     # smallest level change looked at as a split (a 3-
 TICK_JUMP = np.log(1.25)      # a bad tick is at least 25% from both neighbours
 TICK_NEIGHBOURS = 0.10        # ... which agree within 10% (and within a quarter of the spike)
 PERSIST = 5                   # bars after (and before) the event that must stay on their level
+STALE_RUN_MAX = 3             # longest run of untraded (zero-volume) bars replaced as bad ticks
 
 EVENT_COLUMNS = ["date", "kind", "ratio", "applied", "day_return_raw", "day_return_now", "expected", "sigma",
                  "reference", "volume_ratio", "why"]
@@ -241,6 +242,65 @@ def check(t: str, raw: pd.DataFrame, ref_returns: Callable[[str], pd.Series | No
                        "why": (f"close {old:.6g} is {abs(np.exp(ri) - 1):.0%} from the day before and "
                                f"{abs(np.exp(-float(nxt.iloc[i])) - 1):.0%} from the day after, which agree within "
                                f"{float(np.exp(span.iloc[i]) - 1):.1%}; replaced by their geometric mean {new:.6g}")})
+    # ---------------------------------------------------------------- stale runs
+    # two or three bars in a row with no volume (nothing traded), all far from the bar before them and the bar after
+    # them, which agree with each other: a quote that was never a trade (INDV 2022-11-23..25 at 3.13 between 19.64 and
+    # 21.03). Replaced by the geometric path between the neighbours; their opens are not traded at.
+    if "volume" in raw:
+        lc = ctx.lc.to_numpy()
+        vol = ctx.v.to_numpy()
+        n = len(raw)
+        with np.errstate(invalid="ignore"):
+            starts = np.flatnonzero((vol <= 0) & (np.abs(np.diff(lc, prepend=np.nan)) >= TICK_JUMP))
+        taken = -1
+        for i in starts.tolist():
+            if i < 1 or i >= n - 2 or i <= taken:
+                continue
+            for k in range(STALE_RUN_MAX, 1, -1):
+                j = i + k                                  # the bar after the run
+                if j >= n or raw.index[i] in ignore:
+                    continue
+                run = lc[i:j]
+                a, b = lc[i - 1], lc[j]
+                if not (np.isfinite(run).all() and np.isfinite(a) and np.isfinite(b)):
+                    continue
+                if (vol[i:j] > 0).any() or abs(b - a) >= TICK_NEIGHBOURS:
+                    continue
+                far = np.minimum(np.abs(run - a), np.abs(run - b))
+                if far.min() < TICK_JUMP:
+                    continue
+                if (vol[j] <= 0 and vol[i - 1] <= 0):
+                    continue                               # a series with no trading around it at all: nothing to anchor
+                pred = [ctx.predict(q)[0] for q in range(i, j)]
+                if abs(sum(pred)) > 0.3 * far.min():
+                    continue                               # the reference moved as much: a real (wild) stretch
+                was = raw["close"].iloc[i - 1:j].to_numpy(dtype=float).copy()
+                s0 = float(raw["split"].iloc[i])
+                phantom = ""
+                if s0 > 0 and abs(s0 - 1) > 1e-9 and abs(run[0] - a - np.log(s0)) < 0.05:
+                    # the run starts with a split booked at exactly its ratio, and the prices went back after it:
+                    # a split that never happened (IPAR 1990-08-03, a 0.4 "split" for three untraded days)
+                    raw.iloc[i, raw.columns.get_loc("split")] = 0.0
+                    phantom = f"; the {_ratio_text(s0)} split booked on {raw.index[i].date()} with it is dropped"
+                for q in range(i, j):
+                    new = float(np.exp(a + (b - a) * (q - i + 1) / (k + 1)))
+                    old = float(was[q - i + 1])
+                    prev = float(raw["close"].iloc[q - 1])
+                    for col in ("open", "high", "low", "close"):
+                        raw.iloc[q, raw.columns.get_loc(col)] = new
+                    if "adj_close" in raw and raw["adj_close"].iloc[q] > 0:
+                        raw.iloc[q, raw.columns.get_loc("adj_close")] = raw["adj_close"].iloc[q] * new / old
+                    events.append({"date": raw.index[q], "kind": "bad_tick", "ratio": np.nan, "applied": "replaced",
+                                   "day_return_raw": old / float(was[q - i]) - 1,
+                                   "day_return_now": new / prev - 1, "expected": np.nan, "sigma": np.nan,
+                                   "reference": None, "volume_ratio": np.nan,
+                                   "why": (f"{k} bars in a row with no volume at {np.exp(run.min()):.6g}.."
+                                           f"{np.exp(run.max()):.6g}, x{np.exp(far.min()):.3g} or more away from the "
+                                           f"closes around them ({np.exp(a):.6g} and {np.exp(b):.6g}, which agree "
+                                           f"within {abs(np.expm1(b - a)):.1%}): quotes that never traded, replaced "
+                                           "by the path between those closes" + phantom)})
+                taken = j
+                break
     if events:
         ctx = _Ctx(t, raw, ref_returns)
 
@@ -298,6 +358,13 @@ def check(t: str, raw: pd.DataFrame, ref_returns: Callable[[str], pd.Series | No
             continue
         if near.any():
             continue
+        if ov is None and "dividend" in raw and raw["dividend"].iloc[i] > 0:
+            # a payout that day (a spin-off paid in cash, or re-read as one by data.reconcile_actions): judged on the
+            # total return, which a split would move but a distribution does not (HTLD 2002-02-20)
+            tr_day = np.log((float(raw["close"].iloc[i]) + float(raw["dividend"].iloc[i]))
+                            / float(raw["close"].iloc[i - 1]))
+            if abs(tr_day) < SPLIT_JUMP:
+                continue
         if ov is not None and ov.get("ratio"):
             s = float(ov["ratio"])
         else:
@@ -350,3 +417,92 @@ def _ratio_text(s: float) -> str:
         return f"{s:g}-for-1" if float(s).is_integer() else f"{2 * s:g}-for-2"
     inv = 1.0 / s
     return f"1-for-{round(inv):g}" if abs(inv - round(inv)) < 1e-6 else f"2-for-{2 * inv:g}"
+
+
+# ------------------------------------------------------------------ security breaks (bankruptcy / re-listing splices)
+#
+# A company that goes through Chapter 11 usually has its old shares cancelled; the reorganised company lists NEW
+# shares, often under the same symbol, and free price sources splice the two series: CHRD (Oasis Petroleum) closed at
+# $0.12 on 2020-11-19 - the old shares, days before their cancellation - and at $31.00 on 2020-11-20, the first day
+# of the new shares (x258). That is not a return anybody earned: the old holders were (all but) wiped out, and the new
+# shares are another security. A "security break" marks the first bar of the new series:
+#   - a position held into it is closed at the old security's last price (the close before the break) - the market's
+#     own value of what the old holders were left with (warrants, a small recovery, or nothing) - booked on the break
+#     day at no cost; the proceeds are cash (an allocation buys the new security at its next rebalance);
+#   - indicators do not span it: the engines evaluate rules on the bars before and after it separately;
+#   - it is decided from the bars up to and including the break day only, never a later bar, so truncating the data
+#     at any date gives the same breaks before it (the no-lookahead invariant). On the day before the break nothing
+#     is known and nothing happens: the position is marked at that close, which is then also its exit price, so the
+#     equity up to that day is the same whether or not the data goes on.
+# Detected where the evidence is decisive (find_breaks); a known case can be forced or suppressed with an override in
+# data/inferred_splits.json ("action": "break" / "no_break"). A large move that is not decisive is flagged instead
+# (backtester/price_flags.py): backtests holding across it get a warning.
+
+BREAK_JUMP = np.log(10.0)     # the close rises 10x or more overnight ...
+BREAK_COLLAPSE = 0.10         # ... from a price at most 10% of its high over the BREAK_LOOKBACK sessions before
+BREAK_LOOKBACK = 252
+BREAK_MIN_HISTORY = 20
+BREAK_REVERSE_SPLIT = 0.5     # a reverse split by R divides the share volume by about R; a splice does not (the day's
+                              # volume falls by less than R ** 0.5 against the 10 sessions before) ...
+BREAK_MAX_DAY_VOLUME = 3.0    # ... nor is it a burst of trading in the same shares (news on a penny stock)
+BREAK_GAP_DAYS = 10           # with no volume to go on: calendar days without a bar before it (the old line stopped)
+
+BREAK_COLUMNS = ["date", "kind", "prev_close", "close", "jump", "prior_high", "volume_ratio", "gap_days", "source",
+                 "why"]
+
+
+def find_breaks(t: str, df: pd.DataFrame, overrides: dict | None = None) -> pd.DataFrame:
+    """Security breaks in a ticker's bars (data.load's output, or any bars with a close and optionally volume / split
+    columns): one row per break with its evidence (BREAK_COLUMNS). Causal: bar i is judged on bars 0..i only."""
+    overrides = overrides or {}
+    if df is None or len(df) < 2 or "close" not in df or t.startswith("^") or t.endswith("SIM"):
+        return pd.DataFrame(columns=BREAK_COLUMNS)
+    c = pd.to_numeric(df["close"], errors="coerce").astype(float)
+    lc = np.log(c.where(c > 0))
+    jump = lc.diff()
+    v = (pd.to_numeric(df["volume"], errors="coerce").fillna(0.0).astype(float) if "volume" in df
+         else pd.Series(0.0, index=df.index))
+    sp = (pd.to_numeric(df["split"], errors="coerce").fillna(0.0) if "split" in df
+          else pd.Series(0.0, index=df.index))
+    split_day = ((sp > 0) & ((sp - 1).abs() > 1e-9)).to_numpy()
+    high = c.rolling(BREAK_LOOKBACK, min_periods=BREAK_MIN_HISTORY).max().shift(1)
+    forced = {pd.Timestamp(d): o for d, o in overrides.items() if isinstance(o, dict) and o.get("action") == "break"}
+    vetoed = {pd.Timestamp(d) for d, o in overrides.items()
+              if isinstance(o, dict) and o.get("action") in ("no_break", "ignore")}
+    cand = ((jump >= BREAK_JUMP) & (c.shift(1) <= BREAK_COLLAPSE * high)).fillna(False).to_numpy()
+    idx = df.index
+    rows = set(np.flatnonzero(cand).tolist()) | {int(idx.get_loc(d)) for d in forced if d in idx}
+    out = []
+    for i in sorted(rows):
+        if i < 1:
+            continue
+        day = idx[i]
+        if day in vetoed:
+            continue
+        pc, cc = float(c.iloc[i - 1]), float(c.iloc[i])
+        before = v.iloc[max(0, i - 10):i]
+        before = before[before > 0]
+        vb = float(before.median()) if len(before) else 0.0
+        vd = float(v.iloc[i]) / vb if vb > 0 and v.iloc[i] > 0 else None
+        gap = int((day - idx[i - 1]).days)
+        j = float(jump.iloc[i]) if np.isfinite(jump.iloc[i]) else 0.0
+        ov = forced.get(day)
+        if ov is None:
+            if split_day[max(0, i - 2):i + 1].any():
+                continue                  # a booked split within two bars: a reverse split, not a new security
+            if vd is not None:
+                if np.log(vd) <= -BREAK_REVERSE_SPLIT * j or vd >= BREAK_MAX_DAY_VOLUME:
+                    continue              # volume fell like a reverse split's, or a burst of trading: flagged instead
+            elif gap < BREAK_GAP_DAYS:
+                continue                  # nothing but the price to go on: flagged instead
+        hi = float(high.iloc[i]) if np.isfinite(high.iloc[i]) else np.nan
+        why = (ov.get("why") if ov is not None and ov.get("why") else
+               f"the close went from {pc:.4g} to {cc:.4g} (x{np.exp(j):.0f}) overnight, after the price had collapsed "
+               f"to {pc / hi:.1%} of its {hi:.4g} high of the year before"
+               + (f"; share volume x{vd:.2g} of the 10 sessions before (a reverse split would divide it by "
+                  f"~{np.exp(j):.0f})" if vd is not None else f"; no volume, {gap} days without a bar before it")
+               + ": the old shares' series spliced with a new security's (a bankruptcy re-listing)")
+        out.append({"date": day, "kind": "security_break", "prev_close": pc, "close": cc,
+                    "jump": float(np.exp(j)) - 1, "prior_high": hi, "volume_ratio": vd, "gap_days": gap,
+                    "source": "override" if ov is not None else "detected", "why": why})
+    return pd.DataFrame(out, columns=BREAK_COLUMNS)

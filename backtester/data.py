@@ -98,6 +98,7 @@ def clear_caches() -> None:
     _FINGERPRINT.clear()
     _SPLITS.clear()
     _CA_FIXES_OF.clear()
+    _BREAK_MEMO.clear()
     for fn in (load, stepped_ranges, data_gaps, quality):
         try:
             fn.cache_clear()
@@ -1039,6 +1040,10 @@ def _file_stamp(path: Path) -> tuple[int, int] | None:
     return st.st_mtime_ns, st.st_size
 
 
+# data files data.load's processing never reads (the price-flag scan's output is written after it)
+_NOT_FINGERPRINTED = ("community.json", "extra_tickers.txt", "price_flags.json")
+
+
 def cache_fingerprint() -> str:
     """The identity of the data and code data.load's processing depends on (computed once per process and data
     folder; clear_caches recomputes it)."""
@@ -1058,7 +1063,7 @@ def cache_fingerprint() -> str:
                 for e in it:
                     if not e.is_file() or e.name.startswith("."):
                         continue
-                    if want and (not e.name.endswith(want) or e.name in ("community.json", "extra_tickers.txt")):
+                    if want and (not e.name.endswith(want) or e.name in _NOT_FINGERPRINTED):
                         continue
                     st = e.stat()
                     rows.append((e.name, st.st_mtime_ns, st.st_size))
@@ -1660,6 +1665,71 @@ def integrity_note(tickers, start=None, end=None) -> str | None:
             "shows the evidence. Returns on those days are estimates.")
 
 
+# ------------------------------------------------------------------ security breaks (integrity.find_breaks)
+#
+# A bankruptcy re-listing spliced into one symbol's series (CHRD 2020-11-20: Oasis's cancelled old shares at $0.12,
+# then the reorganised company's new shares at $31). The engines close a position held into a break at the old
+# security's last price and evaluate rules on each side of it separately; see the comment in integrity.py.
+
+_BREAK_MEMO: dict = {}     # (ticker, id(bars)) -> (bars, breaks)
+
+
+def break_events(ticker: str, df: pd.DataFrame | None = None) -> pd.DataFrame:
+    """The security breaks of `ticker`'s bars (data.load's, or the frame given - e.g. a truncated or synthetic one),
+    with their evidence (integrity.BREAK_COLUMNS). Causal: a break depends only on the bars up to its day."""
+    from . import integrity
+    t = canonical(ticker)
+    if df is None:
+        df = load(t)
+    key = (t, id(df))
+    hit = _BREAK_MEMO.get(key)
+    if hit is not None and hit[0] is df:
+        return hit[1]
+    try:
+        ev = integrity.find_breaks(t, df, integrity_overrides().get(t))
+    except Exception:  # noqa: BLE001 - a data check must never make a price file unusable
+        ev = pd.DataFrame(columns=integrity.BREAK_COLUMNS)
+    if len(_BREAK_MEMO) > 4000:
+        _BREAK_MEMO.clear()
+    _BREAK_MEMO[key] = (df, ev)
+    return ev
+
+
+def security_breaks(ticker: str, df: pd.DataFrame | None = None) -> pd.DatetimeIndex:
+    """The first bar of each new security spliced into `ticker`'s series (see break_events)."""
+    ev = break_events(ticker, df)
+    return pd.DatetimeIndex(pd.to_datetime(ev["date"])) if len(ev) else pd.DatetimeIndex([])
+
+
+def segments(ticker: str, df: pd.DataFrame) -> list[pd.DataFrame]:
+    """`df` cut at its security breaks: one frame per security (just [df] when there is none). Rules are evaluated
+    on each separately, so no indicator spans a break."""
+    if len(df) < 2:
+        return [df]
+    cuts = [d for d in security_breaks(ticker, df) if df.index[0] < d <= df.index[-1]]
+    if not cuts:
+        return [df]
+    out, lo = [], df.index[0]
+    for d in cuts:
+        out.append(df.loc[(df.index >= lo) & (df.index < d)])
+        lo = d
+    out.append(df.loc[df.index >= lo])
+    return [s for s in out if len(s)]
+
+
+def break_note(found: list[tuple[str, pd.Timestamp, float, float]]) -> str | None:
+    """The note for positions closed at a security break: [(ticker, day, old price as traded, new close)]."""
+    if not found:
+        return None
+    parts = [f"{t} on {pd.Timestamp(d).date()} (the old shares' last close {px:.4g}, the new security's first "
+             f"close {new:.4g})" for t, d, px, new in found[:6]]
+    more = f" and {len(found) - 6} more" if len(found) > 6 else ""
+    return ("Security break: " + "; ".join(parts) + more + ". The price series splices a new security onto the old "
+            "one (typically shares cancelled in a bankruptcy and new shares listed under the same symbol), which is "
+            "not a return anyone earned: positions held into it were closed at the old security's last price (at no "
+            "cost; trades marked 'security break'), and rules read each security's own bars.")
+
+
 # Bars whose repair needs outside knowledge: {ticker: {date: {field: value}}}. Values are split-adjusted.
 BAR_FIXES: dict[str, dict[str, dict[str, float]]] = {}
 REPAIRS: dict[str, pd.DataFrame] = {}   # what repair_bars changed, per ticker (for notes and the Data page)
@@ -1856,6 +1926,11 @@ def fetch_on_demand(ticker: str, download=None) -> bool:
         (PRICES / f"{t}.csv").unlink(missing_ok=True)
         _ON_DEMAND_FAILED[t] = _time.time()
         return False
+    try:
+        from . import price_flags               # its entry in data/price_flags.json (days nothing explains)
+        price_flags.write([t], quiet=True)
+    except Exception:  # noqa: BLE001 - a backtest scans the file itself when its entry is missing
+        pass
     queued = ""
     try:
         how = request_ticker(t)

@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from backtester import data, engine, parser, portfolio, report, runner
+from backtester import data, engine, parser, portfolio, price_flags, report, runner
 from backtester.portfolio import Portfolio
 from backtester.strategy import Strategy
 
@@ -160,31 +160,31 @@ def test_whole_ratio():
     assert not any(data._whole_ratio(r) for r in (1.319, 1.128))
 
 
-def _all_days():
-    rows = []
-    for t in data.available_tickers():
-        try:
-            df = data.load(t)
-        except data.DataError:
-            continue
-        if len(df) < 2:
-            continue
-        c, d, a = df["close"], df["dividend"], df["adj_close"]
-        diff = ((c + d) / c.shift(1) - a / a.shift(1)).abs()
-        for day in df.index[(diff > data.CA_TOLERANCE).fillna(False).to_numpy()]:
-            rows.append((t, str(day.date()), float(diff[day])))
-    return rows
-
-
 @pytest.mark.skipif(not data.available_tickers(), reason="price data not downloaded")
-def test_no_day_disagrees_with_the_total_return_unless_whitelisted():
-    # mutual funds' free histories often misreport capital-gains distributions: those are not reconciled but every
-    # backtest that holds one across such a day gets a data-quality warning (data.distribution_note), tested below
-    from backtester import fund_lists
-    bad = [r for r in _all_days() if (r[0], r[1]) not in data.CA_WHITELIST and r[0] not in fund_lists.MUTUAL_FUNDS]
-    assert not bad, f"engine total return differs from adj_close by more than 2% (reconcile or whitelist): {bad[:20]}"
+def test_every_total_return_disagreement_is_explained_or_flagged():
+    # a day whose (close + payout) / previous close differs from the adjusted close's return by more than
+    # CA_TOLERANCE is reconciled on load (data.reconcile_actions: then it no longer differs), explained (CA_WHITELIST,
+    # a mutual fund's misreported distribution - warned by data.distribution_note, tested below) or recorded in
+    # data/price_flags.json, where backtests holding across it are warned. None may be left in the core universe.
+    missing, core_bad = price_flags.unrecorded("total_return")
+    assert not missing, ("total-return disagreements not in data/price_flags.json (regenerate it: python -m "
+                         f"backtester.price_flags; or reconcile / whitelist them): {missing[:20]}")
+    assert not core_bad, f"unexplained total-return disagreements in the core universe: {core_bad}"
     for why in data.CA_WHITELIST.values():
         assert len(why) > 20                                                 # every exception has a reason
+
+
+@pytest.mark.skipif(not all((data.PRICES / f"{t}.csv").exists() for t in ("DLX", "HTLD", "SPY")),
+                    reason="price data not downloaded")
+def test_unresolved_spinoff_is_flagged_and_a_payout_day_is_not_read_as_a_split():
+    # DLX 2001-01-02 (the eFunds spin-off: a 1.25 "split" plus a $5.07 payout that no reading reconciles) is flagged
+    fl = price_flags.flags("DLX")
+    assert any(str(f["date"].date()) == "2001-01-02" and "total_return" in f["kinds"] for f in fl)
+    # HTLD 2002-02-20: a 1.5769 "split" re-read as a distribution; the integrity gate used to infer a 3-for-2 split
+    # from the price drop as well (a +61% day): judged on the total return, the day is ordinary
+    assert abs(one_day_tr("HTLD", "2002-02-20") - adj_tr("HTLD", "2002-02-20")) < 0.01
+    assert abs(one_day_tr("HTLD", "2002-02-20")) < 0.15
+    assert not (pd.to_datetime(data.price_repairs("HTLD")["date"]) == "2002-02-20").any()
 
 
 @pytest.mark.skipif("PCRAX" not in data.available_tickers(), reason="PCRAX not downloaded")

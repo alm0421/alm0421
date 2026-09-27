@@ -481,15 +481,23 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
             callable(r) for r in (strat.entry, strat.short_entry, strat.rank_by)):
         pre_member, _ = data.member_mask(tick, cal)
     xtables = _xrank_tables(strat, dfs, tick, cal, pre_member, per_trade_exit)
-    for j, t in enumerate(tick):
-        df = dfs[t]
+    segs_of = {t: data.segments(t, dfs[t]) for t in tick}
+
+    def _prepare_segment(j: int, t: str, df: pd.DataFrame) -> None:
+        """Rule values and price columns of ticker j on the calendar days of `df` (its bars, or one security's)."""
         ns = _namespace(df, t)
+        st = None
         if strat.state_vars:
             # Pine `var` state: computed bar by bar from the bars up to each bar (causal), then read like any series
             from .pine_import import state_series
-            state[t] = state_series(strat.state_vars, ns)
-            ns = expr.Namespace(df, dict(state[t]), ticker=t)
-        namespaces[t] = ns
+            st = state_series(strat.state_vars, ns)
+            # (after a security break the state starts afresh: the ticker's state is each security's, end to end)
+            state[t] = st if t not in state else {n_: pd.concat([state[t][n_], v_]) for n_, v_ in st.items()}
+            ns = expr.Namespace(df, dict(st), ticker=t)
+        if t not in namespaces:
+            namespaces[t] = ns
+        if len(segs_of[t]) > 1:
+            seg_ns.setdefault(t, []).append((df.index[0], ns))
         pos = df.index.get_indexer(cal)            # row of each calendar day in the ticker's data (-1: none)
         have = pos >= 0
 
@@ -499,22 +507,21 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
             out[_have] = v[_pos[_have]]
             return out
 
-        O[:, j], H[:, j], L[:, j], C[:, j] = (on_cal(df[k].to_numpy()) for k in ("open", "high", "low", "close"))
-        V[:, j] = on_cal(df["volume"].to_numpy())
+        for X_, k_ in ((O, "open"), (H, "high"), (L, "low"), (C, "close"), (V, "volume")):
+            X_[have, j] = on_cal(df[k_].to_numpy())[have]
         # average daily volume of the 20 bars before the order's bar (known when it is placed)
         if need_adv:
-            ADV[:, j] = on_cal(df["volume"].rolling(20, min_periods=1).mean().shift(1).to_numpy())
-        DIV[:, j] = np.nan_to_num(on_cal(df["dividend"].to_numpy()), nan=0.0)
-        SF[:, j] = data.as_traded_factor(t, cal, df)
+            ADV[have, j] = on_cal(df["volume"].rolling(20, min_periods=1).mean().shift(1).to_numpy())[have]
+        DIV[have, j] = np.nan_to_num(on_cal(df["dividend"].to_numpy()), nan=0.0)[have]
         if need_atr:
-            ATR[:, j] = on_cal(ns["atr"](strat.atr_period).to_numpy())
+            ATR[have, j] = on_cal(ns["atr"](strat.atr_period).to_numpy())[have]
         if need_vol:
-            VOL[:, j] = on_cal(ns["volatility"](20).to_numpy())
+            VOL[have, j] = on_cal(ns["volatility"](20).to_numpy())[have]
 
         # rules acted on at this bar's own close read late-closing series (VIX, 4:15pm) as of the day before
-        ns_close = ((expr.Namespace(df, dict(state[t]), ticker=t, close_fill=True) if t in state
+        ns_close = ((expr.Namespace(df, dict(st), ticker=t, close_fill=True) if st is not None
                      else _namespace(df, t, close_fill=True)) if late_close else ns)
-        if late_close:
+        if late_close and t + " (close)" not in namespaces:
             namespaces[t + " (close)"] = ns_close
         if xtables:
             ns.xrank_table = ns_close.xrank_table = xtables[t]
@@ -533,20 +540,20 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
 
         entry_close = strat.entry_fill == "close"
         if strat.side in ("long", "both"):
-            long_sig[:, j] = on_cal_bool(strat.entry, at_close=entry_close, need=need_j)
+            long_sig[have, j] = on_cal_bool(strat.entry, at_close=entry_close, need=need_j)[have]
         if strat.side == "short":
-            short_sig[:, j] = on_cal_bool(strat.entry, at_close=entry_close, need=need_j)
+            short_sig[have, j] = on_cal_bool(strat.entry, at_close=entry_close, need=need_j)[have]
         if strat.side == "both":
-            short_sig[:, j] = on_cal_bool(strat.short_entry, at_close=entry_close, need=need_j)
+            short_sig[have, j] = on_cal_bool(strat.short_entry, at_close=entry_close, need=need_j)[have]
         if strat.exit_when and not per_trade_exit:
-            exit_[:, j] = on_cal_bool(strat.exit_when, at_close=strat.exit_when_fill == "close")
+            exit_[have, j] = on_cal_bool(strat.exit_when, at_close=strat.exit_when_fill == "close")[have]
         if strat.entry_level:
-            LEVEL[:, j] = expr.evaluate_value(strat.entry_level, ns).reindex(cal)
+            LEVEL[have, j] = expr.evaluate_value(strat.entry_level, ns).reindex(cal).to_numpy(dtype=float)[have]
         for name, (now, prev) in LVL.items():
             rule = getattr(strat, name)
             lv = expr.evaluate_value(rule, ns)
-            now[:, j] = on_cal(lv.to_numpy())
-            prev[:, j] = on_cal((lv if expr.open_safe(rule) else lv.shift(1)).to_numpy())
+            now[have, j] = on_cal(lv.to_numpy())[have]
+            prev[have, j] = on_cal((lv if expr.open_safe(rule) else lv.shift(1)).to_numpy())[have]
         if strat.rank_by:
             tok_n = expr.STREAM_NEED.set(need_j)
             try:
@@ -555,7 +562,20 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
                 expr.STREAM_NEED.reset(tok_n)
         else:  # default preference: most liquid (20-day average dollar volume)
             r = (df["close"] * df["volume"]).rolling(20, min_periods=1).mean().reindex(cal)
-        rank[:, j] = r.fillna(-np.inf if not strat.rank_ascending else np.inf).to_numpy()
+        rank[have, j] = r.fillna(-np.inf if not strat.rank_ascending else np.inf).to_numpy()[have]
+
+    seg_ns: dict = {}            # ticker -> [(first day, namespace)] of each security, for tickers with a break
+    breaks: dict = {}            # ticker -> its security breaks (data.security_breaks)
+    for j, t in enumerate(tick):
+        SF[:, j] = data.as_traded_factor(t, cal, dfs[t])
+        DIV[:, j] = 0.0
+        rank[:, j] = -np.inf if not strat.rank_ascending else np.inf
+        segs = segs_of[t]
+        if len(segs) > 1:
+            breaks[t] = [s_.index[0] for s_ in segs[1:]]
+        for df in segs:
+            # (a ticker with a security break: each security's bars on their own, so no indicator spans the break)
+            _prepare_segment(j, t, df)
     # notes the rule evaluation earned (Python-function rules: bar-by-bar evaluation and its timing; crypto lag)
     for ns_ in namespaces.values():
         for n_ in ns_.notes:
@@ -649,7 +669,8 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
                 f"so early results come from a small subset. Add 'since <year>' to focus on the period with full coverage.")
     return dict(dfs=dfs, cal=cal, tick=tick, O=O, H=H, L=L, C=C, V=V, DIV=DIV, ATR=ATR, VOL=VOL, ADV=ADV, SF=SF,
                 LEVEL=LEVEL, LVL=LVL, long_sig=long_sig, short_sig=short_sig, exit_sig=exit_, rank=rank,
-                per_trade_exit=per_trade_exit, namespaces=namespaces, delist=delist, traded=traded, state=state)
+                per_trade_exit=per_trade_exit, namespaces=namespaces, delist=delist, traded=traded, state=state,
+                seg_ns=seg_ns, breaks=breaks)
 
 
 # ------------------------------------------------------------------ simulation
@@ -707,6 +728,33 @@ def run(strat: Strategy) -> Result:
     last_bar = np.array([np.flatnonzero(has[:, j])[-1] if has[:, j].any() else -1 for j in range(N)])
     delist = P["delist"]
     delisted: list[str] = []
+    # security breaks (data.security_breaks): a position held into one is closed at the old security's last close
+    seg_ns = P["seg_ns"]
+    BRK = np.zeros((T, N), bool)
+    for t_, days_ in P["breaks"].items():
+        for d_ in days_:
+            b_ = int(cal.searchsorted(d_))
+            if 0 < b_ < T and cal[b_] == d_:
+                BRK[b_, tick.index(t_)] = True
+    broken: list = []
+
+    def ns_at(k: int, i: int):
+        """The rule namespace of the security ticker k traded as on bar i (its only one unless it has a break)."""
+        segs = seg_ns.get(tick[k])
+        if not segs:
+            return namespaces[tick[k]]
+        out = segs[0][1]
+        for first, ns_ in segs:
+            if first <= cal[i]:
+                out = ns_
+        return out
+
+    def state_at(k: int, ns) -> dict:
+        """Pine `var` state of ticker k on the bars of namespace ns."""
+        st = P["state"].get(tick[k], {})
+        if tick[k] not in seg_ns:
+            return st
+        return {n_: v_.reindex(ns.df.index) for n_, v_ in st.items()}
     last_close = np.full(N, np.nan)
 
     S = dict(cash=strat.capital, interest=0.0, halted=False, small=0, addon_skipped=0, nofunds=0, nofunds_days=[],
@@ -945,14 +993,14 @@ def run(strat: Strategy) -> Result:
             if np.isfinite(p.lvl_stop) and (fill - p.lvl_stop) * sgn <= 0:
                 S["wrong_side"] += 1
         if P["per_trade_exit"]:
-            ns = namespaces[tick[k]]
+            ns = ns_at(k, i)
             dfk = ns.df
             idx = dfk.index
             pos_in_df = idx.get_indexer([cal[i]])[0]
             after = idx > cal[i] if not at_open else idx >= cal[i]
             hs = dfk["high"].where(after).cummax()
             ls = dfk["low"].where(after).cummin()
-            extra = {**P["state"].get(tick[k], {}),
+            extra = {**state_at(k, ns),
                      "bars_held": pd.Series(np.arange(len(idx)) - pos_in_df, index=idx, dtype=float),
                      "entry_price": fill,
                      "pnl": sgn * (dfk["close"] / fill - 1),
@@ -982,9 +1030,10 @@ def run(strat: Strategy) -> Result:
         return True
 
     def close_part(i: int, p: Position, px: float, reason: str, at_open: bool, fraction: float = 1.0,
-                   qty: float | None = None) -> None:
+                   qty: float | None = None, free: bool = False) -> None:
         """Close `fraction` of every lot, or exactly `qty` shares (split-adjusted) taken from the lots first in, first
-        out (a whole-share scale-out)."""
+        out (a whole-share scale-out). free: at exactly px with no commission or slippage (a security break settles
+        the old shares at their last close; no order is placed)."""
         if qty is not None:
             tot = p.shares
             if qty >= tot - 1e-9:
@@ -996,7 +1045,7 @@ def run(strat: Strategy) -> Result:
                     per.append(q_ / lot.shares if lot.shares else 0.0)
                     left_q -= q_
                 fraction = qty / tot
-        fill = px * (1 - p.sign * slip_for(i, p.k, p.shares * fraction))
+        fill = px if free else px * (1 - p.sign * slip_for(i, p.k, p.shares * fraction))
         a = p.entry_bar + (0 if p.lots[0].at_open else 1)
         b = i - (1 if at_open else 0)
         hi = np.nanmax(H[a:b + 1, p.k]) if b >= a else np.nan
@@ -1010,7 +1059,7 @@ def run(strat: Strategy) -> Result:
                 remaining.append(lot)
                 continue
             q = lot.shares * f_lot
-            com = commission(q, q * fill, SF[i, p.k])
+            com = 0.0 if free else commission(q, q * fill, SF[i, p.k])
             S["cash"] += p.sign * q * fill - com
             share_in = lot.commission * f_lot
             inc = lot.income * f_lot
@@ -1028,7 +1077,8 @@ def run(strat: Strategy) -> Result:
                 # count: exit_shares x exit_price = shares x entry_price x (1 + price return)
                 "entry_price": lot.price * SF[lot.bar, p.k],
                 "exit_date": cal[i].date(),
-                "exit_fill": "open" if at_open else ("intraday" if reason in INTRADAY_REASONS else "close"),
+                "exit_fill": ("previous close" if free else "open" if at_open else
+                              ("intraday" if reason in INTRADAY_REASONS else "close")),
                 "exit_price": fill * SF[i, p.k], "shares": q / SF[lot.bar, p.k], "exit_shares": q / SF[i, p.k],
                 "entry_split_factor": SF[lot.bar, p.k], "exit_split_factor": SF[i, p.k],
                 "position_value": cost, "pnl": pnl,
@@ -1209,7 +1259,7 @@ def run(strat: Strategy) -> Result:
         if name in LVL:
             v = LVL[name][1 if at_open else 0][i, k]
             return float(v) if np.isfinite(v) else np.nan
-        ns = namespaces[tick[k]]
+        ns = ns_at(k, i)
         dfk = ns.df
         pos_i = dfk.index.get_indexer([cal[i]])[0]
         if pos_i < 0:
@@ -1217,7 +1267,7 @@ def run(strat: Strategy) -> Result:
         rb = pos_i - 1 if at_open and not level_open_safe[name] else pos_i
         if rb < 0:
             return np.nan
-        st = {n_: v_.iloc[: pos_i + 1] for n_, v_ in P["state"].get(tick[k], {}).items()}
+        st = {n_: v_.iloc[: pos_i + 1] for n_, v_ in state_at(k, ns).items()}
         v = expr.evaluate_value(rule, expr.Namespace(dfk.iloc[: pos_i + 1], {**st, **extra}, ticker=tick[k])).iloc[rb]
         return float(v) if np.isfinite(v) else np.nan
 
@@ -1242,8 +1292,8 @@ def run(strat: Strategy) -> Result:
             if name in LVL:
                 out.append(LVL[name][0][:, k].copy())
                 continue
-            ns = namespaces[tick[k]]
-            extra = {**P["state"].get(tick[k], {}), "entry_price": fill, "side": float(sgn)}
+            ns = ns_at(k, p.entry_bar)
+            extra = {**state_at(k, ns), "entry_price": fill, "side": float(sgn)}
             if name == "target_level":
                 extra["stop_price"] = initial_stop(p, fill)
             v = expr.evaluate_value(rule, expr.Namespace(ns.df, extra, ticker=tick[k])).reindex(cal)
@@ -1404,6 +1454,21 @@ def run(strat: Strategy) -> Result:
         o, h, lo_, c = O[i], H[i], L[i], C[i]
         bar_gross[0] = 0.0
         had_position = bool(positions)
+
+        # ---- a security break (a new security spliced into the series, data.security_breaks): the old one is gone.
+        # A position held into it is settled at the old security's last close, with no cost; orders placed for it are
+        # cancelled. Known only on this bar (the new security's first print); the equity up to the previous close,
+        # where the position was marked at that same price, is unchanged.
+        if i > 0 and BRK[i].any():
+            for k in np.flatnonzero(BRK[i]).tolist():
+                p = positions.get(k)
+                if p is not None:
+                    px_old = C[i - 1, k] if np.isfinite(C[i - 1, k]) else last_close[k]
+                    close_part(i, p, px_old, "security break", at_open=True, free=True)
+                    broken.append((tick[k], cal[i], px_old * SF[i - 1, k], C[i, k] * SF[i, k]))
+                pending_mkt_open = [x for x in pending_mkt_open if x[0] != k]
+                pending_mkt_close = [x for x in pending_mkt_close if x[0] != k]
+                pending_lvl = [od for od in pending_lvl if od["k"] != k]
 
         # ---- 0. OVERNIGHT: interest, borrow fees, dividends
         if i > 0:
@@ -1640,6 +1705,9 @@ def run(strat: Strategy) -> Result:
             for p in positions.values():
                 hold_w[i, p.k] = p.sign * p.shares * price_or_last(p.k, c) / equity[i]
 
+    bn = data.break_note(broken)
+    if bn and bn not in strat.notes:
+        strat.notes.append(bn)
     if delisted:
         more = f" and {len(delisted) - 5} more" if len(delisted) > 5 else ""
         strat.notes.append(f"Delisted: {', '.join(delisted[:5])}{more}; the position was closed at its last price (the "
