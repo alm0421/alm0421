@@ -1817,5 +1817,10 @@
 "DPC": "DPC Holdings PLC",
 "LOAR": "Loar Holdings Inc."
 }
+},
+"fetched": {
+"sp500": "2026-09-27",
+"sp400": "2026-09-27",
+"sp600": "2026-09-27"
 }
 }

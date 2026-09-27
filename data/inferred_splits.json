@@ -10,6 +10,74 @@
   }
  },
  "inferred": {
+  "AEIS": {
+   "1998-08-31": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.277978,
+    "day_return_repaired": -0.031172,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.035574,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 6.25 is 28% from the day before and 30% from the day after, which agree within 6.5%; replaced by their geometric mean 8.38642"
+   }
+  },
+  "AMKR": {
+   "2002-06-25": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.304813,
+    "day_return_repaired": -0.03631,
+    "expected_from_reference": -0.056085,
+    "residual_sd": 0.035167,
+    "reference": "SMH",
+    "volume_ratio_after": null,
+    "why": "close 3.9 is 30% from the day before and 34% from the day after, which agree within 7.7%; replaced by their geometric mean 5.4063"
+   }
+  },
+  "ARWR": {
+   "2002-01-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.666667,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.058082,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 16.25 is 67% from the day before and 40% from the day after, which agree within 0.0%; replaced by their geometric mean 9.75"
+   }
+  },
+  "BBWI": {
+   "1982-11-23": {
+    "kind": "inferred_split",
+    "ratio": 2.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.499999,
+    "day_return_repaired": 2e-06,
+    "expected_from_reference": 0.006437,
+    "residual_sd": 0.02443,
+    "reference": "AAPL",
+    "volume_ratio_after": 1.5599,
+    "why": "the close moved -50.0% on 1982-11-23 with no split in the source data; a 2-for-1 split leaves +0.0%, in line with AAPL (+0.6% expected, residual sd 2.4%); volume x1.56 after"
+   },
+   "1985-06-26": {
+    "kind": "inferred_split",
+    "ratio": 2.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.503759,
+    "day_return_repaired": -0.007519,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.021505,
+    "reference": null,
+    "volume_ratio_after": 3.8571,
+    "why": "the close moved -50.4% on 1985-06-26 with no split in the source data; a 2-for-1 split leaves -0.8% (no reference moves with it; its daily sd is 2.2%); volume x3.86 after"
+   }
+  },
   "CPER": {
    "2014-12-04": {
     "kind": "bad_tick",
@@ -86,6 +154,20 @@
     "why": "close 0.0062 is 69% from the day before and 255% from the day after, which agree within 10.0%; replaced by their geometric mean 0.0209762"
    }
   },
+  "DCMSX": {
+   "2021-12-15": {
+    "kind": "inferred_split",
+    "ratio": 1.5,
+    "applied": "recorded",
+    "day_return_in_file": -0.324444,
+    "day_return_repaired": 0.013333,
+    "expected_from_reference": 0.003193,
+    "residual_sd": 0.005378,
+    "reference": "DBC",
+    "volume_ratio_after": null,
+    "why": "the close moved -32.4% on 2021-12-15 with no split in the source data; a 3-for-2 split leaves +1.3%, in line with DBC (+0.3% expected, residual sd 0.5%)"
+   }
+  },
   "DFEN": {
    "2024-06-03": {
     "kind": "bad_tick",
@@ -98,6 +180,20 @@
     "reference": "XLI",
     "volume_ratio_after": null,
     "why": "close 10.17 is 64% from the day before and 184% from the day after, which agree within 1.3%; replaced by their geometric mean 28.7444"
+   }
+  },
+  "DY": {
+   "2008-11-25": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.247801,
+    "day_return_repaired": -0.024494,
+    "expected_from_reference": 0.02295,
+    "residual_sd": 0.031639,
+    "reference": "IWM",
+    "volume_ratio_after": null,
+    "why": "close 5.13 is 25% from the day before and 27% from the day after, which agree within 5.1%; replaced by their geometric mean 6.65295"
    }
   },
   "FER": {
@@ -126,6 +222,20 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "the close moved -33.2% on 1981-04-27 with no split in the source data; a 3-for-2 split leaves +0.2% (no reference moves with it; its daily sd is 2.1%)"
+   }
+  },
+  "HOOD": {
+   "2021-08-04": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.50406,
+    "day_return_repaired": 0.043601,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.05,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 70.39 is 50% from the day before and 28% from the day after, which agree within 8.9%; replaced by their geometric mean 48.8405"
    }
   },
   "LILA": {
@@ -224,6 +334,20 @@
     "why": "the close moved +292.2% on 2023-03-27 with no split in the source data; a 1-for-4 split leaves -2.0%, in line with TLT (-2.1% expected, residual sd 0.2%)"
    }
   },
+  "PRITX": {
+   "1987-12-18": {
+    "kind": "inferred_split",
+    "ratio": 1.5,
+    "applied": "recorded",
+    "day_return_in_file": -0.329268,
+    "day_return_repaired": 0.006098,
+    "expected_from_reference": 0.006004,
+    "residual_sd": 0.019058,
+    "reference": "AAPL",
+    "volume_ratio_after": null,
+    "why": "the close moved -32.9% on 1987-12-18 with no split in the source data; a 3-for-2 split leaves +0.6%, in line with AAPL (+0.6% expected, residual sd 1.9%)"
+   }
+  },
   "PSLDX": {
    "2023-03-27": {
     "kind": "inferred_split",
@@ -304,6 +428,20 @@
     "why": "close 312.31 is 65% from the day before and 188% from the day after, which agree within 0.0%; replaced by their geometric mean 900"
    }
   },
+  "STT": {
+   "2008-09-29": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.272727,
+    "day_return_repaired": -0.030379,
+    "expected_from_reference": -0.088148,
+    "residual_sd": 0.029799,
+    "reference": "XLF",
+    "volume_ratio_after": null,
+    "why": "close 44 is 27% from the day before and 29% from the day after, which agree within 6.4%; replaced by their geometric mean 58.6621"
+   }
+  },
   "SZK": {
    "2014-12-19": {
     "kind": "bad_tick",
@@ -316,6 +454,20 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "close 154.32 is 31% from the day before and 32% from the day after, which agree within 9.4%; replaced by their geometric mean 212.744"
+   }
+  },
+  "TSN": {
+   "1983-04-18": {
+    "kind": "inferred_split",
+    "ratio": 2.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.504133,
+    "day_return_repaired": -0.008265,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.025935,
+    "reference": null,
+    "volume_ratio_after": 1.4472,
+    "why": "the close moved -50.4% on 1983-04-18 with no split in the source data; a 2-for-1 split leaves -0.8% (no reference moves with it; its daily sd is 2.6%); volume x1.45 after"
    }
   },
   "TWCUX": {
