@@ -22,3 +22,6 @@ tzdata>=2024.1
 
 # Operator dashboard
 streamlit>=1.40
+
+# HTTP client for the Alpaca REST data fetch in app/backtest/data.py
+requests>=2.31

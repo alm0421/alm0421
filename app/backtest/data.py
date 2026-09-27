@@ -98,40 +98,82 @@ def save_minute_bars(bars: pd.DataFrame, path: Path) -> None:
     out.to_csv(path, index=False)
 
 
+ALPACA_DATA_URL = "https://data.alpaca.markets/v2/stocks/bars"
+
+
 def fetch_alpaca_minute_bars(
     symbol: str,
     start: date,
     end: date,
-    api_key: str,
-    secret_key: str,
+    api_key: str | None = None,
+    secret_key: str | None = None,
     feed: str = "iex",
 ) -> pd.DataFrame:  # pragma: no cover - needs network and credentials
-    """Download 1-minute bars from Alpaca market data, paging automatically.
+    """Download 1-minute bars from Alpaca's market-data REST API, paging automatically.
 
-    Alpaca's free IEX feed reaches back to 2016 and needs only paper-account
-    keys, which makes it the practical source for multi-year 1-minute history.
-    IEX is a single venue (~2-3% of consolidated volume), so bar volumes are far
-    smaller than the tape and highs/lows can differ slightly from SIP.
+    Authentication has two supported paths:
+
+    * Pass ``api_key`` / ``secret_key`` and they are sent as the
+      ``APCA-API-KEY-ID`` / ``APCA-API-SECRET-KEY`` headers Alpaca expects.
+    * Leave them ``None`` and let the environment's outbound proxy inject those
+      headers for ``data.alpaca.markets`` (a stored API credential). The keys
+      then never touch this process.
+
+    The REST endpoint is used directly rather than the SDK so the proxy path
+    works. Alpaca's free IEX feed reaches back to 2016 and needs only paper-account
+    keys. IEX is a single venue (~2-3% of consolidated volume), so bar volumes are
+    far smaller than the tape and highs/lows can differ slightly from SIP.
     """
-    from alpaca.data.enums import DataFeed
-    from alpaca.data.historical import StockHistoricalDataClient
-    from alpaca.data.requests import StockBarsRequest
-    from alpaca.data.timeframe import TimeFrame
+    import requests
 
-    client = StockHistoricalDataClient(api_key, secret_key)
-    request = StockBarsRequest(
-        symbol_or_symbols=symbol.upper(),
-        timeframe=TimeFrame.Minute,
-        start=pd.Timestamp(start, tz=ET).tz_convert("UTC").to_pydatetime(),
-        end=pd.Timestamp(end, tz=ET).tz_convert("UTC").to_pydatetime() + pd.Timedelta(days=1),
-        feed=DataFeed(feed),
+    headers = {"Accept": "application/json"}
+    if api_key and secret_key:
+        headers["APCA-API-KEY-ID"] = api_key
+        headers["APCA-API-SECRET-KEY"] = secret_key
+
+    sym = symbol.upper()
+    params = {
+        "symbols": sym,
+        "timeframe": "1Min",
+        "start": pd.Timestamp(start, tz=ET).tz_convert("UTC").isoformat(),
+        "end": (pd.Timestamp(end, tz=ET).tz_convert("UTC") + pd.Timedelta(days=1)).isoformat(),
+        "limit": 10000,
+        "feed": feed,
+        "adjustment": "all",
+        "sort": "asc",
+    }
+
+    rows: list[dict] = []
+    page_token: str | None = None
+    while True:
+        if page_token:
+            params["page_token"] = page_token
+        resp = requests.get(ALPACA_DATA_URL, params=params, headers=headers, timeout=60)
+        if resp.status_code in (401, 403):
+            raise BarDataError(
+                f"Alpaca rejected the request for {sym} ({resp.status_code}). Check that the "
+                "APCA-API-KEY-ID / APCA-API-SECRET-KEY credential is set for data.alpaca.markets."
+            )
+        resp.raise_for_status()
+        payload = resp.json()
+        rows.extend((payload.get("bars") or {}).get(sym) or [])
+        page_token = payload.get("next_page_token")
+        if not page_token:
+            break
+
+    if not rows:
+        raise BarDataError(f"Alpaca returned no bars for {sym} {start}..{end}")
+    frame = pd.DataFrame(rows)
+    index = pd.to_datetime(frame["t"], utc=True).dt.tz_convert(ET)
+    bars = pd.DataFrame(
+        {
+            "open": frame["o"].astype(float),
+            "high": frame["h"].astype(float),
+            "low": frame["l"].astype(float),
+            "close": frame["c"].astype(float),
+            "volume": frame["v"].astype(float),
+        },
+        index=index,
     )
-    frame = client.get_stock_bars(request).df
-    if frame.empty:
-        raise BarDataError(f"Alpaca returned no bars for {symbol} {start}..{end}")
-    frame = frame.reset_index()
-    frame = frame[frame["symbol"] == symbol.upper()]
-    index = pd.to_datetime(frame["timestamp"], utc=True).dt.tz_convert(ET)
-    bars = frame[_COLUMNS].astype(float).set_index(index)
     bars.index.name = "time_et"
-    return bars.sort_index()
+    return bars[~bars.index.duplicated(keep="last")].sort_index()

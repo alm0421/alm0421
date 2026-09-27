@@ -106,10 +106,18 @@ def main() -> int:
 
         load_dotenv()
         key, secret = os.getenv("ALPACA_PAPER_API_KEY"), os.getenv("ALPACA_PAPER_SECRET_KEY")
-        if not (key and secret and args.start and args.end):
-            p.error("--fetch-alpaca needs --start, --end and Alpaca paper keys in .env")
+        if not (args.start and args.end):
+            p.error("--fetch-alpaca needs --start and --end")
+        # Keys are optional: when absent, the environment's outbound proxy injects
+        # the APCA-API-KEY-ID / APCA-API-SECRET-KEY headers for data.alpaca.markets.
         for sym in wanted:
-            bars = bd.fetch_alpaca_minute_bars(sym, args.start, args.end, key, secret)
+            try:
+                bars = bd.fetch_alpaca_minute_bars(sym, args.start, args.end, key, secret)
+            except bd.BarDataError as exc:
+                # A symbol that had not listed yet in the window returns no bars;
+                # skip it rather than aborting the whole run.
+                print(f"skipped {sym}: {exc}")
+                continue
             bd.save_minute_bars(bars, bd.csv_path(args.data_dir, sym))
             print(f"fetched {sym}: {len(bars):,} bars")
 
