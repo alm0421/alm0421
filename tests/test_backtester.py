@@ -169,9 +169,13 @@ def test_msft_example_matches_vectorised():
 def test_gap_short_matches_vectorised():
     s = parser.parse("short QQQ at the open when it gaps up 1%, cover at the close")
     s.cash_rate = None
-    r = engine.run(s)
     q = data.load("QQQ")
     sig = q.open / q.close.shift() - 1 >= 0.01
+    # the rule reads today's open, so the short is filled 0.05% below the open print (open_reaction_bps, round 12)
+    r = engine.run(s)
+    assert r.equity.iloc[-1] == pytest.approx(10_000 * (2 - q.close / (q.open * 0.9995))[sig].prod())
+    s.open_reaction_bps = 0          # at the print itself: the original independent calculation
+    r = engine.run(s)
     assert r.equity.iloc[-1] == pytest.approx(10_000 * (2 - q.close / q.open)[sig].prod())
 
 
@@ -644,7 +648,11 @@ def test_rule_exit_at_same_open_and_next_open(fake):
     fake["X"] = _week([(100, 100, 100, 100), (100, 102, 100, 102), (105, 106, 104, 105), (105, 105, 105, 105)])
     r = engine.run(Strategy(cash_rate=None, universe=["X"], entry="dow == 0", exit_when="gap >= 0.02", exit_when_fill="open"))
     t = r.trades.iloc[0]
-    assert t.exit_price == 105 and t.exit_fill == "open" and str(t.exit_date) == "2020-01-01"
+    # the exit rule reads today's open (a gap): sold 0.05% below the open print (open_reaction_bps, round 12)
+    assert t.exit_price == pytest.approx(105 * 0.9995) and t.exit_fill == "open" and str(t.exit_date) == "2020-01-01"
+    r = engine.run(Strategy(cash_rate=None, universe=["X"], entry="dow == 0", exit_when="gap >= 0.02", exit_when_fill="open",
+                            open_reaction_bps=0))
+    assert r.trades.iloc[0].exit_price == 105
     r = engine.run(Strategy(cash_rate=None, universe=["X"], entry="dow == 0", exit_when="close > 101", exit_when_fill="next_open"))
     t = r.trades.iloc[0]
     assert t.exit_price == 105 and t.exit_fill == "open" and str(t.exit_date) == "2020-01-01"

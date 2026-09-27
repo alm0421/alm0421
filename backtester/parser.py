@@ -3486,6 +3486,71 @@ def _negative_costs(text: str) -> None:
                          "trading). Write the cost as a positive amount, e.g. '5 bps slippage' or '$1 per trade', or 0 for none.")
 
 
+_R12_EVERY = (r"(?:(?:each|every)\s+(?P<{g}p>day|week|month|quarter|year)|"
+          r"(?P<{g}a>daily|weekly|monthly|quarterly|annually|yearly))")
+_R12_EVERY_ADV = {"day": "daily", "week": "weekly", "month": "monthly", "quarter": "quarterly", "year": "annually",
+              "yearly": "annually"}
+_R12_TICKERS = r"[A-Za-z0-9^.=\-]+(?:\s*,\s*[A-Za-z0-9^.=\-]+)*,?\s+(?:and|or)\s+[A-Za-z0-9^.=\-]+"
+_R12_ROTATE = re.compile(
+    rf"(?is)\s*rotate\s+(?:{_R12_EVERY.format(g='f')}\s+)?(?:between|among|across)\s+(?P<list>{_R12_TICKERS})\s*,?\s+"
+    rf"(?:{_R12_EVERY.format(g='g')}\s+)?(?:into|to|holding|picking|buying|choosing)\s+"
+    r"(?:whichever(?:\s+one)?|the\s+one|the\s+(?:asset|fund|etf|ticker|winner))(?:\s+(?:that|which))?\s+"
+    r"(?:had|has|have|with|shows|showed)\s+the\s+(?:best|highest|strongest|top)\s+(?P<metric>[^,;.]+?)\s*"
+    r"(?P<rest>(?:[,;].*)?)")
+_R12_TOP_BODY = re.compile(r"(?is)the\s+(?:top\s+(?P<n1>\d+)\s+(?P<u1>.+?)\s+by\s+(?P<m1>[^,;]+?)|"
+                       r"(?P<n2>\d+)\s+(?P<u2>.+?)\s+with\s+the\s+(?:highest|best|strongest|largest|top)\s+"
+                       r"(?P<m2>[^,;]+?))\s*(?P<rest>(?:[,;].*)?)")
+
+
+def _r12_every(m, g: str) -> str | None:
+    w = m.group(f"{g}p") or m.group(f"{g}a")
+    return _R12_EVERY_ADV.get(w.lower(), w.lower()) if w else None
+
+
+def _rotation_phrasings(text: str) -> str:
+    """Common ways of saying a momentum rotation / top-N selection / long-short allocation, rewritten to the
+    canonical sentence the portfolio parser reads (with a note saying so):
+      "each month buy the top 10 Nasdaq 100 stocks by 12 month return, equal weight",
+      "buy the top 10 Nasdaq 100 stocks by 12 month return every month",
+      "each month hold the 10 Nasdaq 100 stocks with the highest 12 month return"
+          -> "hold the top 10 Nasdaq 100 stocks by 12 month return, rebalance monthly"
+      "rotate monthly between SPY, EFA and TLT into whichever had the best 3 month return"
+          -> "hold the top 1 of SPY, EFA and TLT by 3 month return, rebalance monthly"
+      "hold 100% SPY and short 50% SQQQ, rebalance monthly" -> "hold 100% SPY and -50% SQQQ, rebalance monthly"
+      "buy the dip in NVDA: when it drops 10% from its 52 week high, ..." -> "buy NVDA when it drops ...".
+    Anything else is returned unchanged."""
+    before = text
+    m = _R12_ROTATE.fullmatch(text)
+    if m:
+        freq = _r12_every(m, "f") or _r12_every(m, "g")
+        rest = m.group("rest") or ""
+        tail = f", rebalance {freq}" if freq and not re.search(r"(?i)\brebalanc", rest) else ""
+        text = f"hold the top 1 of {m.group('list')} by {m.group('metric').strip()}{tail}{rest}"
+    elif not re.search(r"(?i)\brebalanc", text) and not _ROTATE.fullmatch(text):    # _ROTATE: read as it is
+        lead = re.fullmatch(rf"(?is)\s*{_R12_EVERY.format(g='f')}\s*,?\s+(?:buy|hold|own|pick)\s+(?P<body>the\s+.+)", text)
+        trail = None if lead else re.fullmatch(
+            rf"(?is)\s*(?:buy|hold|own)\s+(?P<body>the\s+.+?)\s*,?\s+{_R12_EVERY.format(g='f')}\s*(?P<after>(?:[,;].*)?)",
+            text)
+        m2 = lead or trail
+        b = _R12_TOP_BODY.fullmatch(m2.group("body")) if m2 else None
+        if b:
+            n, uni, metric = ((b.group("n1"), b.group("u1"), b.group("m1")) if b.group("n1")
+                              else (b.group("n2"), b.group("u2"), b.group("m2")))
+            rest = (b.group("rest") or "") + ((m2.group("after") or "") if trail else "")
+            tail = f", rebalance {_r12_every(m2, 'f')}"
+            text = f"hold the top {n} {uni.strip()} by {metric.strip()}{rest}{tail}"
+    # "short 50% SQQQ" among the weights of an allocation = a -50% weight
+    if len(re.findall(r"\d\s*%\s+(?:of\s+)?[A-Z^][A-Z0-9.=^\-]*\b", text)) >= 2 and \
+            re.match(r"(?i)\s*(?:hold|own|invest|allocate|portfolio|buy and hold)\b", text):
+        text = re.sub(r"(?i)\bshort\s+(\d+(?:\.\d+)?)\s*%\s+(?:of\s+)?(?=[A-Z^][A-Z0-9.=^\-]*\b)", r"-\1% ", text)
+    # "buy the dip in NVDA: when ..." = "buy NVDA when ..."
+    text = re.sub(r"(?i)\bbuy\s+the\s+dips?\s+(?:in|on|of)\s+([A-Za-z^][\w.=^\-]*)\s*[:,\-\u2013\u2014]?\s*(?=(?:when|if|once)\b)",
+                  r"buy \1 ", text)
+    if text != before:
+        _note(f"Read as: \"{text.strip()}\".")
+    return text
+
+
 def _parse(text: str, **overrides):
     if not text or not text.strip():
         raise ParseError("Describe a strategy, e.g. 'buy MSFT at the close when it is down 5 days in a row, hold 1 day'.")
@@ -3499,6 +3564,7 @@ def _parse(text: str, **overrides):
     text = _asset_class_names(text)
     _intraday_check(text)
     _negative_costs(text)
+    text = _rotation_phrasings(text)
     # "buy UVXY and hold" = "buy and hold UVXY" (an allocation that never rebalances)
     mbh = re.fullmatch(r"(?is)\s*buy (?P<who>[^,;`]+?) and hold(?: (?:it|them|forever|onto it|on to it))?(?P<rest>\s*(?:[,;].*)?)", text)
     if mbh and not re.search(r"(?i)\b(?:when|if|while|once|after|at|on)\b", mbh.group("who")) and find_tickers(mbh.group("who")):
@@ -4559,16 +4625,29 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
             late = [p for p in parts if not _open_safe(p)]
             if late:
                 # split backtick blocks too, so open-time terms (e.g. gap) keep today's value
-                fine, lagged, kept = [], [], []
+                fine, lagged, kept, periodic = [], [], [], []
+                from .expr import open_time_periodic
                 for p in parts:
                     for term in split_and(p):
                         if _open_safe(term):
                             fine.append(term)
                             kept.append(term)
+                        elif open_time_periodic(term):
+                            # weekly_close() & co at the open: the last period completed before today
+                            fine.append(open_time_periodic(term))
+                            periodic.append(term)
                         else:
                             fine.append(f"ref(({term}), 1)")
                             lagged.append(term)
                 parts = fine
+                if periodic:
+                    notes.append(
+                        f"Entry at the open: {' and '.join(f'`{t}`' for t in periodic)} uses a weekly / monthly value, "
+                        "read as the last period completed before today "
+                        f"({' and '.join(f'`{open_time_periodic(t)}`' for t in periodic)}): on the last trading day "
+                        "of a week or month that period only completes at the close, so at the open the completed "
+                        "period is the one before (on a Monday, last week).")
+            if late and lagged:
                 one = len(lagged) == 1
                 lag_txt = " and ".join(f"`{t}`" for t in lagged)
                 msg = (f"Warning: entry at the open: {lag_txt} {'uses' if one else 'use'} today's close/high/low, "
