@@ -659,6 +659,13 @@ def _window_text(start, end) -> str:
     return (" " + " ".join(parts)) if parts else ""
 
 
+def _whole(v, what: str, least: int) -> None:
+    """A count or a window from a spec must be a whole number (never rounded): 2.5 or -5 is refused."""
+    ok = isinstance(v, (int, float)) and not isinstance(v, bool) and float(v).is_integer() and v >= least
+    if not ok:
+        raise ValueError(f"{what} must be a whole number, at least {least} (got {v!r})")
+
+
 def validate_node(n: dict, depth: int = 0) -> None:
     if depth > 20:
         raise ValueError("portfolio tree is nested too deeply")
@@ -700,8 +707,8 @@ def validate_node(n: dict, depth: int = 0) -> None:
                 raise ValueError("negative weights are not allowed here")
         elif n["weights"] not in WEIGHTINGS:
             raise ValueError(f"unknown weighting {n['weights']!r} (one of specified, {', '.join(WEIGHTINGS)})")
-        if n.get("lookback") is not None and int(n["lookback"]) < 2:
-            raise ValueError("lookback must be at least 2 days")
+        if n.get("lookback") is not None:
+            _whole(n["lookback"], "lookback (days)", 2)
         for k in kids:
             validate_node(k, depth + 1)
     elif kind == "if":
@@ -725,8 +732,9 @@ def validate_node(n: dict, depth: int = 0) -> None:
         expr.compile_expr(f["by"])
         if f.get("require"):
             expr.compile_expr(f["require"])
-        if int(f.get("n", 1)) < 1:
-            raise ValueError("filter n must be at least 1")
+        _whole(f.get("n", 1), "filter n (how many to pick)", 1)
+        if f.get("lookback") is not None:
+            _whole(f["lookback"], "filter lookback (days)", 2)
         if f.get("select", "top") not in ("top", "bottom"):
             raise ValueError("filter select must be 'top' or 'bottom'")
         if f.get("weights") == "specified":
@@ -1243,6 +1251,19 @@ def check_tree(p: "Portfolio") -> None:
     def walk(n):
         if not isinstance(n, dict):
             return
+        # windows, oscillator ranges, a signed max drawdown, impossible returns: the checks the English parser makes,
+        # for trees from the Build page, JSON and the API too (expr.check_rule)
+        f0 = n.get("filter")
+        for holder, key, what in ((n, "if", "the condition"), (f0 if isinstance(f0, dict) else {}, "require", "the requirement")):
+            r = holder.get(key)
+            if isinstance(r, str) and r.strip():
+                q, msgs = expr.check_rule(r, f"{what} `{r}`")
+                if q != r:
+                    holder[key] = q
+                for m in msgs:
+                    note(m)
+        if isinstance(f0, dict) and isinstance(f0.get("by"), str):
+            expr.check_windows(f0["by"], f"the ranking `{f0['by']}`")
         if isinstance(n.get("if"), str):
             bad = _self_comparison(n["if"], n.get("on"))
             if bad:

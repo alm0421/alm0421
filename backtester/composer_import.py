@@ -78,7 +78,7 @@ REBALANCE = {"daily": "daily", "weekly": "weekly", "monthly": "monthly", "quarte
 # class and quote metadata. They are matched with "-" and "_" treated alike ("asset_class" = "asset-class"),
 # because exports use both spellings. Any other field raises ComposerImportError: an unknown field might change
 # what the symphony holds, so the importer stops rather than ignore it.
-META = {"id", "name", "description", "collapsed?", "collapsed-specified-weight?", "suppress-incomplete-warnings?", "suppress-description?", "exchange", "price", "dollar-volume",
+META = {"id", "name", "description", "collapsed?", "collapsed-specified-weight?", "suppress-incomplete-warnings?", "suppress-incomplete-warnings", "suppress-description?", "exchange", "price", "dollar-volume",
         "has-marketcap", "children-count", "asset-class", "asset-classes", "color", "version-id", "version",
         "created-at", "updated-at", "last-updated-at", "last-backtest-at", "symphony-id", "tags", "notes", "hashtag",
         "hashtags", "benchmarks", "share-with-everyone?", "copied-from", "sid", "hidden?", "comment",
@@ -131,7 +131,7 @@ def _int(v, what: str, where: str) -> int:
     except (TypeError, ValueError):
         raise ComposerImportError(f"{where}: {what} must be a number, got {v!r}")
     if f < 1 or not f.is_integer():
-        raise ComposerImportError(f"{where}: {what} must be a whole number of days (got {v!r})")
+        raise ComposerImportError(f"{where}: {what} must be a positive whole number of days (got {v!r})")
     return int(f)
 
 

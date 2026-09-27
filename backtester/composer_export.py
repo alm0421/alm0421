@@ -140,6 +140,10 @@ class _Exporter:
             return fn, t, int(n)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in (
                 "macd", "macd_signal", "ppo", "ppo_signal", "bb_upper", "bb_lower"):
+            # Checked (Sept 2026): no public export shows their params. Composer's schema as mirrored by
+            # github.com/SolarWolf-Code/composer-trade-py (composer/models/common/symphony.py: "lhs-fn-params":
+            # dict[str, Any]) and github.com/tanwithme/composer-trade-mcp (schemas/symphony_score_schema.py:
+            # WindowParams, a window only) lists the function names but not their parameter keys.
             raise ComposerExportError(f"{where}: `{ast.unparse(node)}`: Composer has MACD, PPO and Bollinger bands, but its "
                                       "published symphony schema does not name the keys of their parameters (fast / slow "
                                       "/ signal window, standard deviations), so the export does not guess them. They "
@@ -188,11 +192,41 @@ class _Exporter:
         while isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.Not, ast.Invert)):
             node, neg = node.operand, not neg
         if isinstance(node, ast.BoolOp):
-            return {"condition": self.cond_json(node, own, where, neg)}
+            cond = self.cond_json(node, own, where, neg)
+            return {**self._legacy_mirror(cond), "condition": cond}
         c = self.compare(node, own, where)
         if neg:
             c["comparator"] = self._negate(c["comparator"], node, where)
         return c
+
+    @staticmethod
+    def _legacy_mirror(cond: dict) -> dict:
+        """The single-comparison fields Composer's editor keeps beside a "condition" block: they repeat the block's
+        last comparison ("lhs-fn", "lhs-window-days", "lhs-val", "comparator", "rhs-val" as text, "rhs-fixed-value?").
+        Seen in a real export (tests/fixtures/composer_frontrunner_2026.json, from
+        https://backtest-api.composer.trade/api/v1/public/symphonies/4aI4kVT5cEc0XJpTLei3/score, shown by
+        https://composeratlas.com/converter): an any-of-12 RSI condition whose if-child also carries lhs-val "XLY",
+        the last ticker. Composer reads the "condition" block; the mirror keeps the if-child in the shape it writes."""
+        leaf = cond
+        while leaf.get("condition-type") == "compound" and leaf.get("conditions"):
+            leaf = leaf["conditions"][-1]
+        lhs, rhs = leaf.get("lhs") or {}, leaf.get("rhs") or {}
+        tk = lhs.get("ticker")
+        if tk == "%" and leaf.get("tickers"):
+            tk = leaf["tickers"][-1]
+        out = {"lhs-fn": lhs.get("fn"), "lhs-val": tk, "comparator": leaf.get("comparator")}
+        if isinstance(lhs.get("params"), dict) and "window" in lhs["params"]:
+            out["lhs-window-days"] = str(lhs["params"]["window"])
+        if "constant" in rhs:
+            out["rhs-fixed-value?"] = True
+            out["rhs-val"] = str(_fmt(float(rhs["constant"])))
+        else:
+            rt = rhs.get("ticker")
+            out.update({"rhs-fixed-value?": False, "rhs-fn": rhs.get("fn"),
+                        "rhs-val": leaf["tickers"][-1] if rt == "%" and leaf.get("tickers") else rt})
+            if isinstance(rhs.get("params"), dict) and "window" in rhs["params"]:
+                out["rhs-window-days"] = str(rhs["params"]["window"])
+        return out
 
     @staticmethod
     def _negate(op: str, node, where: str) -> str:

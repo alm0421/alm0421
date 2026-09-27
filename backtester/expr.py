@@ -1553,6 +1553,144 @@ def _check_arguments(tree) -> None:
                              f"write the number itself (e.g. {f}(close, 20)): computed values there are refused")
 
 
+# ---------------------------------------------------------------- value checks shared by every front end
+# (the English parser, the Build page's block editor, JSON specs and the API all pass through check_rule)
+
+# indicators whose number arguments are all windows: whole numbers of bars, at least 1
+WINDOW_FUNCS = {
+    "sma", "ema", "rma", "wma", "highest", "lowest", "stdev", "zscore", "ret", "rsi", "tret", "tbill_ret",
+    "max_drawdown", "ma_return", "stdev_return", "pct_rank", "drawdown", "atr", "natr", "volatility", "macd",
+    "macd_signal", "macd_hist", "ppo", "ppo_signal", "stoch_k", "stoch_d", "plus_di", "minus_di", "adx", "cci",
+    "willr", "mfi", "vwap", "donchian_upper", "donchian_lower", "hma", "vwma", "aroon_up", "aroon_down",
+    "aroon_osc", "cmf", "count", "weekly_sma", "monthly_sma", "weekly_ema", "monthly_ema", "weekly_rsi",
+    "monthly_rsi", "weekly_ret", "monthly_ret",
+}
+# the first number is the window, the next ones multipliers (standard deviations, ATRs)
+FIRST_WINDOW_FUNCS = {"bb_upper", "bb_lower", "keltner_upper", "keltner_lower", "supertrend", "supertrend_dir"}
+# indicators with a fixed range: (name, low, high)
+OSC_RANGES = {"rsi": ("RSI", 0, 100), "weekly_rsi": ("the weekly RSI", 0, 100), "monthly_rsi": ("the monthly RSI", 0, 100),
+              "stoch_k": ("the stochastic %K", 0, 100), "stoch_d": ("the stochastic %D", 0, 100), "mfi": ("MFI", 0, 100),
+              "adx": ("ADX", 0, 100), "willr": ("Williams %R", -100, 0)}
+_CMP_TXT = {ast.Gt: ">", ast.GtE: ">=", ast.Lt: "<", ast.LtE: "<=", ast.Eq: "==", ast.NotEq: "!="}
+_FLIP_TXT = {">": "<", ">=": "<=", "<": ">", "<=": ">=", "==": "==", "!=": "!="}
+
+
+def check_windows(rule: str, what: str = "") -> None:
+    """Refuse a window that is not a whole number of days, at least 1 (tret(tr, -5), rsi(close, 2.5), sma(close, 0)):
+    never round it or replace it with another value."""
+    try:
+        tree = ast.parse(pine_to_rule(rule).strip(), mode="eval")
+    except SyntaxError:
+        return
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+            continue
+        f = node.func.id
+        if f not in WINDOW_FUNCS and f not in FIRST_WINDOW_FUNCS:
+            continue
+        nums = [a for a in list(node.args) + [k.value for k in node.keywords if k.arg in (None, "n", "fast", "slow", "sig")]
+                if _literal(a) is not None]
+        if f in FIRST_WINDOW_FUNCS:
+            nums = nums[:1]
+        for a in nums:
+            v = _literal(a)
+            if v < 1 or not float(v).is_integer():
+                raise ValueError(f"{what + ': ' if what else ''}`{ast.unparse(node)}` has a window of {v:g}: a window must be "
+                                 "a positive whole number of days (1 or more).")
+
+
+def check_osc_ranges(rule: str, phrase: str | None = None) -> None:
+    """Refuse a threshold an oscillator can never reach ('RSI above 120', 'Williams %R below 80') or one written as a
+    fraction ('RSI above 0.7' - did you mean 70?): the condition would always be true or always false."""
+    try:
+        tree = ast.parse(pine_to_rule(rule).strip(), mode="eval")
+    except SyntaxError:
+        return
+
+    def pairs():
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Compare):
+                items = [n.left, *n.comparators]
+                for a, b in zip(items, items[1:]):
+                    yield a, b
+                    yield b, a
+            elif isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("crossover", "crossunder") and len(n.args) == 2:
+                yield n.args[0], n.args[1]
+                yield n.args[1], n.args[0]
+
+    phrase = (phrase or rule).strip()
+    for a, b in pairs():
+        if not (isinstance(a, ast.Call) and isinstance(a.func, ast.Name) and a.func.id in OSC_RANGES):
+            continue
+        v = _literal(b)
+        if v is None:
+            continue
+        v = float(v)
+        name, lo, hi = OSC_RANGES[a.func.id]
+        if lo <= v <= hi and not (0 < abs(v) < 1):
+            continue
+        if 0 < abs(v) < 1:
+            raise ValueError(f"'{phrase}': {name} runs from {lo} to {hi}, so {v:g} looks like a fraction - did you mean "
+                             f"{v * 100:g}?")
+        if a.func.id == "willr" and 0 < v <= 100:
+            raise ValueError(f"'{phrase}': Williams %R runs from -100 to 0 (-80 and below is oversold) - did you mean {-v:g}?")
+        raise ValueError(f"'{phrase}': {name} runs from {lo} to {hi}, so it can never be compared with {v:g} usefully "
+                         f"(always true or always false). Use a threshold between {lo} and {hi}.")
+
+
+def check_rule(rule: str, what: str = "") -> tuple[str, list[str]]:
+    """The value checks every condition gets, however it was written (sentence, Build page, JSON, API):
+
+      - windows are whole numbers of days, at least 1 (check_windows)
+      - oscillators are compared with a number they can reach (check_osc_ranges)
+      - max_drawdown() is a positive size (0.1 = a 10% fall): compared with a negative number it is the same size
+        written as a loss, so 'max_drawdown(tr, 10) > -0.1' is read as a fall shallower than 10% (max_drawdown(tr,
+        10) < 0.1), with a note; compared with more than 1 (100%) it is refused
+      - a return compared with -100% or less is refused (a return cannot fall below -100%)
+
+    Returns (the rule, rewritten only for a signed max drawdown, and the notes)."""
+    check_windows(rule, what)
+    check_osc_ranges(rule)
+    try:
+        tree = ast.parse(rule, mode="eval")
+    except SyntaxError:
+        return rule, []
+    notes: list[str] = []
+    edits: list[tuple[int, int, str]] = []
+    lines = rule.split("\n")
+    if len(lines) > 1:     # offsets below are for a one-line rule
+        return rule, notes
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Compare) and len(node.ops) == 1 and type(node.ops[0]) in _CMP_TXT):
+            continue
+        a, b, op = node.left, node.comparators[0], _CMP_TXT[type(node.ops[0])]
+        if _literal(a) is not None and _literal(b) is None:
+            a, b, op = b, a, _FLIP_TXT[op]
+        v = _literal(b)
+        if v is None or not (isinstance(a, ast.Call) and isinstance(a.func, ast.Name)):
+            continue
+        f, v = a.func.id, float(v)
+        src = ast.get_source_segment(rule, a) or ast.unparse(a)
+        whole = (ast.get_source_segment(rule, node) or "").strip() == rule.strip()
+        label = f"{what}: " if what and not whole else ""
+        if f == "max_drawdown":
+            if abs(v) > 1:
+                raise ValueError(f"{label}`{ast.unparse(node)}`: the max drawdown is a fall between 0 and 100% (0.2 = 20%), "
+                                 f"so comparing it with {v * 100:g}% is always true or always false.")
+            if v < 0 and op in ("<", "<=", ">", ">="):
+                new = f"{src} {_FLIP_TXT[op]} {-v:g}"
+                edits.append((node.col_offset, node.end_col_offset, new))
+                notes.append(f"{label}`{ast.get_source_segment(rule, node)}`: the max drawdown is measured as a positive size "
+                             f"here (0.2 = a 20% fall), so {v * 100:g}% was read as a fall "
+                             f"{'deeper' if op[0] == '<' else 'shallower'} than {-v * 100:g}%: {new}.")
+        elif f in ("ret", "tret", "weekly_ret", "monthly_ret") and v <= -1 and op in ("<", "<=", ">", ">="):
+            raise ValueError(f"{label}`{ast.unparse(node)}`: a return cannot fall below -100%, so comparing it with "
+                             f"{v * 100:g}% is always true or always false.")
+    for s, e, new in sorted(edits, reverse=True):
+        rule = rule[:s] + new + rule[e:]
+    return rule, notes
+
+
 def compile_expr(text: str):
     return _compile_expr(pine_to_rule(text).strip())
 
