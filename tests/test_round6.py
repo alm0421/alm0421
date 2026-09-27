@@ -256,8 +256,11 @@ def test_depleted_report_numbers_add_up():
     assert y["withdrawals"].sum() == pytest.approx(c["total_withdrawals"])
     assert y["contributions"].sum() == pytest.approx(c["total_contributions"])
     assert c["starting_balance"] + c["total_contributions"] - c["total_withdrawals"] + c["net_gain"] == pytest.approx(0, abs=1e-6)
-    # the report stops on the day the money ran out: the depletion year is the last row
-    assert int(y.index.astype(int).max()) == dep.year and y["return"].notna().all()
+    # the portfolio's returns stop on the day the money ran out; the yearly rows (benchmarks) run to the end with
+    # $0 balances and no return after the depletion year (round 11)
+    live = y.index.astype(int) <= dep.year
+    assert y.loc[live, "return"].notna().all() and y.loc[~live, "return"].isna().all()
+    assert (y.loc[~live, "end_balance"] == 0).all() and y.loc[~live, "depleted"].all()
     assert A["result"].equity.index[-1] == dep and A["nav"].index[-1] == dep
     assert A["stats"]["end"] == dep.date() and np.isfinite(A["stats"]["cagr"]) and A["stats"]["cagr"] > 0
     assert not A["stats"]["wiped_out"]
@@ -273,7 +276,7 @@ def test_depleted_report_numbers_add_up():
     assert A["monte_carlo"] and 0 <= A["monte_carlo"]["success_rate"] <= 1
     out = report.console_summary(A)
     assert f"portfolio depleted on {dep.date()}" in out
-    assert not re.search(rf"^{dep.year + 1}\s", out, re.M) and re.search(rf"^{dep.year}\*?\s", out, re.M)
+    assert re.search(rf"^{dep.year + 1}\s+ran out", out, re.M) and re.search(rf"^{dep.year}\*?\s", out, re.M)
 
 
 def test_apply_flows_caps_and_stops():

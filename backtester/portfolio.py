@@ -174,7 +174,9 @@ class Portfolio:
     # before one sleeve's history does. Default None: the backtest starts when every holding has data.
     proxies: dict | None = None
     benchmark: str | dict | None = None          # comparison ticker for alpha/beta (default SPY), or a blend:
-                                                 # "60 SPY 40 AGG" / {"SPY": 0.6, "AGG": 0.4} (rebalanced monthly)
+                                                 # "60 SPY 40 AGG" / {"SPY": 0.6, "AGG": 0.4} (see benchmark_rebalance)
+    # a blend's rebalancing: "monthly", "quarterly", "yearly", "none"... (None: the portfolio's own calendar schedule)
+    benchmark_rebalance: str | None = None
     name: str = ""
     description: str = ""
     notes: list[str] = field(default_factory=list)
@@ -244,6 +246,11 @@ class Portfolio:
         if self.benchmark not in (None, ""):
             from . import metrics
             self.benchmark = metrics.benchmark_label(self.benchmark)
+        if self.benchmark_rebalance not in (None, ""):
+            b = self.benchmark_rebalance
+            if b not in ("daily", "weekly", "monthly", "quarterly", "semiannual", "yearly", "none") and not annual_month(b):
+                raise ValueError("benchmark_rebalance must be daily, weekly, monthly, quarterly, semiannual, yearly, "
+                                 "yearly_M or none (or null: the portfolio's own schedule)")
         if self.proxies not in (None, {}):
             if not isinstance(self.proxies, dict) or not all(isinstance(k, str) and isinstance(v, str) and k.strip() and v.strip()
                                                              for k, v in self.proxies.items()):
@@ -2674,6 +2681,37 @@ def run(p: Portfolio) -> Result:
                                "shares": abs(q) / SF[i, j], "price": fill * SF[i, j], "value": abs(q) * fill, "commission": com,
                                "reason": reason})
 
+    def flow_trade(k: float, prices: np.ndarray, i: int, reason: str) -> None:
+        """Scale every holding by k (a contribution or withdrawal made pro rata to the current market values).
+        Sells round up and buys round down to whole shares; flow trades do not count as turnover."""
+        nonlocal cash
+        if not np.isfinite(k) or abs(k - 1.0) < 1e-15:
+            return
+        pv = px_now(prices)
+        day = cal[i]
+        for j in np.flatnonzero(shares != 0).tolist():
+            if not (np.isfinite(pv[j]) and pv[j] > 0) or i >= gone[j]:
+                continue
+            q = shares[j] * (k - 1.0)
+            if not p.fractional_shares:
+                u = q / SF[i, j]
+                sell = (q < 0) == (shares[j] > 0)      # reducing the position: round away from zero
+                q = (np.ceil(abs(u) - 1e-9) if sell else np.floor(abs(u) + 1e-9)) * np.sign(u) * SF[i, j]
+                if sell and abs(q) > abs(shares[j]):
+                    q = -shares[j]
+            if q == 0:
+                continue
+            fill = pv[j] * (1 + np.sign(q) * slip_of(j, i, q))
+            com = order_fee(j, i, q, fill)
+            cash -= q * fill + com
+            shares[j] += q
+            tcash[j] -= q * fill + com
+            tcom[j] += com
+            ledger.append((day, tick[j], "buy" if q > 0 else "sell", q, abs(q) * fill, com))
+            orders.append({"date": day.date(), "ticker": tick[j], "side": "buy" if q > 0 else "sell",
+                           "shares": abs(q) / SF[i, j], "price": fill * SF[i, j], "value": abs(q) * fill, "commission": com,
+                           "reason": reason})
+
     def drifted(prices) -> bool:
         """Has any holding left its absolute (drift_band) or relative (drift_band_relative) band?"""
         eq = value(prices)
@@ -2809,38 +2847,18 @@ def run(p: Portfolio) -> Result:
             cash = 0.0 if paid > 0 else cash + w_req
             depleted = {"date": cal[i], "requested": w_req, "paid": paid}
             eq_close = value(c)
-        tgt_cash = 1.0 - sum(w for t, w in target.items() if t != "cash")
-        if depleted is None and f < 0 and cash < min(0.0, tgt_cash) * eq_close - 1e-6 * max(eq_close, 1.0) and eq_close > 0 and target:
-            trade_to(target, c, i, "raise cash")
-        # invest new contributions at the close in the current target mix (no selling)
-        if f > 0 and target and (not sched[i] or gated):
-            pv = px_now(c)
-            live = {t: w for t, w in target.items() if t != "cash" and np.isfinite(pv[idx[t]]) and pv[idx[t]] > 0
-                    and i < gone[idx[t]]}
-            tot = sum(live.values())
-            if tot > 0:
-                budget = min(f, max(cash, 0.0))
-                for t, w in live.items():
-                    j = idx[t]
-                    amt = budget * w / tot * (1 - p.commission_pct) / (1 + slip)
-                    if vol_slip or p.commission_model:
-                        # the impact and broker fee of this order, estimated at its size, come out of its budget
-                        q0 = amt / pv[j]
-                        f0 = pv[j] * (1 + slip_of(j, i, q0))
-                        amt = max(0.0, (budget * w / tot - (order_fee(j, i, q0, f0) - p.commission_pct * q0 * f0))
-                                  * (1 - p.commission_pct) / (f0 / pv[j]))
-                    q = amt / pv[j] if p.fractional_shares else np.floor(amt / pv[j] / SF[i, j] + 1e-9) * SF[i, j]
-                    if q <= 0:
-                        continue
-                    fill = pv[j] * (1 + slip_of(j, i, q))
-                    com = order_fee(j, i, q, fill)
-                    cash -= q * fill + com
-                    shares[j] += q
-                    tcash[j] -= q * fill + com
-                    tcom[j] += com
-                    ledger.append((cal[i], t, "buy", q, q * fill, com))
-                    orders.append({"date": cal[i].date(), "ticker": t, "side": "buy", "shares": q / SF[i, j], "price": fill * SF[i, j],
-                                   "value": q * fill, "commission": com, "reason": "contribution"})
+        # contributions and withdrawals are made pro rata: every holding (and the cash sleeve) is bought or sold in
+        # proportion to its current market value, so a flow never moves the mix. A never-rebalanced portfolio stays
+        # buy-and-hold and its time-weighted return is the same with or without flows (as on Portfolio Visualizer,
+        # where the cash flow is applied to the balance, not to a target mix). A rebalance to the target at today's
+        # close does the flow's trades itself, so it is not traded twice.
+        will_rebal = sched[i] and not gated and p.fill == "close"
+        if depleted is None and f and not will_rebal and eq_close > 0 and (shares != 0).any():
+            flow_trade(eq_close / (eq_close - f) if eq_close - f > 0 else 1.0, c, i,
+                       "contribution" if f > 0 else "withdrawal")
+        elif f > 0 and not will_rebal and target and not (shares != 0).any() and eq_close > 0 and (cash - f) <= 1e-9 * eq_close:
+            # nothing held yet (a portfolio that starts at $0, or a day-0 purchase bar): invest in the target mix
+            trade_to(target, c, i, "contribution")
         # reinvest dividends into the same holding at the close
         if got and p.reinvest_dividends:
             for j in np.flatnonzero(div_cash > 0):

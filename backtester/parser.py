@@ -344,6 +344,92 @@ def _model_node(name: str, holdings: list, about: str, notes: list[str]) -> dict
     return {"weights": "specified", "w": [round(w, 10) for w in ws], "children": kids}
 
 
+def _long_history(etf: str, swaps: list, late: list) -> str:
+    """The fund, or its long-history series when the backtest starts before the fund existed (as _model_node)."""
+    start = getattr(_TL, "start", None)
+    known = _known()
+    try:
+        first = data.load(etf).index[0] if etf in known else None
+    except Exception:  # noqa: BLE001
+        first = None
+    use = etf
+    if start and (first is None or str(first.date()) > str(start)[:10]):
+        for sim, proxy in SIM_FOR.get(etf, []):
+            if sim in known:
+                swaps.append(f"{sim} for {etf}" + (f" ({proxy})" if proxy else ""))
+                return sim
+        if first is not None:
+            late.append(f"{etf} (from {first.date()})")
+    if use not in known:
+        raise ParseError(f"This model needs {etf}, which has no price data here.")
+    return use
+
+
+def _history_notes(name: str, swaps: list, late: list, etfs: list, notes: list[str]) -> None:
+    start = getattr(_TL, "start", None)
+    known = _known()
+    if swaps:
+        notes.append(f"Start {str(start)[:10]} is before some of the funds existed: using the long-history series "
+                     + "; ".join(swaps) + ".")
+    if late:
+        notes.append("No long-history series for " + ", ".join(late) + ": the backtest can only start once it has data.")
+    if not start and any(any(sim in known for sim, _ in SIM_FOR.get(e, [])) for e in etfs):
+        notes.append(f"{name} uses the ETFs; add e.g. 'since 1973' to extend it back with the simulated long-history series.")
+
+
+# Named tactical models (Portfolio Visualizer's "Tactical Asset Allocation" models):
+# Faber's GTAA / Ivy timing: 5 asset classes in equal shares, each held only while its month-end price is above its
+# 10-month simple moving average, otherwise that fifth in cash (T-bills).
+GTAA_SLEEVES = [("SPY", "US stocks (S&P 500)"), ("EFA", "developed ex-US stocks (MSCI EAFE)"),
+                ("IEF", "intermediate Treasuries (7-10 year)"), ("VNQ", "US REITs"), ("DBC", "commodities")]
+GTAA_RX = (r"(?:the )?(?:(?:meb )?faber'?s?(?: gtaa| ivy(?: portfolio)?(?: timing| with timing)?| tactical asset allocation"
+           r"| global tactical asset allocation| timing model| 10[- ]month (?:sma|moving average) (?:timing|model))"
+           r"|gtaa(?:[- ]?5)?|global tactical asset allocation(?: 5)?|ivy(?: portfolio)? (?:timing|with timing)|timed ivy(?: portfolio)?)"
+           r"(?: model| portfolio| strategy| timing model)?")
+# Antonacci's Global Equities Momentum: when US stocks' 12-month total return beats T-bills', hold the better of US and
+# ex-US stocks over those 12 months; otherwise aggregate bonds.
+GEM_RX = (r"(?:the )?(?:(?:gary )?antonacci'?s?(?: gem| global equit(?:y|ies) momentum| dual momentum(?: gem)?)"
+          r"|dual momentum gem|gem dual momentum|global equit(?:y|ies) momentum(?: \(?gem\)?)?|gem)"
+          r"(?: model| portfolio| strategy)?")
+
+
+def _tactical_model(text: str, notes: list[str]) -> dict | None:
+    """'GTAA', 'Faber GTAA', 'Ivy timing' -> the 5-sleeve 10-month moving-average timing model; 'Antonacci GEM',
+    'global equities momentum', 'dual momentum GEM' -> Global Equities Momentum. The funds are swapped for their
+    long-history series when the backtest starts before they existed."""
+    s = " ".join(text.strip().lower().split())
+    if re.fullmatch(GTAA_RX, s):
+        swaps, late = [], []
+        kids = []
+        for etf, _ in GTAA_SLEEVES:
+            tk = _long_history(etf, swaps, late)
+            on, rule = _condition_on(f"{tk} is above its 10 month moving average", tk)
+            kids.append({"if": rule, "on": on, "then": {"asset": tk}, "else": {"cash": True}})
+        _TL.tactical = "GTAA (Faber)"
+        notes.append("GTAA / Ivy timing (Mebane Faber, 'A Quantitative Approach to Tactical Asset Allocation', 2007): "
+                     + ", ".join(f"{etf} ({about})" for etf, about in GTAA_SLEEVES)
+                     + f", a fifth each; each sleeve is held only while its price is above its 10-month simple moving "
+                       f"average of month-end prices (`{kids[0]['if']}` on {kids[0]['on']}), otherwise that fifth is in "
+                       "cash (T-bills). Checked monthly unless you say otherwise.")
+        _history_notes("GTAA", swaps, late, [e for e, _ in GTAA_SLEEVES], notes)
+        return {"weights": "equal", "children": kids}
+    if re.fullmatch(GEM_RX, s):
+        swaps, late = [], []
+        us, intl, bonds = (_long_history(e, swaps, late) for e in ("SPY", "VEU", "AGG"))
+        n = _period(12, "month")
+        _TL.tactical = "Global Equities Momentum (Antonacci)"
+        notes.append(f"Global Equities Momentum (Gary Antonacci, 'Dual Momentum Investing', 2014): when US stocks ({us}) "
+                     f"returned more than T-bills over the last 12 months (`tret({n}) > tbill_ret({n})` on {us}), hold the "
+                     f"better of US ({us}) and ex-US stocks ({intl}) by 12-month total return; otherwise aggregate bonds "
+                     f"({bonds}). Checked monthly unless you say otherwise.")
+        _history_notes("GEM", swaps, late, ["SPY", "VEU", "AGG"], notes)
+        return {"if": f"tret({n}) > tbill_ret({n})", "on": us,
+                "then": {"filter": {"select": "top", "n": 1, "by": f"tret({n})"}, "universe": "children",
+                         "children": [{"asset": us}, {"asset": intl}]},
+                "else": {"asset": bonds}}
+    return None
+
+
 # Portfolio Visualizer's asset-class names, read after a weight ("40% US stock market, 20% international
 # stocks, 40% total bond"): (phrase regex, series to use - the first with data wins, fund last -, label).
 # The long-history series are the named fund once it (or its mutual-fund twin) exists, so an asset class
@@ -2758,8 +2844,16 @@ def common_options(T: Text, notes: list[str]) -> dict:
     m = T.find(r"\b(?:compared? (?:it )?(?:to|with|against)|benchmark(?:ed)?(?: it)?(?: (?:to|against|with))?|versus|vs\.?|against) "
                r"(?:an? |the )?(?:(?P<ws>\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)+) (?P<ts>" + BT + r"(?:/" + BT + r")+)"
                r"|(?P<list>\d+(?:\.\d+)?% " + BT + r"(?:(?:,? and |, ?| ?/ ?| plus | )\d+(?:\.\d+)?% " + BT + r")+))"
-               r"(?: blend| mix| portfolio)?(?![\w-])")
+               r"(?: blend| mix| portfolio)?"
+               # its own schedule: "vs 60/40 SPY/AGG rebalanced monthly" (else the portfolio's, or monthly)
+               r"(?:,? (?:(?:re-?balanced|re-?balancing) (?P<brb>daily|weekly|monthly|quarterly|semi-?annually|annually|yearly)"
+               r"|(?P<bnone>never re-?balanced|not re-?balanced|buy and hold|buy-and-hold)))?(?![\w-])")
     if m:
+        if m.group("brb"):
+            w_ = m.group("brb").lower().replace("-", "")
+            kw["benchmark_rebalance"] = {"annually": "yearly", "semiannually": "semiannual"}.get(w_, w_)
+        elif m.group("bnone"):
+            kw["benchmark_rebalance"] = "none"
         if m.group("ws"):
             ws, ts = m.group("ws").split("/"), m.group("ts").split("/")
             if len(ws) != len(ts):
@@ -2774,7 +2868,9 @@ def common_options(T: Text, notes: list[str]) -> dict:
         if abs(sum(w for _, w in pairs) - 100) > 1e-6:
             raise ParseError(f"'{m.group(0).strip()}': the benchmark weights add up to {sum(w for _, w in pairs):g}%, not 100%.")
         kw["benchmark"] = " ".join(f"{w:g} {t}" for t, w in pairs)
-        notes.append(f"Benchmark: a blend of {' / '.join(f'{w:g}% {t}' for t, w in pairs)}, total returns, rebalanced monthly.")
+        notes.append(f"Benchmark: a blend of {' / '.join(f'{w:g}% {t}' for t, w in pairs)}, total returns"
+                     + {None: "", "none": ", never rebalanced (buy and hold)"}.get(
+                         kw.get("benchmark_rebalance"), f", rebalanced {kw.get('benchmark_rebalance')}") + ".")
     m = None if "benchmark" in kw else T.find(r"\b(?:compared? (?:it )?(?:to|with|against)|benchmark(?:ed)?(?: it)?(?: (?:to|against))?|versus|vs\.?|against) "
                r"(?!(?:t-?bills?|cash|treasury bills|the risk[- ]free rate)\b)(" + BT + r")(?![\w-])")
     if m:
@@ -2811,6 +2907,14 @@ SIGNAL_HINT = re.compile(
     r"\bshort\b|days? in a row|\bbuy\b[^,]*\b(?:when|if|after|once)\b)", re.I)
 
 
+def _blend_bench(b) -> bool:
+    from . import metrics as _metrics
+    try:
+        return _metrics.parse_blend(b) is not None
+    except ValueError:
+        return False
+
+
 BLEND_BENCH_RX = (r"(?i),?\s*\b(?:compared? (?:it )?(?:to|with|against)|benchmark(?:ed)?(?: it)?(?: (?:to|against|with))?|"
                   r"versus|vs\.?|against) (?:an? |the )?(?:\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)+ \S+|"
                   r"\d+(?:\.\d+)?% \S+(?:(?:,? and |, ?| ?/ ?| plus | )\d+(?:\.\d+)?% [\w^$-]+)+)(?: blend| mix| portfolio)?")
@@ -2845,6 +2949,9 @@ def looks_like_allocation(text: str) -> bool:
             or (re.search(r"(?i)\b(?:hold|own|be in)\b", t) and not SIGNAL_HINT.search(t))):
         return True
     if re.match(rf"(?i)\s*(?:(?:hold|own|buy and hold|backtest|test|run|invest in) )?{MODEL_RX}(?![\w/])", t):
+        return True
+    # named tactical models: GTAA / Ivy timing, Antonacci's GEM
+    if re.match(rf"(?i)\s*(?:(?:hold|own|backtest|test|run|invest in|use|follow) )?(?:{GTAA_RX}|{GEM_RX})(?![\w/])", t):
         return True
     if not ALLOC_HINT.search(t):
         return False
@@ -4088,6 +4195,14 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
             cur = set(data.current_members())
             universe = [t for t in universe if t in cur]
     benchmark = kw.pop("benchmark", None)
+    brb = kw.pop("benchmark_rebalance", None)
+    if brb not in (None, "monthly"):
+        raise ParseError("A blended benchmark of a trading strategy is rebalanced monthly; its schedule can be chosen for "
+                         "portfolios (e.g. 'hold 60% SPY and 40% AGG, rebalance yearly, vs 60/40 SPY/AGG rebalanced "
+                         "quarterly').")
+    for i_, n_ in enumerate(notes):
+        if n_.startswith("Benchmark: a blend of ") and n_.endswith("total returns."):
+            notes[i_] = n_[:-1] + ", rebalanced monthly."
 
     stop_phrase = ex.pop("_stop_phrase", None)
     trail_phrase = ex.pop("_trail_phrase", None)
@@ -4700,6 +4815,9 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     cm = _cape_model(s, notes)
     if cm:
         return cm
+    tm = _tactical_model(s, notes)
+    if tm:
+        return tm
     mp = _model_portfolio(s, notes)
     if mp:
         return mp
@@ -5274,7 +5392,7 @@ def _portfolio_phrases(t: str, notes: list[str]) -> str:
 
     def weighted(m):
         parts = re.findall(r"(\d+) " + _LB_UNIT + r"(?: (?:total )?(?:returns?|momentum|performance))? (?:weighted|at|with a weight of) "
-                           r"(\d+(?:\.\d+)?)%", m.group(0))
+                           r"(\d+(?:\.\d+)?)%", m.group("items"))
         if len(parts) < 2:
             return m.group(0)
         ws = [float(x) for _, _, x in parts]
@@ -5283,14 +5401,26 @@ def _portfolio_phrases(t: str, notes: list[str]) -> str:
         ns = [_period(n, u) for n, u, _ in parts]
         if len(set(ns)) < len(ns):
             raise ParseError(f"'{m.group(0).strip()}': give different lookbacks.")
-        rule = " + ".join(f"{w / 100:g} * tret(tr, {n})" for w, n in zip(ws, ns))
-        notes.append(f"'{m.group(0).strip()}' = the weighted average of the total returns: "
+        lag = 0
+        if m.group("skip"):
+            # "..., skipping the last month": every lookback ends that long ago (as '12 month return skipping the last month')
+            k = m.group("sk_n")
+            lag = _period(k if k and k.isdigit() else "1", m.group("sk_u"))
+            if not 0 < lag < min(ns):
+                raise ParseError(f"'{m.group(0).strip()}': the skipped period must be shorter than every lookback.")
+        rule = " + ".join(f"{w / 100:g} * tret(tr, {n - lag})" for w, n in zip(ws, ns))
+        if lag:
+            rule = f"ref({rule}, {lag})"
+        notes.append(f"'{m.group(0).strip(' ,')}' = the weighted average of the total returns: "
                      + ", ".join(f"{w:g}% x {n_} {u}" for w, (n_, u, _) in zip(ws, parts))
+                     + (f", each ending {lag} trading days ago (the most recent {lag} days left out)" if lag else "")
                      + f" (`{rule}`; month lookbacks follow the portfolio's month convention: 21 trading days a month, "
                      "or month-end to month-end with 'using calendar months').")
         return f"`{rule}`"
     item = r"\d+ " + _LB_UNIT + r"(?: (?:total )?(?:returns?|momentum|performance))? (?:weighted|at|with a weight of) \d+(?:\.\d+)?%"
-    t = _sub_outside(r"(?i)" + item + r"(?:(?:,\s*(?:and\s+)?|\s+and\s+|\s+plus\s+)" + item + r")+", weighted, t)
+    skip = (r"(?P<skip>,? (?:skipping|skip|excluding|exclude|except(?: for)?|ignoring|leaving out|lagged by) (?:the )?"
+            r"(?:last |latest |most recent |recent |past |final )?(?:(?P<sk_n>\d+|one|a) )?(?P<sk_u>day|week|month)s?)?")
+    t = _sub_outside(r"(?i)(?P<items>" + item + r"(?:(?:,\s*(?:and\s+)?|\s+and\s+|\s+plus\s+)" + item + r")+)" + skip, weighted, t)
     return t
 
 
@@ -5380,6 +5510,7 @@ def parse_allocation(text: str) -> Portfolio:
     kw = common_options(T, notes)
     kw.update(broker)
     benchmark = kw.pop("benchmark", None)
+    bench_rb = kw.pop("benchmark_rebalance", None)
     if "commission_per_share" in kw:
         raise ParseError("Per-share commissions are not supported for allocation portfolios; use '$1 per trade' or '0.1% commission'.")
     pk: dict = {k: v for k, v in kw.items() if k in ("capital", "slippage_bps", "commission", "commission_pct", "start", "end", "cash_rate", "point_in_time",
@@ -5460,10 +5591,12 @@ def parse_allocation(text: str) -> Portfolio:
                # "rebalance when drift exceeds 5%", "rebalance at 5% drift", "rebalance if the drift is more than 5%"
                r"|,? ?(?:(?:and|or) )?(?:re-?balanc\w* )?(?:only )?(?:(?:when(?:ever)?|if) (?:the )?(?:portfolio |weight |allocation )?drift "
                r"(?:exceeds|is (?:more than|over|above|greater than|bigger than)|goes (?:over|above)|gets (?:over|above)|>=?|reaches|hits) "
-               r"|at (?:a )?(?=\d+(?:\.\d+)?% (?:portfolio |weight )?drift))(?P<n3>\d+(?:\.\d+)?)%(?: (?:portfolio |weight )?drift)?")
+               r"|at (?:a )?(?=\d+(?:\.\d+)?% (?:relative )?(?:portfolio |weight )?drift))(?P<n3>\d+(?:\.\d+)?)%"
+               r"(?P<rel3> relative(?: to (?:its |their |the )?targets?(?: weights?)?)?| of (?:its |their |the )?targets?(?: weights?)?)?"
+               r"(?: (?:portfolio |weight )?drift)?")
     if m or band_pre:
         amount = float(m.group("n1") or m.group("n2") or m.group("n3")) / 100 if m else band_pre[0]
-        if (m and (m.group("rel1") or m.group("rel2"))) or (not m and band_pre[1]):
+        if (m and (m.group("rel1") or m.group("rel2") or m.group("rel3"))) or (not m and band_pre[1]):
             band_rel = amount
             notes.append(f"Relative drift band: rebalance when a holding's weight is off its target by more than {amount:.0%} "
                          f"of that target (e.g. a 40% target outside {0.4 * (1 - amount):.0%}-{0.4 * (1 + amount):.0%}).")
@@ -5526,11 +5659,23 @@ def parse_allocation(text: str) -> Portfolio:
     if m:
         extra["short_rebate_spread"] = (float(m.group(1)) / 100 if m.group(1)
                                         else (0.99 if "no" in m.group(0).lower().split() else 0.0))   # 0.99: above any rate
-    m = T.find(rf",? ?(?:(?:with|and) )?(?:an? )?(?:expense ratio|annual fee|management fee|fee) of {NUM}%(?: (?:a|per) year)?|,? ?(?:with |and )?(?:an? )?{NUM}% (?:expense ratio|annual fee|management fee|fee)(?: (?:a|per) year)?")
+    m = T.find(rf",? ?(?:(?:with|and) )?(?:an? )?(?:expense ratio|annual fee|management fee|fee)(?: of| is| at|:|=)? {NUM}%(?: (?:a|per) year)?|,? ?(?:with |and )?(?:an? )?{NUM}% (?:expense ratio|annual fee|management fee|fee)(?: (?:a|per) year)?")
     if m:
         extra["expense_ratio"] = float(m.group(1) or m.group(2)) / 100
-    m = T.find(rf",? ?(?:(?:with|and|paying) )?(?:a )?margin (?:rate|interest|spread)(?: of|:)? {NUM}%(?: above (?:t-?bills|the t-?bill rate))?"
-               rf"|,? ?(?:(?:with|and|paying) )?(?:an? )?{NUM}% margin (?:rate|interest|spread)")
+    FF = r"(?:the )?(?:effective )?(?:fed(?:eral)?[- ]funds?|ffr|fed)(?: (?:effective )?rate)?"
+    TB = r"(?:the )?(?:3[- ]month )?(?:t-?bills?|treasury bills?)(?: rate)?"
+    m = T.find(rf",? ?(?:(?:with|and|paying) )?(?:a )?margin (?:rate|interest)(?: of| at| is|:|=)? (?P<base>{FF}|{TB}) ?(?:plus|\+|over|above) ?{NUM}%"
+               rf"|,? ?(?:(?:with|and|paying) )?(?:a )?margin (?:rate|interest|spread)(?: of| at| is|:|=)? {NUM}% (?:above|over|plus) (?P<base2>{FF}|{TB})")
+    if m:
+        extra["margin_rate"] = float(m.group(2) or m.group(4)) / 100
+        if re.search(r"(?i)fed|ffr", m.group("base") or m.group("base2") or ""):
+            notes.append(f"Margin rate: fed funds + {extra['margin_rate']:.2%}. The data has no fed funds series, so the "
+                         "3-month T-bill rate stands in for it (the effective fed funds rate has run about 0.1% above "
+                         "T-bills since 2009 and about 0.3-1% above them in earlier decades): borrowed cash pays T-bills + "
+                         f"{extra['margin_rate']:.2%}; add the gap to the spread for a closer match.")
+    m = None if "margin_rate" in extra else T.find(
+        rf",? ?(?:(?:with|and|paying) )?(?:a )?margin (?:rate|interest|spread)(?: of|:)? {NUM}%(?: above (?:t-?bills|the t-?bill rate))?"
+        rf"|,? ?(?:(?:with|and|paying) )?(?:an? )?{NUM}% margin (?:rate|interest|spread)")
     if m:
         extra["margin_rate"] = float(m.group(1) or m.group(2)) / 100
     mrot = re.search(r"\b(?:rotate|switch)\w* (daily|weekly|monthly|quarterly|annually|yearly)\b", T.rest, re.I)
@@ -5631,6 +5776,17 @@ def parse_allocation(text: str) -> Portfolio:
     if any(re.search(r"\btret\(", r) for r in _rules(tree)):
         notes.append("Returns in the conditions are total returns (dividends reinvested, from adjusted prices).")
     p.benchmark = benchmark
+    if bench_rb:
+        p.benchmark_rebalance = bench_rb
+    elif benchmark and _blend_bench(benchmark):
+        # a blend without its own schedule follows the portfolio's (report.blend_rebalance): say which
+        from .report import blend_rebalance, _rebalance_words
+        rb_, why_ = blend_rebalance(p)
+        for i_, n_ in enumerate(notes):
+            if n_.startswith("Benchmark: a blend of ") and n_.endswith("total returns."):
+                notes[i_] = n_[:-1] + f", {_rebalance_words(rb_)}" + (
+                    " like the portfolio (say e.g. 'vs 60/40 SPY/AGG rebalanced monthly' for another schedule)."
+                    if why_ == "the portfolio's schedule" else ".")
     if want_proxies:
         p.proxies = _proxies_before_inception(tree, pk.get("start"), notes) or None
     if _has(tree, "filter", universe="NDX") and p.point_in_time:
