@@ -390,6 +390,8 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, 
     mvar95 = -np.percentile(mr, 5) if len(mr) > 12 else np.nan
     mcvar95 = -mr[mr <= np.percentile(mr, 5)].mean() if len(mr) > 12 else np.nan
     gains, losses = r[r > 0].sum(), -r[r < 0].sum()
+    # days in the market: moving by more than interest could (4x a T-bill day covers a long weekend; >= 0.001%)
+    active = (r.abs() > np.maximum(4 * rf_daily(r.index, "tbill").abs().to_numpy(), 1e-5)) if len(r) else r.astype(bool)
     real = np.nan
     c = data.cpi()
     if not c.empty and years > 0:
@@ -429,7 +431,10 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, 
         "worst_month": mr.min() if len(mr) else np.nan,
         "best_year": yret.max() if len(yret) else np.nan,
         "worst_year": yret.min() if len(yret) else np.nan,
-        "pct_positive_days": (r > 0).mean() if len(r) else np.nan,
+        # share of up days among the days the equity moved by more than cash interest could explain (a strategy
+        # mostly in cash earns interest every day: counting those days would read ~99% positive)
+        "pct_positive_days": (r[active] > 0).mean() if active.any() else np.nan,
+        "active_days": float(active.mean()) if len(r) else np.nan,
         "pct_positive_months": (mr > 0).mean() if len(mr) else np.nan,
         "var_95_daily": var95,
         "cvar_95_daily": cvar95,
