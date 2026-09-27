@@ -1,5 +1,3 @@
 # Tickers the site or the CLI was asked for that had no price data yet (one per line; '#' starts a comment).
 # The 'Fetch price data' workflow downloads these FIRST, then moves each into its regular refresh.
 # Push this file (or run the workflow) to fetch them now; otherwise the next daily run does.
-F  # Ford: an S&P 500 member parked by the rate-limited run of 2026-09-27
-LLPFX  # Longleaf Partners (reviewer example)

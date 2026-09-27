@@ -226,7 +226,8 @@
   "first_date": "1989-09-20",
   "rows": 9284,
   "member_months": "2004-03..2011-12",
-  "source": "intrader+stell0+bdi"
+  "source": "intrader+stell0+bdi",
+  "reason": "symbol changed to EA"
  },
  "ESRX": {
   "last_date": "2018-12-20",
@@ -351,7 +352,8 @@
   "first_date": "2006-05-10",
   "rows": 4628,
   "member_months": "2006-11..2014-11",
-  "source": "intrader"
+  "source": "intrader",
+  "reason": "symbol changed to QRTEA"
  },
  "LLTC": {
   "last_date": "2017-03-10",
@@ -587,7 +589,8 @@
   "first_date": "1992-01-23",
   "rows": 6449,
   "member_months": "2004-03..2011-05",
-  "source": "bdi+intrader"
+  "source": "bdi+intrader",
+  "reason": "symbol changed to WFM"
  },
  "XLNX": {
   "last_date": "2022-02-11",

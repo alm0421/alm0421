@@ -16,6 +16,20 @@
   }
  },
  "inferred": {
+  "ADMA": {
+   "2020-03-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.25,
+    "day_return_repaired": 0.027132,
+    "expected_from_reference": -0.036489,
+    "residual_sd": 0.04039,
+    "reference": "IBB",
+    "volume_ratio_after": null,
+    "why": "close 1.5 is 25% from the day before and 41% from the day after, which agree within 5.5%; replaced by their geometric mean 2.05426"
+   }
+  },
   "AEIS": {
    "1998-08-31": {
     "kind": "bad_tick",
@@ -28,6 +42,48 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "close 6.25 is 28% from the day before and 30% from the day after, which agree within 6.5%; replaced by their geometric mean 8.38642"
+   }
+  },
+  "AGX": {
+   "2003-01-03": {
+    "kind": "inferred_split",
+    "ratio": 0.5,
+    "applied": "recorded",
+    "day_return_in_file": 1.0,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.019644,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved +100.0% on 2003-01-03 with no split in the source data; a 1-for-2 split leaves -0.0% (no reference moves with it; its daily sd is 2.0%)"
+   }
+  },
+  "ALM": {
+   "2015-09-17": {
+    "kind": "inferred_split",
+    "ratio": 1.5,
+    "applied": "recorded",
+    "day_return_in_file": -0.349925,
+    "day_return_repaired": -0.024887,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.022486,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -35.0% on 2015-09-17 with no split in the source data; a 3-for-2 split leaves -2.5% (no reference moves with it; its daily sd is 2.2%)"
+   }
+  },
+  "ALTR": {
+   "1997-01-07": {
+    "kind": "inferred_split",
+    "ratio": 2.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.513291,
+    "day_return_repaired": -0.026582,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.038713,
+    "reference": null,
+    "volume_ratio_after": 1.4608,
+    "why": "the close moved -51.3% on 1997-01-07 with no split in the source data; a 2-for-1 split leaves -2.7% (no reference moves with it; its daily sd is 3.9%); volume x1.46 after"
    }
   },
   "AMKR": {
@@ -44,6 +100,20 @@
     "why": "close 3.9 is 30% from the day before and 34% from the day after, which agree within 7.7%; replaced by their geometric mean 5.4063"
    }
   },
+  "AROC": {
+   "2020-03-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.444444,
+    "day_return_repaired": -0.039125,
+    "expected_from_reference": -0.139455,
+    "residual_sd": 0.029241,
+    "reference": "XLE",
+    "volume_ratio_after": null,
+    "why": "close 2.1 is 44% from the day before and 66% from the day after, which agree within 8.3%; replaced by their geometric mean 3.63211"
+   }
+  },
   "ARWR": {
    "2002-01-18": {
     "kind": "bad_tick",
@@ -56,6 +126,70 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "close 16.25 is 67% from the day before and 40% from the day after, which agree within 0.0%; replaced by their geometric mean 9.75"
+   }
+  },
+  "ASTH": {
+   "2013-11-07": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 17.537037,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.11314,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 100.1 is 1754% from the day before and 95% from the day after, which agree within 0.0%; replaced by their geometric mean 5.4"
+   },
+   "2016-03-08": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.303136,
+    "day_return_repaired": 0.000871,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.043966,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 4 is 30% from the day before and 44% from the day after, which agree within 0.2%; replaced by their geometric mean 5.745"
+   },
+   "2016-11-02": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.368421,
+    "day_return_repaired": -0.026671,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.076482,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 3 is 37% from the day before and 50% from the day after, which agree within 5.6%; replaced by their geometric mean 4.62331"
+   }
+  },
+  "AYA": {
+   "2018-03-06": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.75,
+    "day_return_repaired": -0.018794,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.053993,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 0.47 is 75% from the day before and 285% from the day after, which agree within 3.9%; replaced by their geometric mean 1.84467"
+   },
+   "2021-03-05": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.61194,
+    "day_return_repaired": 0.029418,
+    "expected_from_reference": -0.009342,
+    "residual_sd": 0.041459,
+    "reference": "SLV",
+    "volume_ratio_after": null,
+    "why": "close 5.4 is 61% from the day before and 34% from the day after, which agree within 6.0%; replaced by their geometric mean 3.44855"
    }
   },
   "BBWI": {
@@ -84,6 +218,104 @@
     "why": "the close moved -50.4% on 1985-06-26 with no split in the source data; a 2-for-1 split leaves -0.8% (no reference moves with it; its daily sd is 2.2%); volume x3.86 after"
    }
   },
+  "BEN": {
+   "1984-12-31": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.597939,
+    "day_return_repaired": 0.005143,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.016977,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 0.048148 is 60% from the day before and 151% from the day after, which agree within 1.0%; replaced by their geometric mean 0.120369"
+   }
+  },
+  "BLFS": {
+   "2011-09-13": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.666667,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": -0.002645,
+    "residual_sd": 0.156151,
+    "reference": "GDXJ",
+    "volume_ratio_after": null,
+    "why": "close 0.28 is 67% from the day before and 200% from the day after, which agree within 0.0%; replaced by their geometric mean 0.84"
+   }
+  },
+  "BPTRX": {
+   "1998-08-31": {
+    "kind": "inferred_split",
+    "ratio": 1.5,
+    "applied": "recorded",
+    "day_return_in_file": -0.341004,
+    "day_return_repaired": -0.011506,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.019782,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -34.1% on 1998-08-31 with no split in the source data; a 3-for-2 split leaves -1.2% (no reference moves with it; its daily sd is 2.0%)"
+   }
+  },
+  "BRO": {
+   "1983-03-24": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.5,
+    "day_return_repaired": 0.006231,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.017022,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 0.222222 is 50% from the day before and 32% from the day after, which agree within 1.3%; replaced by their geometric mean 0.149071"
+   }
+  },
+  "BSCFX": {
+   "2010-01-04": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.203531,
+    "day_return_repaired": 0.008788,
+    "expected_from_reference": 0.019201,
+    "residual_sd": 0.003247,
+    "reference": "IWM",
+    "volume_ratio_after": null,
+    "why": "close 15.34 is 20% from the day before and 28% from the day after, which agree within 1.8%; replaced by their geometric mean 19.4293"
+   }
+  },
+  "BSFIX": {
+   "2010-01-04": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.203733,
+    "day_return_repaired": 0.008774,
+    "expected_from_reference": 0.019167,
+    "residual_sd": 0.003255,
+    "reference": "IWM",
+    "volume_ratio_after": null,
+    "why": "close 15.36 is 20% from the day before and 28% from the day after, which agree within 1.8%; replaced by their geometric mean 19.4593"
+   }
+  },
+  "CFIMX": {
+   "2025-05-12": {
+    "kind": "unapplied_split",
+    "ratio": 10.0,
+    "applied": "applied",
+    "day_return_in_file": -0.896314,
+    "day_return_repaired": 0.036856,
+    "expected_from_reference": 0.028437,
+    "residual_sd": 0.008645,
+    "reference": "SPY",
+    "volume_ratio_after": null,
+    "why": "a 10-for-1 split is booked on 2025-05-12 but the prices were never adjusted for it: earlier prices back-adjusted"
+   }
+  },
   "CHCO": {
    "1987-10-02": {
     "kind": "bad_tick",
@@ -96,6 +328,70 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "close 23.0403 is 50% from the day before and 30% from the day after, which agree within 4.3%; replaced by their geometric mean 15.6905"
+   },
+   "1989-01-03": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.5,
+    "day_return_repaired": -0.012123,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 23.6664..23.6664, x1.5 or more away from the closes around them (15.7776 and 15.0263, which agree within 4.8%): quotes that never traded, replaced by the path between those closes; the 3-for-2 split booked on 1989-01-03 with it is dropped"
+   },
+   "1989-01-04": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": -0.012123,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 23.6664..23.6664, x1.5 or more away from the closes around them (15.7776 and 15.0263, which agree within 4.8%): quotes that never traded, replaced by the path between those closes; the 3-for-2 split booked on 1989-01-03 with it is dropped"
+   },
+   "1989-01-05": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": -0.012123,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 23.6664..23.6664, x1.5 or more away from the closes around them (15.7776 and 15.0263, which agree within 4.8%): quotes that never traded, replaced by the path between those closes; the 3-for-2 split booked on 1989-01-03 with it is dropped"
+   }
+  },
+  "CIG": {
+   "1998-05-13": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.378572,
+    "day_return_repaired": -0.02532,
+    "expected_from_reference": 0.003855,
+    "residual_sd": 0.031146,
+    "reference": "SPY",
+    "volume_ratio_after": null,
+    "why": "close 9.1253 is 38% from the day before and 31% from the day after, which agree within 5.3%; replaced by their geometric mean 6.45178"
+   }
+  },
+  "CMCSK": {
+   "2004-08-02": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.304248,
+    "day_return_repaired": 0.023237,
+    "expected_from_reference": -0.001561,
+    "residual_sd": 0.015415,
+    "reference": "IWM",
+    "volume_ratio_after": null,
+    "why": "close 12.431 is 30% from the day before and 50% from the day after, which agree within 4.7%; replaced by their geometric mean 18.2822"
    }
   },
   "CPER": {
@@ -188,18 +484,18 @@
     "why": "close 0.0062 is 69% from the day before and 255% from the day after, which agree within 10.0%; replaced by their geometric mean 0.0209762"
    }
   },
-  "DCMSX": {
-   "2021-12-15": {
-    "kind": "inferred_split",
-    "ratio": 1.5,
-    "applied": "recorded",
-    "day_return_in_file": -0.324444,
-    "day_return_repaired": 0.013333,
-    "expected_from_reference": 0.003193,
-    "residual_sd": 0.005378,
-    "reference": "DBC",
+  "DAC": {
+   "2012-08-01": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.397022,
+    "day_return_repaired": 0.012331,
+    "expected_from_reference": 0.003888,
+    "residual_sd": 0.030103,
+    "reference": "XLE",
     "volume_ratio_after": null,
-    "why": "the close moved -32.4% on 2021-12-15 with no split in the source data; a 3-for-2 split leaves +1.3%, in line with DBC (+0.3% expected, residual sd 0.5%)"
+    "why": "close 34.02 is 40% from the day before and 70% from the day after, which agree within 2.5%; replaced by their geometric mean 57.1157"
    }
   },
   "DFEN": {
@@ -214,6 +510,20 @@
     "reference": "XLI",
     "volume_ratio_after": null,
     "why": "close 10.17 is 64% from the day before and 184% from the day after, which agree within 1.3%; replaced by their geometric mean 28.7444"
+   }
+  },
+  "DNTH": {
+   "2020-03-17": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.387727,
+    "day_return_repaired": -0.014753,
+    "expected_from_reference": 0.042764,
+    "residual_sd": 0.043713,
+    "reference": "XBI",
+    "volume_ratio_after": null,
+    "why": "close 159.2 is 39% from the day before and 30% from the day after, which agree within 3.0%; replaced by their geometric mean 113.028"
    }
   },
   "DORM": {
@@ -258,6 +568,96 @@
     "why": "close 5.13 is 25% from the day before and 27% from the day after, which agree within 5.1%; replaced by their geometric mean 6.65295"
    }
   },
+  "ERIC": {
+   "1982-10-07": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.499994,
+    "day_return_repaired": -0.001627,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 1.20312..1.20312, x1.5 or more away from the closes around them (0.802083 and 0.796875, which agree within 0.6%): quotes that never traded, replaced by the path between those closes; the 3-for-2 split booked on 1982-10-07 with it is dropped"
+   },
+   "1982-10-08": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": -0.001627,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 1.20312..1.20312, x1.5 or more away from the closes around them (0.802083 and 0.796875, which agree within 0.6%): quotes that never traded, replaced by the path between those closes; the 3-for-2 split booked on 1982-10-07 with it is dropped"
+   },
+   "1982-10-11": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": -0.001627,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 1.20312..1.20312, x1.5 or more away from the closes around them (0.802083 and 0.796875, which agree within 0.6%): quotes that never traded, replaced by the path between those closes; the 3-for-2 split booked on 1982-10-07 with it is dropped"
+   }
+  },
+  "ERICY": {
+   "1982-10-07": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.499994,
+    "day_return_repaired": -0.001627,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 1.20312..1.20312, x1.5 or more away from the closes around them (0.802083 and 0.796875, which agree within 0.6%): quotes that never traded, replaced by the path between those closes; the 3-for-2 split booked on 1982-10-07 with it is dropped"
+   },
+   "1982-10-08": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": -0.001627,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 1.20312..1.20312, x1.5 or more away from the closes around them (0.802083 and 0.796875, which agree within 0.6%): quotes that never traded, replaced by the path between those closes; the 3-for-2 split booked on 1982-10-07 with it is dropped"
+   },
+   "1982-10-11": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": -0.001627,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 1.20312..1.20312, x1.5 or more away from the closes around them (0.802083 and 0.796875, which agree within 0.6%): quotes that never traded, replaced by the path between those closes; the 3-for-2 split booked on 1982-10-07 with it is dropped"
+   }
+  },
+  "ESQ": {
+   "2020-03-17": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.296469,
+    "day_return_repaired": -0.011391,
+    "expected_from_reference": 0.028654,
+    "residual_sd": 0.020492,
+    "reference": "IWM",
+    "volume_ratio_after": null,
+    "why": "close 19.46 is 30% from the day before and 25% from the day after, which agree within 2.3%; replaced by their geometric mean 14.839"
+   }
+  },
   "FER": {
    "2020-03-13": {
     "kind": "bad_tick",
@@ -286,6 +686,48 @@
     "why": "the close moved -33.2% on 1981-04-27 with no split in the source data; a 3-for-2 split leaves +0.2% (no reference moves with it; its daily sd is 2.1%)"
    }
   },
+  "FMBH": {
+   "2008-12-11": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.306667,
+    "day_return_repaired": -0.020204,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.024162,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 13 is 31% from the day before and 38% from the day after, which agree within 4.2%; replaced by their geometric mean 18.3712"
+   }
+  },
+  "GRC": {
+   "1981-05-06": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.5,
+    "day_return_repaired": 0.00226,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.011421,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 2.68212 is 50% from the day before and 33% from the day after, which agree within 0.5%; replaced by their geometric mean 1.79212"
+   }
+  },
+  "GSAT": {
+   "2008-12-10": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 1.043478,
+    "day_return_repaired": 0.021508,
+    "expected_from_reference": -0.011307,
+    "residual_sd": 0.081577,
+    "reference": "XLF",
+    "volume_ratio_after": null,
+    "why": "close 7.05 is 104% from the day before and 49% from the day after, which agree within 4.3%; replaced by their geometric mean 3.5242"
+   }
+  },
   "HOOD": {
    "2021-08-04": {
     "kind": "bad_tick",
@@ -300,20 +742,6 @@
     "why": "close 70.39 is 50% from the day before and 28% from the day after, which agree within 8.9%; replaced by their geometric mean 48.8405"
    }
   },
-  "HTLD": {
-   "2002-02-20": {
-    "kind": "inferred_split",
-    "ratio": 1.5,
-    "applied": "recorded",
-    "day_return_in_file": -0.318813,
-    "day_return_repaired": 0.02178,
-    "expected_from_reference": 0.013258,
-    "residual_sd": 0.023023,
-    "reference": "XLY",
-    "volume_ratio_after": 1.9336,
-    "why": "the close moved -31.9% on 2002-02-20 with no split in the source data; a 3-for-2 split leaves +2.2%, in line with XLY (+1.3% expected, residual sd 2.3%); volume x1.93 after"
-   }
-  },
   "INDB": {
    "1987-10-01": {
     "kind": "phantom_split",
@@ -326,6 +754,84 @@
     "reference": null,
     "volume_ratio_after": 0.2424,
     "why": "a 3-for-2 split is booked on 1987-10-01 but the prices already moved by it (the earlier prices were adjusted for a split that did not happen then): split dropped, earlier prices restored"
+   }
+  },
+  "INDV": {
+   "2022-11-23": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.840648,
+    "day_return_repaired": 0.023021,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 3.13..3.13, x6.28 or more away from the closes around them (19.642 and 21.03, which agree within 7.1%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2022-11-25": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": 0.023021,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 3.13..3.13, x6.28 or more away from the closes around them (19.642 and 21.03, which agree within 7.1%): quotes that never traded, replaced by the path between those closes"
+   }
+  },
+  "IOVA": {
+   "2012-08-02": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.576923,
+    "day_return_repaired": -0.019419,
+    "expected_from_reference": 0.008884,
+    "residual_sd": 0.12897,
+    "reference": "LQD",
+    "volume_ratio_after": null,
+    "why": "close 33 is 58% from the day before and 127% from the day after, which agree within 4.0%; replaced by their geometric mean 76.4853"
+   }
+  },
+  "IPAR": {
+   "1990-08-03": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.6,
+    "day_return_repaired": -0.019812,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 0.160494..0.160494, x2.31 or more away from the closes around them (0.401235 and 0.37037, which agree within 7.7%): quotes that never traded, replaced by the path between those closes; the 2-for-5 split booked on 1990-08-03 with it is dropped"
+   },
+   "1990-08-06": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": -0.019812,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 0.160494..0.160494, x2.31 or more away from the closes around them (0.401235 and 0.37037, which agree within 7.7%): quotes that never traded, replaced by the path between those closes; the 2-for-5 split booked on 1990-08-03 with it is dropped"
+   },
+   "1990-08-07": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": -0.019812,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 0.160494..0.160494, x2.31 or more away from the closes around them (0.401235 and 0.37037, which agree within 7.7%): quotes that never traded, replaced by the path between those closes; the 2-for-5 split booked on 1990-08-03 with it is dropped"
    }
   },
   "IVT": {
@@ -370,6 +876,44 @@
     "why": "close 15.9566 is 22% from the day before and 26% from the day after, which agree within 0.9%; replaced by their geometric mean 20.2449"
    }
   },
+  "MARA": {
+   "2012-06-01": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.25,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.040803,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 78 is 25% from the day before and 33% from the day after, which agree within 0.0%; replaced by their geometric mean 104"
+   },
+   "2012-06-25": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.484848,
+    "day_return_repaired": -0.046537,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.076743,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 53.04 is 48% from the day before and 76% from the day after, which agree within 10.0%; replaced by their geometric mean 98.1685"
+   },
+   "2012-09-10": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.71,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": -0.004961,
+    "residual_sd": 0.104754,
+    "reference": "XLY",
+    "volume_ratio_after": null,
+    "why": "close 30.16 is 71% from the day before and 245% from the day after, which agree within 0.0%; replaced by their geometric mean 104"
+   }
+  },
   "MAT": {
    "1976-10-29": {
     "kind": "bad_tick",
@@ -410,6 +954,62 @@
     "why": "the close moved -50.1% on 1969-06-13 with no split in the source data; a 2-for-1 split leaves -0.2% (no reference moves with it; its daily sd is 1.8%); volume x2.15 after"
    }
   },
+  "MFBFX": {
+   "1993-07-15": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.383562,
+    "day_return_repaired": 0.001027,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.002519,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 20.2 is 38% from the day before and 28% from the day after, which agree within 0.2%; replaced by their geometric mean 14.615"
+   }
+  },
+  "NGL": {
+   "2020-03-09": {
+    "kind": "inferred_split",
+    "ratio": 1.5,
+    "applied": "recorded",
+    "day_return_in_file": -0.453376,
+    "day_return_repaired": -0.180064,
+    "expected_from_reference": -0.183964,
+    "residual_sd": 0.027473,
+    "reference": "XOP",
+    "volume_ratio_after": 1.4325,
+    "why": "the close moved -45.3% on 2020-03-09 with no split in the source data; a 3-for-2 split leaves -18.0%, in line with XOP (-18.4% expected, residual sd 2.7%); volume x1.43 after"
+   }
+  },
+  "NMRK": {
+   "2020-03-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.454148,
+    "day_return_repaired": -0.0481,
+    "expected_from_reference": -0.096785,
+    "residual_sd": 0.027413,
+    "reference": "IWM",
+    "volume_ratio_after": null,
+    "why": "close 2.5 is 45% from the day before and 66% from the day after, which agree within 10.4%; replaced by their geometric mean 4.3597"
+   }
+  },
+  "NSSC": {
+   "2001-04-09": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.252631,
+    "day_return_repaired": 0.025978,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.039493,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 0.328704 is 25% from the day before and 41% from the day after, which agree within 5.3%; replaced by their geometric mean 0.451241"
+   }
+  },
   "NVDS": {
    "2023-08-09": {
     "kind": "phantom_split",
@@ -422,6 +1022,62 @@
     "reference": "NVDA",
     "volume_ratio_after": 17.1547,
     "why": "a 1-for-5 split is booked on 2023-08-09 but the prices already moved by it (the earlier prices were adjusted for a split that did not happen then): split dropped, earlier prices restored"
+   }
+  },
+  "NVGS": {
+   "2013-11-21": {
+    "kind": "inferred_split",
+    "ratio": 3.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.666667,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.014653,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -66.7% on 2013-11-21 with no split in the source data; a 3-for-1 split leaves +0.0% (no reference moves with it; its daily sd is 1.5%)"
+   }
+  },
+  "ODC": {
+   "1983-07-28": {
+    "kind": "phantom_split",
+    "ratio": 2.0,
+    "applied": "dropped",
+    "day_return_in_file": 1.0,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.017835,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "a 2-for-1 split is booked on 1983-07-28 but the prices already moved by it (the earlier prices were adjusted for a split that did not happen then): split dropped, earlier prices restored"
+   }
+  },
+  "ONB": {
+   "1986-07-21": {
+    "kind": "inferred_split",
+    "ratio": 2.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.496688,
+    "day_return_repaired": 0.006623,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.016187,
+    "reference": null,
+    "volume_ratio_after": 1.4707,
+    "why": "the close moved -49.7% on 1986-07-21 with no split in the source data; a 2-for-1 split leaves +0.7% (no reference moves with it; its daily sd is 1.6%); volume x1.47 after"
+   }
+  },
+  "OTPIX": {
+   "2024-10-14": {
+    "kind": "inferred_split",
+    "ratio": 4.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.747981,
+    "day_return_repaired": 0.008074,
+    "expected_from_reference": 0.008502,
+    "residual_sd": 0.00317,
+    "reference": "QQQ",
+    "volume_ratio_after": null,
+    "why": "the close moved -74.8% on 2024-10-14 with no split in the source data; a 4-for-1 split leaves +0.8%, in line with QQQ (+0.9% expected, residual sd 0.3%)"
    }
   },
   "PCRAX": {
@@ -438,6 +1094,20 @@
     "why": "the close moved +201.7% on 2023-03-27 with no split in the source data; a 1-for-3 split leaves +0.6%, in line with DBC (+1.5% expected, residual sd 1.0%)"
    }
   },
+  "PECO": {
+   "2021-07-06": {
+    "kind": "inferred_split",
+    "ratio": 0.333333,
+    "applied": "recorded",
+    "day_return_in_file": 2.0,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.036706,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved +200.0% on 2021-07-06 with no split in the source data; a 1-for-3 split leaves -0.0% (no reference moves with it; its daily sd is 3.7%)"
+   }
+  },
   "PGOVX": {
    "2023-03-27": {
     "kind": "inferred_split",
@@ -452,18 +1122,58 @@
     "why": "the close moved +292.2% on 2023-03-27 with no split in the source data; a 1-for-4 split leaves -2.0%, in line with TLT (-2.1% expected, residual sd 0.2%)"
    }
   },
-  "PRITX": {
-   "1987-12-18": {
-    "kind": "inferred_split",
-    "ratio": 1.5,
-    "applied": "recorded",
-    "day_return_in_file": -0.329268,
-    "day_return_repaired": 0.006098,
-    "expected_from_reference": 0.006004,
-    "residual_sd": 0.019058,
-    "reference": "AAPL",
+  "PLAB": {
+   "1988-07-13": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.280002,
+    "day_return_repaired": -0.020206,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.051488,
+    "reference": null,
     "volume_ratio_after": null,
-    "why": "the close moved -32.9% on 1987-12-18 with no split in the source data; a 3-for-2 split leaves +0.6%, in line with AAPL (+0.6% expected, residual sd 1.9%)"
+    "why": "close 0.75 is 28% from the day before and 33% from the day after, which agree within 4.2%; replaced by their geometric mean 1.02062"
+   }
+  },
+  "PPLI": {
+   "1994-09-08": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.803478,
+    "day_return_repaired": -0.010929,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.051327,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 3.14444 is 80% from the day before and 46% from the day after, which agree within 2.2%; replaced by their geometric mean 1.72449"
+   },
+   "1995-11-27": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.832151,
+    "day_return_repaired": 0.024692,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.054663,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 9.72222 is 83% from the day before and 43% from the day after, which agree within 5.0%; replaced by their geometric mean 5.43748"
+   }
+  },
+  "PRG": {
+   "2021-04-06": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.403577,
+    "day_return_repaired": -0.00287,
+    "expected_from_reference": -0.002296,
+    "residual_sd": 0.024464,
+    "reference": "IWM",
+    "volume_ratio_after": null,
+    "why": "close 26.01 is 40% from the day before and 67% from the day after, which agree within 0.6%; replaced by their geometric mean 43.4848"
    }
   },
   "PSLDX": {
@@ -480,6 +1190,138 @@
     "why": "the close moved +196.3% on 2023-03-27 with no split in the source data; a 1-for-3 split leaves -1.2%, in line with HYG (-0.5% expected, residual sd 0.9%)"
    }
   },
+  "PXTIX": {
+   "2023-03-27": {
+    "kind": "inferred_split",
+    "ratio": 0.333333,
+    "applied": "recorded",
+    "day_return_in_file": 2.028571,
+    "day_return_repaired": 0.009524,
+    "expected_from_reference": 0.006402,
+    "residual_sd": 0.010336,
+    "reference": "DIA",
+    "volume_ratio_after": null,
+    "why": "the close moved +202.9% on 2023-03-27 with no split in the source data; a 1-for-3 split leaves +1.0%, in line with DIA (+0.6% expected, residual sd 1.0%)"
+   }
+  },
+  "QUBT": {
+   "2007-08-29": {
+    "kind": "phantom_split",
+    "ratio": 0.01,
+    "applied": "dropped",
+    "day_return_in_file": -0.99,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.02037,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "a 1-for-100 split is booked on 2007-08-29 but the prices already moved by it (the earlier prices were adjusted for a split that did not happen then): split dropped, earlier prices restored"
+   },
+   "2007-12-14": {
+    "kind": "inferred_split",
+    "ratio": 3.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.666667,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.016644,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -66.7% on 2007-12-14 with no split in the source data; a 3-for-1 split leaves +0.0% (no reference moves with it; its daily sd is 1.7%)"
+   },
+   "2008-05-06": {
+    "kind": "inferred_split",
+    "ratio": 0.025,
+    "applied": "recorded",
+    "day_return_in_file": 39.0,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.016644,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved +3900.0% on 2008-05-06 with no split in the source data; a 1-for-40 split leaves +0.0% (no reference moves with it; its daily sd is 1.7%)"
+   },
+   "2017-02-23": {
+    "kind": "inferred_split",
+    "ratio": 0.5,
+    "applied": "recorded",
+    "day_return_in_file": 1.0,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.001,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved +100.0% on 2017-02-23 with no split in the source data; a 1-for-2 split leaves +0.0% (no reference moves with it; its daily sd is 0.1%)"
+   },
+   "2017-04-28": {
+    "kind": "inferred_split",
+    "ratio": 0.333333,
+    "applied": "recorded",
+    "day_return_in_file": 2.0,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.063275,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved +200.0% on 2017-04-28 with no split in the source data; a 1-for-3 split leaves -0.0% (no reference moves with it; its daily sd is 6.3%)"
+   }
+  },
+  "QXO": {
+   "2013-02-11": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.533333,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0398,
+    "residual_sd": 0.131445,
+    "reference": "TSLA",
+    "volume_ratio_after": null,
+    "why": "close 16.8 is 53% from the day before and 114% from the day after, which agree within 0.0%; replaced by their geometric mean 36"
+   }
+  },
+  "RAMP": {
+   "1984-09-07": {
+    "kind": "inferred_split",
+    "ratio": 1.5,
+    "applied": "recorded",
+    "day_return_in_file": -0.336367,
+    "day_return_repaired": -0.00455,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.008766,
+    "reference": null,
+    "volume_ratio_after": 1.7143,
+    "why": "the close moved -33.6% on 1984-09-07 with no split in the source data; a 3-for-2 split leaves -0.5% (no reference moves with it; its daily sd is 0.9%); volume x1.71 after"
+   }
+  },
+  "RHI": {
+   "1983-06-23": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.250001,
+    "day_return_repaired": -0.029274,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.024048,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 0.270833 is 25% from the day before and 26% from the day after, which agree within 6.1%; replaced by their geometric mean 0.35054"
+   }
+  },
+  "RRC": {
+   "1990-04-10": {
+    "kind": "inferred_split",
+    "ratio": 3.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.666667,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.001,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -66.7% on 1990-04-10 with no split in the source data; a 3-for-1 split leaves +0.0% (no reference moves with it; its daily sd is 0.1%)"
+   }
+  },
   "SDD": {
    "2015-01-29": {
     "kind": "bad_tick",
@@ -492,6 +1334,136 @@
     "reference": "IWM",
     "volume_ratio_after": null,
     "why": "close 233.52 is 28% from the day before and 41% from the day after, which agree within 1.4%; replaced by their geometric mean 327.032"
+   }
+  },
+  "SFNC": {
+   "1985-05-02": {
+    "kind": "inferred_split",
+    "ratio": 2.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.491935,
+    "day_return_repaired": 0.01613,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.008197,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -49.2% on 1985-05-02 with no split in the source data; a 2-for-1 split leaves +1.6% (no reference moves with it; its daily sd is 0.8%)"
+   }
+  },
+  "SKE": {
+   "2004-12-06": {
+    "kind": "inferred_split",
+    "ratio": 0.5,
+    "applied": "recorded",
+    "day_return_in_file": 0.982379,
+    "day_return_repaired": -0.008811,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.008859,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved +98.2% on 2004-12-06 with no split in the source data; a 1-for-2 split leaves -0.9% (no reference moves with it; its daily sd is 0.9%)"
+   },
+   "2008-11-18": {
+    "kind": "inferred_split",
+    "ratio": 4.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.746032,
+    "day_return_repaired": 0.015873,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.084274,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "the close moved -74.6% on 2008-11-18 with no split in the source data; a 4-for-1 split leaves +1.6% (no reference moves with it; its daily sd is 8.4%)"
+   },
+   "2012-06-01": {
+    "kind": "phantom_split",
+    "ratio": 0.2,
+    "applied": "dropped",
+    "day_return_in_file": -0.8,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.04456,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "a 1-for-5 split is booked on 2012-06-01 but the prices already moved by it (the earlier prices were adjusted for a split that did not happen then): split dropped, earlier prices restored"
+   },
+   "2017-10-20": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.9,
+    "day_return_repaired": -0.013609,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 0.18..0.18, x9.47 or more away from the closes around them (1.8 and 1.704, which agree within 5.3%): quotes that never traded, replaced by the path between those closes; the 1-for-10 split booked on 2017-10-20 with it is dropped"
+   },
+   "2017-10-23": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": -0.013609,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 0.18..0.18, x9.47 or more away from the closes around them (1.8 and 1.704, which agree within 5.3%): quotes that never traded, replaced by the path between those closes; the 1-for-10 split booked on 2017-10-20 with it is dropped"
+   },
+   "2017-10-24": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": -0.013609,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 0.18..0.18, x9.47 or more away from the closes around them (1.8 and 1.704, which agree within 5.3%): quotes that never traded, replaced by the path between those closes; the 1-for-10 split booked on 2017-10-20 with it is dropped"
+   }
+  },
+  "SLM": {
+   "2008-10-14": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.349767,
+    "day_return_repaired": 0.031204,
+    "expected_from_reference": -0.05878,
+    "residual_sd": 0.059502,
+    "reference": "IWM",
+    "volume_ratio_after": null,
+    "why": "close 11.5 is 35% from the day before and 21% from the day after, which agree within 6.3%; replaced by their geometric mean 8.78585"
+   }
+  },
+  "SLMCX": {
+   "2007-06-13": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.536091,
+    "day_return_repaired": 0.008019,
+    "expected_from_reference": 0.009219,
+    "residual_sd": 0.003695,
+    "reference": "QQQ",
+    "volume_ratio_after": null,
+    "why": "close 55.33 is 54% from the day before and 34% from the day after, which agree within 1.6%; replaced by their geometric mean 36.3088"
+   }
+  },
+  "SLS": {
+   "2016-06-29": {
+    "kind": "inferred_split",
+    "ratio": 6.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.827586,
+    "day_return_repaired": 0.034483,
+    "expected_from_reference": 0.020682,
+    "residual_sd": 0.055866,
+    "reference": "IBB",
+    "volume_ratio_after": 4.4065,
+    "why": "the close moved -82.8% on 2016-06-29 with no split in the source data; a 6-for-1 split leaves +3.4%, in line with IBB (+2.1% expected, residual sd 5.6%); volume x4.41 after"
    }
   },
   "SOXS": {
@@ -509,6 +1481,90 @@
    }
   },
   "SSCC": {
+   "2002-02-21": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.313725,
+    "day_return_repaired": -0.006579,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 7000..7000, x1.43 or more away from the closes around them (10200 and 10000, which agree within 2.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2002-02-22": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": -0.006579,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 7000..7000, x1.43 or more away from the closes around them (10200 and 10000, which agree within 2.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2003-08-06": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.45,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 2200..2200, x1.82 or more away from the closes around them (4000 and 4000, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2003-08-07": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 2200..2200, x1.82 or more away from the closes around them (4000 and 4000, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2003-11-19": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.512821,
+    "day_return_repaired": -0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 3800..5000, x1.56 or more away from the closes around them (7800 and 7800, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2003-11-20": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.315789,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 3800..5000, x1.56 or more away from the closes around them (7800 and 7800, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2003-11-21": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.2,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 3800..5000, x1.56 or more away from the closes around them (7800 and 7800, which agree within 0.0%): quotes that never traded, replaced by the path between those closes"
+   },
    "2013-11-20": {
     "kind": "inferred_split",
     "ratio": 1.5,
@@ -572,6 +1628,168 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "close 154.32 is 31% from the day before and 32% from the day after, which agree within 9.4%; replaced by their geometric mean 212.744"
+   },
+   "2015-01-22": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.256136,
+    "day_return_repaired": 0.015079,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 149.68..150.32, x1.34 or more away from the closes around them (202.08 and 211.36, which agree within 4.6%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2015-01-23": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.004258,
+    "day_return_repaired": 0.015079,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 149.68..150.32, x1.34 or more away from the closes around them (202.08 and 211.36, which agree within 4.6%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2015-02-13": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.287063,
+    "day_return_repaired": 0.005557,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 144..145.04, x1.4 or more away from the closes around them (203.44 and 208, which agree within 2.2%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2015-02-17": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.00717,
+    "day_return_repaired": 0.005557,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 144..145.04, x1.4 or more away from the closes around them (203.44 and 208, which agree within 2.2%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2015-02-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.001667,
+    "day_return_repaired": 0.005557,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 144..145.04, x1.4 or more away from the closes around them (203.44 and 208, which agree within 2.2%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2015-02-27": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.27638,
+    "day_return_repaired": 0.002295,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 141.68..142.64, x1.38 or more away from the closes around them (197.12 and 198.48, which agree within 0.7%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2015-03-02": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.00673,
+    "day_return_repaired": 0.002295,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 141.68..142.64, x1.38 or more away from the closes around them (197.12 and 198.48, which agree within 0.7%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2015-07-06": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.267389,
+    "day_return_repaired": 0.008735,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 140.72..140.72, x1.36 or more away from the closes around them (192.08 and 198.88, which agree within 3.5%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2015-07-07": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": 0.008735,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 140.72..140.72, x1.36 or more away from the closes around them (192.08 and 198.88, which agree within 3.5%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2015-07-08": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.0,
+    "day_return_repaired": 0.008735,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "3 bars in a row with no volume at 140.72..140.72, x1.36 or more away from the closes around them (192.08 and 198.88, which agree within 3.5%): quotes that never traded, replaced by the path between those closes"
+   }
+  },
+  "TCBK": {
+   "2008-09-19": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.460339,
+    "day_return_repaired": -0.037235,
+    "expected_from_reference": 0.107444,
+    "residual_sd": 0.031904,
+    "reference": "IWM",
+    "volume_ratio_after": null,
+    "why": "close 32.77 is 46% from the day before and 37% from the day after, which agree within 7.9%; replaced by their geometric mean 21.6044"
+   }
+  },
+  "TEMGX": {
+   "1998-12-30": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.21902,
+    "day_return_repaired": 0.005747,
+    "expected_from_reference": -0.002088,
+    "residual_sd": 0.008285,
+    "reference": "SPY",
+    "volume_ratio_after": null,
+    "why": "close 5.42 is 22% from the day before and 30% from the day after, which agree within 1.2%; replaced by their geometric mean 6.97989"
+   }
+  },
+  "THC": {
+   "1980-11-05": {
+    "kind": "inferred_split",
+    "ratio": 1.5,
+    "applied": "recorded",
+    "day_return_in_file": -0.323672,
+    "day_return_repaired": 0.014492,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.024093,
+    "reference": null,
+    "volume_ratio_after": 1.4031,
+    "why": "the close moved -32.4% on 1980-11-05 with no split in the source data; a 3-for-2 split leaves +1.4% (no reference moves with it; its daily sd is 2.4%); volume x1.4 after"
    }
   },
   "TSN": {
@@ -588,18 +1806,32 @@
     "why": "the close moved -50.4% on 1983-04-18 with no split in the source data; a 2-for-1 split leaves -0.8% (no reference moves with it; its daily sd is 2.6%); volume x1.45 after"
    }
   },
-  "TWCUX": {
-   "1987-12-22": {
-    "kind": "inferred_split",
-    "ratio": 1.5,
-    "applied": "recorded",
-    "day_return_in_file": -0.344974,
-    "day_return_repaired": -0.01746,
-    "expected_from_reference": -0.002948,
-    "residual_sd": 0.021105,
-    "reference": "AAPL",
+  "UBSI": {
+   "1988-02-16": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 1.0,
+    "day_return_repaired": 0.007118,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.023859,
+    "reference": null,
     "volume_ratio_after": null,
-    "why": "the close moved -34.5% on 1987-12-22 with no split in the source data; a 3-for-2 split leaves -1.7%, in line with AAPL (-0.3% expected, residual sd 2.1%)"
+    "why": "close 17.5 is 100% from the day before and 49% from the day after, which agree within 1.4%; replaced by their geometric mean 8.81228"
+   }
+  },
+  "WTRG": {
+   "1981-07-01": {
+    "kind": "phantom_split",
+    "ratio": 12.43,
+    "applied": "dropped",
+    "day_return_in_file": 11.430011,
+    "day_return_repaired": 1e-06,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.020933,
+    "reference": null,
+    "volume_ratio_after": 0.0778,
+    "why": "a 24.86-for-2 split is booked on 1981-07-01 but the prices already moved by it (the earlier prices were adjusted for a split that did not happen then): split dropped, earlier prices restored"
    }
   }
  }

@@ -1,5 +1,5 @@
 {
-"updated": "2026-09-25",
+"updated": "2026-09-27",
 "caps_updated": "2026-09-25",
 "mutual_funds_updated": "2026-09-25",
 "source": "NASDAQ Trader symbol directory (nasdaqlisted.txt, otherlisted.txt; test issues, warrants, rights, units, preferreds and listed debt left out; '.' written '-' as Yahoo does); cap = market cap in $M from Nasdaq's stock screener; mutual_funds = the SEC's company_tickers_mf.json share-class symbols",
