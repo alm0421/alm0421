@@ -742,25 +742,51 @@ def change_events(tickers: list[str]) -> dict[str, list[tuple[pd.Timestamp, bool
 
 def apply_changes(out: np.ndarray, tickers: list[str], index: pd.DatetimeIndex,
                   window_days: int = CHANGE_WINDOW_DAYS) -> np.ndarray:
-    """Exact change days on top of the monthly snapshots (in place): within `window_days` of a dated change of a
-    ticker (and never past its neighbouring changes), the change table decides - a member from the effective day
-    of an addition, not from the next month's snapshot; a member until the day before a removal. Elsewhere the
-    snapshots stand (so a change missing from the table, or a renamed symbol, costs only granularity)."""
+    """Exact change days on top of the monthly snapshots (in place). From a ticker's first dated change on, the
+    change table decides:
+      - out from a dated removal until the next dated addition: a later monthly snapshot that still lists the
+        name is stale (CSGP on 2020-08-31, removed 2020-07-20; AVGO in December 2015, removed 2015-11-11 and
+        re-added 2016-02-01; BATRK after 2016-06-20) and does not bring it back;
+      - a member from the effective day of an addition until the day before the next dated removal (a snapshot
+        that has not caught up yet does not drop it), unless the snapshots leave it out for more than
+        ADDITION_TRUST_SESSIONS sessions in a row: that is a removal or a symbol change the table does not record
+        (FB listed as META, KFT renamed MDLZ), and from there the snapshots decide again.
+    Before its first dated change the snapshots stand, except within `window_days` of that change (a member only
+    until the day before a removal / from the day of an addition). A ticker with no dated change keeps its
+    snapshots."""
     if not len(index):
         return out
     ev = change_events(list(tickers))
     w = pd.Timedelta(days=window_days)
     col = {t: j for j, t in enumerate(tickers)}
+    snap = out.copy()
     for t, lst in ev.items():
         j = col[t]
+        d0, joined0 = lst[0]
+        out[(index >= d0 - w) & (index < d0), j] = not joined0
         for n, (d, joined) in enumerate(lst):
-            lo = d - w if n == 0 else max(d - w, lst[n - 1][0])
-            hi = d + w if n == len(lst) - 1 else min(d + w, lst[n + 1][0])
-            before = (index >= lo) & (index < d)
-            after = (index >= d) & (index < hi)
-            out[before, j] = not joined
-            out[after, j] = joined
+            nxt = lst[n + 1][0] if n + 1 < len(lst) else None
+            pos = np.flatnonzero((index >= d) if nxt is None else ((index >= d) & (index < nxt)))
+            if not len(pos):
+                continue
+            if not joined:
+                out[pos, j] = False
+                continue
+            # force membership up to the first long absence in the snapshots (then they decide)
+            absent = ~snap[pos, j]
+            stop = len(pos)
+            run = 0
+            for k, a in enumerate(absent):
+                run = run + 1 if a else 0
+                if run > ADDITION_TRUST_SESSIONS:
+                    stop = k - run + 1
+                    break
+            out[pos[:stop], j] = True
+            out[pos[stop:], j] = snap[pos[stop:], j]
     return out
+
+
+ADDITION_TRUST_SESSIONS = 126     # half a year of snapshots without a dated addition's name: they win again
 
 
 TODAY_MEMBERS_WARNING = "Warning: survivorship bias - the universe is TODAY'S Nasdaq-100 members ({n} stocks, the latest membership list), traded over the whole period with no membership filter. They were chosen because they are in the index now (they survived and grew), which past-you could not know: results are biased upward, often strongly. Drop 'using today's members only' for point-in-time membership."

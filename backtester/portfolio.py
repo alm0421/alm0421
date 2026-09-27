@@ -1677,6 +1677,18 @@ class _Evaluator:
                 self.note("Market-cap weighting needs single assets: groups were equal-weighted.")
                 return eq
             mc = np.array([self.mcap(t)[i] for t in members])
+            # a share class's market_cap is its company's divided by the company's listed classes (data.market_cap):
+            # the classes held here stand for the whole company (GOOGL alone at Alphabet's value, not half of it;
+            # GOOG and GOOGL together at half each), as the ranking counts it (_one_class_per_company)
+            grp = {t: g for g in data.SHARE_CLASSES for t in g}
+            held = {}
+            for t in members:
+                if grp.get(data.canonical(t)):
+                    held[grp[data.canonical(t)]] = held.get(grp[data.canonical(t)], 0) + 1
+            for j, t in enumerate(members):
+                g = grp.get(data.canonical(t))
+                if g:
+                    mc[j] = mc[j] * data._class_divisor(t) / held[g]
             ok = np.isfinite(mc) & (mc > 0)
             if ok.all():
                 return [float(x) for x in mc / mc.sum()]
