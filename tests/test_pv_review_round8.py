@@ -296,3 +296,58 @@ def test_calendar_month_return_is_causal():
     me = x.resample("ME").last()
     assert full.loc["2020-06-30"] == pytest.approx(me.loc["2020-06-30"] / me.loc["2020-03-31"] - 1)
     assert full.loc["2020-07-15"] == full.loc["2020-06-30"]
+
+
+# ------------------------------------------------------------------ 6. cosmetics
+
+def test_short_labels_keep_blends_readable():
+    assert report.short_label("60% SPYSIM / 40% IEFSIM buy & hold") == "60/40 SPYSIM/IEFSIM"
+    assert report.short_label("60% SPY, 40% AGG blend") == "60/40 SPY/AGG"
+    assert report.short_label("SPY buy & hold") == "SPY"
+
+
+@needs("SPYSIM", "IEFSIM")
+def test_console_shows_blend_names_and_month_end_drawdown():
+    p = port("hold 60% SPYSIM and 40% IEFSIM since 1966, rebalance yearly, vs 60/40 SPYSIM/IEFSIM")
+    A = report.analyze(runner.run(p), sensitivity=False, mc=False, detail=False)
+    txt = report.console_summary(A)
+    assert "~" not in txt and "60/40 SPYSIM/IEFSIM" in txt and "month-end" in txt
+    st = A["stats"]
+    assert st["max_drawdown"] <= st["max_drawdown_monthly"] < 0
+
+
+def test_optimiser_console_does_not_cut_names():
+    from backtester import research_report
+    name = "Min tracking error (≥ +1.0% over the benchmark)"
+    R = {"fit_start": "2010-01-01", "fit_end": "2020-12-31", "rf": 0.01, "benchmark": None,
+         "portfolios": {name: {"exp_return": 0.08, "exp_vol": 0.1, "exp_sharpe": 0.7, "sentence": ""}}}
+    assert name in research_report.optimize_console(R)
+
+
+def test_no_minus_zero_dollars():
+    idx = pd.bdate_range("2020-01-01", periods=30)
+    eq = pd.Series(np.linspace(100, 130, 30), index=idx)
+    flows = pd.Series(0.0, index=idx)
+    flows.iloc[5] = 10.0
+    c = metrics.cashflow_stats(eq, flows)
+    assert c["total_withdrawals"] == 0 and f"{c['total_withdrawals']:,.0f}" == "0"
+
+
+def test_monte_carlo_labels_and_stress_basis(monkeypatch):
+    from backtester import montecarlo as mc
+    idx = pd.bdate_range("2000-01-03", periods=3000)
+    r = np.full(len(idx), 0.0004)
+    r[1200:1400] = -0.003
+    df = pd.DataFrame({"close": 100 * np.cumprod(1 + r)}, index=idx)
+    for k in ("open", "high", "low", "adj_close"):
+        df[k] = df["close"]
+    df["volume"] = 1e6
+    df["dividend"] = 0.0
+    real_load = data.load
+    monkeypatch.setattr(data, "load", lambda t, *a, **k: df if t == "ZZZ" else real_load(t, *a, **k))
+    base = dict(weights={"ZZZ": 1}, sims=200, years=15, stress="worst_sequence", stress_years=2)
+    S = mc.run(mc.Settings(**base, inflation=0.0))
+    assert S["stress"]["basis"] == "nominal" and any("nominal" in n for n in S["notes"])
+    txt = mc.console(mc.run(mc.Settings(weights={"ZZZ": 1}, sims=200, years=15, inflation=0.0,
+                                        flows=[mc.CashFlow(amount=-400)])))
+    assert "95% of paths" in txt and "median path" in txt

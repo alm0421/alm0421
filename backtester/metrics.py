@@ -412,6 +412,8 @@ def equity_stats(equity: pd.Series, rf="tbill", flows: pd.Series | None = None, 
         "sharpe_monthly": sharpe_m,
         "sortino_monthly": sortino_m,
         "max_drawdown": mdd,
+        # month-end values only (Portfolio Visualizer's figure): shallower when the trough fell inside a month
+        "max_drawdown_monthly": min(monthly_max_drawdown(nv), 0.0) if len(nv) > 1 else np.nan,
         # no drawdown to speak of (e.g. only cash interest, which can dip by a hair when T-bill yields turn
         # negative): no peak / trough dates to show
         "max_dd_peak": display_date(peak, first_bar).date() if mdd < -NO_DRAWDOWN else None,
@@ -468,7 +470,7 @@ def cashflow_stats(equity: pd.Series, flows: pd.Series | None) -> dict:
         return {}
     f = flows[flows != 0]
     contributed = float(f[f > 0].sum())
-    withdrawn = float(-f[f < 0].sum())
+    withdrawn = float(-f[f < 0].sum()) + 0.0      # + 0.0: no "-0" when nothing was withdrawn
     dates = [equity.index[0]] + list(f.index) + [equity.index[-1]]
     amounts = [-float(equity.iloc[0])] + [-float(x) for x in f] + [float(equity.iloc[-1])]
     return {
