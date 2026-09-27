@@ -156,6 +156,9 @@ class Strategy:
     commission_per_share: float = 0.0            # $ per share
     commission_pct: float = 0.0                  # fraction of traded value
     slippage_bps: float = 0.0                    # per side, in basis points
+    slippage_price: float = 0.0                  # per share per fill, in (split-adjusted) price units, against the trade on
+                                                 # market and stop fills (not limit fills: limit entries, take-profit
+                                                 # targets, scale-outs): TradingView's strategy(slippage=N) = N ticks
     open_reaction_bps: float = 5.0               # a fill at the open of the same bar whose rule reads that open (gap,
                                                  # open): filled this many bps worse than the open print (0.05%), as a
                                                  # trader reacting to the printed open seconds later (an order cannot be
@@ -311,7 +314,7 @@ class Strategy:
         if note and note not in self.notes:
             self.notes.append(note)
         for name, label in (("commission", "commission per order"), ("commission_per_share", "commission per share"),
-                            ("commission_pct", "commission (% of value)"), ("slippage_bps", "slippage"),
+                            ("commission_pct", "commission (% of value)"), ("slippage_bps", "slippage"), ("slippage_price", "slippage"),
                             ("borrow_fee", "borrow fee"), ("margin_rate", "margin rate"),
                             ("spread_bps", "bid-ask spread"), ("impact_bps", "market impact")):
             v = getattr(self, name)
@@ -800,6 +803,8 @@ class Strategy:
                           "ibkr_tiered": "IBKR tiered (~$0.0037/share incl. fees, min $0.35, max 1%)"}.get(self.commission_model, str(self.commission_model)))
         if self.slippage_bps:
             costs.append(f"{f(self.slippage_bps, 'g')} bps slippage/side")
+        if self.slippage_price:
+            costs.append(f"${f(self.slippage_price, 'g')}/share slippage on market and stop fills")
         if self.slippage_model == "volume":
             costs.append(f"volume slippage ({f((self.spread_bps or 0) / 2, 'g')} bps + {f(self.impact_bps, 'g')} bps x sqrt(shares/ADV20))")
         if self.max_volume_pct:

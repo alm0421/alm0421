@@ -695,6 +695,9 @@ window.addEventListener('blur', unpress);
   }
   $('text').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(interpret, 450); });
   document.querySelectorAll('[id^=o_]').forEach(x => x.addEventListener('change', interpret));
+  // a setting typed in (e.g. the Pine script's ticker) re-reads the text as it is typed, as the text box does, not only
+  // when the field loses focus
+  OPT_KEYS.forEach(k => $('o_' + k).addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(interpret, 450); }));
   function showResult(id, meta) {
     $('result').classList.remove('hide');
     $('frame').src = `/r/${id}/report.html`;

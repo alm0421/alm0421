@@ -770,7 +770,7 @@ def run(strat: Strategy) -> Result:
 
     S = dict(cash=strat.capital, interest=0.0, halted=False, small=0, addon_skipped=0, nofunds=0, nofunds_days=[],
              entry_stop=np.nan, no_risk=0, wrong_side=0, lvl_nan=0,
-             tv_sb=None, tv_nofunds=0, tv_nofunds_days=[], so_zero=0, so_zero_days=[])
+             tv_sb=None, opened=0, tv_nofunds=0, tv_nofunds_days=[], so_zero=0, so_zero_days=[])
     slot_days: set = set()                          # days an entry signal found no free position slot
     positions: dict[int, Position] = {}
     pending_mkt_open: list[tuple[int, int]] = []    # (k, sign) market orders for the next open
@@ -940,10 +940,12 @@ def run(strat: Strategy) -> Result:
                 shares = whole(shares, f)
         return max(shares, 0.0)
 
-    def open_pos(i: int, k: int, px: float, at_open: bool, sgn: int, prices: np.ndarray) -> bool:
+    def open_pos(i: int, k: int, px: float, at_open: bool, sgn: int, prices: np.ndarray, limit: bool = False) -> bool:
         if S["halted"]:
             return False
-        fill = px * (1 + sgn * slip)
+        # slippage_price (TradingView's slippage in ticks): against the trade on market and stop fills, never on a limit
+        tslip = 0.0 if limit else sgn * strat.slippage_price
+        fill = px * (1 + sgn * slip) + tslip
         eq = mark(prices)
         if eq <= 0:
             return False
@@ -955,7 +957,7 @@ def run(strat: Strategy) -> Result:
         S["entry_stop"] = lv[0] if new else (positions[k].lvl_stop if k in positions else np.nan)
         shares = size_shares(i, k, fill, eq, prices, sgn, at_open)
         if shares > 0 and strat.slippage_model != "fixed":
-            fill = px * (1 + sgn * slip_for(i, k, shares))  # impact of the order size, then re-size at that price
+            fill = px * (1 + sgn * slip_for(i, k, shares)) + tslip  # impact of the order size, then re-size at that price
             if new and levels_used and level_dyn:
                 lv = entry_levels(i, k, fill, at_open, sgn)
                 S["entry_stop"] = lv[0]
@@ -977,6 +979,7 @@ def run(strat: Strategy) -> Result:
             return False
         com = commission(shares, shares * fill, SF[i, k])
         S["cash"] -= sgn * shares * fill + com
+        S["opened"] += 1
         lot = Lot(shares, fill, i, at_open, com)
         if k in positions:  # pyramiding
             positions[k].lots.append(lot)
@@ -1057,6 +1060,8 @@ def run(strat: Strategy) -> Result:
                     left_q -= q_
                 fraction = qty / tot
         fill = px if free else px * (1 - p.sign * slip_for(i, p.k, p.shares * fraction))
+        if not free and strat.slippage_price and reason not in ("take profit", "scale out"):
+            fill -= p.sign * strat.slippage_price   # a market or stop exit (a target is a limit order: no slippage)
         a = p.entry_bar + (0 if p.lots[0].at_open else 1)
         b = i - (1 if at_open else 0)
         hi = np.nanmax(H[a:b + 1, p.k]) if b >= a else np.nan
@@ -1598,7 +1603,7 @@ def run(strat: Strategy) -> Result:
                 still.append(od)
                 continue
             S["tv_sb"] = od["placed"]
-            opened = open_pos(i, k, fill, True, sgn, o)
+            opened = open_pos(i, k, fill, True, sgn, o, limit=strat.entry_order == "limit")
             S["tv_sb"] = None
             if opened:
                 positions[k].lots[-1].at_open = True  # exposed from the fill onward
@@ -1768,6 +1773,14 @@ def run(strat: Strategy) -> Result:
                            "available when the order filled (the price gapped up by the next open). TradingView's broker "
                            "emulator skips such an order rather than cutting it; use a smaller size (e.g. 95% of equity) "
                            "to leave room.")
+        tried = S["tv_nofunds"] + S["opened"]
+        strat.notes = [n for n in strat.notes if not n.startswith("Warning: TradingView skipped")]
+        if tried and S["tv_nofunds"] / tried > 0.2:
+            strat.notes.append(f"Warning: TradingView skipped {S['tv_nofunds']} of {tried} entry orders "
+                               f"({S['tv_nofunds'] / tried:.0%}) for insufficient cash: at {size} the order sized at the "
+                               "signal bar's close no longer fits once the price gaps up by the fill, so these results "
+                               "leave out a large share of the strategy's signals. Size positions at e.g. 95% of equity "
+                               "to leave room for gaps.")
     if S["lvl_nan"]:
         strat.notes = [n for n in strat.notes if not n.startswith("Levels:")]
         strat.notes.append(f"Levels: {S['lvl_nan']} entry signal(s) were skipped because the stop / target level "
