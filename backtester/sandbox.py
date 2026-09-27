@@ -22,7 +22,10 @@ that imported pandas / numpy / backtester but never loaded any data:
     of the user's own that it imports is measured the same way after it runs (_UserModuleGuard), and its files
     are readable only while the import system loads it.
   - the bars are sent one day at a time: at the moment it answers day D the child has received nothing after D,
-    so nothing in its memory (frames, stack, gc) is later than D.
+    so nothing in its memory (frames, stack, gc) is later than D. A rule acted on at the open (open_view) answers
+    day D holding the complete bars before D and D's bar with only its open (OPEN_KNOWN); D's bar is withdrawn
+    after the answer and sent complete with the next day. Its data requests are answered the same way: other
+    tickers' price frames with D's open only, every other series as of the end of the day before D.
   - data.load / sym() and the other point-in-time data functions (market_cap, tbill_rate, treasury_10y, cape...)
     are forwarded to the backtester, which answers them cut at D; every other data function is refused.
   - file, process and network access is refused at the Python level in the child (open, io / os / posix open,
@@ -752,14 +755,68 @@ def _cut(v, cut):
 PURE_DATA_FUNCTIONS = {"canonical", "stale_from", "stale_note", "not_investable"}
 
 
-def _answer_rpc(msg, cut):
-    """A child's data request, answered on the backtester's data cut at `cut`."""
+# At the open of day D (a rule acted on at the open: `open_view`) only D's opening print is known: price frames keep
+# D's row with only these columns (the rest NaN / None); every other value is answered as of the day before D.
+OPEN_KNOWN = ("open", "open_ok")
+_PRICE_FRAME_FUNCTIONS = {"load", "load_many", "sym_override"}
+
+
+def _open_row_masked(df: pd.DataFrame, rows: np.ndarray, copy: bool = True) -> pd.DataFrame:
+    """df (a copy unless copy=False) with every column but OPEN_KNOWN blanked on `rows` (a boolean mask)."""
+    pos = np.flatnonzero(rows)
+    if copy:
+        df = df.copy()
+    if not len(pos):
+        return df
+    for j, c in enumerate(df.columns):
+        if c in OPEN_KNOWN:
+            continue
+        col = df[c]
+        kind = col.dtype.kind
+        vals = col.to_numpy(dtype=float, copy=True) if kind in "fiu" else col.to_numpy(dtype=object, copy=True)
+        vals[pos] = np.nan if vals.dtype.kind == "f" else None
+        df[c] = vals
+    return df
+
+
+def _open_cut(v, cut):
+    """v as known at the open of day `cut`: a price frame (one with an open column) keeps that day's open only;
+    anything else is cut before that day."""
+    if cut is None:
+        return v
+    cut = pd.Timestamp(cut)
+    if isinstance(v, pd.DataFrame) and isinstance(v.index, pd.DatetimeIndex):
+        v = v.loc[v.index <= cut].copy()
+        day = cut.tz_localize(None).normalize() if cut.tz is not None else cut.normalize()
+        ix = v.index.tz_localize(None) if v.index.tz is not None else v.index
+        today = np.asarray(ix >= day)
+        if "open" in v.columns:
+            return _open_row_masked(v, today, copy=False)
+        return v.loc[~today].copy()
+    if isinstance(v, (pd.Series, pd.DataFrame)):
+        return _cut(v, cut.normalize() - pd.Timedelta(1, "ns"))
+    if isinstance(v, dict):
+        return {k: _open_cut(x, cut) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return type(v)(_open_cut(x, cut) for x in v)
+    return v
+
+
+def _answer_rpc(msg, cut, open_view: bool = False):
+    """A child's data request, answered on the backtester's data cut at `cut` (with `open_view`: as known at the
+    open of that day, see OPEN_KNOWN)."""
     from . import data, expr
     _, name, args, kwargs = msg
     try:
+        if open_view and cut is not None and name not in _PRICE_FRAME_FUNCTIONS:
+            # not a price frame (a close series, a market cap, a rate, a value computed from them): only what was
+            # known by the end of the day before
+            cut = pd.Timestamp(cut).normalize() - pd.Timedelta(1, "ns")
+            open_view = False
+        fix = (lambda x: _open_cut(x, cut)) if open_view else (lambda x: _cut(x, cut))
         if name == "sym_override":
             v = expr._SYM_OVERRIDE.get(args[0])
-            return ("ok", _cut(v, cut) if v is not None else None)
+            return ("ok", fix(v) if v is not None else None)
         if name not in DATA_FUNCTIONS or not hasattr(data, name):
             raise expr.CallableIOError(f"data.{name}() is not available to a Python rule (only {', '.join(sorted(DATA_FUNCTIONS))})")
         tok = data.LOAD_CUTOFF.set(pd.Timestamp(cut) if cut is not None else None)
@@ -768,7 +825,7 @@ def _answer_rpc(msg, cut):
                 v = getattr(data, name)(*args, **kwargs)
         finally:
             data.LOAD_CUTOFF.reset(tok)
-        return ("ok", _cut(v, cut))
+        return ("ok", fix(v))
     except Exception as e:  # noqa: BLE001 - sent back to the rule, raised there
         return ("err", type(e).__name__, str(e), "")
 
@@ -779,6 +836,7 @@ class Job:
     def __init__(self, payload: bytes, spec: dict, feed=None, cut=None):
         self.conn = _connect()
         self.cut = cut           # data requests while the function is rebuilt (a user module's import) are cut too
+        self.open_view = bool(spec.get("open_view"))    # data requests answered as known at the open of `cut`
         self.feed, self.limit = feed, 0      # a streamed rule: its data, and the rows sent so far
         STATS["jobs"] += 1
         self._send(("job", payload, {**spec, "sys_path": _sys_path(),
@@ -801,7 +859,7 @@ class Job:
                     # never more rows than the child has been sent
                     self._send(("ok", None if vals is None else vals[: min(int(k), self.limit)].copy()))
                 else:
-                    self._send(_answer_rpc(msg, self.cut))
+                    self._send(_answer_rpc(msg, self.cut, self.open_view))
                 continue
             if msg[0] == "err":
                 _raise_child_error(msg)
@@ -874,6 +932,23 @@ class _RuleFeed:
                 self._memo[key] = expr.memo_full(self.ns, key) if not self.extras else None
             return self._memo[key]
 
+    def masked_row(self, i: int):
+        """Row i as known at its open: only the OPEN_KNOWN columns (the close, high, low, volume, adjusted close,
+        dividend ... blanked), and of the position variables only bars_held and entry_price."""
+        ts, q, a, ex = self.block(i, i + 1)
+
+        def mask(p, parts):
+            if p is None:
+                return None
+            m, other = p
+            m = m.copy()
+            for j, c in enumerate(parts[0]):
+                if c not in OPEN_KNOWN:
+                    m[:, j] = np.nan
+            return m, {c: [None] * len(v) for c, v in other.items()}
+        ex = {k: (v if k in ("bars_held", "entry_price") else np.full(len(v), np.nan)) for k, v in ex.items()}
+        return ts, mask(q, self.q), mask(a, self.a), ex
+
     def spec(self, ns, kind):
         return {"mode": "rule", "kind": kind, "ticker": ns.ticker, "price_basis": ns.price_basis,
                 "month_lookbacks": ns.month_lookbacks, "close_fill": bool(getattr(ns, "close_fill", False)),
@@ -896,14 +971,22 @@ def _extras_of(ns) -> dict:
 
 def _run_chunk(payload, feed: _RuleFeed, spec: dict, pos: np.ndarray, kind: str) -> np.ndarray:
     job = Job(payload, spec, feed, cut=feed.idx[int(pos[0])] if len(pos) else None)
+    ov = bool(spec.get("open_view"))
     try:
         out = np.zeros(len(pos), bool) if kind == "bool" else np.full(len(pos), np.nan)
         have = 0
         for n, i in enumerate(pos):
             i = int(i)
-            job.limit = i + 1
-            v = job.ask(("step", feed.block(have, i + 1)), feed.idx[i])
-            have = i + 1
+            if ov:
+                # at the open of bar i: the complete bars before it, and bar i with only its open (withdrawn after
+                # the answer; the next step sends it complete)
+                job.limit = i
+                v = job.ask(("ostep", feed.block(have, i), feed.masked_row(i)), feed.idx[i])
+                have = i
+            else:
+                job.limit = i + 1
+                v = job.ask(("step", feed.block(have, i + 1)), feed.idx[i])
+                have = i + 1
             out[n] = v
         STATS["steps"] += len(pos)
         return out
@@ -919,13 +1002,15 @@ def _workers(n_bars: int) -> int:
     return max(1, min(cpus, n_bars // (expr.STREAM_PARALLEL_MIN // 2)))
 
 
-def stream(fn, ns, kind: str, pos: np.ndarray, what: str = "Python rule") -> np.ndarray:
+def stream(fn, ns, kind: str, pos: np.ndarray, what: str = "Python rule", open_view: bool = False) -> np.ndarray:
     """fn's answer at each bar position in `pos` (increasing), each computed in a child that holds only the bars up
-    to that position. Long streams are split into chunks answered in parallel."""
+    to that position. Long streams are split into chunks answered in parallel. With `open_view` (a rule acted on at
+    the open) the child holds the bars before that position and only the open of the bar at it (OPEN_KNOWN), and
+    every data request (other tickers, market caps, rates) is answered as known at that open."""
     idx = ns.df.index
     payload = pack(fn, idx[int(pos[0])] if len(pos) else None, what)
     feed = _RuleFeed(ns, _extras_of(ns))
-    spec = feed.spec(ns, kind)
+    spec = {**feed.spec(ns, kind), "open_view": bool(open_view)}
     w = _workers(len(pos))
     if w <= 1:
         return _run_chunk(payload, feed, spec, pos, kind)
@@ -1228,7 +1313,9 @@ def _frame_from(ts, cols_dtypes, index_name, tz, cols_arr, other) -> pd.DataFram
             continue
         col = cols_arr[j]
         if dt == "bool":
-            data[c] = col != 0
+            # (a bar known only at its open has its other flags blanked: unknown, not True)
+            data[c] = (col != 0) if not np.isnan(col).any() else \
+                pd.Series(np.where(np.isnan(col), None, col != 0), index=idx, dtype=object)
         elif dt == "float64" or (dt.startswith(("int", "uint")) and np.isnan(col).any()):
             data[c] = col.copy()
         else:
@@ -1270,6 +1357,16 @@ class _Buf:
         for c, v in other.items():
             self.other.setdefault(c, []).extend(v)
         self.n += k
+
+    def drop_last(self, k: int = 1):
+        """Withdraw the last k rows (a bar sent as known at its open, before it is sent complete)."""
+        if k <= 0:
+            return
+        self.n -= k
+        if self.ts is None:
+            del self.idx_list[self.n:]
+        for c in self.other:
+            del self.other[c][self.n:]
 
     def frame(self, cols_dtypes, index_name, tz, is_dt=True) -> pd.DataFrame:
         if is_dt:
@@ -1327,22 +1424,32 @@ def _job(conn, hardened: bool = False):
             if op == "end":
                 break
             try:
-                if op in ("step", "call"):
-                    ts, q, a, e = msg[1]
-                    is_dt = isinstance(ts, np.ndarray)
-                    qb.add(ts, q[0], q[1])
-                    if ab is not None:
-                        ab.add(ts, a[0], a[1])
-                    for k, v in e.items():
-                        ex[k] = np.concatenate([ex[k], v])
+                if op in ("step", "call", "ostep"):
+                    for ts, q, a, e in ([msg[1], msg[2]] if op == "ostep" else [msg[1]]):
+                        is_dt = isinstance(ts, np.ndarray)
+                        qb.add(ts, q[0], q[1])
+                        if ab is not None:
+                            ab.add(ts, a[0], a[1])
+                        for k, v in e.items():
+                            ex[k] = np.concatenate([ex[k], v])
                     quoted = qb.frame(spec["q_cols"], spec["index_name"], spec["tz"], is_dt)
                     df = ab.frame(spec["a_cols"], spec["index_name"], spec["tz"], is_dt) if ab is not None else quoted
                     extra = {k: pd.Series(v.copy(), index=df.index) for k, v in ex.items()} or None
                     ns = expr._SealedNamespace(quoted, df, spec["ticker"], spec["price_basis"],
                                                spec["month_lookbacks"], spec["close_fill"], extra,
                                                memo=_memo_request if op == "step" and extra is None else None)
-                    out = fn(ns.df, ns)
-                    if op == "step":
+                    try:
+                        out = fn(ns.df, ns)
+                    finally:
+                        if op == "ostep":
+                            # the bar known only at its open is withdrawn: the next step sends it complete
+                            k_ = len(msg[2][0])
+                            qb.drop_last(k_)
+                            if ab is not None:
+                                ab.drop_last(k_)
+                            for k in ex:
+                                ex[k] = ex[k][: len(ex[k]) - k_]
+                    if op in ("step", "ostep"):
                         _send(("val", expr._last(out, kind)))
                     else:
                         _send(("arr", _to_plain(out, kind, ns.df.index)))

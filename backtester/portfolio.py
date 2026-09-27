@@ -452,8 +452,12 @@ class Portfolio:
             costs.append(f"{self.expense_ratio:.2%}/yr expense ratio"
                          + (" (charged daily on the gross invested assets, including the borrowed or shorted part, not "
                             "only on the equity)" if self.leverage > 1 or _has_short(self.tree) else ""))
+        tree_borrows = isinstance(self.tree, dict) and max_gross(self.tree) > 1 + 1e-9   # weights above 100% (cash < 0)
         if self.leverage != 1:
             costs.append(f"{self.leverage:g}x leverage, borrowing at the T-bill rate"
+                         + (f" + {self.margin_rate:.2%}" if self.margin_rate else ""))
+        elif tree_borrows:
+            costs.append("weights above 100% borrowed at the T-bill rate"
                          + (f" + {self.margin_rate:.2%}" if self.margin_rate else ""))
         elif self.margin_rate:
             costs.append(f"margin rate T-bills + {self.margin_rate:.2%} on any borrowing")
@@ -462,7 +466,7 @@ class Portfolio:
                          + (f", {self.borrow_fee:.2%}/yr borrow fee on shorts" if self.borrow_fee else
                             ", assumed borrow fees on shorts (5%/yr leveraged or inverse ETFs, 0.3%/yr others)"
                             if self.borrow_fee is None else ""))
-        if self.leverage > 1 or _has_short(self.tree):
+        if self.leverage > 1 or _has_short(self.tree) or tree_borrows:
             costs.append(f"{self.maintenance_margin:.0%} maintenance margin (margin calls cut positions at the close)"
                          if self.maintenance_margin else "no margin calls")
         lines.append("Costs: " + (", ".join(costs) if costs else "none"))
@@ -583,7 +587,9 @@ def _is_asset(k: dict) -> bool:
 def _has_short(n: dict) -> bool:
     if not isinstance(n, dict):
         return False
-    if n.get("weights") == "specified" and any(w < 0 for w in n.get("w") or []):
+    # (a negative cash leg is borrowing - weights above 100% - not a short)
+    if n.get("weights") == "specified" and any(w < 0 and not (isinstance(k, dict) and k.get("cash"))
+                                               for w, k in zip(n.get("w") or [], n.get("children") or [])):
         return True
     return any(_has_short(k) for k in _kids(n))
 
@@ -866,6 +872,8 @@ def validate_node(n: dict, depth: int = 0) -> None:
         if bad:
             raise ValueError(f"unknown key(s) {', '.join(repr(k) for k in sorted(bad))} in filter settings; "
                              f"allowed: {', '.join(sorted(FILTER_KEYS))}")
+        if f.get("select") == "all" and not f.get("by"):
+            f["by"] = "close"          # every member with a price that day (nothing is ranked)
         if not f.get("by"):
             raise ValueError("filter needs 'by' (the ranking metric, e.g. tret(tr, 63))")
         expr.compile_expr(f["by"])
@@ -874,8 +882,10 @@ def validate_node(n: dict, depth: int = 0) -> None:
         _whole(f.get("n", 1), "filter n (how many to pick)", 1)
         if f.get("lookback") is not None:
             _whole(f["lookback"], "filter lookback (days)", 2)
-        if f.get("select", "top") not in ("top", "bottom"):
-            raise ValueError("filter select must be 'top' or 'bottom'")
+        if f.get("select", "top") not in ("top", "bottom", "all"):
+            raise ValueError("filter select must be 'top', 'bottom' or 'all' (every member)")
+        if f.get("select") == "all" and f.get("weights") == "specified":
+            raise ValueError("a filter selecting every member ('all') cannot have weights by rank")
         if f.get("weights") == "specified":
             # fixed weights by rank: w[0] for the best pick, w[1] for the next, ...
             w = f.get("w")
@@ -1046,6 +1056,8 @@ def short_name(n: dict, limit: int = 80) -> str:
             u = x.get("universe", "children")
             what = "Nasdaq-100" if u in ("NDX", "nasdaq100") else ", ".join(
                 nm(k, depth + 1) for k in (x.get("children") or [])) if u == "children" else ", ".join(u)
+            if f.get("select") == "all":
+                return f"All of {what}" if len(what) < 60 else f"All {len(u)} tickers"
             return f"{f.get('select', 'top').title()} {f.get('n', 1)} of {what} by {pretty_rule(f.get('by'))}"
         return "portfolio"
     s = nm(n)
@@ -1133,7 +1145,12 @@ def describe(n: dict, indent: int = 0, named: bool = True) -> list[str]:
                 out.extend(_member_lines(k, indent + 2))
         else:
             uname = "Nasdaq-100 members" if u in ("NDX", "nasdaq100") else ", ".join(_universe(n))
-            out = [f"{pad}{f.get('select', 'top')} {f.get('n', 1)} of [{uname}] by {f['by']}, {wl}"]
+            if f.get("select") == "all":
+                un = uname if len(uname) < 80 else f"{len(_universe(n))} tickers: {', '.join(_universe(n)[:6])}, ..."
+                out = [f"{pad}all of [{un}] (each while it trades"
+                       f"{', and while in the index' if u in ('NDX', 'nasdaq100') else ''}), {wl}"]
+            else:
+                out = [f"{pad}{f.get('select', 'top')} {f.get('n', 1)} of [{uname}] by {f['by']}, {wl}"]
         if f.get("require"):
             out.append(f"{pad}  only if {f['require']}, else:")
             out.extend(describe(n.get("fallback") or {"cash": True}, indent + 2))
@@ -1501,7 +1518,7 @@ def check_tree(p: "Portfolio") -> None:
                         holder[key] = q
                         for m in level_notes(r, q, why):
                             note(m)
-            if isinstance(f, dict) and isinstance(f.get("by"), str):
+            if isinstance(f, dict) and isinstance(f.get("by"), str) and f.get("select") != "all":
                 q = quote_metric(f["by"])
                 if q != f["by"]:
                     note(RANK_NOTE.format(r=f["by"], q=q))
@@ -1948,10 +1965,12 @@ class _Evaluator:
                 self.cache[mk] = (mem, bool(mem) and all(isinstance(m, str) for m in mem))
             mem, assets = self.cache[mk]
             pit = u in ("NDX", "nasdaq100") and self.p.point_in_time
-            top = f.get("select", "top") == "top"
+            every = f.get("select") == "all"      # every member trading (and in the index) that day
+            top = f.get("select", "top") != "bottom"
+            k_n = len(mem) if every else int(f.get("n", 1))
             if assets:
                 self._rank_counts = None
-                chosen = self._rank_assets(n, mem, f["by"], pit, i, top, int(f.get("n", 1)))
+                chosen = self._rank_assets(n, mem, f["by"], pit, i, top, k_n)
                 n_cands, elig = self._rank_counts or (len(chosen), len(chosen))
             else:
                 cands = []
@@ -1962,10 +1981,10 @@ class _Evaluator:
                     if np.isfinite(v):
                         cands.append((v, m))
                 cands.sort(key=lambda x: x[0], reverse=top)
-                chosen = [m for _, m in cands[: int(f.get("n", 1))]]
+                chosen = [m for _, m in cands[: k_n]]
                 n_cands = len(cands)
                 elig = sum(1 for m in mem if not isinstance(m, str) or (self.has(m, i) and (not pit or self.is_member(m, i))))
-            if i >= self.off and not self._quiet:
+            if i >= self.off and not self._quiet and not every:
                 if n_cands < int(f.get("n", 1)) or (pit and elig and n_cands < data.MCAP_MIN_COVERAGE * elig):
                     self.thin.append((self.cal[i], n_cands, elig, int(f.get("n", 1)), f["by"]))
             if f.get("require"):

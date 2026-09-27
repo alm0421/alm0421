@@ -174,7 +174,9 @@ def scan(spec) -> dict:
         if spec.side == "both":
             rules.append(("short", spec.short_entry))
         for side, rule in rules:
-            if bool(expr.evaluate(rule, ns).iloc[-1]):
+            with expr.open_view(spec.entry_fill == "open"):    # a Python function sees only the (provisional) open
+                fired = bool(expr.evaluate(rule, ns).iloc[-1])
+            if fired:
                 rank = None
                 if spec.rank_by and isinstance(spec.rank_by, str):
                     try:

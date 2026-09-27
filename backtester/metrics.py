@@ -1158,8 +1158,11 @@ def result_warnings(kind: str, stats: dict, tstats: dict, interest: float | None
                             "Sharpe, Sortino, Calmar and the trade statistics are not shown."})
     elif signal and n < FEW_TRADES:
         W.append({"code": "few_trades", "level": "warn", "message": "Too few trades for the statistics to mean much",
-                  "detail": f"Only {n} trade{'s' if n != 1 else ''}. Win rate, profit factor and Sharpe from fewer than "
-                            f"{FEW_TRADES} trades are mostly luck."})
+                  "detail": f"Only {n} closed trade{'s' if n != 1 else ''}"
+                            + (f" (and {n_open} still open at the end, listed with the trades but not counted)"
+                               if n_open else "")
+                            + f". Win rate, profit factor and Sharpe from fewer than {FEW_TRADES} trades are mostly "
+                            "luck."})
     alarms = []
     sharpe, cagr, mdd = stats.get("sharpe"), stats.get("cagr"), stats.get("max_drawdown")
     if not (signal and n == 0 and not n_open):

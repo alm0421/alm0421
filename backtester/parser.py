@@ -4135,6 +4135,10 @@ def _split_clauses(t: str) -> list[str]:
 
 
 def _universe_phrase(text: str) -> tuple[list[str] | None, str | None]:
+    from . import index_universes
+    iu = index_universes.universe(text)    # "today's S&P 500 members"; asks about "S&P 500 / Russell 2000 stocks"
+    if iu is not None:
+        return iu
     low = text.lower()
     if re.search(r"nasdaq[- ]?100|\bndx\b|(?:all|each|any|every) (?:the )?(?:index )?(?:stocks?|members?|components?|constituents?)", low):
         return data.nasdaq100_ever(), "NDX"
@@ -4145,7 +4149,9 @@ def _universe_phrase(text: str) -> tuple[list[str] | None, str | None]:
     return None, None
 
 
-UNIVERSE_WORDS = (r"nasdaq[- ]?100|\bndx\b|(?:all|each|any|every) (?:the )?(?:index )?(?:stocks?|members?|components?|constituents?)|"
+from .index_universes import PHRASE as _INDEX_MEMBERS  # noqa: E402
+
+UNIVERSE_WORDS = (_INDEX_MEMBERS + r"|nasdaq[- ]?100|\bndx\b|(?:all|each|any|every) (?:the )?(?:index )?(?:stocks?|members?|components?|constituents?)|"
                   r"sector (?:etfs|spdrs|funds)|all (?:available )?tickers|entire universe|whole universe")
 
 
@@ -4164,6 +4170,7 @@ def _entry_subject(subj: str, clause: str, notes: list[str]) -> dict:
     if m:
         raise ParseError(f"'{m.group(0).strip()}' in '{clause.strip()}': say how much leverage, e.g. 'buy SPY with 2x leverage when ...' "
                          "(the borrowed part pays the margin rate).")
+    s = re.sub(rf"(?i){_INDEX_MEMBERS}", " ", s)      # "today's S&P 500 members" (before 'S&P 500' is read as SPY)
     for tk in find_tickers(s):
         s = _sub_outside(rf"(?<![\w])[\$^]?{re.escape(tk.lstrip('^'))}(?:'s)?\b", " ", s, flags=re.I)
     for name in COMPANIES:
@@ -4836,7 +4843,7 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
         subject = cl_rest[: mcond.start()] if mcond else cl_rest
         cond_text = cl_rest[mcond.end():] if mcond else ""
         u, uname = _universe_phrase(subject)
-        tick = find_tickers(subject, strict=True)
+        tick = find_tickers(re.sub(_INDEX_MEMBERS, " ", subject, flags=re.I), strict=True)
         if u is None:
             if tick:
                 u = tick
@@ -5156,6 +5163,8 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
         if not pit:
             cur = set(data.current_members())
             universe = [t for t in universe if t in cur]
+    elif _index_today_note(uni_name, universe, notes):
+        kw["point_in_time"] = False
     benchmark = kw.pop("benchmark", None)
     brb = kw.pop("benchmark_rebalance", None)
     if brb not in (None, "monthly"):
@@ -5849,6 +5858,87 @@ def _except_when(s: str, notes: list[str]) -> dict | None:
     return node
 
 
+def _index_today_note(uname, tickers, notes: list[str]) -> bool:
+    """The survivorship warning of a today's-members index universe (index_universes); True when it is one."""
+    from . import index_universes
+    if not index_universes.is_today_members(uname):
+        return False
+    w = index_universes.warning(uname, len(tickers))
+    if w not in notes:
+        notes.append(w)
+    return True
+
+
+_WHOLE_W = (r"(?:(?:weighted\s+)?(?:by\s+)?(?:equal(?:ly)?|market[- ]cap(?:italization)?|inverse[- ]vol(?:atility)?)"
+            r"(?:[- ]weight(?:ed|s|ing)?)?|weighted\s+equally|(?:in|with|at)\s+equal\s+weights?)")
+
+
+def _whole_universe_node(s: str, notes: list[str]) -> dict | None:
+    """A whole index held at once: "all Nasdaq 100 stocks equally weighted", "equal weight all Nasdaq 100 stocks",
+    "today's S&P 500 members, market cap weighted" -> a filter selecting every member (select "all"), point-in-time
+    for the Nasdaq 100. None when `s` is not only an index universe (and its weighting)."""
+    s = s.strip()
+    m = (re.fullmatch(rf"(?is)(?P<w>{_WHOLE_W})\s+(?:(?:of|in|across)\s+)?(?P<u>.+)", s)
+         or re.fullmatch(rf"(?is)(?P<u>.+?),?\s+(?:(?:and|with|using)\s+)?(?P<w>{_WHOLE_W})", s)
+         or re.fullmatch(r"(?is)(?P<u>.+)", s))
+    u = m.group("u")
+    rest = re.sub(rf"(?i){UNIVERSE_WORDS}", " ", u)
+    rest = re.sub(r"(?i)\b(?:all|each|every|of|the|stocks?|members?|components?|constituents?|companies|in|index)\b", " ",
+                  rest)
+    if rest.strip() or not re.search(rf"(?i){UNIVERSE_WORDS}", u) or re.search(r"(?i)sector|tickers|universe", u):
+        return None
+    uu, uname = _universe_phrase(u)
+    if uu is None:
+        return None
+    wtxt = m.groupdict().get("w")
+    wp = _weighting_phrase(wtxt) if wtxt else ("equal", None)
+    if wp is None:
+        return None
+    f: dict = {"select": "all", "by": "close", "weights": wp[0]}
+    if wp[1] and wp[0] != "equal":
+        f["lookback"] = wp[1]
+    node: dict = {"filter": f, "universe": "NDX" if uname == "NDX" else uu}
+    if uname != "NDX":
+        _index_today_note(uname, uu, notes)
+    if not wtxt:
+        notes.append(f"Every stock of {'the Nasdaq-100' if uname == 'NDX' else uname} held at once, in equal weights "
+                     "(no weighting stated).")
+    return node
+
+
+def _times_leverage(s: str, notes: list[str]) -> str:
+    """'2x QQQ' / 'QQQ with 2x leverage' / 'QQQ at 2x' (one ticker, stated leverage) -> '200% QQQ' (the extra 100%
+    borrowed, see _levered_weights). A ticker only: '3x S&P 500' may mean a leveraged ETF (UPRO), so it is left alone."""
+    m = (re.fullmatch(r"(?i)(?P<k>\d+(?:\.\d+)?)\s*x\s+(?:leveraged\s+|leverage (?:on|in)\s+)?(?P<t>[\^$]?[A-Z][A-Z0-9.\-]{0,9})", s)
+         or re.fullmatch(r"(?i)(?P<t>[\^$]?[A-Z][A-Z0-9.\-]{0,9})\s+(?:with|at|using)\s+(?P<k>\d+(?:\.\d+)?)\s*x(?:\s+leverage)?", s))
+    if not m or not m.group("t").isupper():
+        return s
+    k = float(m.group("k"))
+    tk = _one_ticker(m.group("t"))
+    if tk is None or tk == "cash" or not 1 < k <= 4:
+        return s
+    note = (f"'{s}' read as {k * 100:g}% {tk}: the extra {k * 100 - 100:g}% is borrowed (a margin loan at the T-bill "
+            f"rate plus the margin spread), rebalanced back to {k:g}x on each rebalance. For a leveraged ETF, name it.")
+    if note not in notes:
+        notes.append(note)
+    return f"{k * 100:g}% {tk}"
+
+
+def _levered_weights(ws: list[float], kids: list[dict], s: str, notes: list[str]) -> dict:
+    """Stated weights adding up to more than 100% (e.g. '150% SPY and 50% TLT', or '200% QQQ' in an if-branch): the
+    excess is borrowed, as with portfolio leverage - a cash leg of minus the excess (a margin loan at the T-bill
+    rate plus the margin spread; the margin rules of Portfolio.validate apply to the gross exposure)."""
+    tot = sum(ws)
+    if tot <= 1 + 1e-6 or any(w < 0 for w in ws) or any(k.get("cash") for k in kids) or tot > 4 + 1e-9:
+        raise ParseError(f"Weights add up to {tot:.0%}, not 100%.")
+    note = (f"Weights in '{s.strip()}' add up to {tot:.0%}: the extra {tot - 1:.0%} is borrowed ({tot:.2g}x gross "
+            "exposure, a margin loan at the T-bill rate plus the margin spread). If that was a typo, make them add up "
+            "to 100%.")
+    if note not in notes:
+        notes.append(note)
+    return _weights_node(ws + [1 - tot], kids + [{"cash": True}], s)
+
+
 def _node(text: str, notes: list[str] | None = None) -> dict:
     """Parse an allocation phrase into a portfolio tree node (strict: every word must be understood)."""
     notes = notes if notes is not None else []
@@ -5856,9 +5946,13 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     s = _strip_parens(text.strip().strip(",;. "))
     s = re.sub(r"(?i)^(?:and |then )?(?:hold|buy and hold|buy|own|be in|select|pick|choose|invest(?: in)?|allocate(?: to)?|put (?:everything |it all |all )?in(?:to)?|go (?:to|into)|switch (?:to|into)|rotate (?:to|into)|stay in|move (?:to|into)|in)\s+", "", s)
     s = _strip_parens(s)
+    s = _times_leverage(s, notes)
     low = s.lower()
     if re.fullmatch(r"(?:cash|t-?bills|treasury bills|money market|nothing|flat)", low):
         return {"cash": True}
+    wu = _whole_universe_node(s, notes)
+    if wu is not None:
+        return wu
 
     cm = _cape_model(s, notes)
     if cm:
@@ -6058,6 +6152,7 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
             node["universe"] = "NDX"
         elif uu is not None:
             node["universe"] = uu
+            _index_today_note(uname, uu, notes)
         else:
             node["universe"] = "children"
             node["children"] = _children(uni, notes, choice=True)
@@ -6270,7 +6365,7 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
                 ws.append(1 - sum(ws))
                 notes.append(f"Weights add up to {sum(ws[:-1]):.0%}: the remaining {ws[-1]:.0%} is held in cash.")
             else:
-                raise ParseError(f"Weights add up to {sum(ws):.0%}, not 100%.")
+                return _levered_weights(ws, kids, s, notes)
         return _weights_node(ws, kids, s)
 
     # equal weight / inverse volatility / ... of a list
@@ -6388,7 +6483,7 @@ def _listed_weights(ws: list[float], kids: list[dict], s: str, notes: list[str])
             ws = ws + [1 - sum(ws)]
             notes.append(f"Weights add up to {sum(ws[:-1]):.0%}: the remaining {ws[-1]:.0%} is held in cash.")
         else:
-            raise ParseError(f"Weights add up to {sum(ws):.0%}, not 100%.")
+            return _levered_weights(ws, kids, s, notes)
     return _weights_node(ws, kids, s)
 
 
