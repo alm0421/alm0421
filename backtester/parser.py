@@ -1206,8 +1206,21 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
             raise ParseError(str(e)) from None
         if out != r:
             _note(f"TradingView syntax `{r}` was translated to {out}.")
+        if m.group("tv") is not None:
+            # "`ta.highest(high, 20)` crosses above 0", "`x` is below 10": the backticked value is the subject
+            if re.search(r"[<>]|==|!=|\b(?:and|or|not|crossover|crossunder|cross)\b", out):
+                raise ParseError(f"'`{r}` {m.group('tail')}': `{r}` is already a condition; put the whole comparison in the "
+                                 f"backticks, e.g. `{r} and ...`.")
+            v = "0" if m.group("tv") == "zero" else m.group("tv")
+            if m.group("xd"):
+                return f"{'crossover' if m.group('xd') in ('above', 'over') else 'crossunder'}({out}, {v})"
+            return f"{out} {_cmp(m.group('cw'))} {v}"
         return out
-    take(r"`([^`]+)`", raw_rule)  # wrapped in () below
+    # (a value in backticks followed by a comparison with a number: the value is what is compared)
+    take(rf"`([^`]+)`(?: (?P<tail>(?:(?:is |closes? |trades? )?cross(?:es|ed)?(?: back)? (?P<xd>above|over|below|under)"
+         rf"|(?:is |stays? |trades? |closes? )?(?P<cw>at least|at most|no less than|no more than|below|under|less than|lower than|beneath|"
+         rf"above|over|greater than|higher than|more than)) \$?(?P<tv>-?\d+(?:\.\d+)?|zero))(?![\d%])(?! (?:day|week|month|bar)))?",
+         raw_rule)  # wrapped in () below
 
     # negations of relations: "not above 79" is "at most 79"
     s = _negations(s)
@@ -3363,10 +3376,12 @@ def _parse(text: str, **overrides):
     if mbh and not re.search(r"(?i)\b(?:when|if|while|once|after|at|on)\b", mbh.group("who")) and find_tickers(mbh.group("who")):
         text = f"buy and hold {mbh.group('who')}{mbh.group('rest')}"
     _TL.tv = bool(overrides.get("tv_compat"))
+    _TL.opp = None
     try:
         obj = _parse_text(text)
     finally:
         _TL.tv = False
+        _TL.opp = None
     obj.description = original
     return _finish(obj, overrides)
 
@@ -3488,6 +3503,23 @@ def _they_to_it(s: str) -> str:
     return re.sub(r"(?i)\btheir\b", "its", s)
 
 
+def _entry_crosses(entry: str) -> list[tuple[str, str, str]]:
+    """The distinct crossover(a, b) / crossunder(a, b) calls of an entry rule, as (function, a, b)."""
+    import ast as _ast
+    try:
+        tree = _ast.parse(entry, mode="eval")
+    except SyntaxError:
+        return []
+    out = []
+    for n in _ast.walk(tree):
+        if (isinstance(n, _ast.Call) and isinstance(n.func, _ast.Name) and n.func.id in ("crossover", "crossunder")
+                and len(n.args) == 2 and not n.keywords):
+            x = (n.func.id, _ast.unparse(n.args[0]), _ast.unparse(n.args[1]))
+            if x not in out:
+                out.append(x)
+    return out
+
+
 def _exit_rule(wl: str, entry: str, universe: list[str], notes: list[str]) -> str:
     """The rule of a 'sell when ...' clause. Resolves references back to the entry: 'it crosses back
     below' / 'QQQ closes below it' (the entry's price comparison reversed), 'it is over 70' (the
@@ -3497,6 +3529,8 @@ def _exit_rule(wl: str, entry: str, universe: list[str], notes: list[str]) -> st
     wl = re.sub(r"(?i)\bthey were\b", "it is", wl)
     wl = _they_to_it(wl)
     wl = re.sub(r"(?i)\btheir\b", "its", wl)
+    # "it crosses below zero" / "the zero line": the number 0 (the entry's indicator crossing it, below)
+    wl = _sub_outside(r"(?i)\b(above|below|over|under|than|through) (?:the )?zero(?: line)?\b", r"\1 0", wl)
     tick = r"(?P<tk>[\^$]?[a-z][a-z0-9.&'-]{0,24}(?: [a-z][a-z0-9.&'-]{0,24}){0,2}?)(?:'s(?: price)?)?"
     pron = re.fullmatch(rf"(?i)(?:it |the price |price |{tick} )?(?P<verb>crosses|falls|drops|closes|goes|moves|is|trades|gets)?(?: back)? ?"
                         r"(?P<rel>below|under|above|over)(?: (?:it|them|that|the average|the line|again))?", wl)
@@ -3507,6 +3541,19 @@ def _exit_rule(wl: str, entry: str, universe: list[str], notes: list[str]) -> st
             pron = None
         else:
             tk = found[0]
+    opp = getattr(_TL, "opp", None)
+    if pron and opp and tk is None and re.fullmatch(rf"(?i)it crosses {opp[1]} it", wl.strip()):
+        # "exit on the opposite cross": the entry's own crossing, the other way (whatever else the entry requires)
+        crosses = _entry_crosses(entry)
+        alone = len(crosses) == 1 and re.sub(r"[()\s]", "", entry) == re.sub(r"[()\s]", "", "{}({}, {})".format(*crosses[0]))
+        if len(crosses) == 1 and not alone:     # (the cross alone: the first close on the other side, below)
+            fn, a, b = crosses[0]
+            flip = f"{'crossunder' if fn == 'crossover' else 'crossover'}({a}, {b})"
+            notes.append(f"'{opp[0]}' was read as the entry's cross the other way: {flip}.")
+            return flip
+        if len(crosses) > 1:
+            raise ParseError(f"'{opp[0]}': the entry has {len(crosses)} crosses ({', '.join(f'{f}({a}, {b})' for f, a, b in crosses)}); "
+                             "the opposite of which one? Say it, e.g. 'sell when the 10 day SMA crosses below the 50 day SMA'.")
     if pron:
         below = pron.group("rel").lower() in ("below", "under")
         series = None if tk is None else ("close" if tk == one else f'sym("{tk}").close')
@@ -3514,6 +3561,9 @@ def _exit_rule(wl: str, entry: str, universe: list[str], notes: list[str]) -> st
         flip = _flip(entry, below=below, series=series, price_only=price_only)
         if not flip:
             what = f"{tk}'s price" if tk else ("the price" if price_only else "anything")
+            if opp and tk is None:
+                raise ParseError(f"'{opp[0]}': the entry ({entry.strip('()')}) has no cross to reverse. Say when to sell, "
+                                 "e.g. 'sell when the 10 day SMA crosses below the 50 day SMA'.")
             raise ParseError(
                 f"'{wl}': 'it' has nothing to refer back to - the entry ({entry.strip('()')}) does not compare {what} "
                 f"with exactly one level or average. Say what it crosses, e.g. "
@@ -3836,6 +3886,7 @@ def _signal_phrases(t: str) -> str:
             raise ParseError(f"'{mo.group(0)}': the opposite of which cross? Say e.g. 'buy when the 10 day SMA crosses above "
                              "the 30 day SMA, sell when it crosses below it'.")
         way = "below" if ups == {"above"} else "above"
+        _TL.opp = (mo.group(0), way)      # the exit reverses the entry's own cross (_exit_rule)
         t = t[: mo.start()] + f"{mo.group('v').split()[0]} when it crosses {way} it" + t[mo.end():]
         _note(f"'{mo.group(0)}' was read as the entry's crossing the other way: sell when it crosses {way} it (the first "
               "close on the other side of the line).")
@@ -3905,6 +3956,83 @@ def _signal_phrases(t: str) -> str:
     t = _sub_outside(r"(?i)\bthe (\d+) (sma|ema|wma|hma|ma|moving average)\b(?= (?:is |are )?(?:rising|falling|increasing|decreasing|"
                      r"declining|trending|sloping|pointing|turning|going|moving|above|below|over|under|crosses|>|<))",
                      r"the \1 day \2", t)
+    return _signal_phrases_r12(t)
+
+
+_MA_KIND = {"sma": "sma", "ema": "ema", "ma": "sma", "moving average": "sma", "simple moving average": "sma",
+            "exponential moving average": "ema"}
+
+
+def _signal_phrases_r12(t: str) -> str:
+    """More trader phrases (TradingView review, round 12), each with a note:
+    'at today's open' (the signal day's open), 'RSI(2) is below 10 hold 3 days' (no comma), '3 positions',
+    'the 20 EMA of the weekly chart' / 'the monthly SMA(10)' (= the weekly 20 EMA / monthly 10 SMA), 'the weekly 20 EMA
+    is rising' / 'its slope is positive' (week over week), 'the monthly 10 SMA is below the close' (the close above it),
+    'heikin ashi turns green two days in a row'."""
+    # "at today's open" / "at the open today": the signal day's open (entry_fill "open"), open-safe rules only
+    def today_open(m):
+        _note(f"'{m.group(0).strip()}' = at the open of the signal day: the order fills at that open, so the rule uses only "
+              "what is known at the open - today's open and gap, and the previous close for everything else (a condition "
+              "on the close, such as RSI, is the previous day's). Say 'at the next open' to decide at the close and buy "
+              "the next morning.")
+        return f"{m.group('pre') or ''}at the open"
+    t = _sub_outside(r"(?i)(?P<pre>\b)(?:at|on) today'?s open(?:ing)?(?: price)?\b|(?P<pre2>\b)at the open today\b|\btoday at the open\b",
+                     today_open, t)
+    t = _sub_outside(r"(?i)\b(?:at|on) today'?s close(?: price)?\b|\bat the close today\b", "at the close", t)
+    # "RSI(2) is below 10 hold 3 days": a holding period with no comma before it
+    t = _sub_outside(r"(?i)(?<=[\w)%])(?<!\band)(?<!\bthen)(?<!\bor)(?<!\bto)(?<!\bbuy)(?<!\bmax)(?<!\bmaximum)(?<!\bmin)(?<!\bminimum)(?<!\bat least) "
+                     r"(?=hold(?: it| them)?(?: for)? (?:\d+|one|two|three|four|five|a) (?:trading )?(?:days?|bars?|weeks?|sessions?)\b)",
+                     ", ", t)
+    # "3 positions" (a clause of its own): at most 3 positions at a time
+    def npos(m):
+        _note(f"'{m.group(0).strip(' ,')}' = at most {m.group('n')} positions at a time.")
+        return f"{m.group('lead')}max {m.group('n')} positions"
+    t = _sub_outside(r"(?i)(?P<lead>(?:^|[,;] ?)(?:with |using |in |across |and )?)(?P<n>\d+) (?:open |simultaneous |concurrent )?positions"
+                     r"(?= *(?:[,;.]|$))", npos, t)
+    # "the 20 EMA of the weekly chart", "SMA(10) on the monthly chart" -> "the weekly 20 EMA", "the monthly 10 SMA"
+    t = _sub_outside(r"(?i)\b(?:the )?(?:(?P<n>\d+)[- ]?(?:period |bar )?(?P<k>sma|ema|ma|moving average)|(?P<k2>sma|ema)\s*\(\s*(?P<n2>\d+)\s*\))"
+                     r" (?:of|on|from) the (?P<per>weekly|monthly|week|month) (?:chart|timeframe|bars?|candles?)\b",
+                     lambda m: f"the {({'week': 'weekly', 'month': 'monthly'}).get(m.group('per').lower(), m.group('per').lower())} "
+                               f"{m.group('n') or m.group('n2')} {(m.group('k') or m.group('k2'))}", t)
+    t = _sub_outside(r"(?i)\b(weekly|monthly) (sma|ema)\s*\(\s*(\d+)\s*\)", r"\1 \3 \2", t)
+    # "the weekly 20 EMA is rising" / "... slope is positive" / "the slope of the weekly 20 EMA is positive": week over week
+    tf_ma = r"(?:the )?(?P<per>weekly|monthly) (?P<n>\d+)[- ]?(?:period |bar |week |month )?(?P<k>simple moving average|exponential moving average|moving average|sma|ema|ma)"
+
+    def tf_trend(m):
+        per, n, k = m.group("per").lower(), int(m.group("n")), _MA_KIND[m.group("k").lower()]
+        up = m.group("d").lower() in ("rising", "up", "positive", "increasing", "sloping up", "pointing up", "turning up", "going up")
+        f_ = "weekly" if per == "weekly" else "monthly"
+        rule = f"{f_}({k}(close, {n}) {'>' if up else '<'} ref({k}(close, {n}), 1))"
+        unit = "week" if per == "weekly" else "month"
+        _note(f"'{m.group(0).strip()}' = the {per} {n} {k.upper()} (on completed {unit}ly bars) {'higher' if up else 'lower'} than "
+              f"a {unit} before: {rule}, known from each {unit}'s last close and held through the next {unit}.")
+        return f"`{rule}`"
+    dirs = (r"(?P<d>rising|falling|increasing|decreasing|sloping up|sloping down|pointing up|pointing down|turning up|turning down|"
+            r"going up|going down|positive|negative|up|down)")
+    for pat in (rf"(?i)\bthe slope of {tf_ma} (?:is |turns? |stays? )?{dirs}\b",
+                rf"(?i)\b{tf_ma}(?:'s)?(?: slope)? (?:is |are |has been |turns? |stays? )?{dirs}(?! (?:than|by)\b)\b"):
+        t = _sub_outside(pat, tf_trend, t)
+    # "the monthly 10 SMA is below the close" -> "the close is above the monthly 10 SMA" (the price is the subject)
+    flip_w = {"below": "above", "under": "above", "above": "below", "over": "below"}
+    t = _sub_outside(rf"(?i)\b(?P<ma>{tf_ma}) is (?P<rel>below|under|above|over) (?:the |its )?(?P<px>close|closing price|price)\b",
+                     lambda m: f"the {m.group('px')} is {flip_w[m.group('rel').lower()]} {m.group('ma')}", t)
+    # "heikin ashi turns green two days in a row": the N-th green candle in a row after a red one
+    def ha_run(m):
+        n = int(m.group("n"))
+        green = m.group("col").lower() in ("green", "bullish", "white")
+        op, nop = (">", "<=") if green else ("<", ">=")
+        rule = f"count(ha_close {op} ha_open, {n}) == {n} and ref(ha_close, {n}) {nop} ref(ha_open, {n})"
+        _note(f"'{m.group(0).strip()}' = {n} {'green' if green else 'red'} Heikin Ashi candles in a row after a "
+              f"{'red' if green else 'green'} one (true on the {n}th): {rule}. Say 'heikin ashi is {m.group('col')} {n} days in a "
+              "row' for any run of that length.")
+        return f"`{rule}`"
+    t = _sub_outside(r"(?i)\b(?:the )?(?:heikin[- ]?ashi|ha)(?: candles?| candlesticks?| bars?)? (?:turns?|turned|flips?|flipped|changes? to|changed to)"
+                     r" (?P<col>green|red|bullish|bearish|white|black)(?: for)? (?P<n>\d+) (?:consecutive )?(?:days|bars|candles|sessions)"
+                     r"(?: in a row| straight| consecutively)", ha_run, t)
+    # "heikin ashi candles are green 2 days in a row" = "heikin ashi is green for 2 days in a row"
+    t = _sub_outside(r"(?i)\b((?:the )?(?:heikin[- ]?ashi|ha)(?: candles?| candlesticks?| bars?)?) (?:is|are) (green|red|bullish|bearish|white|black)"
+                     r" (\d+ (?:consecutive )?(?:days|bars|candles|sessions) (?:in a row|straight|consecutively))",
+                     r"\1 is \2 for \3", t)
     return t
 
 
@@ -4038,6 +4166,11 @@ def parse_signal(text: str, holding: bool = False) -> Strategy:
         kw["maintenance_margin"] = float(m.group(1) or m.group(2)) / 100
     if T.find(r"(?:(?:with|and) )?(?:no|without|ignore|ignoring) margin calls?"):
         kw["maintenance_margin"] = 0.0
+    if getattr(_TL, "tv", False):
+        # TradingView-compatible mode: TradingView's strategy tester charges no borrow fee on shorts and (at its
+        # default 100% margin) makes no maintenance-margin calls; either applies here only when the sentence states it
+        kw.setdefault("borrow_fee", 0.0)
+        kw.setdefault("maintenance_margin", 0.0)
     m = T.find(rf"(?:(?:with|and) )?(?:a )?short rebate(?: spread)?(?: of)? {NUM}% (?:below|under|less than) (?:the )?(?:t-?bill|cash)(?: rate)?"
                rf"|(?:(?:with|and) )?(?:no|full) short rebate(?: haircut)?")
     if m:

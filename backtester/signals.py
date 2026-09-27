@@ -110,6 +110,22 @@ def scan(spec) -> dict:
     out["exit_signals"] = exits
     out["exit_orders"] = standing
     held = {r["ticker"] for r in out["open_positions"]}
+    # entries at the close: the engine has already filled today's signals at today's close (market-on-close), so
+    # they are open positions "since today"; they are today's BUY (or SELL SHORT) actions, not positions held before
+    # the signal. A ticker sold at today's close and bought back at the same close is, net, still held.
+    filled_today: list[dict] = []
+    at_close = spec.entry_fill == "close" and spec.entry_order == "market"
+    if at_close and not open_now.empty:
+        sold_moc = {e["ticker"] for e in exits if e.get("done") and e["order"] == "MOC"}
+        since = pd.to_datetime(open_now["entry_date"])
+        new_rows = open_now[(since == last) & (open_now["entry_fill"] == "close")]
+        for _, r in new_rows.iterrows():
+            filled_today.append({"ticker": r.ticker, "side": r.side, "action": "BUY" if r.side == "long" else "SELL SHORT",
+                                 "when": "at today's close", "order": "MOC", "shares": round(float(r.shares), 6),
+                                 "price": round(float(r.entry_price), 4), "close": round(float(r.exit_price), 4),
+                                 "done": True, "rebought": r.ticker in sold_moc})
+        before = set(open_now.loc[since < last, "ticker"])
+        held = {t for t in held if t in before}      # held before today's close (a pyramided add keeps it held)
     sig, assumed = [], False
     if spec.entry_order != "market":
         return _scan_level_orders(spec, res, out, exits, standing)
@@ -179,8 +195,14 @@ def scan(spec) -> dict:
         sig = [s for s in sig if s["ticker"] not in held]
     free = max(0, int(spec.max_positions) - len(held))
     sig.sort(key=lambda s: s["_rank"], reverse=not getattr(spec, "rank_ascending", False))
-    over = [s["ticker"] for s in sig[free:]]
-    sig = sig[:free]
+    if at_close:
+        # the engine's own fills at today's close are the entries (its ranking, slots and sizing decided them)
+        done = {f["ticker"] for f in filled_today}
+        over = [s["ticker"] for s in sig if s["ticker"] not in done]
+        sig = filled_today
+    else:
+        over = [s["ticker"] for s in sig[free:]]
+        sig = sig[:free]
     for s_ in sig:
         s_.pop("_rank", None)
     out["entry_signals"] = sig
@@ -194,10 +216,23 @@ def scan(spec) -> dict:
     todo = [e for e in exits if not e.get("done") and e["when"] in ("at the next open", "at the next close")]
     # an exit at today's close is a market-on-close order (like entries at the close); earlier ones already happened
     moc = [e for e in exits if e.get("done") and e["order"] == "MOC"]
-    exit_txt = "; ".join([f"{e['action']} {e['ticker']} {e['when']} ({e['reason']})" for e in moc + todo])
+    rebought = {f["ticker"] for f in sig if f.get("rebought")}
+    exit_txt = "; ".join([f"{e['action']} {e['ticker']} {e['when']} ({e['reason']})" for e in moc + todo
+                          if not (e.get("done") and e["ticker"] in rebought)])
     still_open = len(out["open_positions"]) - len({e["ticker"] for e in todo if e["when"] == "at the next open"})
-    out["action"] = ((exit_txt + "; ") if exit_txt else "") + \
-                    (f"{len(sig)} entry signal(s) {fill}" if sig else "No new entry signals") + \
+    if at_close:
+        parts = [f"{f['action']} {f['ticker']} at today's close (new entry)" for f in sig if not f.get("rebought")]
+        for f in sig:
+            if f.get("rebought"):
+                e = next((e for e in moc if e["ticker"] == f["ticker"]), None)
+                parts.append(f"{f['ticker']}: {e['action'] if e else 'SELL'} at today's close ({e['reason'] if e else 'exit'}) "
+                             f"and {f['action']} again at the same close (the entry signal fired again): net, keep holding "
+                             f"{f['ticker']} as a new position from today")
+        entry_txt = ("; ".join(parts) + f" ({len(sig)} entr{'y' if len(sig) == 1 else 'ies'} filled at today's close, "
+                     "market-on-close)") if sig else "No new entry signals"
+    else:
+        entry_txt = f"{len(sig)} entry signal(s) {fill}" if sig else "No new entry signals"
+    out["action"] = ((exit_txt + "; ") if exit_txt else "") + entry_txt + \
                     (f"; {still_open} position(s) open" if still_open > 0 else "") + \
                     (f" (exit orders for the next session: " + ", ".join(
                         f"{o['action']} {o['order']} {o['ticker']} @ {o['price']}" for o in standing if o.get("price") is not None) + ")"
@@ -309,6 +344,16 @@ def post_webhook(url: str, payload: dict) -> bool:
         return False
 
 
+def entry_line(e: dict) -> str:
+    """One entry signal in words: a fill the engine made at today's close (BUY ... at today's close), or a signal
+    for the next fill (long X @ close)."""
+    if e.get("done"):
+        return (f"{e['action']} {e['ticker']} {e.get('when', 'at the close')} @ {e['price']}"
+                + (f", {e['shares']:g} shares" if e.get("shares") is not None else "")
+                + (" (sold and bought back at the same close: net, keep holding it)" if e.get("rebought") else " (new entry)"))
+    return f"{e['side']} {e['ticker']} @ {e['close']}"
+
+
 def format_alert(rows) -> str:
     lines = []
     for r in rows if isinstance(rows, list) else [rows]:
@@ -324,11 +369,11 @@ def format_alert(rows) -> str:
             else:
                 lines.append(f"  • {o['action']} {o['ticker']} at the next open if {o['reason']}")
         for e in s.get("entry_signals", [])[:20]:
-            if e.get("order"):
+            if e.get("order") and not e.get("done"):
                 lines.append(f"  • {e['side']} {e['ticker']}: {e['order']} order @ {e['level']} (close {e['close']}, "
                              f"valid {e['valid_sessions']} session(s))")
             else:
-                lines.append(f"  • {e['side']} {e['ticker']} @ {e['close']}")
+                lines.append("  • " + entry_line(e))
         if s.get("target_weights"):
             lines.append("  target: " + ", ".join(f"{t} {w:.0%}" for t, w in s["target_weights"].items()))
     return "\n".join(lines)

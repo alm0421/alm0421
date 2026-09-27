@@ -1702,6 +1702,9 @@ def _check_arguments(tree) -> None:
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
             continue
         f = node.func.id
+        if f.startswith("_"):
+            raise ValueError(f"{f}() is not a function of the rule language: names starting with '_' (Python internals "
+                             "such as __import__) are not allowed. The functions are listed by --help-expr.")
         if f == "sym":
             if len(node.args) != 1 or node.keywords or _kind(node.args[0]) != "str":
                 raise ValueError('sym() takes one ticker in quotes, e.g. sym("SPY").close')
@@ -1724,8 +1727,9 @@ def _check_arguments(tree) -> None:
                 raise ValueError(f"{f}() needs a series such as close or rsi(close, 2), not {ast.unparse(a)!r}")
             if k in ("series", "lit"):
                 continue
+            eg = (f" (e.g. {f}(close, 20))" if f in WINDOW_FUNCS or f in FIRST_WINDOW_FUNCS else "")
             raise ValueError(f"{f}(): {ast.unparse(a)!r} is not allowed where a lookback, length or parameter belongs; "
-                             f"write the number itself (e.g. {f}(close, 20)): computed values there are refused")
+                             f"write the number itself{eg}: computed values there are refused")
 
 
 # ---------------------------------------------------------------- value checks shared by every front end
@@ -1900,6 +1904,16 @@ def bound_conflicts(rule: str) -> tuple[bool | None, list[str]]:
                 out.append((ast.dump(a), ast.unparse(a), op, float(vb)))
             elif vb is None and va is not None:
                 out.append((ast.dump(b), ast.unparse(b), _FLIP_TXT[op], float(va)))
+            elif va is None and vb is None:
+                # two values compared with each other ('the 200 day SMA is above the 50 day SMA'): a bound on their
+                # difference, a - b > 0, keyed by the pair in a fixed order, so 'b > a' is the same pair's a - b < 0
+                da, db = ast.dump(a), ast.dump(b)
+                if da == db:
+                    return None
+                src = ast.unparse(a) + "\0" + ast.unparse(b)       # as written (the message follows the first one)
+                if da > db:
+                    da, db, op = db, da, _FLIP_TXT[op]
+                out.append(("DIFF:" + da + "|" + db, src + "\0" + ("1" if ast.dump(a) != da else "0"), op, 0.0))
             else:
                 return None
         return out
@@ -1934,6 +1948,15 @@ def bound_conflicts(rule: str) -> tuple[bool | None, list[str]]:
     def words(op):
         return {">": "above", ">=": "at least", "<": "below", "<=": "at most", "==": "equal to"}[op]
 
+    def said_of(bs, joiner) -> tuple[str, str]:
+        """(the value, what the group says of it): '`rsi(close, 2)`', 'above 70 and below 30', or for two values
+        compared with each other, '`sma(close, 200)`', 'above `sma(close, 50)` and below `sma(close, 50)`'."""
+        src = bs[0][1]
+        if "\0" in src:
+            a, b, swapped = src.split("\0")
+            return a, f" {joiner} ".join(f"{words(_FLIP_TXT[op] if swapped == '1' else op)} {b}" for _, _, op, _v in bs)
+        return src, f" {joiner} ".join(f"{words(op)} {_fmt_bound(v)}" for _, _, op, v in bs)
+
     def truth(node) -> bool | None:
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
             t = truth(node.operand)
@@ -1953,9 +1976,7 @@ def bound_conflicts(rule: str) -> tuple[bool | None, list[str]]:
             for key, bs in groups.items():
                 if len(bs) < 2:
                     continue
-                src = bs[0][1]
-                said = " and ".join(f"{words(op)} {_fmt_bound(v)}" for _, _, op, v in bs) if is_and else \
-                    " or ".join(f"{words(op)} {_fmt_bound(v)}" for _, _, op, v in bs)
+                src, said = said_of(bs, "and" if is_and else "or")
                 if is_and and interval_empty(bs)[0]:
                     msgs.append(f"`{ast.unparse(node)}` can never be true: {src} cannot be {said} at the same time.")
                     const = False
@@ -1971,8 +1992,8 @@ def bound_conflicts(rule: str) -> tuple[bool | None, list[str]]:
             return False if all(t is False for t in ts) else None
         b = bounds(node)
         if b and len(b) >= 2 and interval_empty(b)[0]:     # 70 < x < 30
-            msgs.append(f"`{ast.unparse(node)}` can never be true: {b[0][1]} cannot be "
-                        + " and ".join(f"{words(op)} {_fmt_bound(v)}" for _, _, op, v in b) + " at the same time.")
+            src, said = said_of(b, "and")
+            msgs.append(f"`{ast.unparse(node)}` can never be true: {src} cannot be {said} at the same time.")
             return False
         return None
 

@@ -33,7 +33,7 @@ def main() -> None:
             else:
                 lines.append(f"  - exit order: {o['action']} {o['ticker']} at the next open if {o['reason']}")
         for e in r["today"].get("entry_signals", [])[:30]:
-            lines.append(f"  - {e['side']} {e['ticker']} @ {e['close']}")
+            lines.append(f"  - entry: {signals.entry_line(e)}")
         lines.append("")
     if not rows:
         lines.append("No paper strategies. Add one with `python -m backtester paper add \"...\" --name NAME` and commit paper/.")
