@@ -485,6 +485,15 @@ def export(spec) -> tuple[dict, list[str]]:
                 "quoted, so RSI and moving averages of dividend payers can differ slightly.")
     if spec.fill != "close":
         ex.note("Composer trades near the close of the rebalance day; this spec traded at the next open.")
+    day = getattr(spec, "rebalance_day", None)
+    if spec.rebalance in ("weekly", "monthly", "quarterly", "yearly") and not spec.drift_band and day != "start":
+        # Composer has no rebalance-day setting: its weekly / monthly / quarterly / yearly symphonies trade on the first
+        # trading day of each period (help.composer.trade/article/54-create-tutorial)
+        per = {"weekly": "week", "monthly": "month", "quarterly": "quarter", "yearly": "year"}[spec.rebalance]
+        when = (f"every {day.capitalize()}" if day and day not in ("end", "start") else f"on the last trading day of each {per}")
+        ex.note(f"Rebalance timing: Composer runs a {spec.rebalance} symphony on the first trading day of each {per}; this "
+                f"spec rebalanced {when}, so Composer's backtest trades on different days (set rebalance_day \"start\" "
+                "to match it here).")
     if spec.contribution or spec.withdrawal or spec.withdrawal_pct:
         ex.note("Cash flows (contributions, withdrawals) are account settings, not part of a symphony: left out.")
     if spec.slippage_bps or spec.commission or spec.commission_pct:

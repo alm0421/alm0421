@@ -89,6 +89,7 @@ code { background:var(--surface-2); padding:1px 5px; border-radius:5px; font-siz
 pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); padding:10px; border-radius:8px; }
 .badge { display:inline-block; font-size:11px; line-height:1.5; padding:0 7px; border-radius:99px; border:1px solid var(--border); color:var(--text-3); background:var(--surface-2); white-space:nowrap; }
 .badge.daily { color:var(--accent); border-color:var(--accent); }
+.badge.active { color:var(--good); border-color:var(--good); margin-left:6px; }
 .chip.on { background:var(--accent); border-color:var(--accent); color:var(--accent-text); }
 .tagchip { font-size:11px; color:var(--text-3); margin-right:6px; }
 .join { font-size:12px; color:var(--text-3); }
@@ -243,6 +244,7 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       <h3>Portfolio settings</h3>
       <div class="grid">
         <label>Rebalance<select id="p_rebalance"><option>daily</option><option>weekly</option><option selected>monthly</option><option>quarterly</option><option>yearly</option><option value="none">none (buy and hold)</option><option value="threshold">threshold (drift band)</option></select></label>
+        <label title="the day of each period a weekly, monthly, quarterly or yearly schedule trades on (at that day's close). Composer trades on the first trading day of each period; Portfolio Visualizer at the period end.">Rebalance day<select id="p_rebalance_day"><option value="">last trading day of the period</option><option value="start">first trading day of the period (Composer)</option><option value="monday">every Monday (weekly)</option><option value="tuesday">every Tuesday (weekly)</option><option value="wednesday">every Wednesday (weekly)</option><option value="thursday">every Thursday (weekly)</option><option value="friday">every Friday (weekly)</option></select></label>
         <label title="rebalance a holding back to its target when its weight is this many percentage points off (Composer's rebalance corridor); with Rebalance = threshold it is the only rebalancing">Drift band (%)<input id="p_drift_band" type="number" step="0.5" placeholder="off"></label>
         <label>Trade at<select id="p_fill"><option value="close">the close</option><option value="next_open">next open</option></select></label>
         <label>Starting capital ($)<input id="p_capital" type="number" value="10000"></label>
@@ -841,7 +843,7 @@ window.addEventListener('blur', unpress);
   const clone = x => JSON.parse(JSON.stringify(x));
   const blank = t => ({ asset: { asset: 'SPY' }, cash: { cash: true }, weights: { weights: 'equal', children: [{ asset: 'SPY' }, { asset: 'TLT' }] },
     if: { if: 'close > sma(close, 200)', on: 'SPY', then: { asset: 'QQQ' }, else: { asset: 'TLT' } },
-    filter: { filter: { select: 'top', n: 2, by: 'tret(tr, 126)', weights: 'equal' }, universe: 'children', children: [{ asset: 'QQQ' }, { asset: 'SPY' }, { asset: 'TLT' }, { asset: 'GLD' }], fallback: { cash: true } } })[t];
+    filter: { filter: { select: 'top', n: 1, by: 'tret(tr, 126)', weights: 'equal' }, universe: 'children', children: [], fallback: { cash: true } } })[t];
   const IND = [
     { k: 'tret', label: 'cumulative return', fn: 'tret', ser: 'tr', pct: true, def: 63 },
     { k: 'ret', label: 'price return', fn: 'ret', ser: 'close', pct: true, def: 63 },
@@ -1274,7 +1276,7 @@ window.addEventListener('blur', unpress);
       if (f.require) { missingOperand(f.require, null, e); const u = unitChecks(f.require, null); e.push(...u.e); w.push(...u.w); }
       if (n.universe !== 'NDX') {
         const k = n.children || [];
-        if (!k.length) e.push('Empty list: add assets to choose from.');
+        if (!k.length) e.push('Empty list: add the assets to choose from with "+ add" below (or drop blocks here).');
         if (k.some(c => typeOf(c) !== 'asset')) w.push('Groups in this list are ranked by their own simulated value (as if each were a fund).');
         if (k.length && f.n >= k.length) w.push(`Top ${f.n} of ${k.length} always holds all of them.`);
       }
@@ -1325,7 +1327,10 @@ window.addEventListener('blur', unpress);
     if (rb === 'none') return { daily: true, text: 'evaluated daily',
       title: 'No rebalancing schedule: the condition is still checked at every close and the portfolio trades only when it switches (holdings are otherwise left to drift).' };
     if (rb === 'daily') return { daily: true, text: 'evaluated daily' + (band ? ' · band ' + band : ''), title: 'The condition is checked at every close and the switch trades that day (Composer-style).' };
-    return { daily: false, text: 'evaluated ' + rb, title: `The condition is only checked on each ${rb.replace(/ly$/, '').replace('dai', 'day')}'s last close; set Rebalance to daily to switch as soon as it changes.` };
+    const per = rb === 'yearly' ? 'year' : rb.replace(/ly$/, ''), day = $('p_rebalance_day').value;
+    const when = day === 'start' ? `first trading day of each ${per}` : day && rb === 'weekly' ? `every ${day[0].toUpperCase() + day.slice(1)}` : `last trading day of each ${per}`;
+    return { daily: false, text: 'evaluated ' + rb + (day ? ' · ' + (day === 'start' ? 'period start' : day.slice(0, 3)) : ''),
+      title: `The condition is only checked on the ${when} (at its close); set Rebalance to daily to switch as soon as it changes.` };
   }
   // the "none" option says what it does for this tree: buy and hold only when nothing in the tree switches
   function rebalLabels() {
@@ -1361,7 +1366,7 @@ window.addEventListener('blur', unpress);
       const f = n.filter;
       hd.append(sel([['top', 'top'], ['bottom', 'bottom']], f.select, v => f.select = v), inp(f.n, v => { f.n = v === '' ? '' : +v; revalidate(); }, { type: 'number', min: 1, style: 'width:60px' }),
         el('span', { class: 'lab' }, 'by'), rankEditor(f), weightPicker(f, 'weights', 'lookback', false),
-        el('span', { class: 'lab' }, 'from'), sel([['children', 'the list below'], ['NDX', 'Nasdaq-100 (point-in-time)']], n.universe === 'NDX' ? 'NDX' : 'children', v => { n.universe = v; if (v === 'NDX') delete n.children; else n.children = n.children || [{ asset: 'QQQ' }, { asset: 'SPY' }]; draw(); }));
+        el('span', { class: 'lab' }, 'from'), sel([['children', 'the list below'], ['NDX', 'Nasdaq-100 (point-in-time)']], n.universe === 'NDX' ? 'NDX' : 'children', v => { n.universe = v; if (v === 'NDX') delete n.children; else n.children = n.children || []; draw(); }));
       const req = el('label', { class: 'lab', style: 'display:inline-flex;gap:4px;align-items:center' }); const cb = el('input', { type: 'checkbox' }); cb.checked = !!f.require;
       cb.onchange = () => { if (cb.checked) f.require = 'tret(tr, 126) > 0'; else delete f.require; draw(); }; req.append(cb, document.createTextNode('only if'));
       hd.append(req);
@@ -1392,14 +1397,44 @@ window.addEventListener('blur', unpress);
       kids.append(addRow);
     }
     if (t === 'if') {
-      kids.append(el('div', { class: 'lab' }, 'then'), renderNode(n.then, { kind: 'slot', owner: n, key: 'then' }));
-      kids.append(el('div', { class: 'lab' }, 'otherwise'), renderNode(n.else, { kind: 'slot', owner: n, key: 'else' }));
+      // "active today": the branch the tree takes on the latest close (filled in by refreshBranches)
+      const bt = el('span', { class: 'badge active hide', 'data-branch': 'then' }, 'active today'), be = el('span', { class: 'badge active hide', 'data-branch': 'else' }, 'active today');
+      ACTIVE_SLOTS.set(n, { then: bt, else: be });
+      const cur = ACTIVE.get(n); if (cur) showActive(n, cur);
+      const lt = el('div', { class: 'lab' }, 'then'), le = el('div', { class: 'lab' }, 'otherwise'); lt.append(bt); le.append(be);
+      kids.append(lt, renderNode(n.then, { kind: 'slot', owner: n, key: 'then' }));
+      kids.append(le, renderNode(n.else, { kind: 'slot', owner: n, key: 'else' }));
     }
     // no fallback = cash (as the simulator reads it): shown as a cash block, written only when changed here, so a
     // loaded strategy runs unchanged ("Edit as blocks" then Run)
     if (t === 'filter') kids.append(el('div', { class: 'lab' }, 'fallback (when nothing qualifies)'), renderNode(n.fallback || { cash: true }, { kind: 'slot', owner: n, key: 'fallback' }));
     box.append(kids);
     return box;
+  }
+  // ---- "active today" badges: the server evaluates each if/else on the latest close (/api/branches); results come
+  // back in pre-order (a node, its list, an if's then and else, a filter's fallback) and are matched to the node objects
+  // that were sent, so a stale answer never lands on a changed tree
+  let ACTIVE = new WeakMap(), ACTIVE_SLOTS = new WeakMap(), branchSeq = 0;
+  function ifNodes(n, out = []) {
+    if (!n || typeof n !== 'object') return out;
+    if (typeOf(n) === 'if') { out.push(n); ifNodes(n.then, out); ifNodes(n.else, out); return out; }
+    (typeOf(n) === 'weights' || typeOf(n) === 'filter' ? (n.children || []) : []).forEach(k => ifNodes(k, out));
+    if (typeOf(n) === 'filter' && n.fallback) ifNodes(n.fallback, out);
+    return out;
+  }
+  function showActive(n, r) {
+    const slots = ACTIVE_SLOTS.get(n); if (!slots) return;
+    ['then', 'else'].forEach(k => { const b = slots[k]; const on = r && r.branch === k; b.classList.toggle('hide', !on);
+      if (on) b.title = `On the latest close (${r.asOf}) the condition is ${k === 'then' ? 'true' : 'false'}, so this branch is held today.`; });
+  }
+  async function refreshBranches(spec) {
+    const nodes = ifNodes(tree), seq = ++branchSeq;
+    if (!nodes.length) return;
+    try {
+      const j = await api('/api/branches', { spec });
+      if (seq !== branchSeq) return;
+      nodes.forEach((n, i) => { const b = (j.branches || [])[i]; const r = b ? { branch: b, asOf: j.as_of } : null; if (r) ACTIVE.set(n, r); else ACTIVE.delete(n); showActive(n, r); });
+    } catch (e) { if (seq === branchSeq) nodes.forEach(n => { ACTIVE.delete(n); showActive(n, null); }); }
   }
   // Rebalancing follows the tree until it is set by hand (or comes with a loaded spec): a tree that switches, ranks
   // or weighs on data (if/else, filters, look-back weightings) is re-evaluated daily, as Composer does and as the
@@ -1441,7 +1476,7 @@ window.addEventListener('blur', unpress);
     if (location.hash.startsWith('#build')) { try { buildPreview(); } catch (e) { /* before the editor is set up */ } }
   }
   $('buildMode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setBuildMode(b.dataset.v); });
-  const P_FIELDS = ['rebalance', 'drift_band', 'fill', 'capital', 'contribution', 'contribution_freq', 'withdrawal', 'withdrawal_pct', 'withdrawal_freq', 'inflation_adjust', 'slippage_bps', 'commission_pct', 'leverage', 'margin_rate', 'expense_ratio', 'target_vol', 'price_basis', 'benchmark', 'start', 'end'];
+  const P_FIELDS = ['rebalance', 'rebalance_day', 'drift_band', 'fill', 'capital', 'contribution', 'contribution_freq', 'withdrawal', 'withdrawal_pct', 'withdrawal_freq', 'inflation_adjust', 'slippage_bps', 'commission_pct', 'leverage', 'margin_rate', 'expense_ratio', 'target_vol', 'price_basis', 'benchmark', 'start', 'end'];
   const S_FIELDS = ['side', 'entry_fill', 'entry_order', 'entry_level', 'order_valid_bars', 'entry', 'short_entry', 'exit_when', 'exit_when_fill', 'hold_bars', 'hold_exit_fill',
     'stop_loss', 'take_profit', 'trailing_stop', 'stop_atr', 'take_profit_atr', 'trailing_atr', 'atr_period', 'breakeven_after', 'scale_out', 'trail_after_scale_out',
     'stop_level', 'target_level', 'target_r', 'max_positions', 'sizing', 'position_size', 'risk_per_trade', 'target_vol', 'fixed_amount', 'leverage', 'pyramiding',
@@ -1507,6 +1542,8 @@ window.addEventListener('blur', unpress);
     if (buildMode === 'portfolio') {
       const p = Object.assign({ kind: 'allocation' }, advanced('p_'), { tree: JSON.parse(JSON.stringify(tree)) }, buildName ? { name: buildName } : {}, fromForm('p_', P_FIELDS), keptOwn());
       if (p.rebalance === 'threshold') p.rebalance = 'none';   // threshold rebalancing = no schedule + the drift band
+      // a rebalance day only applies to a calendar schedule of a week or longer
+      if (!['weekly', 'monthly', 'quarterly', 'semiannual', 'yearly'].includes(p.rebalance)) delete p.rebalance_day;
       return p;
     }
     const s = Object.assign({}, advanced('s_'), fromForm('s_', S_FIELDS), keptOwn());
@@ -1595,8 +1632,10 @@ window.addEventListener('blur', unpress);
       if (!location.hash.startsWith('#build')) return;
       const seq = ++prevSeq;
       try {
-        const j = await api('/api/parse?soft=1', { spec: specFromEditor() });
+        const spec = specFromEditor();
+        const j = await api('/api/parse?soft=1', { spec });
         if (seq !== prevSeq) return;
+        if (buildMode === 'portfolio') refreshBranches(spec);
         const lost = guardLost(j.spec);
         $('buildInterp').classList.remove('hide', 'err');
         $('buildInterp').textContent = j.interpretation + (j.notes && j.notes.length ? '\n' + j.notes.map(n => 'Note: ' + n).join('\n') : '')
@@ -1607,6 +1646,7 @@ window.addEventListener('blur', unpress);
   $('p_rebalance').addEventListener('change', () => { rebalTouched = true; afterPress(() => { $('rebalNote').textContent = ''; }, 'rebalNote'); if (buildMode === 'portfolio') draw(); });
   // the if-blocks' badges say the band ("evaluated daily · threshold 5%")
   $('p_drift_band').addEventListener('change', () => { if (buildMode === 'portfolio') draw(); });
+  $('p_rebalance_day').addEventListener('change', () => { if (buildMode === 'portfolio') draw(); });
   async function importComposer(src, label) {
     $('composerNotes').replaceChildren();
     $('composerStatus').replaceChildren(el('span', { class: 'spin' }));

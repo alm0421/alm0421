@@ -619,6 +619,16 @@ def convert(obj) -> dict:
     else:
         head = ("Imported from a Composer symphony: conditions and filters are evaluated on each rebalance day's close, "
                 "on total-return (dividend-adjusted) prices as Composer does, and traded at that close.")
+    if spec["rebalance"] in ("weekly", "monthly", "quarterly", "yearly"):
+        # Composer's help center: "we set the trading frequency of this symphony to quarterly, which means that
+        # Composer will execute the symphony on the first trading day of each quarter" (Create a Symphony,
+        # help.composer.trade/article/54-create-tutorial); its trading period is 3:45-4:00 PM ET, near the close
+        # (help.composer.trade/article/63-trading-period)
+        spec["rebalance_day"] = "start"
+        per = {"weekly": "week", "monthly": "month", "quarterly": "quarter", "yearly": "year"}[spec["rebalance"]]
+        imp.note(f"Rebalance timing: a {spec['rebalance']} symphony trades on the first trading day of each {per}, near "
+                 "the close, as Composer documents it (not on the last day of the period); rebalance_day \"start\" in the "
+                 "spec. Set it to \"end\" (or null) for period-end rebalancing.")
     if imp.ignored_weights:
         imp.note("Some blocks carried a 'weight' although their parent is not a specified-weight block; Composer "
                  "ignores it there (it is left over from the editor), and so does the import.")

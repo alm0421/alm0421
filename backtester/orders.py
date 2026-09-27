@@ -66,6 +66,43 @@ def portfolio_targets(p: Portfolio) -> tuple[str, dict[str, float], list[str]]:
     return str(cal[-1].date()), w, list(p.notes)
 
 
+def active_branches(p: Portfolio) -> dict:
+    """Which branch of each if/else the tree takes on the latest bar (the Build page's "active today" badges):
+    {"as_of": date, "branches": ["then" | "else" | None, ...]}, one entry per if-node in pre-order (a node, then its
+    children in order: a group's or filter's list, then an if's then and else branches, then a filter's fallback), the
+    order the editor draws them. None when the condition cannot be evaluated yet (no data)."""
+    p.validate()
+    dfs = data.load_many(tickers_in(p.tree))
+    cal = None
+    for df in dfs.values():
+        cal = df.index if cal is None else cal.union(df.index)
+    if cal is None or not len(cal):
+        return {"as_of": None, "branches": []}
+    cal = cal[cal >= cal[-1] - pd.Timedelta(days=3 * 366)]  # enough history for any lookback
+    ev = _Evaluator(p, cal, dfs)
+    i = len(cal) - 1
+    out: list = []
+
+    def walk(n) -> None:
+        if not isinstance(n, dict):
+            return
+        if "if" in n:
+            try:
+                v = ev.series(n["if"], data.canonical(n.get("on", "SPY")), "bool")[i]
+                out.append(None if v is None or (isinstance(v, float) and np.isnan(v)) else ("then" if bool(v) else "else"))
+            except Exception:  # noqa: BLE001 - a rule the page is still editing: no badge
+                out.append(None)
+            walk(n.get("then"))
+            walk(n.get("else"))
+            return
+        for k in n.get("children") or []:
+            walk(k)
+        if "filter" in n and n.get("fallback"):
+            walk(n["fallback"])
+    walk(p.tree)
+    return {"as_of": str(cal[-1].date()), "branches": out}
+
+
 def signal_targets(s, account_value: float, entry_orders: list | None = None, catch_up: dict | None = None
                    ) -> tuple[str, dict[str, float], list[str], dict[str, float]]:
     """-> as_of, {ticker: weight}, notes, {ticker: fixed shares} (fixed_shares sizing, and limit/stop entries,

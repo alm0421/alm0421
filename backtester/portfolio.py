@@ -58,6 +58,30 @@ def annual_month(freq) -> int | None:
     m = _ANNUAL_IN.fullmatch(str(freq))
     return int(m.group(1)) if m and 1 <= int(m.group(1)) <= 12 else None
 FLOW_FREQS = ("monthly", "quarterly", "semiannual", "yearly")
+# the day of its period a calendar schedule trades on (Portfolio.rebalance_day): None / "end" = the last trading day of
+# each week / month / quarter / half-year / year (Portfolio Visualizer); "start" = the first trading day of each period
+# (Composer: "Composer will execute the symphony on the first trading day of each quarter"); a weekday (weekly only):
+# the first session of each week on or after that weekday
+WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday")
+REBALANCE_DAYS = (None, "end", "start") + WEEKDAYS
+_DAY_FREQS = ("weekly", "monthly", "quarterly", "semiannual", "yearly")
+_PERIOD_WORD = {"weekly": "week", "monthly": "month", "quarterly": "quarter", "semiannual": "half-year", "yearly": "year"}
+
+
+def rebalance_day_text(freq: str, day) -> str | None:
+    """'on the first trading day of each month' / 'on the last trading day of each month' / 'every Monday (...)'; None
+    for schedules without a day (daily, none, every N days, yearly in a month)."""
+    if freq not in _DAY_FREQS:
+        return None
+    per = _PERIOD_WORD[freq]
+    if day == "start":
+        return f"on the first trading day of each {per}"
+    if day in WEEKDAYS:
+        return (f"every {day.capitalize()} (the next session when that day is a holiday; the week's last "
+                f"session if none is left that week)")
+    return f"on the last trading day of each {per}"
+
+
 NAV_WARMUP = 504   # trading days simulated before the start for the synthetic NAVs of groups
 _MONTH_RET = re.compile(r"\b(?:t?ret|tbill_ret)\((?:[^()]*?,\s*)?(\d+)\s*\)")
 
@@ -102,6 +126,9 @@ def month_lookback_line(p) -> str | None:
 class Portfolio:
     tree: dict
     rebalance: Literal["daily", "weekly", "monthly", "quarterly", "semiannual", "yearly", "none"] = "monthly"
+    # the day of the period a calendar schedule trades on: None ("end": the period's last trading day), "start" (its
+    # first trading day, as Composer), or a weekday name for a weekly schedule ("monday"); see REBALANCE_DAYS
+    rebalance_day: str | None = None
     drift_band: float | None = None              # also rebalance when any weight drifts this far
     drift_band_relative: float | None = None     # ... or drifts this fraction of its own target (0.25: 40% -> 30%/50%)
     min_trade: float = 0.0                       # skip trades smaller than this fraction of equity
@@ -222,6 +249,15 @@ class Portfolio:
         if self.rebalance not in FREQS and not (ev and ev[0] >= 1) and not annual_month(self.rebalance):
             raise ValueError(f"rebalance must be one of {FREQS}, or every_N_days / every_N_weeks / every_N_months "
                              "(e.g. every_2_days), or yearly_M (once a year at the end of month M, e.g. yearly_6 = June)")
+        if self.rebalance_day not in REBALANCE_DAYS:
+            raise ValueError(f"rebalance_day must be 'start', 'end', a weekday ({', '.join(WEEKDAYS)}) or null, not "
+                             f"{self.rebalance_day!r}")
+        if self.rebalance_day not in (None, "end") and self.rebalance not in _DAY_FREQS:
+            raise ValueError(f"rebalance_day {self.rebalance_day!r} needs a weekly, monthly, quarterly, semiannual or yearly "
+                             f"schedule, not {self.rebalance!r}")
+        if self.rebalance_day in WEEKDAYS and self.rebalance != "weekly":
+            raise ValueError(f"rebalance_day {self.rebalance_day!r} (a weekday) needs rebalance 'weekly'; use 'start' for the "
+                             "first trading day of each month, quarter or year")
         validate_node(self.tree)
         check_tree(self)
         if not (0 < self.leverage <= 10):
@@ -336,6 +372,9 @@ class Portfolio:
         rb = {"none": "never rebalanced (buy and hold)", "daily": "re-evaluated and rebalanced daily",
               "semiannual": "re-evaluated and rebalanced every six months (end of June and December)"}.get(
             self.rebalance, f"re-evaluated and rebalanced {self.rebalance}")
+        when_ = rebalance_day_text(self.rebalance, self.rebalance_day)
+        if when_:
+            rb = rb.replace(" (end of June and December)", "") + " " + when_
         if annual_month(self.rebalance):
             rb = (f"re-evaluated and rebalanced yearly, at the end of {MONTH_NAMES[annual_month(self.rebalance) - 1]} "
                   "(its last trading day)")
@@ -1097,9 +1136,11 @@ def describe(n: dict, indent: int = 0, named: bool = True) -> list[str]:
         if f.get("require"):
             out.append(f"{pad}  only if {f['require']}, else:")
             out.extend(describe(n.get("fallback") or {"cash": True}, indent + 2))
-        elif n.get("fallback"):
+        else:
+            # shown whether the fallback was written (import, Build page) or left to the default (a sentence): the
+            # simulator holds it when no candidate can be ranked (no data yet), so the reading is the same either way
             out.append(f"{pad}  if nothing qualifies:")
-            out.extend(describe(n["fallback"], indent + 2))
+            out.extend(describe(n.get("fallback") or {"cash": True}, indent + 2))
         return out
     return [f"{pad}{n}"]
 
@@ -2048,9 +2089,35 @@ def _period_ids(idx: pd.DatetimeIndex, freq: str):
     return idx.to_period(code)
 
 
-def _schedule(cal: pd.DatetimeIndex, freq: str) -> np.ndarray:
-    """True on the last trading day of each period (daily: every day; none: only the first day)."""
+def _schedule(cal: pd.DatetimeIndex, freq: str, day: str | None = None) -> np.ndarray:
+    """True on the last trading day of each period (daily: every day; none: only the first day). With day="start",
+    on the first trading day of each period instead (Composer's timing); with a weekday (weekly), on the first session
+    of each week on or after that weekday. Both use only the sessions up to that bar (no lookahead), except the
+    weekday fallback, which uses the NYSE schedule known in advance (as the period ends do)."""
     T = len(cal)
+    if day not in (None, "end") and freq in _DAY_FREQS and T:
+        per = np.asarray(_period_ids(cal, freq))
+        out = np.zeros(T, bool)
+        if day == "start":
+            out[1:] = per[1:] != per[:-1]
+        else:
+            wd = WEEKDAYS.index(day)
+            dow = np.asarray(cal.dayofweek)
+            ok = dow >= wd
+            nxt = np.asarray(_period_ids(_cal.next_scheduled(cal), freq))
+            done = False
+            for i in range(T):
+                if i and per[i] != per[i - 1]:
+                    done = False
+                if done:
+                    continue
+                # the first session on or after the weekday; when the week has none left (a Friday holiday), its
+                # last scheduled session
+                if ok[i] or nxt[i] != per[i]:
+                    out[i] = True
+                    done = True
+        out[0] = True  # initial allocation
+        return out
     ev = every_n(freq)
     if ev:
         n, unit = ev
@@ -2683,7 +2750,7 @@ def run(p: Portfolio) -> Result:
     borrow_extra = p.margin_rate / 252.0
     fee_daily = p.expense_ratio / 252.0
     fees = 0.0
-    sched = _schedule(cal, p.rebalance)
+    sched = _schedule(cal, p.rebalance, getattr(p, "rebalance_day", None))
     bands = bool(p.drift_band or p.drift_band_relative)
     # never rebalanced on a schedule but following the rules (threshold rebalancing, or a dynamic tree held without
     # a schedule): re-evaluate every close, trade only when the target changes or a holding leaves its band
