@@ -521,7 +521,7 @@ const el = (t, a = {}, x) => { const e = document.createElement(t); for (const k
 const isNum = v => typeof v === 'number' && isFinite(v);
 const pct = (v, d = 2) => isNum(v) ? (v * 100).toFixed(d) + '%' : '—';
 const num = (v, d = 2) => isNum(v) ? v.toFixed(d) : '—';
-const usd = v => isNum(v) ? '$' + Math.round(v).toLocaleString() : '—';
+const usd = v => isNum(v) ? (Math.round(v) < 0 ? '-$' : '$') + Math.abs(Math.round(v)).toLocaleString() : '—';   // never '$-0'
 async function api(path, body, method) {
   const r = await fetch(path, { method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => ({ error: 'Bad response from server' }));
@@ -1727,11 +1727,11 @@ window.addEventListener('blur', unpress);
       tile('Median final balance', compact(R.final['50']), `${compact(R.final_real['50'])} in today's dollars`),
       tile('10th percentile final', compact(R.final['10']), `${compact(R.final_real['10'])} real`),
       showWR ? (R.withdrawal_rates && R.withdrawal_rates.basis === 'withdrawal_start'
-        ? tile('Safe withdrawal rate', pct(R.withdrawal_rates.safe_at_target), `${pct(st.success_target, 0)} success, of the balance in year ${R.withdrawal_rates.from_year}`)
-        : tile('Safe withdrawal rate', pct(R.safe_withdrawal_rate), `${pct(st.success_target, 0)} success, grows with inflation`)) : null,
+        ? tile(`Safe withdrawal rate (${pct(st.success_target, 0)} of paths)`, pct(R.withdrawal_rates.safe_at_target), `lasts in ${pct(st.success_target, 0)} of paths, of the balance in year ${R.withdrawal_rates.from_year}`)
+        : tile(`Safe withdrawal rate (${pct(st.success_target, 0)} of paths)`, pct(R.safe_withdrawal_rate), `lasts in ${pct(st.success_target, 0)} of paths, grows with inflation`)) : null,
       showWR ? (R.withdrawal_rates && R.withdrawal_rates.basis === 'withdrawal_start'
-        ? tile('Perpetual withdrawal rate', pct(R.withdrawal_rates.perpetual['50']), `median path, of the balance in year ${R.withdrawal_rates.from_year}`)
-        : tile('Perpetual withdrawal rate', pct(R.perpetual_withdrawal_rate), 'keeps the median real balance')) : null,
+        ? tile('Perpetual rate (median path)', pct(R.withdrawal_rates.perpetual['50']), `keeps the real balance in half the paths (not ${pct(st.success_target, 0)}), of the balance in year ${R.withdrawal_rates.from_year}`)
+        : tile('Perpetual rate (median path)', pct(R.perpetual_withdrawal_rate), `keeps the real balance in half the paths (not ${pct(st.success_target, 0)})`)) : null,
       tile('Median annual return', pct(R.annual_return['50']), `${pct(R.annual_return_real['50'])} after inflation`)].filter(Boolean));
     const n = $('mcNotes'); n.replaceChildren();
     const who = st.mode === 'strategy' ? `${st.name} (its own monthly returns resampled)` : Object.entries(st.weights).map(([t, w]) => `${(w * 100).toFixed(1)}% ${t}`).join(', ') + `, rebalanced ${st.rebalance}`;
@@ -1896,7 +1896,8 @@ window.addEventListener('blur', unpress);
         tipRows: i => [['Correlation', num(ro.values[i])]] });
       $('kRollNote').textContent = `Over the pair's own common history from ${ro.start}; over the whole period ${num(ro.full_period)}. Latest ${num(ro.values[ro.values.length - 1])}.`;
     }
-    $('kStatTitle').textContent = `Asset statistics, ${R.stats_start} → ${R.stats_end}`;
+    $('kStatTitle').textContent = `Asset statistics, ${R.stats_start} → ${R.stats_end}` + (R.stats_basis === 'monthly'
+      ? ' (monthly returns, like the matrix; max drawdown from month-end values)' : ' (daily returns)');
     table($('kStats'), ['Asset', 'CAGR', 'Volatility', 'Sharpe', 'Sortino', 'Max drawdown', 'Best year', 'Worst year', 'Data since'],
       R.stats.map(x => [x.ticker, { t: pct(x.cagr), c: x.cagr >= 0 ? 'pos' : 'neg' }, pct(x.volatility, 1), num(x.sharpe), num(x.sortino), { t: pct(x.max_drawdown, 1), c: 'neg' }, pct(x.best_year, 1), pct(x.worst_year, 1), x.data_from]));
   }

@@ -164,7 +164,8 @@ def test_correlations_switch_to_monthly_when_a_series_is_stepped():
     S = correlation.analyze(["SPYSIM", "TLTSIM"], "daily", None, "1976-01-01", "1989-12-31")
     assert S["freq"] == "daily"
     st = {s["ticker"]: s for s in R["stats"]}
-    assert st["EFASIM"].get("return_basis") == "monthly" and "return_basis" not in st["SPYSIM"]
+    # round 8: once the matrix is monthly, every asset's statistics are too (not only the stepped series')
+    assert st["EFASIM"].get("return_basis") == "monthly" and st["SPYSIM"].get("return_basis") == "monthly"
 
 
 @needs("EEMSIM")

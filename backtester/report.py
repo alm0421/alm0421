@@ -957,6 +957,22 @@ def holdings_stats(res: Result, rf="tbill", limit: int = 12) -> list[dict]:
     return out
 
 
+def flow_free_nav(spec, start=None) -> pd.Series | None:
+    """The allocation re-run with no contributions or withdrawals: its equity is the time-weighted growth of the
+    asset mix over the whole requested period, whatever the cash flows did (even after they emptied the account).
+    From `start` on (the first day of the reported run). None if it cannot be run."""
+    from . import portfolio as _pf
+    try:
+        p0 = dataclasses.replace(spec, contribution=0.0, withdrawal=0.0, withdrawal_pct=0.0,
+                                 notes=[], tree=json.loads(json.dumps(spec.tree)))
+        eq = _pf.run(p0).equity
+    except Exception:  # noqa: BLE001 - the rates then fall back to the run's own returns
+        return None
+    if start is not None:
+        eq = eq[eq.index >= pd.Timestamp(start)]
+    return eq if len(eq) > 2 else None
+
+
 def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, detail: bool = True) -> dict:
     s = res.strategy
     full = res
@@ -1136,12 +1152,22 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
         base = None
         if contrib and len(wd) and first_bar is not None and wd.index[0] > pd.Timestamp(first_bar) + pd.Timedelta(days=31):
             base = wd.index[0]
-        nv_w = nv[nv.index >= base] if base is not None else nv
-        A["withdrawal_rates"] = montecarlo.historical_withdrawal_rates(metrics.monthly_returns(nv_w)) if len(nv_w) > 2 else {}
+        # measured on the portfolio's own returns without any cash flows, over the whole requested period (or the
+        # whole withdrawal phase): the rate must not depend on the amount entered, which can empty the account early
+        tw = flow_free_nav(s, res.equity.index[0])
+        if tw is None:
+            tw = nv
+        nv_w = tw[tw.index >= base] if base is not None else tw
+        every = {"monthly": 1, "quarterly": 3, "semiannual": 6}.get(getattr(s, "withdrawal_freq", "yearly"), 12)
+        A["withdrawal_rates"] = (montecarlo.historical_withdrawal_rates(metrics.monthly_returns(nv_w), every=every)
+                                 if len(nv_w) > 2 else {})
         if A["withdrawal_rates"]:
-            A["withdrawal_rates"].update({"from": stats["start"] if base is None else base.date(), "to": stats["end"]})
+            A["withdrawal_rates"].update({"from": stats["start"] if base is None else base.date(), "to": tw.index[-1].date(),
+                                          "basis": "flow_free_returns", "freq": getattr(s, "withdrawal_freq", "yearly")})
             if base is not None:
                 bal = res.equity.reindex(res.equity.index.union([base])).ffill().get(base)
+                if bal is not None and flows is not None and base in flows.index:
+                    bal = bal - float(flows.get(base, 0.0))      # the balance before the first withdrawal
                 A["withdrawal_rates"].update({"base": "withdrawal_start", "base_date": base.date(),
                                               "base_balance": float(bal) if bal is not None else None})
     if detail:
@@ -1278,6 +1304,16 @@ def headline(A: dict) -> dict:
     return out
 
 
+def short_label(name) -> str:
+    """A benchmark or blend name shortened without losing what it is: "60% SPYSIM / 40% IEFSIM buy & hold" ->
+    "60/40 SPYSIM/IEFSIM" (weights, then tickers); " buy & hold" dropped."""
+    s = str(name).replace(" buy & hold", "").strip()
+    pairs = re.findall(r"(\d+(?:\.\d+)?)% ([\w^$.\-]+)", s)
+    if len(pairs) >= 2 and re.fullmatch(r"(?:\s*(?:/|,|\+|and)?\s*\d+(?:\.\d+)?% [\w^$.\-]+)+(?:\s*(?:blend|mix|portfolio))?\s*", s):
+        return "/".join(w for w, _ in pairs) + " " + "/".join(t for _, t in pairs)
+    return s
+
+
 def _fit(s, w: int, right: bool = False) -> str:
     """Text cut to width w (ending in '~' when cut) and padded, so console table columns stay aligned."""
     s = str(s)
@@ -1322,7 +1358,9 @@ def console_summary(A: dict) -> str:
     if st.get("max_dd_peak") is None:
         L.append("Max drawdown      none (the account never fell below a previous high)")
     else:
-        L.append(f"Max drawdown      {pct(st['max_drawdown'])}  peak {st['max_dd_peak']}  trough {st['max_dd_trough']}  recovered {st['max_dd_recovery'] or 'not yet'}")
+        L.append(f"Max drawdown      {pct(st['max_drawdown'])}  peak {st['max_dd_peak']}  trough {st['max_dd_trough']}  recovered {st['max_dd_recovery'] or 'not yet'}"
+                 + (f"   (month-end {pct(st['max_drawdown_monthly'], 1)})" if st.get("max_drawdown_monthly") is not None
+                    and np.isfinite(st["max_drawdown_monthly"]) else ""))
     L.append(f"Volatility        {pct(st['volatility'])}   Time in market {pct(ex['time_in_market'])}   Avg exposure {pct(ex['avg_exposure'])}")
     if A["result"].kind == "allocation":
         n_hp = int(ts.get("trades") or 0) + int(ts.get("open_trades") or 0)
@@ -1341,17 +1379,21 @@ def console_summary(A: dict) -> str:
         L.append(f"Turnover          {pct(A['turnover'] / 2, 0)} per year (one-sided)   Rebalances {A['rebalances']}")
     if A["relative"]:
         r = A["relative"]
-        L.append(f"vs {_fit(A['primary_benchmark'].replace(' buy & hold', ''), 14)} beta {num(r['beta'])}   alpha {pct(r['alpha_annual'])}/yr   "
+        L.append(f"vs {short_label(A['primary_benchmark'])} beta {num(r['beta'])}   alpha {pct(r['alpha_annual'])}/yr   "
                  f"correlation {num(r['correlation'])}   up/down capture {pct(r['up_capture'], 0)}/{pct(r['down_capture'], 0)}")
     L.append("-" * 78)
-    L.append(f"{'':24s} {'Final $':>14s} {'CAGR':>8s} {'Sharpe':>7s} {'MaxDD':>8s}  (each from its first date)")
-    L.append(f"{'Strategy':24s} {st['end_equity']:>14,.0f} {pct(st['cagr']):>8s} {num(st['sharpe']):>7s} {pct(st['max_drawdown'], 1):>8s}")
+    nw = max([24] + [min(44, len(short_label(n))) for n in A["benchmarks"]])
+    L.append(f"{'':{nw}s} {'Final $':>14s} {'CAGR':>8s} {'Sharpe':>7s} {'MaxDD':>8s} {'MaxDD me':>8s}  (each from its first date; "
+             "MaxDD me = from month-end values)")
+    L.append(f"{'Strategy':{nw}s} {st['end_equity']:>14,.0f} {pct(st['cagr']):>8s} {num(st['sharpe']):>7s} {pct(st['max_drawdown'], 1):>8s} "
+             f"{pct(st.get('max_drawdown_monthly'), 1):>8s}")
     bwf = A.get("benchmarks_with_flows") or {}
     late = A.get("benchmark_from") or {}
     for n, b in A["benchmarks"].items():
         bs = metrics.equity_stats(b, A["rf"], first_bar=A.get("first_bar"))
         final = float(bwf[n].iloc[-1]) if n in bwf else bs["end_equity"]
-        L.append(f"{_fit(n, 24)} {final:>14,.0f} {pct(bs['cagr']):>8s} {num(bs['sharpe']):>7s} {pct(bs['max_drawdown'], 1):>8s}  (from {bs['start']})")
+        L.append(f"{_fit(short_label(n), nw)} {final:>14,.0f} {pct(bs['cagr']):>8s} {num(bs['sharpe']):>7s} {pct(bs['max_drawdown'], 1):>8s} "
+                 f"{pct(bs.get('max_drawdown_monthly'), 1):>8s}  (from {bs['start']})")
     if bwf:
         L.append("(benchmark final values include the same contributions and withdrawals as the strategy"
                  + ("; one that starts later starts with the strategy's balance on its first day" if late else "")
@@ -1363,16 +1405,20 @@ def console_summary(A: dict) -> str:
         L.append("-" * 78)
         keys = [k for k, *_ in metrics.TRAILING] + ["Full"]
         L.append(f"Trailing returns as of {tr_['Strategy'].get('as_of')} (3Y and longer annualised)")
-        L.append(f"{'':24s} " + " ".join(f"{k:>7s}" for k in keys))
+        tw = max([24] + [min(44, len(short_label(n))) for n in tr_])
+        L.append(f"{'':{tw}s} " + " ".join(f"{k:>7s}" for k in keys))
         for n, t in tr_.items():
             if t:
-                L.append(f"{_fit(n.replace(' buy & hold', ''), 24)} " + " ".join(f"{pct(t.get(k), 1):>7s}" for k in keys))
+                L.append(f"{_fit(short_label(n), tw)} " + " ".join(f"{pct(t.get(k), 1):>7s}" for k in keys))
     wr = A.get("withdrawal_rates") or {}
     if wr:
         base = (f"of the balance when withdrawals start ({wr['base_date']}, ${wr['base_balance']:,.0f}), "
                 if wr.get("base") == "withdrawal_start" and wr.get("base_balance") is not None else "of the starting balance, ")
-        L.append(f"Withdrawal rates  safe {pct(wr.get('swr'), 2)}   perpetual {pct(wr.get('pwr'), 2)}   "
-                 f"({base}inflation-adjusted, over this history {wr['from']} -> {wr['to']}); 95% bootstrap safe rate {pct(wr.get('swr_mc95'), 2)}")
+        L.append(f"Historical withdrawal rates over the full period {wr['from']} -> {wr['to']}: safe {pct(wr.get('swr'), 2)}   "
+                 f"perpetual {pct(wr.get('pwr'), 2)}")
+        L.append(f"  ({base}inflation-adjusted, {wr.get('freq', 'yearly')} withdrawals; from the portfolio's returns "
+                 f"without the cash flows, so they do not depend on the amount entered); "
+                 f"95% bootstrap safe rate {pct(wr.get('swr_mc95'), 2)}")
         if wr.get("percentiles"):
             wp = wr["percentiles"]
             L.append("  bootstrapped safe / perpetual by percentile  " + "  ".join(
@@ -1392,9 +1438,9 @@ def console_summary(A: dict) -> str:
     y = A["yearly"]
     cols = [c for c in y.columns if is_bench_col(c)]
     alloc = A["result"].kind == "allocation"
-    # each benchmark column is as wide as its name (8 to 18 characters; longer names are cut)
-    labels = [c.replace(" buy & hold", "").replace(" blend", "") for c in cols]
-    widths = [min(max(8, len(x)), 18) for x in labels]
+    # each benchmark column is as wide as its name (8 to 24 characters; blends as "60/40 A/B"; longer names are cut)
+    labels = [short_label(c.replace(" blend", "")) for c in cols]
+    widths = [min(max(8, len(x)), 24) for x in labels]
     head = " ".join(_fit(x, w, right=True) for x, w in zip(labels, widths))
     if alloc:
         L.append(f"{'Year':8s} {'Return':>8s} {'Real':>7s} {'Infl.':>6s} {'Start $':>13s} {'Added $':>11s} {'Withdrawn $':>11s} {'End $':>13s} "

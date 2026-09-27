@@ -7,7 +7,9 @@
 - A rolling correlation of a chosen pair over `window` periods (36 months, or 63 days for daily returns),
   over the pair's own common history, which can be longer than the whole group's.
 - Per-asset statistics over the common period (CAGR, volatility, Sharpe against T-bills, max drawdown,
-  best / worst calendar year) and each asset's own first date of data.
+  best / worst calendar year) and each asset's own first date of data, on the matrix's frequency: with
+  monthly returns every asset's volatility, Sharpe and Sortino come from monthly returns and its max
+  drawdown from month-end values.
 Monthly returns are month-end to month-end; a month still in progress at the end of the data is left out.
 """
 from __future__ import annotations
@@ -60,22 +62,27 @@ def _pair_rolling(a: str, b: str, freq: str, window: int, start=None, end=None) 
             "start": r.index[0].date() if len(r) else None}
 
 
-def asset_stats(ticker: str, start, end, rf="tbill", first_date=None) -> dict:
-    """PV-style statistics of one asset's total return over [start, end]."""
+def asset_stats(ticker: str, start, end, rf="tbill", first_date=None, basis: str | None = None) -> dict:
+    """PV-style statistics of one asset's total return over [start, end]. basis="monthly" puts every asset on
+    monthly returns (volatility, Sharpe, Sortino, and the max drawdown from month-end values), as the correlation
+    matrix is when it is monthly; otherwise only a series moving in monthly steps is."""
     s = data.load(ticker)["adj_close"].dropna()
     s = s[(s.index >= pd.Timestamp(start)) & (s.index <= pd.Timestamp(end))]
     if len(s) < 3:
         return {"ticker": ticker, "start": str(first_date) if first_date else None}
     st = metrics.equity_stats(s / s.iloc[0] * 10_000, rf)
-    stepped = bool(data.stepped_in([ticker], s.index[0], s.index[-1]))
+    stepped = bool(data.stepped_in([ticker], s.index[0], s.index[-1])) or basis == "monthly"
     if stepped:
-        # monthly steps in this window: volatility and Sharpe from monthly returns
+        # monthly returns: volatility, Sharpe, Sortino and drawdown from month-end values
         st = metrics.monthly_basis(st, s, rf)
+        st["max_drawdown_daily"] = st.get("max_drawdown")
+        st["max_drawdown"] = metrics.monthly_max_drawdown(s)
     mr = metrics.monthly_returns(s)
     return {"ticker": ticker, "data_from": str(first_date or s.index[0].date()), "from": str(s.index[0].date()),
             "to": str(s.index[-1].date()), "cagr": st["cagr"], "volatility": st["volatility"], "sharpe": st["sharpe"],
             "sortino": st["sortino"], "max_drawdown": st["max_drawdown"], "best_year": st["best_year"],
             "worst_year": st["worst_year"], "total_return": st["total_return"],
+            **({"max_drawdown_daily": st["max_drawdown_daily"]} if "max_drawdown_daily" in st else {}),
             "monthly_volatility": float(mr.std() * np.sqrt(12)) if len(mr) > 2 else None,
             **({"return_basis": "monthly"} if stepped else {})}
 
@@ -129,8 +136,8 @@ def analyze(tickers: list[str], freq: str = "monthly", window: int | None = None
     if end:
         px0 = px0[px0.index <= pd.Timestamp(end)]
     s0, s1 = px0.index[0], px0.index[-1]
-    stats = [asset_stats(t, s0, s1, rf, first[t]) for t in tickers]
-    return {"tickers": tickers, "freq": freq, "window": window, "start": a.date(), "end": b.date(),
+    stats = [asset_stats(t, s0, s1, rf, first[t], basis=freq) for t in tickers]
+    return {"tickers": tickers, "freq": freq, "stats_basis": freq, "window": window, "start": a.date(), "end": b.date(),
             "stats_start": s0.date(), "stats_end": s1.date(), "observations": int(len(r)),
             "matrix": [[round(float(x), 4) for x in row] for row in C.to_numpy()],
             "average_correlation": {t: round(float((C[t].sum() - 1) / (len(tickers) - 1)), 4) for t in tickers},
@@ -149,7 +156,9 @@ def console(R: dict) -> str:
         v = np.array(ro["values"])
         L.append(f"Rolling {ro['window']}-{'month' if R['freq'] == 'monthly' else 'day'} correlation {ro['pair'][0]} / {ro['pair'][1]}: "
                  f"latest {v[-1]:.2f} ({ro['dates'][-1]}), min {v.min():.2f}, max {v.max():.2f}, whole period {ro['full_period']:.2f}")
-    L.append(f"Asset statistics {R['stats_start']} -> {R['stats_end']} (total returns; Sharpe against T-bills)")
+    basis = ("monthly returns, like the matrix: volatility, Sharpe and Sortino from monthly returns, max drawdown "
+             "from month-end values" if R.get("stats_basis") == "monthly" else "daily returns")
+    L.append(f"Asset statistics {R['stats_start']} -> {R['stats_end']} (total returns; Sharpe against T-bills; {basis})")
     L.append(f"{'':{w}s} {'CAGR':>8s} {'Vol':>7s} {'Sharpe':>7s} {'MaxDD':>8s} {'Best yr':>8s} {'Worst yr':>9s}  data from")
     p = lambda v, d=1: "n/a" if v is None or not np.isfinite(v) else f"{v * 100:.{d}f}%"  # noqa: E731
     for s in R["stats"]:

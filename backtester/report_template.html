@@ -327,7 +327,13 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
   const usd = (v, d = 0) => isNum(v) ? (v < 0 && Math.abs(v) >= 0.5 * Math.pow(10, -d) ? '-$' : '$') + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }) : '—';
   const signCls = v => isNum(v) ? (v > 0 ? 'pos' : v < 0 ? 'neg' : '') : '';
   const compact = v => { const a = Math.abs(v); if (a >= 1e9) return (v / 1e9).toFixed(1) + 'B'; if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e8 ? 0 : 1) + 'M'; if (a >= 1e3) return (v / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k'; return v.toFixed(v < 10 ? 2 : 0); };
-  const short = n => n.replace(' buy & hold', '');
+  // "60% SPYSIM / 40% IEFSIM buy & hold" -> "60/40 SPYSIM/IEFSIM" (as report.short_label)
+  const short = n => {
+    n = n.replace(' buy & hold', '').trim();
+    const p = [...n.matchAll(/(\d+(?:\.\d+)?)% ([\w^$.\-]+)/g)];
+    return p.length >= 2 && /^(?:\s*(?:\/|,|\+|and)?\s*\d+(?:\.\d+)?% [\w^$.\-]+)+(?:\s*(?:blend|mix|portfolio))?\s*$/.test(n)
+      ? p.map(x => x[1]).join('/') + ' ' + p.map(x => x[2]).join('/') : n;
+  };
   const T = D.dates.map(d => Date.parse(d));
   const multi = D.runs.length > 1;
   let sel = 0;
@@ -371,7 +377,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       noTrades ? ['CAGR', '—', `interest only: ${pct(st.cagr)}/yr`]
         : ['CAGR', pct(st.cagr), st.wiped_out ? 'wiped out: everything was lost' : isNum(st.real_cagr) ? `after inflation ${pct(st.real_cagr)}` : `vol ${pct(st.volatility, 1)}`],
       ['Sharpe', num(st.sharpe), `Sortino ${num(st.sortino)}`],
-      st.max_dd_peak ? ['Max drawdown', pct(st.max_drawdown, 1), `${st.max_dd_peak} → ${st.max_dd_trough}`] : ['Max drawdown', 'none', 'never below a previous high'],
+      st.max_dd_peak ? ['Max drawdown', pct(st.max_drawdown, 1), `${st.max_dd_peak} → ${st.max_dd_trough}` + (isNum(st.max_drawdown_monthly) ? ` · month-end ${pct(st.max_drawdown_monthly, 1)}` : '')] : ['Max drawdown', 'none', 'never below a previous high'],
       r.kind === 'allocation'
         ? ['Turnover', isNum(r.turnover) ? pct(r.turnover / 2, 0) + '/yr' : '—', `${r.rebalances || 0} rebalances`]
         : ['Closed trades', ts.trades ? ts.trades.toLocaleString() : '0', (ts.trades ? `${num(ts.trades_per_year, 1)} / year` : '') + (ts.open_trades ? `${ts.trades ? ' · ' : ''}+${ts.open_trades} open` : '')],
@@ -625,7 +631,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     const rows = [
       ['Final value of $10,000', s => usd(s.end_equity)], ['CAGR', s => pct(s.cagr)], ['Real CAGR (after inflation)', s => pct(s.real_cagr)],
       ['Volatility', s => pct(s.volatility, 1)], ['Sharpe', s => num(s.sharpe)], ['Sortino', s => num(s.sortino)],
-      ['Sharpe (monthly)', s => num(s.sharpe_monthly)], ['Calmar', s => num(s.calmar)], ['Max drawdown', s => pct(s.max_drawdown, 1)],
+      ['Sharpe (monthly)', s => num(s.sharpe_monthly)], ['Calmar', s => num(s.calmar)], ['Max drawdown (daily)', s => pct(s.max_drawdown, 1)],
+      ['Max drawdown (month-end)', s => pct(s.max_drawdown_monthly, 1)],
       ['Longest underwater', s => s.longest_underwater_days + ' days'], ['Ulcer index', s => num(s.ulcer_index)],
       ['Best year', s => pct(s.best_year, 1)], ['Worst year', s => pct(s.worst_year, 1)], ['Positive months', s => pct(s.pct_positive_months, 0)],
       ['VaR 95% (monthly)', s => pct(s.var_95_monthly, 1)], ['CVaR 95% (monthly)', s => pct(s.cvar_95_monthly, 1)],
@@ -645,7 +652,8 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       { sect: 'Return' }, ['Total return', pct(st.total_return, 1)], ['CAGR', pct(st.cagr)], ['Real CAGR (after inflation)', pct(st.real_cagr)],
       ['Best / worst year', pct(st.best_year, 1) + ' / ' + pct(st.worst_year, 1)], ['Best / worst month', pct(st.best_month, 1) + ' / ' + pct(st.worst_month, 1)],
       ['Best / worst day', pct(st.best_day) + ' / ' + pct(st.worst_day)], ['Positive days / months', pct(st.pct_positive_days, 0) + ' / ' + pct(st.pct_positive_months, 0)],
-      { sect: 'Risk' }, ['Volatility (annualised)', pct(st.volatility, 1)], ['Max drawdown', pct(st.max_drawdown, 1)],
+      { sect: 'Risk' }, ['Volatility (annualised)', pct(st.volatility, 1)], ['Max drawdown (daily)', pct(st.max_drawdown, 1)],
+      [{ t: 'Max drawdown (month-end)', title: 'from month-end values only, as Portfolio Visualizer reports it' }, pct(st.max_drawdown_monthly, 1)],
       ['Max drawdown dates', st.max_dd_peak ? `${st.max_dd_peak} → ${st.max_dd_trough} → ${st.max_dd_recovery || 'not recovered'}` : 'no drawdown'],
       ['Longest time underwater', st.longest_underwater_days + ' days'], ['Ulcer index', num(st.ulcer_index)],
       ['VaR / CVaR 95% (daily)', pct(st.var_95_daily) + ' / ' + pct(st.cvar_95_daily)], ['VaR / CVaR 95% (monthly)', pct(st.var_95_monthly, 1) + ' / ' + pct(st.cvar_95_monthly, 1)],
@@ -694,7 +702,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ['Money-weighted return (IRR)', pct(c.money_weighted_return)], ['Time-weighted return (CAGR)', pct(r.stats.cagr)],
       ['Money ran out?', c.ran_out ? { t: c.depleted_on ? `Yes, portfolio depleted on ${c.depleted_on}` : 'Yes', c: 'neg' } : 'No'],
     ].concat(r.withdrawal_rates && isNum(r.withdrawal_rates.swr) ? [
-      { sect: `Withdrawal rates over this history (${r.withdrawal_rates.from} → ${r.withdrawal_rates.to}, inflation-adjusted, ` +
+      { sect: `Historical withdrawal rates over the full period ${r.withdrawal_rates.from} → ${r.withdrawal_rates.to} (${r.withdrawal_rates.freq || 'yearly'} withdrawals from the portfolio's returns without the cash flows, so they do not depend on the amount entered; inflation-adjusted, ` +
           (r.withdrawal_rates.base === 'withdrawal_start' ? `as a share of the balance when withdrawals start: ${usd(r.withdrawal_rates.base_balance)} on ${r.withdrawal_rates.base_date})` : 'as a share of the starting balance)') },
       [{ t: 'Safe withdrawal rate', title: 'the largest inflation-adjusted yearly withdrawal, as a share of the ' + (r.withdrawal_rates.base === 'withdrawal_start' ? 'balance when withdrawals start' : 'starting balance') + ', that lasts the whole period' }, pct(r.withdrawal_rates.swr)],
       [{ t: 'Perpetual withdrawal rate', title: 'the largest one that keeps the balance, in dollars of that date, at that balance' }, pct(r.withdrawal_rates.pwr)],

@@ -134,8 +134,46 @@ MODEL_PORTFOLIOS = [
      [(15, "SPY"), (10, "VBR"), (15, "EFA"), (10, "EEM"), (15, "IEF"), (10, "BIL"), (15, "VNQ"), (10, "GLD")],
      "Portfolio Charts: 15% US large, 10% US small value, 15% ex-US large, 10% emerging, 15% intermediate Treasuries, "
      "10% T-bills, 15% REITs, 10% gold"),
+    (r"(?:craig )?(?:israelsen'?s? )?7[- ]?(?:twelve|12)", "7Twelve portfolio",
+     [(100 / 12, "VV"), (100 / 12, "IJH"), (100 / 12, "IJR"), (100 / 12, "VEA"), (100 / 12, "VWO"), (100 / 12, "VNQ"),
+      (100 / 12, "GLD"), (100 / 12, "DBC"), (100 / 12, "BND"), (100 / 12, "TIP"), (100 / 12, "BNDX"), (100 / 12, "BIL")],
+     "Craig Israelsen, '7Twelve: A Diversified Investment Portfolio with a Plan' (2010): 12 equal sleeves across 7 asset "
+     "classes - US large, mid and small caps, developed ex-US, emerging, REITs, natural resources, commodities, US bonds, "
+     "TIPS, international bonds and cash. Proxy: gold (GLD) for the natural-resources sleeve (no natural-resources fund in "
+     "the data), as PortfoliosLab does"),
+    (r"(?:scott )?(?:burns'?s? )?couch[- ]?potato|(?:scott )?burns'?s? couch", "Couch Potato portfolio", [(50, "VTI"), (50, "TIP")],
+     "Scott Burns (Dallas Morning News), the current version: 50% US total stock market, 50% TIPS (his original 1991 "
+     "Couch Potato was 50% S&P 500 / 50% total bond market: write '50% SPY and 50% BND' for it)"),
+    (r"(?:paul )?merriman'?s? (?:4|four)[- ]fund(?: combo| combination)?", "Merriman 4-fund combo",
+     [(25, "SPY"), (25, "VTV"), (25, "VB"), (25, "VBR")],
+     "Paul Merriman's 4-Fund Combo (all equity): 25% each S&P 500, US large-cap value, US small-cap blend and US small-cap value"),
+    (r"(?:frank )?(?:armstrong'?s? )?ideal index", "Ideal Index portfolio",
+     [(6.25, "VV"), (9.25, "VTV"), (6.25, "IJT"), (9.25, "IJS"), (8, "VNQ"), (31, "VEU"), (30, "SHY")],
+     "Frank Armstrong's Ideal Index (as Portfolio Visualizer / PortfoliosLab list it): 6.25% US large, 9.25% US large value, "
+     "6.25% US small growth, 9.25% US small value, 8% REITs, 31% international, 30% short-term Treasuries"),
+    (r"(?:bogleheads?'? )?(?:4|four)[- ]fund", "Four-fund portfolio", [(48, "VTI"), (24, "VXUS"), (20, "BND"), (8, "BNDX")],
+     "Bogleheads four-fund portfolio: the three-fund portfolio plus international bonds - 72% stocks (a third of them "
+     "international) and 28% bonds (8% international, USD-hedged). PortfoliosLab uses 50% VTI / 30% VEA / 15% BND / 5% BNDX; "
+     "write those weights to use theirs"),
+    (r"(?:the )?second[- ]grader'?s?(?: starter)?", "Second Grader's Starter portfolio", [(60, "VTI"), (30, "VEU"), (10, "BND")],
+     "Allan Roth ('How a Second Grader Beats Wall Street'): 60% US total market, 30% all-world ex-US, 10% total bond market"),
+    (r"(?:dave )?ramsey'?s?", "Dave Ramsey portfolio", [(25, "VUG"), (25, "SPY"), (25, "VOT"), (25, "VXUS")],
+     "Dave Ramsey's four equity fund types, 25% each: growth (VUG), growth and income (S&P 500, SPY), aggressive growth "
+     "(US mid-cap growth, VOT) and international (VXUS). Index-fund proxies: he recommends actively managed funds"),
+    (r"(?:ted )?aronson(?: family)?(?: taxable)?", "Aronson Family Taxable portfolio",
+     [(15, "TIP"), (15, "VPL"), (15, "VV"), (10, "TLT"), (10, "IJR"), (10, "EEM"), (5, "HYG"), (5, "IJT"), (5, "VTI"),
+      (5, "VGK"), (5, "IJS")],
+     "Ted Aronson's family taxable account (Jason Zweig, Money, 2004; as PortfoliosLab lists it): 15% TIPS, 15% Pacific, "
+     "15% US large, 10% long Treasuries, 10% US small, 10% emerging, 5% high yield, 5% US small growth, 5% US total market, "
+     "5% Europe, 5% US small value"),
 ]
-MODEL_RX = r"(?:the |a |an )?(?:" + "|".join(p for p, *_ in MODEL_PORTFOLIOS) + r")(?:'s)?(?: lazy)?(?: portfolio| model| allocation| strategy)?"
+# any "N/M" stock/bond split: "80/20 portfolio", "Stocks/Bonds 60/40", "US stocks and bonds 70/30", "70/30 stocks/bonds"
+_SB = r"(?:u\.?s\.? )?(?:stocks?|equit(?:y|ies))(?: and | ?/ ?| & )(?:bonds?|fixed income)"
+GENERIC_SB_RX = (rf"(?:the |a |an )?(?:{_SB} (?P<a1>\d+(?:\.\d+)?) ?/ ?(?P<b1>\d+(?:\.\d+)?)(?: portfolio| mix| allocation| split)?"
+                 rf"|(?P<a2>\d+(?:\.\d+)?) ?/ ?(?P<b2>\d+(?:\.\d+)?)(?: (?:{_SB}))?(?: portfolio| mix| allocation| split)"
+                 rf"|(?P<a3>\d+(?:\.\d+)?) ?/ ?(?P<b3>\d+(?:\.\d+)?) {_SB})")
+MODEL_RX = (r"(?:(?:the |a |an )?(?:" + "|".join(p for p, *_ in MODEL_PORTFOLIOS)
+            + r")(?:'s)?(?: lazy)?(?: portfolio| model| allocation| strategy)?|" + GENERIC_SB_RX + ")")
 
 # long-history series that can stand in for an ETF before it existed: (series, None) when it IS that
 # ETF extended back, (series, proxy description) when it approximates it. The first available wins,
@@ -146,6 +184,9 @@ SIM_FOR = {
     "VTI": [("VTISIM", "the US market (Fama-French) until April 1992, then the Vanguard Total Stock Market Index fund "
                        "VTSMX, and VTI itself from 2001"), ("SPYSIM", "the US market (Fama-French), then SPY")],
     "VOO": [("SPYSIM", "the US market, then SPY")], "IVV": [("SPYSIM", "the US market, then SPY")],
+    "VV": [("SPYSIM", "US large caps: the US market (Fama-French), then SPY")],
+    "IJT": [("VBKSIM", "US small-cap growth (Fama-French), then VBK")],
+    "VPL": [("EWJSIM", "Japanese stocks (about 60% of the Pacific index), then EWJ")],
     "TLT": [("TLTSIM", None)], "VGLT": [("TLTSIM", "long Treasuries, then TLT")],
     "IEF": [("IEFSIM", None)], "SHY": [("SHYSIM", None)], "BIL": [("BILSIM", None)],
     "IEI": [("IEISIM", None)], "VB": [("VBSIM", None)], "VBR": [("VBRSIM", None)], "VTV": [("VTVSIM", None)],
@@ -212,6 +253,21 @@ def _model_portfolio(text: str, notes: list[str]) -> dict | None:
     for pat, name, holdings, about in MODEL_PORTFOLIOS:
         if re.fullmatch(rf"(?:the |a |an )?(?:{pat})(?:'s)?(?: lazy)?(?: portfolio| model| allocation| strategy)?", s):
             break
+    else:
+        g = re.fullmatch(GENERIC_SB_RX, s)
+        a, b = (float(x) for x in next((g.group(f"a{i}"), g.group(f"b{i}")) for i in (1, 2, 3) if g.group(f"a{i}")))
+        if abs(a + b - 100) > 1e-9:
+            raise ParseError(f"'{text.strip()}': a stock/bond split must add up to 100 ({a:g} + {b:g} = {a + b:g}).")
+        name = f"{a:g}/{b:g} stocks/bonds"
+        holdings = [(a, "VTI"), (b, "BND")]
+        about = (f"{a:g}% US total stock market, {b:g}% US total bond market, Portfolio Visualizer's 'Stocks/Bonds "
+                 f"{a:g}/{b:g}'; with an early start the longest series stand in: the US market back to 1926 and the "
+                 "total bond market back to 1962")
+    return _model_node(name, holdings, about, notes)
+
+
+def _model_node(name: str, holdings: list, about: str, notes: list[str]) -> dict:
+    """The weights node of a named mix, swapping in long-history series for funds that did not exist yet."""
     start = getattr(_TL, "start", None)
     known = _known()
     kids, ws, swaps, late = [], [], [], []
@@ -493,6 +549,9 @@ class _MM:
 
     def groups(self):
         return tuple(self.group(i) for i in range(1, (self.m.re.groups or 0) + 1))
+
+    def groupdict(self):
+        return {k: self.group(k) for k in self.m.re.groupindex}
 
     def start(self, i=0):
         return self.m.start(i)
@@ -2107,6 +2166,29 @@ def _broker_costs(T: Text, notes: list[str], sep: str = "") -> dict:
     return broker
 
 
+MONTH_RX = (r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
+            r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?")
+
+
+def _date_bound(m, end: bool) -> str:
+    """A date match of common_options -> 'YYYY-MM-DD': a year is its first (last) day, a month its first (last) day."""
+    import calendar as _calmod
+    g = m.groupdict()
+    if g.get("mon"):
+        y, mo, d = int(g["my"]), MONTHS.index(next(x for x in MONTHS if x.startswith(g["mon"].lower().rstrip(".")[:3]))) + 1, None
+    elif g.get("mn"):
+        y, mo, d = int(g["my2"]), int(g["mn"]), None
+    else:
+        y, mo, d = int(g["y"]), int(g["m"]) if g.get("m") else None, int(g["d"]) if g.get("d") else None
+    if mo is not None and not 1 <= mo <= 12:
+        raise ParseError(f"'{m.group(0).strip()}': there is no month {mo}.")
+    if mo is None:
+        return f"{y}-12-31" if end else f"{y}-01-01"
+    if d is None:
+        d = _calmod.monthrange(y, mo)[1] if end else 1
+    return f"{y}-{mo:02d}-{d:02d}"
+
+
 def common_options(T: Text, notes: list[str]) -> dict:
     kw: dict = {}
     m = T.find(r"(?:start(?:ing)? with|capital of|initial capital of|account of|begin(?:ning)? with|with an? (?:initial |starting )?(?:balance|investment) of|with) \$(\d+(?:\.\d+)?)(?! (?:per|a|each|every|monthly|quarterly|yearly|annually))(?:(?: of)? (?:capital|in capital))?")
@@ -2134,14 +2216,14 @@ def common_options(T: Text, notes: list[str]) -> dict:
             raise ParseError(f"Could not understand the {word} amount. Write e.g. '5 bps slippage', '0.1% slippage', "
                              f"'$1 per trade commission', '$0.005 per share commission' or '0.1% commission'.")
     # dates
-    mfrom = T.find(r"(?:from|since|starting(?: in)?|beginning(?: in)?|between|after) (\d{4})(?:-(\d{2})-(\d{2}))?")
+    # "2010", "2010-03-15", "2010-03" (a month) or "March 2010" / "Mar 2010" / "Mar. 2010" / "3/2010"
+    when = rf"(?:(?P<mon>{MONTH_RX}) (?P<my>\d{{4}})|(?P<mn>\d{{1,2}})/(?P<my2>\d{{4}})|(?P<y>\d{{4}})(?:-(?P<m>\d{{2}})(?:-(?P<d>\d{{2}}))?)?)(?![\d/-])"
+    mfrom = T.find(r"(?:from|since|starting(?: in)?|beginning(?: in)?|between|after) " + when)
     if mfrom:
-        y = mfrom.group(1)
-        kw["start"] = f"{y}-{mfrom.group(2)}-{mfrom.group(3)}" if mfrom.group(2) else f"{y}-01-01"
-    mto = T.find(r"(?:to|until|through|thru|before|and|ending(?: in)?) (\d{4})(?:-(\d{2})-(\d{2}))?\b")
+        kw["start"] = _date_bound(mfrom, end=False)
+    mto = T.find(r"(?:to|until|through|thru|before|and|ending(?: in)?) " + when + r"\b")
     if mto:
-        y = mto.group(1)
-        kw["end"] = f"{y}-{mto.group(2)}-{mto.group(3)}" if mto.group(2) else f"{y}-12-31"
+        kw["end"] = _date_bound(mto, end=True)
     m = T.find(r"(?:in|during|for) (\d{4})(?! \w*%)\b")
     if m and "start" not in kw:
         kw["start"], kw["end"] = f"{m.group(1)}-01-01", f"{m.group(1)}-12-31"
@@ -2222,8 +2304,14 @@ def looks_like_allocation(text: str) -> bool:
     if len(tw) >= 2 and all(data.canonical(x) in _known() for x in tw):
         return True
     # "60% VTI 40% BND" / "VTI 60, BND 40": a list of known tickers with weights and no separators
-    lead = re.match(r"(?i)\s*(?:(?:hold|own|buy and hold|invest in|allocate)\s+)?(.+?)(?=,\s*(?:re-?balanc|rebalance|with|from|since|starting|between)\b|$)", t)
+    lead = re.match(r"(?i)\s*(?:(?:hold|own|buy and hold|invest in|allocate)\s+)?(.+?)(?=,\s*(?:re-?balanc|rebalance|with|from|since|starting|between)\b"
+                    r"|\s+(?:re-?balanc\w*|from|since|starting|beginning|between|until|through|thru|to|ending|before)\b(?! the next| the close)"
+                    r"|$)", t)
     if lead and _bare_weights(lead.group(1).strip(" ,.")) != lead.group(1).strip(" ,."):
+        return True
+    # a bare asset-class name ("long-term corporate bonds since 1955"): 100% of that class
+    if re.match(rf"(?i)\s*(?:(?:hold|own|buy and hold|invest in|allocate to)\s+)?(?:100% (?:in |of )?)?(?:{ASSET_CLASS_RX})"
+                r"(?:(?:,\s*|\s+)(?:re-?balanc|with|from|since|starting|beginning|between|until|through|thru|to|ending|before|in)\b.*)?\s*$", t):
         return True
     # "40% VTISIM, 60% BNDSIM": weight-first lists naming long-history series (asset classes)
     sw = re.findall(r"\d+(?:\.\d+)?% (?:in |of |to )?(\^?[A-Z]{1,5}SIM)\b", t)
@@ -3720,6 +3808,14 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     mp = _model_portfolio(s, notes)
     if mp:
         return mp
+    # a bare asset-class name ("long-term corporate bonds", "US small cap value"): 100% of its long-history series,
+    # unless the phrase already names a fund ("long-term treasuries" = TLT)
+    ma = re.fullmatch(rf"(?i)(?:100% (?:in |of )?)?(?:the )?({ASSET_CLASS_RX})", s)
+    if ma and ma.group(1).strip().lower() not in {k.lower() for k in COMPANIES}:
+        hit = _asset_class_ticker(ma.group(1))
+        if hit:
+            notes.append(hit[1])
+            return {"asset": hit[0]}
     # if COND [then] X, (else if COND [then] Y,)* otherwise Z   -- any node in any branch
     if re.match(r"(?i)if\b", s):
         return _if_chain(s, notes)
@@ -4217,17 +4313,22 @@ def parse_allocation(text: str) -> Portfolio:
     # "target 10% volatility (using 60 day volatility)": scale the whole portfolio towards that volatility
     tv: dict = {}
     m = T.find(rf",? ?(?:and |with |using )?(?:a )?(?:target(?:ing|ed)?(?: an?)?(?: annual(?:ized)?)? {NUM}% (?:annual(?:ized)? )?(?:volatility|vol)"
-               rf"|{NUM}% (?:annual(?:ized)? )?(?:volatility|vol) target|volatility target(?:ing)?(?: of)? {NUM}%)"
-               rf"(?:,? (?:using|over|with|measured over) (?:an? |the )?(?:last |past |trailing )?(\d+) (day|week|month)s?(?: (?:realized |realised |trailing )?(?:volatility|vol|lookback|window))?)?")
+               rf"|{NUM}% (?:annual(?:ized)? )?(?:volatility|vol) target|volatility target(?:ing)?(?: of)? {NUM}%"
+               rf"|{NUM}% (?:annual(?:ized)? )?target(?:ed)? (?:annual(?:ized)? )?(?:volatility|vol))"
+               rf"(?:,? (?:using|over|with|measured over|based on) (?:an? |the )?(?:last |past |trailing )?(\d+) (day|week|month)s?(?: (?:realized |realised |trailing |historical )?(?:volatility|vol|lookback|window))?)?")
     if m:
-        tv["target_vol"] = float(m.group(1) or m.group(2) or m.group(3)) / 100
-        if m.group(4):
-            tv["target_vol_lookback"] = _period(m.group(4), m.group(5))
+        tv["target_vol"] = float(m.group(1) or m.group(2) or m.group(3) or m.group(4)) / 100
+        if m.group(5):
+            tv["target_vol_lookback"] = _period(m.group(5), m.group(6))
         if not {"target_vol"} <= {f.name for f in dataclasses.fields(Portfolio)}:
             raise ParseError("Volatility targeting for allocation portfolios needs the portfolio engine's target_vol setting, "
                              "which this version does not have.")
         notes.append(f"Volatility target {tv['target_vol']:.0%} a year: the portfolio's exposure is scaled towards it, using its "
                      + (f"{tv['target_vol_lookback']} day" if "target_vol_lookback" in tv else "default") + " realised volatility.")
+    # "using calendar months" / "using month-end prices": N-month returns month-end to month-end (PV, Antonacci)
+    if T.find(r",? ?(?:and )?(?:(?:using|with|on|measured (?:on|over|with)) )?(?:(?:the )?calendar months?(?: returns?| lookbacks?)?"
+              r"|(?:the )?month[- ]end (?:prices|closes|values)|month[- ]end to month[- ]end(?: returns?)?)"):
+        tv["month_lookbacks"] = "calendar"
     broker = _broker_costs(T, notes, sep=",? ?")
     kw = common_options(T, notes)
     kw.update(broker)
@@ -4286,9 +4387,13 @@ def parse_allocation(text: str) -> Portfolio:
                r"(?:drifts?|moves?|deviates?|is off|gets? off|strays?) (?:by )?(?:more than |over )?(?P<n1>\d+(?:\.\d+)?)%"
                r"(?P<rel1> relative(?: to (?:its |their |the )?targets?(?: weights?)?)?| of (?:its |their |the )?targets?(?: weights?)?)?"
                r"(?: (?:from|away from|off) (?:its |their |the )?targets?(?: weights?)?)?"
-               r"|,? ?(?:(?:and|or) )?(?:re-?balanc\w* )?(?:with |using )?(?:a )?(?P<n2>\d+(?:\.\d+)?)%(?P<rel2> relative)? (?:re-?balancing |drift |tolerance )?bands?")
+               r"|,? ?(?:(?:and|or) )?(?:re-?balanc\w* )?(?:with |using )?(?:a )?(?P<n2>\d+(?:\.\d+)?)%(?P<rel2> relative)? (?:re-?balancing |drift |tolerance )?bands?"
+               # "rebalance when drift exceeds 5%", "rebalance at 5% drift", "rebalance if the drift is more than 5%"
+               r"|,? ?(?:(?:and|or) )?(?:re-?balanc\w* )?(?:only )?(?:(?:when(?:ever)?|if) (?:the )?(?:portfolio |weight |allocation )?drift "
+               r"(?:exceeds|is (?:more than|over|above|greater than|bigger than)|goes (?:over|above)|gets (?:over|above)|>=?|reaches|hits) "
+               r"|at (?:a )?(?=\d+(?:\.\d+)?% (?:portfolio |weight )?drift))(?P<n3>\d+(?:\.\d+)?)%(?: (?:portfolio |weight )?drift)?")
     if m:
-        amount = float(m.group("n1") or m.group("n2")) / 100
+        amount = float(m.group("n1") or m.group("n2") or m.group("n3")) / 100
         if m.group("rel1") or m.group("rel2"):
             band_rel = amount
             notes.append(f"Relative drift band: rebalance when a holding's weight is off its target by more than {amount:.0%} "
@@ -4368,6 +4473,11 @@ def parse_allocation(text: str) -> Portfolio:
             re.search(r"\bmonthly_\w+\(", r) and not re.search(r"\b(?!monthly_)(?:sma|ema|rsi|ret|tret|volatility|drawdown|max_drawdown|"
                                                                 r"stdev_return|ma_return|change|ref)\(", r) for r in _if_rules(tree)):
         tactical = "Monthly moving-average timing (Faber)"
+    if rb is None and tv.get("target_vol") and not (band or band_rel):
+        # the exposure is rescaled at each rebalance: without one the target would be applied once, on the first day
+        rb = "monthly"
+        notes.append("Rebalance frequency not stated: with a volatility target the exposure is rescaled at each month-end "
+                     "close; say 'rebalance weekly' or 'rebalance daily' to rescale more often.")
     if rb is None:
         if buy_hold:
             rb = "none"

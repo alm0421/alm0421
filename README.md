@@ -24,7 +24,7 @@ python -m backtester "buy at the close Microsoft when it trades down 5 days in a
 | **Research** | A parameter sweep (`hold {1..5} days`) with a heatmap. Walk-forward optimisation (rolling or anchored). A portfolio optimiser: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity, max diversification, max return / max drawdown, max Omega (at a threshold return), target return, target volatility, inverse volatility and equal weight (pick any subset), with per-asset and group limits (`SPY+QQQ <= 70%`), the efficient frontier, an out-of-sample check and rolling (walk-forward) re-optimisation compared with the static weights. A target that can't be reached says what can ("the minimum achievable volatility is 9.1%"). **Inputs**: historical means by default, or your expected returns (and optionally volatilities and correlations), or **Black-Litterman** (market-cap, equal or given prior weights plus absolute/relative views with confidences; the posterior feeds every objective). **Benchmark-relative**: min tracking error (optionally with a return floor) and max information ratio against a ticker or blend. **Resampled frontier** (Michaud): average the optimal weights over N simulated histories. |
 | **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates, also per percentile of the paths (10th-90th, as Portfolio Visualizer; for contribute-then-withdraw plans measured from the balance when withdrawals start) (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), any number of cash-flow phases (contribute, then withdraw), and a glide path (e.g. 90/10 -> 40/60 over 30 years, linear or target-date shaped). |
 | **Factors** | Regress a ticker, portfolio, sentence or saved run on CAPM, Fama-French 3, Carhart 4, Fama-French 5 or FF5 + momentum for the US or a region (developed, developed ex US, Europe, Japan, Asia Pacific ex Japan, North America, emerging), AQR's quality (QMJ) and betting-against-beta (BAB) factors, and the bond factors TERM and DEF, monthly (French's official monthly files) or daily: loadings with t-stats, R², annualised alpha and rolling 36-month loadings. **Style analysis** (Sharpe 1992) finds the asset-class mix that best tracks the returns, with rolling 36-month weights. |
-| **Correlations** | The correlation matrix of daily or monthly total returns over a chosen period, a rolling correlation of any pair, and per-asset statistics (CAGR, volatility, Sharpe, max drawdown, best/worst year, first date of data), like Portfolio Visualizer's asset correlations. |
+| **Correlations** | The correlation matrix of daily or monthly total returns over a chosen period, a rolling correlation of any pair, and per-asset statistics (CAGR, volatility, Sharpe, max drawdown, best/worst year, first date of data; on the matrix's frequency: with monthly returns, volatility and Sharpe from monthly returns and the max drawdown from month-end values), like Portfolio Visualizer's asset correlations. |
 | **Signals & paper** | Shows what a strategy says to do on the latest bar: new entries, open positions and target weights. You can also start a forward test ("paper trading") that only uses data arriving after you saved it. |
 | **History** | Saved runs, with open, edit, share and delete. |
 | **Data** | Data freshness, coverage and a ticker browser. |
@@ -96,8 +96,16 @@ you say otherwise. Named model portfolios work as phrases: "golden butterfly sin
 yearly", "three fund portfolio", "all weather", "permanent", "coffeehouse", "ivy", "Bernstein
 no-brainer", "60/40 portfolio", "Hedgefundie adventure", "Swensen", "larry portfolio", "Buffett 90/10",
 "global market portfolio", "sandwich", "desert", "Merriman ultimate buy and hold", "weird portfolio",
-"core four", "talmud", "pinwheel" (the notes list the holdings and any proxy fund, e.g. VSS for
-developed ex-US small caps, and long-history SIM series stand in before the funds existed). Filters and weightings
+"core four", "talmud", "pinwheel", "7Twelve" (Israelsen), "couch potato" (Scott Burns), "Merriman 4-fund
+combo", "Frank Armstrong ideal index", "Bogleheads four-fund", "second grader's starter", "Dave Ramsey",
+"Aronson family taxable", and any stock/bond split ("80/20 portfolio", "Stocks/Bonds 60/40", "US stocks
+and bonds 70/30 since 1950": US total market and total bond market) (the notes list the holdings, the
+source and any proxy fund, e.g. VSS for developed ex-US small caps, and long-history SIM series stand in
+before the funds existed). A bare asset-class name holds 100% of it ("long-term corporate bonds since
+1955", "US small cap value"). An "N month return" is 21 trading days a month by default (12 months = 252
+sessions); add "using calendar months" (or "using month-end prices", or `"month_lookbacks": "calendar"` in a
+JSON spec) to measure N-month returns month-end to month-end from the last completed month-end, as Portfolio
+Visualizer and Antonacci do. The interpretation says which one a portfolio uses. Filters and weightings
 can also rank or weight whole groups ("the top 1 of (60% TECL and 40% BIL), SVIX and TQQQ by 10 day
 return"): in a JSON spec or the Build editor, any node can sit inside a filter, and it is
 measured on its own simulated value over time. **Composer symphonies** can be imported directly:
@@ -135,7 +143,7 @@ symphony gives back the same tree.
 | More signals | ROC(10) above 5 / rate of change, %K crosses above %D, MACD histogram turns negative, yesterday's high, not on Fridays, except in October, buy stop 1% above the close / at yesterday's high |
 | Portfolio conditions | any indicator phrase compared with a number or another ticker's indicator: "TQQQ 6 day cumulative return is less than -12%", "the 10 day max drawdown of TQQQ is above 20%", "SPY 10 day standard deviation of return is above 2%", "QQQ's 3 month return beats TLT's" (total returns) |
 | Schedules and flows | semi-annually, relative bands ("drifts 25% relative to its target"), schedule + band ("rebalance quarterly or when any weight drifts more than 5%": every quarter AND whenever a weight leaves its band in between), fortnightly (every 2nd week-end); a band with no schedule, or "never rebalance" with if/else or filters, re-evaluates the rules every close and trades only when the target allocation changes or a holding leaves its band (Composer's threshold rebalancing), contributions/withdrawals for N years / starting in YEAR / from year N, growing X% a year |
-| Other | starting with $X, since/from/until YEAR, vs TICKER (incl. SPYSIM), a blended benchmark ("vs 60/40 SPY/AGG", "compared with 60% SPY and 40% AGG", "benchmark 60/40 SPY/AGG"), versus T-bills, cash earns nothing, using today's members only |
+| Other | starting with $X, since/from/until YEAR, month names and months ("from March 2005 to June 2015", "since Jan 1999", "until 2020-06": the month's first / last day), weight-first lists without commas ("60% VTI 40% BND since 2010", "VTI 60 BND 40"), "rebalance when drift exceeds 5%" / "at 5% drift", "a 10% target volatility using 60 day volatility" (rescaled monthly unless you say otherwise), vs TICKER (incl. SPYSIM), a blended benchmark ("vs 60/40 SPY/AGG", "compared with 60% SPY and 40% AGG", "benchmark 60/40 SPY/AGG"), versus T-bills, cash earns nothing, using today's members only |
 | Relative hurdles | "only if their 12 month return is above BIL's 12 month return" (each candidate vs BIL; also beats / exceeds / greater than / higher than, "above BIL" = the same indicator), "hold SPY if its 12 month return beats BIL's, otherwise IEF". A condition that compares a value with itself is refused |
 
 Anything else can be written in the **rule language** inside backticks
@@ -175,7 +183,7 @@ never quietly drops them or swaps in a different ticker.
 
 - Headline tiles, an equity curve against SPY, QQQ and the stock's own buy-and-hold, and drawdowns.
 - A head-to-head table: every strategy and benchmark over the same period, with CAGR, real CAGR,
-  volatility, Sharpe/Sortino (daily and monthly), Calmar, max drawdown, time underwater, Ulcer index,
+  volatility, Sharpe/Sortino (daily and monthly), Calmar, max drawdown (daily and from month-end values, as Portfolio Visualizer), time underwater, Ulcer index,
   best/worst year and VaR/CVaR.
 - Risk and return against T-bills. Versus the benchmark: beta, alpha, R², up/down capture, tracking
   error, information ratio and Treynor.
@@ -215,7 +223,8 @@ never quietly drops them or swaps in a different ticker.
   the same contributions and withdrawals, the account value in today's dollars, and with
   withdrawals the safe and perpetual withdrawal rates over the tested history (as a share of the starting
   balance; for a save-then-withdraw plan, of the balance on the first withdrawal, over the withdrawal years,
-  and labelled so).
+  and labelled so). They come from the portfolio re-run without the cash flows over the whole period (or
+  the whole withdrawal phase), so they do not depend on the amount entered, even one that empties the account.
 - With cash flows every benchmark gets the same flows: one that starts later starts with the portfolio's
   balance on its first day; one whose data starts after the portfolio ran out of money is left out, with a
   note (never shown without the flows).
