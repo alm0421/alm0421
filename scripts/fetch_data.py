@@ -2219,7 +2219,8 @@ def write_integrity_log(tickers: list[str] | None = None, path: Path | None = No
     backtester loads a file, so a new download that still carries the error is repaired the same way; this log is
     what a reviewer checks (and turns into an override when the gate got one wrong)."""
     from backtester import data as bt_data
-    path = path or INTEGRITY_FILE
+    # next to the price folder in use (a test pointing PRICES at a temporary folder writes there, not into data/)
+    path = path or (PRICES.parent / INTEGRITY_FILE.name)
     try:
         doc = json.loads(path.read_text())
     except (OSError, ValueError):
