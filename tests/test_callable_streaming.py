@@ -120,14 +120,15 @@ def test_legitimate_callables_give_the_same_answers(fake):
     assert any(n.startswith("Python rule causal(): evaluated bar by bar") for n in st.notes)
 
 
-def test_vectorized_causal_skips_streaming_but_is_still_probed(fake):
+def test_trust_vectorized_skips_streaming_but_is_still_probed(fake):
+    # (round 13: `vectorized_causal` is checked exactly - streamed - so the one-call path is `trust_vectorized`)
     df = walk(5)
     fake["X"] = df
     from backtester import sandbox
 
     def fast(d, ns):
         return d.close > d.close.shift(1)
-    fast.vectorized_causal = True
+    fast.trust_vectorized = True
     jobs, steps = sandbox.STATS["jobs"], sandbox.STATS["steps"]
     s = expr.evaluate(fast, expr.Namespace(df, ticker="X"))
     # one call on the whole history (in one sealed process), not bar by bar
@@ -135,7 +136,7 @@ def test_vectorized_causal_skips_streaming_but_is_still_probed(fake):
 
     def leaky(d, ns):
         return d.close.shift(-1) > d.close
-    leaky.vectorized_causal = True
+    leaky.trust_vectorized = True
     with pytest.raises(ValueError, match="uses future data"):
         engine.run(Strategy(cash_rate=None, universe=["X"], entry=leaky, hold_bars=1))
 

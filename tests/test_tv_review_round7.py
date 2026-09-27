@@ -351,7 +351,9 @@ def test_heikin_ashi_pivots_avwap_match_references():
     for i in range(1, len(c)):
         ho[i] = (ho[i - 1] + hc[i - 1]) / 2
     np.testing.assert_allclose(ev("ha_close", df), hc)
-    np.testing.assert_allclose(ev("ha_open", df), ho)
+    # (round 13: ha_open is NaN on its seed bar, which reads that bar's close, so it is known at the open)
+    np.testing.assert_allclose(ev("ha_open", df)[1:], ho[1:])
+    assert np.isnan(ev("ha_open", df)[0])
     np.testing.assert_allclose(ev("ha_high", df), np.maximum.reduce([h, ho, hc]))
     np.testing.assert_allclose(ev("ha_low", df), np.minimum.reduce([lo, ho, hc]))
     # pivots: reported `right` bars after the pivot bar, strictly above/below both sides

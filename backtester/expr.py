@@ -193,18 +193,24 @@ def pivot_tv(x: pd.Series, left: int, right: int, high: bool) -> pd.Series:
 def heikin_ashi(df: pd.DataFrame) -> pd.DataFrame:
     """Heikin Ashi bars as TradingView draws them: ha_close = (o + h + l + c) / 4, ha_open = (previous ha_open +
     previous ha_close) / 2 (the first bar: (open + close) / 2), ha_high = max(high, ha_open, ha_close),
-    ha_low = min(low, ha_open, ha_close)."""
+    ha_low = min(low, ha_open, ha_close).
+    The ha_open column is NaN on the seed bars (the first bar, and a bar after a gap in the data), where the seed
+    reads that bar's close: every ha_open value shown is then made of earlier bars only, so it is known at the bar's
+    open (open_safe). The recursion itself still starts from the seed, so later values are TradingView's."""
     o, h, l, c = (df[k].to_numpy(dtype=float) for k in ("open", "high", "low", "close"))
     hc = (o + h + l + c) / 4
     ho = np.full(len(o), np.nan)
+    seed = np.zeros(len(o), bool)
     for i in range(len(o)):
         if i == 0 or np.isnan(ho[i - 1]) or np.isnan(hc[i - 1]):
             ho[i] = (o[i] + c[i]) / 2
+            seed[i] = True
         else:
             ho[i] = (ho[i - 1] + hc[i - 1]) / 2
     hh = np.fmax(h, np.fmax(ho, hc))
     hl = np.fmin(l, np.fmin(ho, hc))
-    return pd.DataFrame({"ha_open": ho, "ha_high": hh, "ha_low": hl, "ha_close": hc}, index=df.index)
+    return pd.DataFrame({"ha_open": np.where(seed, np.nan, ho), "ha_high": hh, "ha_low": hl, "ha_close": hc},
+                        index=df.index)
 
 
 def is_crypto(ticker: str | None) -> bool:
@@ -302,6 +308,11 @@ class Bars:
             self.open = self.open.where(ok)
         self.volume = a["volume"]
         self.tr = causal_tr(df).reindex(index.union(df.index)).ffill().reindex(index)
+        # its open against its own previous close (NaN on a day it has no bar, or no quoted open)
+        g = df["open"] / df["close"].shift(1) - 1
+        if "open_ok" in df:
+            g = g.where(df["open_ok"].fillna(False).astype(bool))
+        self.gap = g.reindex(index)
 
 
 MONTH_BARS = 21     # a month of trading days: "12 month return" is ret(252)
@@ -1366,7 +1377,7 @@ _ALLOWED = (
 )
 
 
-_ATTRS = {"open", "high", "low", "close", "volume", "tr"}
+_ATTRS = {"open", "high", "low", "close", "volume", "tr", "gap"}
 
 
 class _Vectorize(ast.NodeTransformer):
@@ -2112,8 +2123,11 @@ def evaluate_value(text, ns: Namespace) -> pd.Series:
 
 # ---------------------------------------------------------------- lookahead guard
 
+# (ha_open: made of the previous bar's Heikin Ashi open and close only; NaN on its seed bars, see heikin_ashi)
 OPEN_SAFE_NAMES = {"gap", "dow", "month", "day", "year", "trading_day_of_month",
-                   "trading_days_left_in_month", "open", "True", "False"}
+                   "trading_days_left_in_month", "open", "ha_open", "True", "False"}
+# another ticker's fields known at the open: sym("X").open, and sym("X").gap (its open against its previous close)
+_OPEN_SAFE_ATTRS = {"open", "gap"}
 # functions whose series argument defaults to today's close/high/low when omitted
 _DEFAULTS_TO_CLOSE = {"sma", "ma", "ema", "rma", "wma", "highest", "lowest", "stdev", "zscore", "ret", "roc", "diff",
                       "hma", "vwma", "linreg", "alma", "kama", "cci", "mfi",
@@ -2130,6 +2144,12 @@ _ALWAYS_CLOSE = {"atr", "natr", "volatility", "bb_upper", "bb_lower", "macd", "m
                  "aroon_osc", "cmf", "pivothigh", "pivotlow", "avwap", "supertrend_dir"}
 
 
+def _is_xrank(node) -> bool:
+    """xrank(...): a cross-sectional value computed by the engine across the universe; on one ticker's namespace it
+    has no value, which says nothing about its warm-up (its argument's own calls are checked)."""
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "xrank"
+
+
 def first_defined(rule, ns, never=None) -> pd.Timestamp | None:
     """First date on which every indicator call in `rule` has a value (NaN during its look-back), or None.
     `never`: returned instead when some indicator has no value anywhere in the data (still warming up at its end)."""
@@ -2142,7 +2162,7 @@ def first_defined(rule, ns, never=None) -> pd.Timestamp | None:
         return None
     first = None
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
+        if not isinstance(node, ast.Call) or _is_xrank(node):
             continue
         seg = ast.get_source_segment(text, node)
         try:
@@ -2192,7 +2212,7 @@ def never_defined(rule, ns) -> list[tuple[str, int | None]]:
         return []
     out = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
+        if not isinstance(node, ast.Call) or _is_xrank(node):
             continue
         seg = ast.get_source_segment(text, node)
         try:
@@ -2266,7 +2286,7 @@ def open_safe(rule) -> bool:
         if isinstance(node, ast.Name):
             return node.id in OPEN_SAFE_NAMES
         if isinstance(node, ast.Attribute):
-            return node.attr == "open" and _is_sym(node.value)
+            return node.attr in _OPEN_SAFE_ATTRS and _is_sym(node.value)
         if isinstance(node, ast.Call):
             if not isinstance(node.func, ast.Name) or node.keywords:
                 return False
@@ -2326,7 +2346,7 @@ def reads_todays_open(rule) -> bool:
     def reads(node) -> bool:
         if isinstance(node, ast.Name):
             return node.id in ("open", "gap")
-        if isinstance(node, ast.Attribute) and node.attr == "open" and _is_sym(node.value):
+        if isinstance(node, ast.Attribute) and node.attr in _OPEN_SAFE_ATTRS and _is_sym(node.value):
             return True
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ref" and node.args:
             n = _literal(node.args[1]) if len(node.args) > 1 else 1
@@ -2620,10 +2640,11 @@ def callable_lookahead_probe(fn, df: pd.DataFrame, ticker: str | None = None, ki
 # a namespace on them) before it receives bar i + 1; sym() / data.load there are answered by the engine cut at bar i,
 # and file / process / network access is refused. What the function carries in (globals it names, its closure and
 # defaults) is inspected first, and data captured before the run (a price history reaching past the run's start) is
-# refused (sandbox.LeakError). A function marked `fn.vectorized_causal = True` is instead called once on the whole
-# history (fast, in a sealed process too, data requests cut at the last bar), guarded by the empirical lookahead
-# probe (callable_lookahead_probe), with a note. (Native code - ctypes, a C extension - is not contained; no
-# ordinary way of writing a rule reaches later data.)
+# refused (sandbox.LeakError). Only a function marked `fn.trust_vectorized = True` is instead called once on the
+# whole history (fast, in a sealed process too, data requests cut at the last bar), guarded by the sampled lookahead
+# probe (callable_lookahead_probe), with a warning note; `vectorized_causal = True` is streamed and checked on every
+# day like any other function. A rule acted on at the open is streamed as known at each open (open_view).
+# (Native code - ctypes, a C extension - is not contained; no ordinary way of writing a rule reaches later data.)
 
 import contextvars as _cv  # noqa: E402
 import threading as _threading  # noqa: E402
@@ -2746,15 +2767,24 @@ def _last(out, kind: str):
         return np.nan
 
 
-def _sub_namespace(ns, k: int):
-    """ns cut after its k-th row: copies of the bars (no link back to ns, so nothing of the later rows is reachable)."""
+def _sub_namespace(ns, k: int, at_open: bool = False):
+    """ns cut after its k-th row: copies of the bars (no link back to ns, so nothing of the later rows is reachable).
+    `at_open`: the k-th row as known at its open (only sandbox.OPEN_KNOWN columns)."""
+    from .sandbox import _open_row_masked
     extra = {}
     for key in POSITION_VARS | {"highest_since_entry", "lowest_since_entry"}:
         v = dict.get(ns, key)
         if isinstance(v, pd.Series):
             extra[key] = v.iloc[:k].copy()
+            if at_open and key not in ("bars_held", "entry_price") and k:
+                extra[key] = extra[key].astype(float)
+                extra[key].iloc[-1] = np.nan
     q = ns.quoted_df.iloc[:k].copy()
     df = q if ns.df is ns.quoted_df else ns.df.iloc[:k].copy()
+    if at_open and k:
+        last = np.arange(k) == k - 1
+        q = _open_row_masked(q, last)
+        df = q if ns.df is ns.quoted_df else _open_row_masked(df, last)
     return _SealedNamespace(q, df, ns.ticker, ns.price_basis, ns.month_lookbacks, getattr(ns, "close_fill", False),
                             extra or None)
 
@@ -2913,12 +2943,15 @@ class _SealedNamespace(Namespace):
 
 _STREAMED: dict = {}      # (fn, ticker, id(bars), basis, months, kind) -> (bars, Series, seconds)
 STREAM_NOTE = ("Python rule {name}: evaluated bar by bar in a sealed process that only ever held the data up to each "
-               "bar ({n:,} calls, {s:.1f}s), so it cannot see later data; mark the function `vectorized_causal = True` "
-               "to run it once on the whole history instead (faster, but then only an empirical lookahead check "
+               "bar ({n:,} calls, {s:.1f}s), so it cannot see later data; mark the function `trust_vectorized = True` "
+               "to run it once on the whole history instead (faster, but then only a sampled lookahead check "
                "guards it).")
-VECTOR_NOTE = ("Warning: Python rule {name} is marked vectorized_causal, so it ran once on the whole history and only "
-               "the empirical lookahead probe (the data cut at many dates) checks it - a weaker guarantee than the "
-               "default bar-by-bar evaluation.")
+VECTOR_NOTE = ("Warning: Python rule {name} is marked trust_vectorized, so it ran once on the whole history and only "
+               "the sampled lookahead probe (the data cut at many dates, not every date) checks it - a leak on a few "
+               "specific dates can pass. Remove trust_vectorized for the exact bar-by-bar evaluation.")
+OPEN_STREAM_NOTE = ("Python rule {name}: acted on at the open, so it was evaluated bar by bar as known at each open: the "
+                    "day's own bar held only its open (its close, high, low, volume, adjusted close and dividend "
+                    "hidden), for its own ticker and every ticker or data series it loads ({n:,} calls, {s:.1f}s).")
 
 
 def _fn_name(fn) -> str:
@@ -2949,7 +2982,24 @@ def stream_from(date, need=None):
         STREAM_FROM.reset(tok)
 
 
-def _stream_local(fn, ns, kind: str, pos) -> np.ndarray:
+# A rule acted on at the open of a bar (entry_fill / exit_when_fill "open", an open-safe stop / target level at an
+# open fill): Python-function rules are then streamed as known at each open (sandbox OPEN_KNOWN): the bar itself
+# holds only its open, for the rule's own ticker and every other ticker or data series it loads. Structural, for
+# every day: nothing of the rest of the day exists in the sealed process when it answers.
+OPEN_VIEW: _cv.ContextVar = _cv.ContextVar("backtester_open_view", default=False)
+
+
+@_contextmanager
+def open_view(on: bool = True):
+    """Evaluate Python-function rules as known at each bar's open (see OPEN_VIEW)."""
+    tok = OPEN_VIEW.set(bool(on))
+    try:
+        yield
+    finally:
+        OPEN_VIEW.reset(tok)
+
+
+def _stream_local(fn, ns, kind: str, pos, at_open: bool = False) -> np.ndarray:
     """Inside a sealed process only (a rule that calls evaluate() on another Python rule): bar by bar in-process,
     on copies of the data up to each bar (the process holds nothing later anyway)."""
     idx = ns.df.index
@@ -2959,20 +3009,20 @@ def _stream_local(fn, ns, kind: str, pos) -> np.ndarray:
         for n, i in enumerate(pos):
             i = int(i)
             data.LOAD_CUTOFF.set(idx[i])
-            sub = _sub_namespace(ns, i + 1)
+            sub = _sub_namespace(ns, i + 1, at_open=at_open)
             vals[n] = _last(fn(sub.df, sub), kind)
     finally:
         data.LOAD_CUTOFF.reset(tok)
     return vals
 
 
-def _stream(fn, ns, kind: str, pos: np.ndarray) -> np.ndarray:
-    """fn's answers on the bars at positions `pos` (increasing), each from the data up to that bar only: in sealed
-    child processes fed one bar at a time (sandbox.stream)."""
+def _stream(fn, ns, kind: str, pos: np.ndarray, at_open: bool = False) -> np.ndarray:
+    """fn's answers on the bars at positions `pos` (increasing), each from the data up to that bar only (`at_open`:
+    up to that bar's open): in sealed child processes fed one bar at a time (sandbox.stream)."""
     from . import sandbox
     if sandbox.IN_CHILD:
-        return _stream_local(fn, ns, kind, pos)
-    return sandbox.stream(fn, ns, kind, pos)
+        return _stream_local(fn, ns, kind, pos, at_open)
+    return sandbox.stream(fn, ns, kind, pos, open_view=at_open)
 
 
 def _call_once(fn, ns, kind: str, cutoff=None, payload=None) -> pd.Series:
@@ -2991,11 +3041,17 @@ def stream_callable(fn, ns, kind: str = "bool") -> pd.Series:
     fn(df.iloc[:i+1], ns cut at i), computed in a sealed process that holds nothing after bar i (sandbox.py). Only
     the bars a caller reads are evaluated (from STREAM_FROM on, on STREAM_NEED's dates when given; the rest stay
     False / NaN), long streams are split across several such processes, and results are cached per function and data
-    (reused when they cover the bars asked for). A `vectorized_causal` function is called once."""
+    (reused when they cover the bars asked for). Under open_view() each bar is evaluated as known at its open.
+
+    A function marked `trust_vectorized = True` is instead called once on the whole history (not at the open: there
+    it is streamed too), guarded only by the sampled probe. `vectorized_causal = True` (the older flag) no longer
+    skips the bar-by-bar evaluation: an exact check of a vectorized function needs its value on every prefix, which
+    is what streaming computes, so a leak on any single day cannot pass."""
     import time as _time
     df = ns.df
     idx = df.index
-    if getattr(fn, "vectorized_causal", False):
+    at_open = bool(OPEN_VIEW.get())
+    if getattr(fn, "trust_vectorized", False) and not at_open:
         out = _call_once(fn, ns, kind, cutoff=STREAM_FROM.get() or (idx[0] if len(idx) else None))
         note = VECTOR_NOTE.format(name=_fn_name(fn))
         if note not in ns.notes:
@@ -3010,7 +3066,7 @@ def stream_callable(fn, ns, kind: str = "bool") -> pd.Series:
     positional = any(isinstance(dict.get(ns, k), pd.Series) for k in POSITION_VARS)
     try:
         key = None if positional else (fn, ns.ticker, id(ns.quoted_df), ns.price_basis, ns.month_lookbacks, kind,
-                                       getattr(ns, "close_fill", False))
+                                       getattr(ns, "close_fill", False), at_open)
         hit = _STREAMED.get(key) if key is not None else None
     except TypeError:          # an unhashable callable object: not cached
         key, hit = None, None
@@ -3021,16 +3077,17 @@ def stream_callable(fn, ns, kind: str = "bool") -> pd.Series:
         vals = np.zeros(len(idx), bool) if kind == "bool" else np.full(len(idx), np.nan)
         pos = np.flatnonzero(want)
         if len(pos):
-            vals[pos] = _stream(fn, ns, kind, pos)
+            vals[pos] = _stream(fn, ns, kind, pos, at_open)
         secs = _time.perf_counter() - t0
         res, done = pd.Series(vals, index=idx), want
         if key is not None:
             if len(_STREAMED) > 512:
                 _STREAMED.clear()
             _STREAMED[key] = (ns.quoted_df, res, secs, want)
-    head = f"Python rule {_fn_name(fn)}: evaluated bar by bar"
+    head = f"Python rule {_fn_name(fn)}: " + ("acted on at the open" if at_open else "evaluated bar by bar")
     if not any(n.startswith(head) for n in ns.notes):
-        ns.notes.append(STREAM_NOTE.format(name=_fn_name(fn), n=int(done.sum()), s=secs))
+        ns.notes.append((OPEN_STREAM_NOTE if at_open else STREAM_NOTE).format(name=_fn_name(fn), n=int(done.sum()),
+                                                                            s=secs))
     out = res.copy()
     extra = done & ~want       # a cached stream covering more bars: those this caller does not read stay unevaluated
     if extra.any():
@@ -3043,12 +3100,13 @@ def callable_check(fn, df: pd.DataFrame, ticker: str | None = None, kind: str = 
     """Lookahead check of a Python-function rule before a run. A streamed function (the default) cannot use later
     data, but one that tries to - shift(-1), a centred window, a whole-series statistic, a cache of the largest frame
     it was given - answers differently when run once on the whole history; such a function is refused rather than
-    silently run on logic other than what it says. A `vectorized_causal` one gets the empirical probe
-    (callable_lookahead_probe). A function carrying data captured before the run (a closure or global holding a
-    price history that reaches past the run's start) is refused outright (sandbox.LeakError). Returns a description
-    of the problem, or None."""
+    silently run on logic other than what it says. The comparison covers every day of the window, so a leak on a
+    single day is caught (`vectorized_causal` functions are checked the same way). Only a `trust_vectorized` one gets
+    the sampled probe instead (callable_lookahead_probe). A function carrying data captured before the run (a closure
+    or global holding a price history that reaches past the run's start) is refused outright (sandbox.LeakError).
+    Returns a description of the problem, or None."""
     from . import sandbox
-    if getattr(fn, "vectorized_causal", False):
+    if getattr(fn, "trust_vectorized", False):
         return callable_lookahead_probe(fn, df, ticker, kind, window=window)
     ns = Namespace(df, ticker=ticker, close_fill=close_fill)
     # streamed from the window's start (the bars the run reads); earlier bars are not compared
@@ -3081,3 +3139,35 @@ def callable_check(fn, df: pd.DataFrame, ticker: str | None = None, kind: str = 
     d = df.index[int(bad[0])].date()
     return (f"its result on {d} changes when the data after {d} is removed (run on the data up to each day it answers "
             "differently than on the whole history)")
+
+
+def callable_open_check(fn, df: pd.DataFrame, ticker: str | None = None, kind: str = "bool", window=None) -> str | None:
+    """A Python-function rule marked open_safe, acted on at the open. The run evaluates it as known at each open
+    (open_view: the day's close, high, low, volume... are not there, for any ticker), so it cannot use them. This
+    check says so when the function's answers depend on them: on every day of the window, its answer as known at
+    the open is compared with its answer as known at the close; a difference means the function reads the rest of
+    the day, and the run is refused rather than silently run on different logic. Returns a description, or None."""
+    ns = Namespace(df, ticker=ticker)
+    w0 = pd.Timestamp(window[0]) if window is not None and window[0] is not None else None
+    ev = evaluate if kind == "bool" else evaluate_value
+    with stream_from(w0):
+        at_close = ev(fn, ns).to_numpy()
+        with open_view():
+            at_open = ev(fn, ns).to_numpy()
+    if kind == "bool":
+        ok = at_close == at_open
+    else:
+        a, b = at_close.astype(float), at_open.astype(float)
+        with np.errstate(invalid="ignore"):
+            near = np.abs(a - b) <= 1e-9 * np.maximum(1.0, np.maximum(np.abs(a), np.abs(b)))
+        ok = (np.isnan(a) & np.isnan(b)) | np.nan_to_num(near, nan=0.0).astype(bool)
+    if window is not None:
+        w0_, w1_ = (pd.Timestamp(x) if x is not None else None for x in window)
+        ok |= ~np.asarray((df.index >= (w0_ or df.index[0])) & (df.index <= (w1_ or df.index[-1])))
+    bad = np.flatnonzero(~ok)
+    if not len(bad):
+        return None
+    d = df.index[int(bad[0])].date()
+    return (f"the function is marked open_safe, but its result on {d} changes when that day's close, high, low and "
+            f"volume are hidden (as they are at the open), for this ticker or a ticker it loads: it reads data from "
+            f"later in the day ({int(len(bad))} day{'s' if len(bad) != 1 else ''} differ)")

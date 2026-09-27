@@ -80,6 +80,8 @@ if TQQQ 6 day cumulative return is less than -12% then hold TECL else hold the t
 hold 50% QQQ and 50% (if SPY is above its 200 day moving average then TLT else GLD)
 risk parity SPY, TLT, GLD and DBC over 90 days          minimum variance weighted SPY, TLT and GLD using a 60 day lookback
 hold 60% SPY and 40% TLT with 2x leverage and a 0.5% expense ratio       hold 120% SPY and -20% TLT
+if SPY is above its 200 day moving average hold 200% QQQ (or 2x QQQ), otherwise hold TLT     hold 150% SPY and 50% TLT
+hold all Nasdaq 100 stocks equally weighted, rebalance monthly       equal weight today's S&P 500 members (survivorship warning)
 hold 60% SPYSIM and 40% TLTSIM, rebalance yearly, since 1972
 add $1,000 a month for 20 years, then withdraw $50,000 a year, hold 60% VTI and 40% BND
 hold 70% QQQ and 30% TLT, rebalance quarterly or when any weight drifts more than 5%
@@ -194,7 +196,7 @@ import but do not export: no public export or schema names the keys of their par
 | Bounds on one value | "is less than -5% or greater than 5%" (either bound), "is not below 30 and not above 70" (= at least 30 and at most 70), "is above 79 and below 90". Bounds that contradict each other ("above 79 and below 30": never true) or cover every value ("below 30 or above 20": always true) are caught on the same indicator, window and ticker however the rule was written (sentence, Build page, JSON), and so are two values compared both ways ("the 200 day SMA is above the 50 day SMA and the 50 day SMA is above the 200 day SMA", `close > sma(close, 50) and close < sma(close, 50)`: never true): a warning for portfolio conditions, requirements and exits, a refusal for an entry that can never be true |
 | Not | "if not SPY 10 day RSI is above 79 or QQQ 10 day RSI is above 79": 'not' applies to the condition right after it only (up to the next 'and' / 'or'), with a note; "not (A or B)" negates several |
 | Negation and more | "it is not the case that …", "not (… or …)", "max drawdown is worse (deeper) than 10%" = a fall of more than 10% (better / shallower = less), "the 20 day SMA of SPY crosses below its 50 day SMA" (true on the day it crosses), "the top 2 by 10 day RSI of A, B, C", "the highest / lowest 10 day RSI of A, B, C" (top / bottom 1), rebalance every N days / weeks / months |
-| Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, "when/whenever … hold X, otherwise Y", "unless … hold X, otherwise Y", "hold X unless …, in which case Y", top/bottom N by momentum/RSI/volatility, "…, weighted 70/30" (a filter's picks by rank: the best 70%, the next 30%), "the 2 of … with the highest …", "the best/worst performing of … over 10 days", "each month buy the top 10 Nasdaq 100 stocks by 12 month return, equal weight" / "buy the top 10 … every month" / "each month hold the 10 … with the highest 12 month return" (= "hold the top 10 … by 12 month return, rebalance monthly"), "rotate monthly between SPY, EFA and TLT into whichever had the best 3 month return" (= "hold the top 1 of SPY, EFA and TLT by 3 month return, rebalance monthly"), "hold 100% SPY and short 50% SQQQ" (= a -50% weight; these rewrites are shown as a "Read as" note), "only if their 60 day return beats BIL's", "only if their 20 day RSI is above 50" (any indicator), rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
+| Portfolios | %-weights, 60/40, equal / inverse-volatility / market-cap weight, if/else-if/otherwise, "when/whenever … hold X, otherwise Y", "unless … hold X, otherwise Y", "hold X unless …, in which case Y", top/bottom N by momentum/RSI/volatility, "…, weighted 70/30" (a filter's picks by rank: the best 70%, the next 30%), "the 2 of … with the highest …", "the best/worst performing of … over 10 days", "each month buy the top 10 Nasdaq 100 stocks by 12 month return, equal weight" / "buy the top 10 … every month" / "each month hold the 10 … with the highest 12 month return" (= "hold the top 10 … by 12 month return, rebalance monthly"), "rotate monthly between SPY, EFA and TLT into whichever had the best 3 month return" (= "hold the top 1 of SPY, EFA and TLT by 3 month return, rebalance monthly"), "hold 100% SPY and short 50% SQQQ" (= a -50% weight; these rewrites are shown as a "Read as" note), weights above 100% anywhere in the tree ("hold 150% SPY and 50% TLT", "if ... hold 200% QQQ, otherwise TLT", "2x QQQ" = 200% QQQ; up to 4x) borrow the excess through a negative cash leg (a margin loan at the T-bill rate plus any margin rate, with the portfolio's margin rules and margin calls, as `leverage` does; a note says so), a whole index at once ("hold all Nasdaq 100 stocks equally weighted", "equal weight all Nasdaq 100 stocks", market-cap weighted too: a filter with `"select": "all"`, every member trading - and, for the Nasdaq-100, in the index - on each rebalance date), "only if their 60 day return beats BIL's", "only if their 20 day RSI is above 50" (any indicator), rebalance daily…yearly or on drift, contributions, withdrawals, inflation indexing |
 | Directions in holdings | "buy/hold/go long X" = long; "short X", "go short X", "sell short X", "X short" = a short position (-100% of the slice plus the proceeds in cash); "sell X", "exit X", "cover X", "sell everything", "exit" in an if/otherwise branch = cash. "sell X" inside a list ("hold TQQQ and sell TMF") is refused as ambiguous. Two identical branches get a note; a comparison of a value with itself is refused |
 | Ranking by drawdown | Two different measures, both ranked by their size (a positive number): "by 20 day max drawdown" is Composer's Max Drawdown indicator, the deepest peak-to-trough fall within the last 20 days (`max_drawdown(tr, 20)`), even if the price has recovered since; "by 20 day drawdown" is the *current* drawdown, how far the price is below its highest close of the last 20 days today (`-drawdown(close, 20)`). After a fall and a full recovery the first is still the fall, the second 0. "top 1" selects the most drawn down, "bottom 1" or "smallest drawdown" the least; the note names the measure used and how to get the other |
 | Top by lowest | "the top 1 of TQQQ and SOXL by lowest 10 day RSI" is the bottom 1 by RSI (the lowest), with a note saying so; "the bottom 2 ... by lowest ..." is the top 2 (the words cancel out), also with a note |
@@ -731,23 +733,44 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
     boundaries and streamed in one pass); only the bars a run reads are evaluated, and the built-in indicators
     it calls through `ns` (`ns['rsi'](2)`, ...) are answered from one full-history computation cut at the bars
     the child has (checked against a direct computation on the first calls and every 200th). A note gives the
-    timing. A function whose whole-history answer differs from its bar-by-bar one is refused (below).
-    Mark one `f.vectorized_causal = True` to call it once on the whole history instead (faster, in a sealed
-    child too, its data requests cut at the last bar, with a warning note): only then does the empirical probe
-    guard it: the function is run on the data cut at many dates chosen adversarially - the latest 40 bars one by
-    one, every day an entry fires and the three days before it, every day its answer changes, every day of a
-    short run window, then a dense random grid (up to 1,200 cuts in batches, each batch in one child fed in
-    increasing order, within a few seconds) - and its output up to each cut must equal its output on the full
-    data.
-    (A leak confined to a few days of a long history can still escape the random part.) `df.close.shift(-1)`, `rolling(..., center=True)` or
-    `df.close.mean()` change when later rows are removed, and the run is refused ("Lookahead: the entry
-    function uses future data: its result on D changes when the data after D is removed"). A function used
-    at the open must be marked `f.open_safe = True` and is also run with that day's close/high/low/volume
-    perturbed. Portfolio `custom` functions receive the history up to each date in the same kind of sealed
-    child (fed each rebalance date's new rows), and their weights may not name an index (below).
-    - Behind it, every run at the open replays the rule on dates across the whole history with that
-      day's close/high/low/volume replaced by other valid values (tiny to large), for every ticker the
-      rule reads; any change in the decision rejects the spec.
+    timing. A function whose whole-history answer differs from its bar-by-bar one on ANY day of the run is
+    refused (below): the comparison covers every day, so a leak on a single date (a `shift(-1)` only on March
+    13 each year) cannot pass. `f.vectorized_causal = True` no longer skips this: an exact check of a
+    vectorized function needs its value on every prefix of the data, which is exactly what the bar-by-bar
+    evaluation computes, so the flag is accepted and the function is streamed and compared like any other
+    (the same cost: a few seconds per 2,000 bars). Only an explicit `f.trust_vectorized = True` calls it once on
+    the whole history (faster, in a sealed child too, its data requests cut at the last bar, with a
+    **Warning** note), guarded then only by the sampled probe: the data cut at many dates chosen adversarially
+    - the latest 40 bars one by one, every day an entry fires and the three days before it, every day its answer
+    changes, every day of a short run window, then a dense random grid (up to 1,200 cuts). A leak confined to a
+    few days of a long history can escape that sample; that is the trade-off `trust_vectorized` opts into.
+    `df.close.shift(-1)`, `rolling(..., center=True)` or `df.close.mean()` change when later rows are removed,
+    and the run is refused ("Lookahead: the entry function uses future data: its result on D changes when the
+    data after D is removed"). Portfolio `custom` functions receive the history up to each date in the same
+    kind of sealed child (fed each rebalance date's new rows), and their weights may not name an index (below).
+    - **Functions acted on at the open.** A function used at the open (`entry_fill: "open"`,
+      `exit_when_fill: "open"`) must be marked `f.open_safe = True`, and it is then evaluated as known at
+      each open, structurally: at the moment it answers day D, the sealed child holds the complete bars
+      before D and D's bar with only its open (`open`, `open_ok`; the close, high, low, volume, adjusted
+      close, dividend and split are NaN, and of the position variables only `bars_held` / `entry_price`).
+      The same holds for every other ticker it reads: `ns['sym']('SPY')` and `data.load("SPY")` get SPY's
+      day-D bar with only its open, and every other data function (`market_cap`, `tbill_rate`,
+      `quoted_close`, `factors`, ...) answers as of the end of the day before. This applies in every mode
+      (a `trust_vectorized` function is streamed at the open too). So `s = ns['sym']('SPY'); s.close > s.open`
+      cannot see SPY's close at QQQ's open (the reviewer's example ran 1,182 trades at 162% CAGR from 2018).
+      On top of that the run compares the function's open-time answers with its close-time answers on every
+      day of the window and refuses it when any differs ("the function is marked open_safe, but its result
+      on D changes when that day's close, high, low and volume are hidden"): its `open_safe` claim is wrong,
+      and it would silently run on logic other than what it says. Cost: one more stream of the function (the
+      open-time one; the per-step data answers take slightly longer, about 1.3x).
+    - Text rules acted on at the open are checked statically (the open-safe whitelist above); behind it,
+      every run at the open replays the rule on dates across the whole history with that day's
+      close/high/low/volume replaced by other valid values (tiny to large), for every ticker the rule reads;
+      any change in the decision rejects the spec. Known at the open (allowed): `open`, `gap`,
+      `sym("X").open`, `sym("X").gap` (X's open against its previous close), `ha_open` (the previous bar's
+      Heikin Ashi open and close; NaN on its seed bars - the first bar and a bar after a gap in the data -
+      whose TradingView value reads that bar's close), `xrank(x)` of an open-safe `x` (e.g. `xrank(gap)`),
+      calendar values and anything inside `ref(..., 1)`.
   - Negative offsets are rejected.
   - Tests truncate all data at a date and check that no earlier trade changes.
 - **Survivorship.** "Nasdaq 100 stocks" means point-in-time membership from 2004 (monthly snapshots
@@ -761,6 +784,15 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   - "using today's members only" trades the CURRENT member list (the latest snapshot plus the dated changes
     since) over the whole period with no membership filter: survivorship-biased by construction, and both
     engines add a warning saying so.
+  - Other indexes have no membership history here, so "S&P 500 stocks" (members, companies, constituents,
+    components, "all stocks in the S&P 500") is never read as the ETF: the parser asks - "say 'SPY'" for the
+    index fund, or "say 'today's S&P 500 members'" for the current constituents
+    (`data/index_constituents.json`), which it then trades over the whole period with a **Warning** that the
+    universe is survivorship-biased and how many of the current members have price data here
+    (`backtester/index_universes.py`; S&P 400 / 600 / 1500 the same, with MDY / IJR / SPTM). "Russell 1000 /
+    2000 / 3000 stocks" and "Dow 30 stocks" have no constituent list at all: the parser asks for IWB / IWM /
+    IWV or DIA, or a Nasdaq-100 / S&P universe. The index itself ("buy the S&P 500 when ...") is still its
+    fund (SPY).
   - Former members that Yahoo no longer serves (Celgene, Yahoo, Xilinx, Sun, Dell, Genzyme, …) were rebuilt
     from public archives (see Data, "Delisted former members"). About 20 remain without free price history
     (PeopleSoft, Siebel, Mercury Interactive, Pixar, Joy Global, …), so some bias remains: member-month

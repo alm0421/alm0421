@@ -20,9 +20,13 @@
 
 Rules written as functions are evaluated bar by bar on the data up to each bar (so they cannot see later rows; files
 and the network are blocked while they run), and a run refuses one whose whole-history answer differs (e.g. .shift(-1),
-centred windows). Mark a function `vectorized_causal = True` to run it once instead; then each run
-probes them on data cut at many dates (every day the rule fires or changes its answer, the days before those,
-the latest bars one by one, and a dense random grid) and refuses one whose output changes (expr.callable_lookahead_probe).
+centred windows) on any day of the run (`vectorized_causal = True` functions too: an exact check needs every
+prefix, which is what the bar-by-bar evaluation computes). Mark a function `trust_vectorized = True` to run it once
+instead; then each run only probes it on data cut at many sampled dates (every day the rule fires or changes its
+answer, the days before those, the latest bars one by one, and a dense random grid) and refuses one whose output
+changes (expr.callable_lookahead_probe) - a leak on a few dates can escape the sample. A function acted on at the
+open (`open_safe = True`) is evaluated as known at each open: that day's bar holds only its open, for its own ticker
+and every ticker or data series it loads (expr.open_view), and it is refused when that changes any answer.
 """
 from __future__ import annotations
 

@@ -442,15 +442,22 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
                                  f"({t0}). A rule may only use each row and the rows before it: no .shift(-n), "
                                  "centred rolling windows (center=True) or whole-series statistics such as "
                                  "df.close.mean().")
+    # rules acted on at the open: a text rule is open-safe by its static check (Strategy.validate), with the sampled
+    # probe behind it; a Python function marked open_safe is evaluated as known at each open (expr.open_view: the
+    # day's close/high/low/volume hidden for every ticker), and refused when that changes any of its answers
+    def _open_bad(rule):
+        if callable(rule):
+            return expr.callable_open_check(rule, dfs[t0], t0, "bool", window=(cal[0], cal[-1]))
+        return expr.open_time_probe(rule, dfs[t0], t0)
     if strat.entry_fill == "open":
         for rule in (strat.entry, strat.short_entry):
             if rule:
-                bad = expr.open_time_probe(rule, dfs[t0], t0)
+                bad = _open_bad(rule)
                 if bad:
                     raise ValueError(f"Lookahead: the entry is filled at the open but {bad} ({t0}). "
                                      "Use ref(..., 1) for yesterday's values or fill at the next open.")
     if strat.exit_when_fill == "open" and strat.exit_when:
-        bad = expr.open_time_probe(strat.exit_when, dfs[t0], t0)
+        bad = _open_bad(strat.exit_when)
         if bad:
             raise ValueError(f"Lookahead: the exit rule is filled at the open but {bad} ({t0}). "
                              "Use exit_when_fill 'next_open' instead.")
@@ -528,10 +535,12 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
 
         need_j = cal[pre_member[:, j]] if pre_member is not None else None
 
-        def on_cal_bool(rule, _pos=pos, _have=have, at_close=False, need=None):
+        def on_cal_bool(rule, _pos=pos, _have=have, at_close=False, need=None, at_open=False):
             tok_n = expr.STREAM_NEED.set(need)
             try:
-                v = expr.evaluate(rule, ns_close if at_close else ns).to_numpy(dtype=bool)   # indexed like the ticker's data
+                # (at_open: acted on at this bar's open - a Python function then sees only the bar's open)
+                with expr.open_view(at_open):
+                    v = expr.evaluate(rule, ns_close if at_close else ns).to_numpy(dtype=bool)   # indexed like the ticker's data
             finally:
                 expr.STREAM_NEED.reset(tok_n)
             out = np.zeros(len(_pos), bool)
@@ -539,14 +548,16 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
             return out
 
         entry_close = strat.entry_fill == "close"
+        eo = strat.entry_fill == "open"
         if strat.side in ("long", "both"):
-            long_sig[have, j] = on_cal_bool(strat.entry, at_close=entry_close, need=need_j)[have]
+            long_sig[have, j] = on_cal_bool(strat.entry, at_close=entry_close, need=need_j, at_open=eo)[have]
         if strat.side == "short":
-            short_sig[have, j] = on_cal_bool(strat.entry, at_close=entry_close, need=need_j)[have]
+            short_sig[have, j] = on_cal_bool(strat.entry, at_close=entry_close, need=need_j, at_open=eo)[have]
         if strat.side == "both":
-            short_sig[have, j] = on_cal_bool(strat.short_entry, at_close=entry_close, need=need_j)[have]
+            short_sig[have, j] = on_cal_bool(strat.short_entry, at_close=entry_close, need=need_j, at_open=eo)[have]
         if strat.exit_when and not per_trade_exit:
-            exit_[have, j] = on_cal_bool(strat.exit_when, at_close=strat.exit_when_fill == "close")[have]
+            exit_[have, j] = on_cal_bool(strat.exit_when, at_close=strat.exit_when_fill == "close",
+                                         at_open=strat.exit_when_fill == "open")[have]
         if strat.entry_level:
             LEVEL[have, j] = expr.evaluate_value(strat.entry_level, ns).reindex(cal).to_numpy(dtype=float)[have]
         for name, (now, prev) in LVL.items():
@@ -591,7 +602,7 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
     import re as _re
     for rule in (strat.entry, strat.short_entry, strat.exit_when):
         if isinstance(rule, str):
-            for other in set(_re.findall(r"""sym\(\s*["']([^"']+)["']\s*\)\.open""", rule)):
+            for other in set(_re.findall(r"""sym\(\s*["']([^"']+)["']\s*\)\.(?:open|gap)""", rule)):
                 od = data.load(other)
                 w = od.loc[(od.index >= cal[0]) & (od.index <= cal[-1])]
                 if "open_ok" in w and len(w) and w["open_ok"].mean() < 0.5:
