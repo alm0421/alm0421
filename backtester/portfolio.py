@@ -2415,21 +2415,6 @@ def run(p: Portfolio) -> Result:
                 if SPIN[i, j] and f"{tick[j]} {cal[i].date()}" not in spun:
                     spun.append(f"{tick[j]} {cal[i].date()}")
                 ledger.append((cal[i], tick[j], kind, 0.0, float(div_cash[j]), 0.0))
-        # cash flows at the start of the day
-        f = 0.0
-        w_req = 0.0
-        if contrib_days[i]:
-            f += p.contribution * cinfl[i] * contrib_mult[i]
-        if wd_days[i]:
-            w_req = p.withdrawal * winfl[i] * wd_mult[i]
-            if p.withdrawal_pct:
-                pct_amt = p.withdrawal_pct * max(value(np.where(np.isfinite(o), o, last_px)), 0)
-                w_req += pct_amt
-                req_flows[i] -= pct_amt
-            f -= w_req
-        if f:
-            cash += f
-            flows[i] = f
         # next-open execution of yesterday's decision
         if pending_target is not None and p.fill == "next_open":
             po = o
@@ -2447,6 +2432,22 @@ def run(p: Portfolio) -> Result:
                     open_fallback.add(tick[j])
             trade_to(pending_target, po, i, "rebalance")
             pending_target = None
+        # cash flows: made at the close, after the day's return and any next-open trades (contributions are
+        # invested and withdrawals sold at the close below), so the time-weighted return is (E_t - cf_t) / E_(t-1) - 1
+        f = 0.0
+        w_req = 0.0
+        if contrib_days[i]:
+            f += p.contribution * cinfl[i] * contrib_mult[i]
+        if wd_days[i]:
+            w_req = p.withdrawal * winfl[i] * wd_mult[i]
+            if p.withdrawal_pct:
+                pct_amt = p.withdrawal_pct * max(value(np.where(np.isfinite(o), o, last_px)), 0)
+                w_req += pct_amt
+                req_flows[i] -= pct_amt
+            f -= w_req
+        if f:
+            cash += f
+            flows[i] = f
         # withdrawals that overdraw cash: sell proportionally at the close
         np.copyto(last_px, c, where=np.isfinite(c))
         # delisted / acquired today (its last bar of data): sell at this last close

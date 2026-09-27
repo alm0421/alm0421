@@ -33,18 +33,15 @@ CRISES = [
 # ------------------------------------------------------------------ return series
 
 def twr_returns(equity: pd.Series, flows: pd.Series | None = None) -> pd.Series:
-    """Daily time-weighted returns: flows arrive at the start of the day. On the day a withdrawal empties the
-    account (everything sold at the close and paid out, equity 0) the withdrawal is counted at the end of the
-    day instead, so that day's return is the holdings' own move rather than -100%. Days with nothing invested
+    """Daily time-weighted returns. Cash flows are made at the close, after the day's return, as both engines
+    and the buy-and-hold benchmarks make them (a contribution is invested, and a withdrawal sold, at that day's
+    close): r_t = (E_t - cf_t) / E_(t-1) - 1. So a portfolio that is fully invested in one asset has exactly
+    that asset's return every day, whatever the flows. On the day a withdrawal empties the account the return is
+    the holdings' own move (what was paid out over the previous balance). Days that start with nothing invested
     (a $0 start before the first contribution, or after the money ran out) have no return (0)."""
     prev = equity.shift(1)
     f = flows.reindex(equity.index).fillna(0.0) if flows is not None else 0.0
-    base = prev + f
-    r = (equity / base - 1).where(base > 0)
-    if flows is not None:
-        emptied = (equity <= 0) & (f < 0) & (prev > 0)
-        if emptied.any():
-            r = r.where(~emptied, (equity - f) / prev - 1)
+    r = ((equity - f) / prev - 1).where(prev > 0)
     return r.iloc[1:].fillna(0.0)
 
 
@@ -55,8 +52,7 @@ def nav(equity: pd.Series, flows: pd.Series | None = None) -> pd.Series:
     r = twr_returns(equity, flows)
     scale = float(equity.iloc[0])
     if scale <= 0 and flows is not None:
-        base = (equity.shift(1).fillna(0.0) + flows.reindex(equity.index).fillna(0.0)).iloc[1:]
-        funded = base[base > 0]
+        funded = equity[equity > 0]
         scale = float(funded.iloc[0]) if len(funded) else 0.0
     out = (1 + r).cumprod() * scale
     return pd.concat([pd.Series([scale], index=equity.index[:1], name=equity.name), out])
@@ -932,7 +928,7 @@ def monte_carlo(equity: pd.Series, flows: pd.Series | None = None, sims: int = 1
             v = float(equity.iloc[0])
             dead = False
             for t in range(n):
-                v = (v + fl[t]) * (1 + path[t])
+                v = v * (1 + path[t]) + fl[t]      # flows at the close, as in the backtest
                 if v <= 0:
                     dead = True
                     v = 0.0

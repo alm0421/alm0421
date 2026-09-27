@@ -612,8 +612,11 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
     `entry_value` the first purchase, `bought`/`sold` every purchase/sale (a daily-rebalanced holding makes
     many), `pnl` sales − purchases − costs + dividends (+ value still held), and `return` the ticker's own
     total return over the period.
-- **Returns and costs.** Returns are time-weighted, so cash flows don't distort CAGR or Sharpe. The
-  money-weighted IRR is reported separately. Costs default to zero, and the report always shows a
+- **Returns and costs.** Returns are time-weighted, so cash flows don't distort CAGR or Sharpe. Flows are
+  made at the close, after the day's return (a contribution is invested, and a withdrawal sold, at that close;
+  with "at the next open" the open trades are done first), so the daily return is (E_t − cf_t) / E_(t−1) − 1:
+  a portfolio fully invested in one asset has that asset's own return, and the same CAGR as its benchmark with
+  the same flows, whatever the contributions or withdrawals. The money-weighted IRR is reported separately. Costs default to zero, and the report always shows a
   cost-sensitivity table.
 
 ## Broker trading (Alpaca)
