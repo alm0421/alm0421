@@ -264,43 +264,44 @@ def survival_weighted_success(alive: np.ndarray, S: np.ndarray) -> float:
     return float((d * alive[1:]).sum() + S[-1] * alive[-1])
 
 
-def _alive_to_end(P: np.ndarray, cum_infl: np.ndarray, start: float, rate: float) -> tuple[np.ndarray, np.ndarray]:
-    """Constant inflation-adjusted annual withdrawal of rate * start at the start of each year.
-    Returns (survived the whole horizon, final real balance)."""
+def _alive_to_end(P: np.ndarray, cum_infl: np.ndarray, start: float, rate: float,
+                  every: int = 12) -> tuple[np.ndarray, np.ndarray]:
+    """Constant inflation-adjusted withdrawal of rate * start a year, paid in instalments at the start of every
+    `every` months (12: yearly, 1: monthly). Returns (survived the whole horizon, final real balance)."""
     sims, months = P.shape
     b = np.full(sims, float(start))
     alive = np.ones(sims, bool)
     for m in range(months):
-        if m % 12 == 0:
-            b = b - rate * start * cum_infl[:, m]
+        if m % every == 0:
+            b = b - rate * start * every / 12 * cum_infl[:, m]
             alive &= b > 0
             b = np.maximum(b, 0.0)
         b = b * (1 + P[:, m])
     return alive, b / cum_infl[:, months]
 
 
-def safe_withdrawal_rate(P, cum_infl, start, success=0.95) -> float:
+def safe_withdrawal_rate(P, cum_infl, start, success=0.95, every: int = 12) -> float:
     """Highest constant inflation-adjusted withdrawal (share of the starting balance, per year,
     taken at the start of each year) that leaves money at the end in at least `success` of paths."""
     lo, hi = 0.0, 1.0
-    if _alive_to_end(P, cum_infl, start, lo)[0].mean() < success:
+    if _alive_to_end(P, cum_infl, start, lo, every)[0].mean() < success:
         return 0.0
     for _ in range(40):
         mid = (lo + hi) / 2
-        if _alive_to_end(P, cum_infl, start, mid)[0].mean() >= success:
+        if _alive_to_end(P, cum_infl, start, mid, every)[0].mean() >= success:
             lo = mid
         else:
             hi = mid
     return lo
 
 
-def perpetual_withdrawal_rate(P, cum_infl, start) -> float:
+def perpetual_withdrawal_rate(P, cum_infl, start, every: int = 12) -> float:
     """Highest constant inflation-adjusted withdrawal that keeps the median final real balance at or
     above the starting balance."""
     lo, hi = -1.0, 1.0
     for _ in range(40):
         mid = (lo + hi) / 2
-        _, real = _alive_to_end(P, cum_infl, start, mid)
+        _, real = _alive_to_end(P, cum_infl, start, mid, every)
         if np.median(real) >= start:
             lo = mid
         else:
@@ -740,11 +741,14 @@ def strategy_monthly_returns(spec) -> pd.Series:
     return r.dropna()
 
 
-def historical_withdrawal_rates(monthly: pd.Series, start: float = 1.0) -> dict:
+def historical_withdrawal_rates(monthly: pd.Series, start: float = 1.0, every: int = 12) -> dict:
     """SWR / PWR on the actual historical sequence of monthly returns (one path): the highest
     inflation-adjusted annual withdrawal (share of the start) that never runs out, and the highest
-    that leaves the real balance at or above the start. Also a 95% bootstrap SWR over the same
-    horizon."""
+    that leaves the real balance at or above the start, paid in instalments every `every` months.
+    Also a 95% bootstrap SWR over the same horizon. `monthly` should be the portfolio's time-weighted
+    returns without any cash flows, over the whole period: the rates then do not depend on the amount
+    the backtest withdrew (a large withdrawal that empties the account early must not shorten the
+    history the rate is measured over)."""
     r = monthly.dropna()
     if len(r) < 24:
         return {}
@@ -755,13 +759,14 @@ def historical_withdrawal_rates(monthly: pd.Series, start: float = 1.0) -> dict:
     P = r.to_numpy()[None, :]
     ci = np.concatenate([[1.0], np.cumprod(1 + infl.to_numpy())])[None, :]
     out = {"horizon_years": len(r) / 12, "from": r.index[0].date(), "to": r.index[-1].date(),
-           "swr": safe_withdrawal_rate(P, ci, start, 1.0), "pwr": perpetual_withdrawal_rate(P, ci, start)}
+           "swr": safe_withdrawal_rate(P, ci, start, 1.0, every), "pwr": perpetual_withdrawal_rate(P, ci, start, every),
+           "every_months": every}
     rng = np.random.default_rng(11)
     idx = _draw_blocks(rng, len(r), len(r), 2000, 12)
     Pb = r.to_numpy()[idx]
     Ib = infl.to_numpy()[idx]
     cib = np.concatenate([np.ones((len(Pb), 1)), np.cumprod(1 + Ib, axis=1)], axis=1)
-    out["swr_mc95"] = safe_withdrawal_rate(Pb, cib, start, 0.95)
+    out["swr_mc95"] = safe_withdrawal_rate(Pb, cib, start, 0.95, every)
     # the same bootstrapped histories, path by path: safe and perpetual rates by percentile
     t = withdrawal_rate_table(Pb, cib, start, 0, 0.95)
     out["percentiles"] = {"safe": t["safe"], "perpetual": t["perpetual"]}

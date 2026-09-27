@@ -957,6 +957,22 @@ def holdings_stats(res: Result, rf="tbill", limit: int = 12) -> list[dict]:
     return out
 
 
+def flow_free_nav(spec, start=None) -> pd.Series | None:
+    """The allocation re-run with no contributions or withdrawals: its equity is the time-weighted growth of the
+    asset mix over the whole requested period, whatever the cash flows did (even after they emptied the account).
+    From `start` on (the first day of the reported run). None if it cannot be run."""
+    from . import portfolio as _pf
+    try:
+        p0 = dataclasses.replace(spec, contribution=0.0, withdrawal=0.0, withdrawal_pct=0.0,
+                                 notes=[], tree=json.loads(json.dumps(spec.tree)))
+        eq = _pf.run(p0).equity
+    except Exception:  # noqa: BLE001 - the rates then fall back to the run's own returns
+        return None
+    if start is not None:
+        eq = eq[eq.index >= pd.Timestamp(start)]
+    return eq if len(eq) > 2 else None
+
+
 def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, detail: bool = True) -> dict:
     s = res.strategy
     full = res
@@ -1136,12 +1152,22 @@ def analyze(res: Result, rf="tbill", sensitivity: bool = True, mc: bool = True, 
         base = None
         if contrib and len(wd) and first_bar is not None and wd.index[0] > pd.Timestamp(first_bar) + pd.Timedelta(days=31):
             base = wd.index[0]
-        nv_w = nv[nv.index >= base] if base is not None else nv
-        A["withdrawal_rates"] = montecarlo.historical_withdrawal_rates(metrics.monthly_returns(nv_w)) if len(nv_w) > 2 else {}
+        # measured on the portfolio's own returns without any cash flows, over the whole requested period (or the
+        # whole withdrawal phase): the rate must not depend on the amount entered, which can empty the account early
+        tw = flow_free_nav(s, res.equity.index[0])
+        if tw is None:
+            tw = nv
+        nv_w = tw[tw.index >= base] if base is not None else tw
+        every = {"monthly": 1, "quarterly": 3, "semiannual": 6}.get(getattr(s, "withdrawal_freq", "yearly"), 12)
+        A["withdrawal_rates"] = (montecarlo.historical_withdrawal_rates(metrics.monthly_returns(nv_w), every=every)
+                                 if len(nv_w) > 2 else {})
         if A["withdrawal_rates"]:
-            A["withdrawal_rates"].update({"from": stats["start"] if base is None else base.date(), "to": stats["end"]})
+            A["withdrawal_rates"].update({"from": stats["start"] if base is None else base.date(), "to": tw.index[-1].date(),
+                                          "basis": "flow_free_returns", "freq": getattr(s, "withdrawal_freq", "yearly")})
             if base is not None:
                 bal = res.equity.reindex(res.equity.index.union([base])).ffill().get(base)
+                if bal is not None and flows is not None and base in flows.index:
+                    bal = bal - float(flows.get(base, 0.0))      # the balance before the first withdrawal
                 A["withdrawal_rates"].update({"base": "withdrawal_start", "base_date": base.date(),
                                               "base_balance": float(bal) if bal is not None else None})
     if detail:
@@ -1371,8 +1397,11 @@ def console_summary(A: dict) -> str:
     if wr:
         base = (f"of the balance when withdrawals start ({wr['base_date']}, ${wr['base_balance']:,.0f}), "
                 if wr.get("base") == "withdrawal_start" and wr.get("base_balance") is not None else "of the starting balance, ")
-        L.append(f"Withdrawal rates  safe {pct(wr.get('swr'), 2)}   perpetual {pct(wr.get('pwr'), 2)}   "
-                 f"({base}inflation-adjusted, over this history {wr['from']} -> {wr['to']}); 95% bootstrap safe rate {pct(wr.get('swr_mc95'), 2)}")
+        L.append(f"Historical withdrawal rates over the full period {wr['from']} -> {wr['to']}: safe {pct(wr.get('swr'), 2)}   "
+                 f"perpetual {pct(wr.get('pwr'), 2)}")
+        L.append(f"  ({base}inflation-adjusted, {wr.get('freq', 'yearly')} withdrawals; from the portfolio's returns "
+                 f"without the cash flows, so they do not depend on the amount entered); "
+                 f"95% bootstrap safe rate {pct(wr.get('swr_mc95'), 2)}")
         if wr.get("percentiles"):
             wp = wr["percentiles"]
             L.append("  bootstrapped safe / perpetual by percentile  " + "  ".join(

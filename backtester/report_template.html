@@ -694,7 +694,7 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
       ['Money-weighted return (IRR)', pct(c.money_weighted_return)], ['Time-weighted return (CAGR)', pct(r.stats.cagr)],
       ['Money ran out?', c.ran_out ? { t: c.depleted_on ? `Yes, portfolio depleted on ${c.depleted_on}` : 'Yes', c: 'neg' } : 'No'],
     ].concat(r.withdrawal_rates && isNum(r.withdrawal_rates.swr) ? [
-      { sect: `Withdrawal rates over this history (${r.withdrawal_rates.from} → ${r.withdrawal_rates.to}, inflation-adjusted, ` +
+      { sect: `Historical withdrawal rates over the full period ${r.withdrawal_rates.from} → ${r.withdrawal_rates.to} (${r.withdrawal_rates.freq || 'yearly'} withdrawals from the portfolio's returns without the cash flows, so they do not depend on the amount entered; inflation-adjusted, ` +
           (r.withdrawal_rates.base === 'withdrawal_start' ? `as a share of the balance when withdrawals start: ${usd(r.withdrawal_rates.base_balance)} on ${r.withdrawal_rates.base_date})` : 'as a share of the starting balance)') },
       [{ t: 'Safe withdrawal rate', title: 'the largest inflation-adjusted yearly withdrawal, as a share of the ' + (r.withdrawal_rates.base === 'withdrawal_start' ? 'balance when withdrawals start' : 'starting balance') + ', that lasts the whole period' }, pct(r.withdrawal_rates.swr)],
       [{ t: 'Perpetual withdrawal rate', title: 'the largest one that keeps the balance, in dollars of that date, at that balance' }, pct(r.withdrawal_rates.pwr)],
