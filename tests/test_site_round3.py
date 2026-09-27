@@ -11,6 +11,7 @@ import pytest
 
 from backtester import composer_import as ci
 from backtester import data, library, web
+from backtester import portfolio as pf
 from backtester.portfolio import Portfolio
 
 FIXTURE = Path(__file__).with_name("fixtures") / "composer_tqqq_ftlt.json"
@@ -187,7 +188,7 @@ def test_fixture_imports_validates_and_runs():
     from backtester import runner
     d = ci.load(FIXTURE)
     assert d["name"] == "TQQQ For The Long Term (sample)" and d["rebalance"] == "daily"
-    t = d["tree"]
+    t = pf.without_ids(d["tree"])
     assert (t["if"], t["on"]) == ("close > sma(close, 200)", "SPY")
     assert t["then"]["if"] == "rsi(close, 10) > 79" and t["else"]["then"] == {"asset": "TECL"}
     hedge = t["else"]["else"]["else"]
@@ -318,7 +319,7 @@ def test_composer_import_endpoint(server):
     assert r["summary"]["label"] == "TQQQ For The Long Term (sample)"
     # a ticker without data still loads the tree (for the editor to mark), with the problem listed
     code, j = call(server, "/api/import/composer", {"json": root(asset("NOSUCHX"))})
-    assert code == 200 and j["spec"]["tree"] == {"asset": "NOSUCHX"} and j["problems"]
+    assert code == 200 and pf.without_ids(j["spec"]["tree"]) == {"asset": "NOSUCHX"} and j["problems"]
     code, j = call(server, "/api/import/composer", {"json": root(asset("SPY", surprise=1))})
     assert code == 400 and "surprise" in j["error"]
 

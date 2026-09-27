@@ -1,0 +1,77 @@
+{
+  "id": "S2mK8wQpR4tV6yZa1bC3",
+  "step": "root",
+  "name": "Sym2: QQQ trend hedge + lowest-volatility defensive",
+  "description": "50% QQQ or PSQ on an EMA/SMA trend switch, 50% the calmest of TLT, GLD and UUP; threshold rebalancing.",
+  "rebalance": "none",
+  "rebalance-corridor-width": 0.05,
+  "asset-class": "EQUITIES",
+  "children": [
+    {
+      "id": "b2c0e6a1-0d3e-4c54-9d1a-5a0b6a1f0001",
+      "step": "wt-cash-specified",
+      "children": [
+        {
+          "id": "b2c0e6a1-0d3e-4c54-9d1a-5a0b6a1f0002",
+          "step": "group",
+          "name": "Trend switch",
+          "weight": {"num": 50, "den": 100},
+          "children": [
+            {
+              "id": "b2c0e6a1-0d3e-4c54-9d1a-5a0b6a1f0003",
+              "step": "if",
+              "children": [
+                {
+                  "id": "b2c0e6a1-0d3e-4c54-9d1a-5a0b6a1f0004",
+                  "step": "if-child",
+                  "is-else-condition?": false,
+                  "lhs-fn": "exponential-moving-average-price",
+                  "lhs-fn-params": {"window": 20},
+                  "lhs-window-days": "20",
+                  "lhs-val": "QQQ",
+                  "comparator": "lte",
+                  "rhs-fixed-value?": false,
+                  "rhs-fn": "moving-average-price",
+                  "rhs-fn-params": {"window": 50},
+                  "rhs-window-days": "50",
+                  "rhs-val": "QQQ",
+                  "children": [
+                    {"id": "b2c0e6a1-0d3e-4c54-9d1a-5a0b6a1f0005", "step": "asset", "ticker": "PSQ",
+                     "name": "ProShares Short QQQ", "exchange": "ARCX"}
+                  ]
+                },
+                {
+                  "id": "b2c0e6a1-0d3e-4c54-9d1a-5a0b6a1f0006",
+                  "step": "if-child",
+                  "is-else-condition?": true,
+                  "children": [
+                    {"id": "b2c0e6a1-0d3e-4c54-9d1a-5a0b6a1f0007", "step": "asset", "ticker": "QQQ",
+                     "name": "Invesco QQQ Trust", "exchange": "XNAS"}
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "b2c0e6a1-0d3e-4c54-9d1a-5a0b6a1f0008",
+          "step": "filter",
+          "weight": {"num": 50, "den": 100},
+          "sort-by-fn": "standard-deviation-return",
+          "sort-by-fn-params": {"window": 20},
+          "sort-by-window-days": "20",
+          "select-fn": "bottom",
+          "select-n": "1",
+          "children": [
+            {"id": "b2c0e6a1-0d3e-4c54-9d1a-5a0b6a1f0009", "step": "asset", "ticker": "TLT",
+             "name": "iShares 20+ Year Treasury Bond ETF", "exchange": "XNAS"},
+            {"id": "b2c0e6a1-0d3e-4c54-9d1a-5a0b6a1f000a", "step": "asset", "ticker": "GLD",
+             "name": "SPDR Gold Shares", "exchange": "ARCX"},
+            {"id": "b2c0e6a1-0d3e-4c54-9d1a-5a0b6a1f000b", "step": "asset", "ticker": "UUP",
+             "name": "Invesco DB US Dollar Index Bullish Fund", "exchange": "ARCX"}
+          ]
+        }
+      ]
+    }
+  ]
+}

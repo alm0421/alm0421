@@ -53,7 +53,7 @@ REBALANCE = {"daily": "daily", "weekly": "weekly", "monthly": "monthly", "quarte
 # class and quote metadata. They are matched with "-" and "_" treated alike ("asset_class" = "asset-class"),
 # because exports use both spellings. Any other field raises ComposerImportError: an unknown field might change
 # what the symphony holds, so the importer stops rather than ignore it.
-META = {"id", "name", "description", "collapsed?", "suppress-description?", "exchange", "price", "dollar-volume",
+META = {"id", "name", "description", "collapsed?", "collapsed-specified-weight?", "suppress-incomplete-warnings?", "suppress-description?", "exchange", "price", "dollar-volume",
         "has-marketcap", "children-count", "asset-class", "asset-classes", "color", "version-id", "version",
         "created-at", "updated-at", "last-updated-at", "last-backtest-at", "symphony-id", "tags", "notes", "hashtag",
         "hashtags", "benchmarks", "share-with-everyone?", "copied-from", "sid", "hidden?", "comment",
@@ -146,9 +146,17 @@ def _check(node: dict, step: str, where: str, extra: set = frozenset()) -> None:
                                   "know what they do, so it stops rather than ignore them")
 
 
+def _with_id(node: dict, key: str, block_id) -> dict:
+    """Keep the id of the Composer block a node came from (node["composer"][key]), so an export keeps it."""
+    if isinstance(block_id, (str, int)) and not isinstance(block_id, bool) and str(block_id).strip():
+        node.setdefault("composer", {})[key] = str(block_id).strip()[:100]
+    return node
+
+
 class _Importer:
     def __init__(self):
         self.notes: list[str] = []
+        self.ignored_weights = False
 
     def note(self, msg: str) -> None:
         if msg not in self.notes:
@@ -162,14 +170,14 @@ class _Importer:
             raise ComposerImportError(f"{where}: 'children' must be a list")
         return k
 
-    def group_of(self, kids: list, where: str, weights: str = "equal") -> dict:
+    def group_of(self, kids: list, where: str, weights: str = "equal", block_id=None) -> dict:
         """Several children as one node: a single child stands alone, several are equal-weighted."""
         nodes = [self.node(k, f"{where} > {i + 1}") for i, k in enumerate(kids)]
         if not nodes:
             raise ComposerImportError(f"{where}: empty block (it has no children)")
         if len(nodes) == 1:
             return nodes[0]
-        return {"weights": weights, "children": nodes}
+        return _with_id({"weights": weights, "children": nodes}, "id", block_id)
 
     def node(self, n, where: str, parent_specified: bool = False) -> dict:
         if not isinstance(n, dict):
@@ -180,21 +188,34 @@ class _Importer:
                                       f"{', '.join(s for s in FIELDS if s != 'root')})")
         label = n.get("name") or n.get("ticker") or step
         here = f"{where} [{label}]" if label != step else where
-        _check(n, step, here, WEIGHT_KEYS if parent_specified else set())
+        _check(n, step, here, WEIGHT_KEYS)
+        if "weight" in n and not parent_specified:
+            self.ignored_weights = True
         kids = self.kids(n, here)
+        bid = n.get("id")
         if step == "asset":
             if kids:
                 raise ComposerImportError(f"{here}: an asset has no children")
-            return {"asset": ticker(n.get("ticker"), here)}
-        if step in ("wt-cash-equal", "group"):
-            return self.group_of(kids, here)
+            return _with_id({"asset": ticker(n.get("ticker"), here)}, "id", bid)
+        if step == "wt-cash-equal":
+            return self.group_of(kids, here, block_id=bid)
+        if step == "group":
+            out = self.group_of(kids, here)
+            name = str(n.get("name") or "").strip()
+            if not name and bid in (None, ""):
+                return out
+            if name and out.get("name"):      # a named group around a named group: keep both labels
+                out = {"weights": "equal", "children": [out]}
+            if name:
+                out["name"] = name[:120]
+            return _with_id(out, "group_id", bid)
         if step == "wt-inverse-vol":
             win = n.get("window-days", n.get("window-days-params"))
             lb = _int(win, "window-days", here) if win not in (None, "") else 20
             nodes = [self.node(k, f"{here} > {i + 1}") for i, k in enumerate(kids)]
             if not nodes:
                 raise ComposerImportError(f"{here}: empty block (it has no children)")
-            return {"weights": "inverse_vol", "lookback": lb, "children": nodes}
+            return _with_id({"weights": "inverse_vol", "lookback": lb, "children": nodes}, "id", bid)
         if step == "wt-cash-specified":
             if not kids:
                 raise ComposerImportError(f"{here}: empty block (it has no children)")
@@ -219,13 +240,13 @@ class _Importer:
             if abs(tot - 1) > 1e-6:
                 self.note(f"Specified weights under {here} added up to {tot:.2%}; they were scaled to 100%.")
                 w = [x / tot for x in w]
-            return {"weights": "specified", "w": [round(x, 10) for x in w], "children": nodes}
+            return _with_id({"weights": "specified", "w": [round(x, 10) for x in w], "children": nodes}, "id", bid)
         if step == "if":
-            return self.if_node(kids, here)
+            return _with_id(self.if_node(kids, here), "id", bid)
         if step == "if-child":
             raise ComposerImportError(f"{here}: an if-child must sit directly inside an 'if' block")
         if step == "filter":
-            return self.filter_node(n, kids, here)
+            return _with_id(self.filter_node(n, kids, here), "id", bid)
         raise ComposerImportError(f"{here}: unsupported step {step!r}")  # pragma: no cover
 
     def condition(self, c: dict, where: str) -> tuple[str, str]:
@@ -277,18 +298,20 @@ class _Importer:
             if k.get("is-else-condition?"):
                 if other is not None:
                     raise ComposerImportError(f"{kw}: more than one else branch")
-                other = body
+                other, else_id = body, k.get("id")
             else:
                 rule, on = self.condition(k, kw)
-                conds.append((rule, on, body))
+                conds.append((rule, on, body, k.get("id")))
         if not conds:
             raise ComposerImportError(f"{where}: an 'if' block needs a condition")
         if other is None:
             self.note(f"{where} had no else branch: cash is held when no condition is true.")
-            other = {"cash": True}
+            other, else_id = {"cash": True}, None
         out = other
-        for rule, on, body in reversed(conds):
-            out = {"if": rule, "on": on, "then": body, "else": out}
+        for j, (rule, on, body, cid) in enumerate(reversed(conds)):
+            out = _with_id({"if": rule, "on": on, "then": body, "else": out}, "then_id", cid)
+            if j == 0:
+                _with_id(out, "else_id", else_id)
         return out
 
     def filter_node(self, n: dict, kids: list, where: str) -> dict:
@@ -362,7 +385,7 @@ def convert(obj) -> dict:
             spec["drift_band"] = band / 100 if band >= 1 else band
         elif spec["rebalance"] == "none" and rb == "threshold":
             raise ComposerImportError("symphony: threshold rebalancing needs 'rebalance-corridor-width'")
-        spec["tree"] = imp.group_of(imp.kids(sym, "symphony"), "symphony")
+        spec["tree"] = _with_id(imp.group_of(imp.kids(sym, "symphony"), "symphony"), "root_id", sym.get("id"))
         name = str(sym.get("name") or "").strip()
     else:
         spec["rebalance"] = "daily"
@@ -370,9 +393,21 @@ def convert(obj) -> dict:
         name = str(sym.get("name") or "").strip()
     spec["name"] = (name or "Composer symphony")[:80]
     spec["description"] = f"Composer symphony: {name}" if name else "Composer symphony"
-    spec["notes"] = ["Imported from a Composer symphony: conditions and filters are evaluated on each "
-                     "rebalance day's close, on total-return (dividend-adjusted) prices as Composer does, and "
-                     "traded at that close."] + imp.notes
+    if spec["rebalance"] == "none":
+        from .portfolio import _is_dynamic
+        band = spec.get("drift_band")
+        when = (("the rules are evaluated at every close, on total-return (dividend-adjusted) prices as Composer does; "
+                 "it trades at that close when their target allocation changes (a different branch or selection)"
+                 if _is_dynamic(spec["tree"]) else "it trades at the close")
+                + (f" or when a holding drifts more than {band * 100:g} percentage points from its target" if band else ""))
+        head = f"Imported from a Composer symphony with threshold rebalancing: {when}."
+    else:
+        head = ("Imported from a Composer symphony: conditions and filters are evaluated on each rebalance day's close, "
+                "on total-return (dividend-adjusted) prices as Composer does, and traded at that close.")
+    if imp.ignored_weights:
+        imp.note("Some blocks carried a 'weight' although their parent is not a specified-weight block; Composer "
+                 "ignores it there (it is left over from the editor), and so does the import.")
+    spec["notes"] = [head] + imp.notes
     return spec
 
 
