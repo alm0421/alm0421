@@ -510,7 +510,8 @@ def graduate(downloaded: list[str], refreshed: set[str], path: Path | None = Non
 # Only renames where Yahoo's history for the new symbol genuinely continues the same company.
 RENAMES = {"FB": "META", "PCLN": "BKNG", "DISCA": "WBD", "RIMM": "BB", "MYL": "VTRS", "NLOK": "GEN",
            "SYMC": "GEN", "JDSU": "VIAV", "JDSUD": "VIAV", "HANS": "MNST", "CTRP": "TCOM", "WLTW": "WTW",
-           "UAUA": "UAL", "KFT": "MDLZ", "KLA": "KLAC", "ERICY": "ERIC", "WFMI": "WFM", "LINTA": "QRTEA"}
+           "UAUA": "UAL", "KFT": "MDLZ", "KLA": "KLAC", "ERICY": "ERIC", "WFMI": "WFM", "LINTA": "QRTEA",
+           "ERTS": "EA"}
 
 
 STOOQ_FAILS = [0]
@@ -520,7 +521,33 @@ KEYED_BUDGET = {"alphavantage": 20, "tiingo": 45}
 
 
 KEYED_FILE = ROOT / "data" / "delisted_sources.json"
-KEYED_OK: set[str] = set(json.loads(KEYED_FILE.read_text())) if KEYED_FILE.exists() else set()
+
+
+def load_keyed(path: Path | None = None) -> dict:
+    """data/delisted_sources.json: {ticker: provenance} for histories the job must keep as they are (from a keyed
+    source, or assembled from public archives, see its "_about"); keys starting with "_" describe the
+    sources. An older file is a plain list of tickers."""
+    path = path or KEYED_FILE
+    try:
+        doc = json.loads(path.read_text()) if path.exists() else {}
+    except (OSError, ValueError):
+        doc = {}
+    return doc if isinstance(doc, dict) else {t: {"source": "keyed"} for t in doc}
+
+
+def save_keyed(keyed: set, delisted: dict, path: Path | None = None) -> None:
+    """Write data/delisted_sources.json back: the provenance already recorded, plus the tickers a keyed source
+    filled in this run (never the bare list the file once was, which would drop the provenance)."""
+    path = path or KEYED_FILE
+    doc = load_keyed(path)
+    for t in sorted(keyed - set(doc)):
+        doc[t] = {"source": (delisted.get(t) or {}).get("source", "keyed")}
+    head = {k: v for k, v in doc.items() if k.startswith("_")}
+    path.write_text(json.dumps({**head, **dict(sorted((k, v) for k, v in doc.items() if not k.startswith("_")))},
+                               indent=1) + "\n")
+
+
+KEYED_OK: set[str] = {t for t in load_keyed() if not t.startswith("_")}
 
 
 def fetch_delisted_keyed(t: str) -> pd.DataFrame | None:
@@ -3214,7 +3241,7 @@ def main() -> None:
         "dropped_stale": stale,
     }
     (ROOT / "data" / "universe.json").write_text(json.dumps(meta, indent=1))
-    KEYED_FILE.write_text(json.dumps(sorted(KEYED_OK), indent=1))
+    save_keyed(KEYED_OK, delisted, KEYED_FILE)
     try:
         # fund research: metadata for every ETF and mutual fund (a rotating batch per run)
         fund_syms = [t for t in dict.fromkeys(meta["etfs"] + meta["funds"]) if "-" not in t and not t.startswith("^")]

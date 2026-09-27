@@ -206,6 +206,15 @@ WHITELIST = {
     ("WEBS", "2020-03-16"): "3x inverse dot-com on 2020-03-16", ("YANG", "2022-03-16"): "China rally (YINN +65%)",
     ("YINN", "2022-03-16"): "China rally",
     **WHITELIST_SP1500,
+    # former Nasdaq-100 members rebuilt from archives (data/delisted_sources.json)
+    ("BBBY-2023", "2021-06-02"): "meme squeeze (Bed Bath & Beyond), volume x10",
+    ("BBBY-2023", "2023-01-11"): "meme rally during the bankruptcy warning",
+    ("BBBY-2023", "2023-02-06"): "meme rally on the Hudson Bay equity offering",
+    ("CTXS", "1997-05-12"): "Microsoft licensing deal announced (Citrix +69%)",
+    ("ENDP", "2022-06-28"): "penny stock ahead of the Chapter 11 filing ($0.38 to $0.71)",
+    ("GMCR", "2015-12-07"): "JAB Holding buyout at $92 a share",
+    ("JAVA-2010", "2009-03-18"): "reports of IBM takeover talks (Sun Microsystems +79%)",
+    ("SUNW", "2009-03-18"): "same company as JAVA-2010: IBM takeover talks",
 }
 
 

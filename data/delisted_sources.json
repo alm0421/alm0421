@@ -1,1 +1,1992 @@
-[]
+{
+ "_about": "Where each history in data/prices that Yahoo no longer serves came from (former Nasdaq-100 members), how it was assembled and the checks it passed. Method: each source is read into the repo's schema; only continuous stretches that overlap the index membership with a median dollar volume of $2M or more are used (a reused symbol is another company); sources must agree on 90% of overlapping days' total returns within 2%; the base is the source with dividends and the best cover, older and newer sources are joined on overlapping days by price ratio; split events come from every source whose prices agree that day; dividends are derived from the adjusted close; days where one source moves over 30% and another under 15% take the consensus. The data job never replaces these files with a Yahoo download (a reused symbol may now be another company). Former companies of reused symbols are stored as <SYMBOL>-<YEAR> (backtester/data.py FORMER_LISTINGS).",
+ "_sources": {
+  "bdi": {
+   "url": "https://github.com/bdi2357/DirectIndexing/tree/main/data/PriceVolume",
+   "license": "MIT (repository licence)",
+   "what": "end-of-day OHLCV with an adjusted close, to 2022-11-15; prices as quoted, volume split-adjusted"
+  },
+  "intrader": {
+   "url": "https://github.com/icyDenev/Intrader/tree/main/Data/Day",
+   "license": "none stated (factual end-of-day data in Tiingo's format)",
+   "what": "raw OHLCV, split factor, cash dividend and adjusted close, to 2024-09-27; '<symbol>_' files are the former company of a reused symbol"
+  },
+  "qstk": {
+   "url": "https://github.com/QuantSoftware/QuantSoftwareToolkit/tree/master/QSTK/QSData/Yahoo",
+   "license": "New BSD (QSTK)",
+   "what": "Yahoo daily OHLCV + adjusted close, 2000-02 to 2012-09"
+  },
+  "kaggle_stooq": {
+   "url": "https://github.com/masaok/kaggle-boris-huge-stock-market-dataset (mirror of Kaggle 'Huge Stock Market Dataset', borismarjanovic)",
+   "license": "CC0 (Kaggle dataset)",
+   "what": "Stooq daily OHLCV to 2017-11-10; split- and (mostly) dividend-adjusted prices"
+  },
+  "stooq_2018": {
+   "url": "https://github.com/sidohin-felix/MOEXRM/tree/master/data/daily/us",
+   "license": "none stated (Stooq bulk download)",
+   "what": "Stooq daily OHLCV to 2018-03-29, adjusted"
+  },
+  "stooq_2021": {
+   "url": "https://github.com/anthonynamnam/capstone_project/tree/main/stock_data/daily/us",
+   "license": "none stated (Stooq bulk download)",
+   "what": "Stooq daily OHLCV to 2021-10-27, adjusted"
+  },
+  "stonks": {
+   "url": "https://github.com/Stonks/tickers",
+   "license": "none stated",
+   "what": "daily OHLC with volume in millions to 2023-10, adjusted"
+  },
+  "stell0": {
+   "url": "https://github.com/Stell0/financealerts2/tree/main/data",
+   "license": "none stated",
+   "what": "Yahoo daily OHLCV (auto-adjusted) 2020-12 to 2026-08"
+  },
+  "jamwevan": {
+   "url": "https://github.com/jamwevan/Michigan-Hackers (Projects/Algorithmic Trading/Random Forest/Stock/stock_data)",
+   "license": "none stated",
+   "what": "Yahoo daily OHLCV 2023-09 to 2025-08, split-adjusted, no dividends"
+  },
+  "wiki_teddy": {
+   "url": "https://github.com/teddykoker/survivorship-free-spy",
+   "license": "Quandl WIKI data (public domain)",
+   "what": "adjusted daily OHLCV 2013-02 to 2018-02"
+  },
+  "cmu": {
+   "url": "https://github.com/sahilnale/hft-simulator/tree/main/data/history",
+   "license": "MIT (repository); a mirror of Carnegie Mellon's historical daily stock archive",
+   "what": "as-traded daily OHLCV to 2006-12, no dividends (segments marked 'price return')"
+  },
+  "intrader_old": {
+   "url": "https://github.com/icyDenev/Intrader/tree/main/Data/Day",
+   "license": "none stated (same Tiingo dump as intrader)",
+   "what": "the '<SYMBOL>_' files: the former company of a reused symbol, Tiingo format"
+  }
+ },
+ "ALTR": {
+  "member": "2004-03..2015-10",
+  "member_month_cover": 1.0,
+  "first": "1988-04-04",
+  "last": "2015-12-24",
+  "rows": 6991,
+  "segments": [
+   {
+    "source": "intrader_old",
+    "from": "1988-04-04",
+    "to": "2015-12-24",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2000-08-11": 2.0
+  }
+ },
+ "ALXN": {
+  "member": "2011-05..2021-07",
+  "member_month_cover": 1.0,
+  "first": "1996-02-28",
+  "last": "2021-07-28",
+  "rows": 6397,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1996-02-28",
+    "to": "2021-07-20",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "2021-07-21",
+    "to": "2021-07-28",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2008-08-25": 2.0,
+   "2011-05-23": 2.0
+  }
+ },
+ "ANSS": {
+  "member": "2020-01..2025-07",
+  "member_month_cover": 1.0,
+  "first": "1996-06-20",
+  "last": "2025-07-16",
+  "rows": 7314,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "1996-06-21",
+    "to": "2024-09-27",
+    "dividends": "derived"
+   },
+   {
+    "source": "jamwevan",
+    "from": "2024-09-30",
+    "to": "2025-07-16",
+    "dividends": "none (price return)"
+   },
+   {
+    "source": "bdi",
+    "from": "1996-06-20",
+    "to": "1996-06-20",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2004-10-05": 2.0,
+   "2007-06-05": 2.0
+  }
+ },
+ "APOL": {
+  "member": "2004-03..2012-12",
+  "member_month_cover": 1.0,
+  "first": "1995-01-04",
+  "last": "2017-02-01",
+  "rows": 5560,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2017-02-01",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1995-01-04",
+    "to": "1997-12-30",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1995-05-01": 1.33333333333333,
+   "1995-09-25": 1.5,
+   "1996-03-01": 1.5,
+   "1996-06-03": 1.5,
+   "1998-04-28": 1.5,
+   "2001-02-06": 1.5,
+   "2002-04-26": 1.5
+  }
+ },
+ "ATVI": {
+  "member": "2006-01..2023-07",
+  "member_month_cover": 1.0,
+  "first": "1993-10-25",
+  "last": "2023-10-12",
+  "rows": 7546,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "1993-10-25",
+    "to": "2023-10-12",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2001-11-21": 1.5,
+   "2003-06-09": 1.5,
+   "2004-03-16": 1.5,
+   "2005-03-23": 1.33333333333333,
+   "2005-10-25": 1.33333333333333,
+   "2008-09-08": 2.0
+  }
+ },
+ "BBBY-2023": {
+  "member": "2004-03..2016-12",
+  "member_month_cover": 1.0,
+  "first": "1992-06-05",
+  "last": "2023-05-02",
+  "rows": 7784,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1992-06-05",
+    "to": "2022-11-15",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "2022-11-16",
+    "to": "2023-05-02",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1993-07-09": 2.0,
+   "1996-05-01": 2.0,
+   "1998-08-03": 2.0,
+   "2000-08-14": 2.0
+  },
+  "stands_for": "BBBY before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "BMC": {
+  "member": "2010-01..2013-09",
+  "member_month_cover": 1.0,
+  "first": "1997-12-31",
+  "last": "2013-09-10",
+  "rows": 3948,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2013-09-10",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {}
+ },
+ "BRCM": {
+  "member": "2004-03..2015-12",
+  "member_month_cover": 1.0,
+  "first": "1998-04-17",
+  "last": "2016-01-29",
+  "rows": 4476,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1998-04-17",
+    "to": "2016-01-29",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1999-02-18": 2.0,
+   "2000-02-14": 2.0,
+   "2006-02-22": 1.5
+  }
+ },
+ "CA": {
+  "member": "2008-06..2018-11",
+  "member_month_cover": 1.0,
+  "first": "1984-09-07",
+  "last": "2018-11-05",
+  "rows": 8614,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2018-11-05",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1984-09-07",
+    "to": "1997-12-30",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1986-05-13": 2.0,
+   "1987-05-08": 2.0,
+   "1989-06-19": 2.0,
+   "1995-09-06": 1.5,
+   "1996-07-16": 1.5,
+   "1997-11-28": 1.5
+  }
+ },
+ "CECO-2019": {
+  "member": "2004-03..2005-12",
+  "member_month_cover": 1.0,
+  "first": "1998-01-29",
+  "last": "2018-03-29",
+  "rows": 5040,
+  "segments": [
+   {
+    "source": "kaggle_stooq",
+    "from": "1998-01-29",
+    "to": "2017-11-10",
+    "dividends": "in the prices"
+   },
+   {
+    "source": "stooq_2018",
+    "from": "2017-11-13",
+    "to": "2018-03-29",
+    "dividends": "in the prices"
+   }
+  ],
+  "splits": {},
+  "stands_for": "CECO before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "CELG": {
+  "member": "2005-11..2019-11",
+  "member_month_cover": 1.0,
+  "first": "1990-03-26",
+  "last": "2019-11-22",
+  "rows": 7476,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2019-11-20",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "2019-11-21",
+    "to": "2019-11-22",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1990-03-26",
+    "to": "1997-12-30",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2000-04-17": 3.0,
+   "2004-10-25": 2.0,
+   "2006-02-27": 2.0,
+   "2014-06-26": 2.0
+  }
+ },
+ "CEPH": {
+  "member": "2004-03..2011-07",
+  "member_month_cover": 1.0,
+  "first": "1997-12-31",
+  "last": "2011-10-13",
+  "rows": 3470,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2011-10-13",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {}
+ },
+ "CERN": {
+  "member": "2009-10..2021-12",
+  "member_month_cover": 1.0,
+  "first": "1986-12-05",
+  "last": "2022-08-09",
+  "rows": 8922,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1986-12-05",
+    "to": "2022-06-07",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "2022-06-08",
+    "to": "2022-08-09",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1992-05-12": 2.0,
+   "1993-03-01": 2.0,
+   "1995-08-07": 2.0,
+   "2006-01-10": 2.0,
+   "2011-06-27": 2.0,
+   "2013-07-01": 2.0
+  }
+ },
+ "CMCSK": {
+  "member": "2015-01..2015-12",
+  "member_month_cover": 1.0,
+  "first": "1990-03-26",
+  "last": "2015-12-11",
+  "rows": 6482,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2015-12-11",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1990-03-26",
+    "to": "1997-12-30",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1994-02-03": 1.5,
+   "1999-05-06": 2.0,
+   "2007-02-22": 1.5
+  }
+ },
+ "CPWR-2014": {
+  "member": "2004-03..2005-10",
+  "member_month_cover": 1.0,
+  "first": "1992-12-16",
+  "last": "2014-12-15",
+  "rows": 5535,
+  "segments": [
+   {
+    "source": "qstk",
+    "from": "2000-02-01",
+    "to": "2012-09-12",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "2012-09-13",
+    "to": "2014-12-15",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1992-12-16",
+    "to": "2000-01-31",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1997-04-15": 2.0,
+   "1997-11-05": 2.0,
+   "1999-03-01": 2.0
+  },
+  "stands_for": "CPWR before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "CTRX": {
+  "member": "2013-01..2015-07",
+  "member_month_cover": 1.0,
+  "first": "2006-07-03",
+  "last": "2015-07-23",
+  "rows": 2280,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "2006-06-13",
+    "to": "2015-07-23",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2006-06-14": 0.25,
+   "2010-09-20": 2.0,
+   "2012-10-02": 2.0
+  }
+ },
+ "CTXS": {
+  "member": "2004-03..2020-12",
+  "member_month_cover": 1.0,
+  "first": "1995-12-08",
+  "last": "2022-09-29",
+  "rows": 6749,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1995-12-08",
+    "to": "2022-09-29",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1996-06-05": 2.0,
+   "1998-02-23": 1.5,
+   "1999-03-26": 2.0,
+   "2000-02-17": 2.0,
+   "2017-02-01": 1.25
+  }
+ },
+ "DELL-2013": {
+  "member": "2004-03..2013-12",
+  "member_month_cover": 0.873,
+  "first": "2000-02-01",
+  "last": "2012-09-12",
+  "rows": 3175,
+  "segments": [
+   {
+    "source": "qstk",
+    "from": "2000-02-01",
+    "to": "2012-09-12",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {},
+  "stands_for": "DELL before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "DISCK": {
+  "member": "2014-12..2017-12",
+  "member_month_cover": 1.0,
+  "first": "2008-09-18",
+  "last": "2022-08-09",
+  "rows": 3497,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "2008-09-18",
+    "to": "2022-04-08",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "2022-04-11",
+    "to": "2022-08-09",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2014-08-07": 2.0
+  }
+ },
+ "DISH": {
+  "member": "2004-03..2018-07",
+  "member_month_cover": 1.0,
+  "first": "1995-06-21",
+  "last": "2024-01-09",
+  "rows": 7188,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1995-06-21",
+    "to": "2022-11-15",
+    "dividends": "derived"
+   },
+   {
+    "source": "stonks",
+    "from": "2022-11-16",
+    "to": "2023-10-10",
+    "dividends": "in the prices"
+   },
+   {
+    "source": "intrader",
+    "from": "2023-10-11",
+    "to": "2024-01-09",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1999-07-20": 2.0,
+   "1999-10-26": 2.0,
+   "2000-03-23": 2.0
+  }
+ },
+ "DTV": {
+  "member": "2008-05..2015-07",
+  "member_month_cover": 1.0,
+  "first": "2003-12-23",
+  "last": "2015-07-24",
+  "rows": 2916,
+  "segments": [
+   {
+    "source": "intrader_old",
+    "from": "2003-12-23",
+    "to": "2015-07-24",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {}
+ },
+ "EA": {
+  "member": "2012-01..2026-08",
+  "member_month_cover": 1.0,
+  "first": "1989-09-20",
+  "last": "2026-08-04",
+  "rows": 9284,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "1990-03-26",
+    "to": "2024-09-27",
+    "dividends": "derived"
+   },
+   {
+    "source": "stell0",
+    "from": "2024-09-30",
+    "to": "2026-08-04",
+    "dividends": "in the prices"
+   },
+   {
+    "source": "bdi",
+    "from": "1989-09-20",
+    "to": "1990-03-23",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1992-03-27": 2.0,
+   "1993-02-22": 2.0,
+   "2000-09-11": 2.0,
+   "2003-11-18": 2.0
+  }
+ },
+ "ENDP": {
+  "member": "2016-01..2016-11",
+  "member_month_cover": 1.0,
+  "first": "1996-09-26",
+  "last": "2022-10-27",
+  "rows": 6564,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1996-09-26",
+    "to": "2022-10-27",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {}
+ },
+ "ERTS": {
+  "member": "2004-03..2011-12",
+  "member_month_cover": 1.0,
+  "first": "1989-09-20",
+  "last": "2026-08-04",
+  "rows": 9284,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "1990-03-26",
+    "to": "2024-09-27",
+    "dividends": "derived"
+   },
+   {
+    "source": "stell0",
+    "from": "2024-09-30",
+    "to": "2026-08-04",
+    "dividends": "in the prices"
+   },
+   {
+    "source": "bdi",
+    "from": "1989-09-20",
+    "to": "1990-03-23",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1992-03-27": 2.0,
+   "1993-02-22": 2.0,
+   "2000-09-11": 2.0,
+   "2003-11-18": 2.0
+  },
+  "copy_of": "EA"
+ },
+ "ESRX": {
+  "member": "2004-03..2018-12",
+  "member_month_cover": 1.0,
+  "first": "1992-06-09",
+  "last": "2018-12-20",
+  "rows": 6685,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2018-12-20",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1992-06-09",
+    "to": "1997-12-30",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1994-06-27": 2.0,
+   "1998-11-02": 2.0,
+   "2001-06-25": 2.0,
+   "2005-06-27": 2.0,
+   "2007-06-25": 2.0,
+   "2010-06-08": 2.0
+  }
+ },
+ "FLIR": {
+  "member": "2008-10..2011-12",
+  "member_month_cover": 1.0,
+  "first": "1993-06-22",
+  "last": "2021-05-14",
+  "rows": 7023,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1993-06-22",
+    "to": "2021-05-13",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "2021-05-14",
+    "to": "2021-05-14",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2003-05-30": 2.0,
+   "2005-02-03": 2.0,
+   "2007-12-11": 2.0
+  }
+ },
+ "FOX-2019": {
+  "member": "2015-01..2021-12",
+  "member_month_cover": 0.607,
+  "first": "1987-12-30",
+  "last": "2019-03-12",
+  "rows": 7862,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "1987-12-30",
+    "to": "2019-03-12",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1994-11-21": 3.0,
+   "2004-11-03": 2.0
+  },
+  "stands_for": "FOX before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "FOXA-2019": {
+  "member": "2013-08..2021-12",
+  "member_month_cover": 0.673,
+  "first": "1996-03-11",
+  "last": "2019-03-11",
+  "rows": 5789,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "1996-03-11",
+    "to": "2019-03-11",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2004-11-03": 2.0
+  },
+  "stands_for": "FOXA before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "FWLT": {
+  "member": "2007-08..2010-12",
+  "member_month_cover": 1.0,
+  "first": "1990-01-02",
+  "last": "2014-12-03",
+  "rows": 6282,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "1972-06-01",
+    "to": "2014-12-03",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1977-03-11": 2.0,
+   "1979-06-18": 2.0,
+   "1980-12-16": 2.0,
+   "2004-11-30": 0.05,
+   "2008-01-23": 2.0
+  }
+ },
+ "GENZ-2011": {
+  "member": "2004-03..2011-04",
+  "member_month_cover": 1.0,
+  "first": "2001-07-02",
+  "last": "2011-04-08",
+  "rows": 2457,
+  "segments": [
+   {
+    "source": "qstk",
+    "from": "2000-02-01",
+    "to": "2011-04-08",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2001-04-30": 2.0,
+   "2001-05-01": 0.5,
+   "2001-05-07": 2.0,
+   "2001-05-08": 0.5,
+   "2001-06-04": 2.0
+  },
+  "stands_for": "GENZ before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "GMCR": {
+  "member": "2011-06..2015-12",
+  "member_month_cover": 1.0,
+  "first": "1993-09-27",
+  "last": "2016-03-02",
+  "rows": 5649,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2016-03-02",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1993-09-27",
+    "to": "1997-12-30",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2001-01-12": 2.0,
+   "2007-07-30": 3.0,
+   "2009-06-09": 1.5,
+   "2010-05-18": 3.0
+  }
+ },
+ "GOLD-2019": {
+  "member": "2012-01..2013-12",
+  "member_month_cover": 1.0,
+  "first": "2002-07-30",
+  "last": "2014-03-14",
+  "rows": 2927,
+  "segments": [
+   {
+    "source": "intrader_old",
+    "from": "2002-07-30",
+    "to": "2014-03-14",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2003-03-11": 2.0,
+   "2004-06-15": 2.0
+  },
+  "stands_for": "GOLD before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "HOLX": {
+  "member": "2008-01..2018-12",
+  "member_month_cover": 1.0,
+  "first": "1990-03-01",
+  "last": "2024-09-27",
+  "rows": 8707,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1990-03-01",
+    "to": "2022-11-15",
+    "dividends": "derived"
+   },
+   {
+    "source": "stonks",
+    "from": "2022-11-16",
+    "to": "2023-10-10",
+    "dividends": "in the prices"
+   },
+   {
+    "source": "intrader",
+    "from": "2023-10-11",
+    "to": "2024-09-27",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1996-03-26": 2.0,
+   "2005-12-01": 2.0,
+   "2008-04-03": 2.0
+  }
+ },
+ "IACI": {
+  "member": "2004-03..2009-12",
+  "member_month_cover": 1.0,
+  "first": "1993-01-19",
+  "last": "2008-08-19",
+  "rows": 3927,
+  "segments": [
+   {
+    "source": "qstk",
+    "from": "2000-02-01",
+    "to": "2012-09-12",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "2012-09-13",
+    "to": "2016-03-10",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1993-01-19",
+    "to": "2000-01-31",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1998-03-27": 2.0,
+   "2000-02-25": 2.0
+  }
+ },
+ "ISIL": {
+  "member": "2004-03..2005-12",
+  "member_month_cover": 1.0,
+  "first": "2000-02-25",
+  "last": "2017-02-23",
+  "rows": 4276,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "2000-02-25",
+    "to": "2017-02-23",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {}
+ },
+ "JAVA-2010": {
+  "member": "2007-09..2009-09",
+  "member_month_cover": 1.0,
+  "first": "2005-01-03",
+  "last": "2010-01-26",
+  "rows": 1275,
+  "segments": [
+   {
+    "source": "qstk",
+    "from": "2005-01-03",
+    "to": "2010-01-26",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2007-11-12": 0.25
+  },
+  "repaired_splits": {
+   "2007-11-12": 0.25
+  },
+  "stands_for": "JAVA before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "JNPR": {
+  "member": "2004-03..2009-10",
+  "member_month_cover": 1.0,
+  "first": "1999-06-25",
+  "last": "2024-09-27",
+  "rows": 6356,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1999-06-25",
+    "to": "2022-11-15",
+    "dividends": "derived"
+   },
+   {
+    "source": "stonks",
+    "from": "2022-11-16",
+    "to": "2023-10-10",
+    "dividends": "in the prices"
+   },
+   {
+    "source": "intrader",
+    "from": "2023-10-11",
+    "to": "2024-09-27",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2000-01-18": 3.0,
+   "2000-06-16": 2.0
+  }
+ },
+ "KRFT": {
+  "member": "2013-05..2015-07",
+  "member_month_cover": 1.0,
+  "first": "2012-09-17",
+  "last": "2015-07-02",
+  "rows": 702,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "2012-09-17",
+    "to": "2015-07-02",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {}
+ },
+ "LIFE-2014": {
+  "member": "2009-01..2013-09",
+  "member_month_cover": 0.789,
+  "first": "2000-02-01",
+  "last": "2012-09-11",
+  "rows": 3167,
+  "segments": [
+   {
+    "source": "qstk",
+    "from": "2000-02-01",
+    "to": "2012-09-11",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2008-05-28": 2.0
+  },
+  "stands_for": "LIFE before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "LINTA": {
+  "member": "2006-11..2014-11",
+  "member_month_cover": 1.0,
+  "first": "2006-05-10",
+  "last": "2024-09-27",
+  "rows": 4628,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "2006-05-10",
+    "to": "2024-09-27",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2020-09-15": 1.384372
+  },
+  "copy_of": "QRTEA"
+ },
+ "LLTC": {
+  "member": "2004-03..2016-11",
+  "member_month_cover": 1.0,
+  "first": "1990-03-26",
+  "last": "2017-03-10",
+  "rows": 6794,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2017-03-10",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1990-03-26",
+    "to": "1997-12-30",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1992-11-25": 2.0,
+   "1995-09-05": 2.0,
+   "1999-02-22": 2.0,
+   "2000-03-28": 2.0
+  }
+ },
+ "LVLT": {
+  "member": "2004-03..2008-12",
+  "member_month_cover": 1.0,
+  "first": "1998-03-31",
+  "last": "2017-10-31",
+  "rows": 4931,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1998-03-31",
+    "to": "2017-10-31",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1998-08-10": 2.0,
+   "2011-10-20": 0.0666666666666667
+  }
+ },
+ "LVNTA": {
+  "member": "2014-12..2018-04",
+  "member_month_cover": 0.976,
+  "first": "2012-08-10",
+  "last": "2018-03-09",
+  "rows": 1403,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "2012-08-10",
+    "to": "2018-03-09",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2014-04-14": 2.0,
+   "2014-08-28": 2.0,
+   "2016-11-07": 0.6
+  },
+  "repaired_splits": {
+   "2014-08-28": 2.0
+  }
+ },
+ "MOLX": {
+  "member": "2004-03..2005-12",
+  "member_month_cover": 1.0,
+  "first": "1997-12-31",
+  "last": "2013-12-06",
+  "rows": 4010,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2013-12-06",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2000-03-07": 1.25
+  }
+ },
+ "MXIM": {
+  "member": "2004-03..2021-08",
+  "member_month_cover": 1.0,
+  "first": "1988-02-29",
+  "last": "2021-08-26",
+  "rows": 8430,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1988-02-29",
+    "to": "2021-08-25",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "2021-08-26",
+    "to": "2021-08-26",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1994-12-08": 2.0,
+   "1995-12-11": 2.0,
+   "1995-12-14": 2.0,
+   "1997-12-22": 2.0,
+   "1999-12-22": 2.0
+  }
+ },
+ "NUAN": {
+  "member": "2012-01..2013-12",
+  "member_month_cover": 1.0,
+  "first": "2000-01-03",
+  "last": "2022-03-03",
+  "rows": 5578,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "1995-12-11",
+    "to": "2022-03-03",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {}
+ },
+ "NVLS": {
+  "member": "2004-03..2005-12",
+  "member_month_cover": 1.0,
+  "first": "2000-02-01",
+  "last": "2012-06-04",
+  "rows": 3099,
+  "segments": [
+   {
+    "source": "qstk",
+    "from": "2000-02-01",
+    "to": "2012-06-04",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {}
+ },
+ "NWSA-2013": {
+  "member": "2009-02..2013-07",
+  "member_month_cover": 0.981,
+  "first": "1996-03-11",
+  "last": "2013-06-18",
+  "rows": 4348,
+  "segments": [
+   {
+    "source": "intrader_old:FOXA",
+    "from": "1996-03-11",
+    "to": "2013-06-18",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2004-11-03": 2.0
+  },
+  "stands_for": "NWSA before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "PDCO": {
+  "member": "2004-03..2010-12",
+  "member_month_cover": 1.0,
+  "first": "1992-10-28",
+  "last": "2024-09-27",
+  "rows": 8037,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1992-10-28",
+    "to": "2022-11-15",
+    "dividends": "derived"
+   },
+   {
+    "source": "stonks",
+    "from": "2022-11-16",
+    "to": "2023-10-10",
+    "dividends": "in the prices"
+   },
+   {
+    "source": "intrader",
+    "from": "2023-10-11",
+    "to": "2024-09-27",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1994-06-20": 1.5,
+   "1998-02-18": 1.5,
+   "2000-07-24": 2.0,
+   "2004-10-25": 2.0
+  }
+ },
+ "PETM": {
+  "member": "2004-03..2008-12",
+  "member_month_cover": 1.0,
+  "first": "1993-07-23",
+  "last": "2015-03-11",
+  "rows": 5448,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2015-03-11",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1993-07-23",
+    "to": "1997-12-30",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1995-05-02": 1.5,
+   "1996-07-22": 2.0
+  }
+ },
+ "QLGC": {
+  "member": "2004-03..2005-12",
+  "member_month_cover": 1.0,
+  "first": "1994-02-28",
+  "last": "2016-08-16",
+  "rows": 5658,
+  "segments": [
+   {
+    "source": "qstk",
+    "from": "2000-02-01",
+    "to": "2012-09-12",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "2012-09-13",
+    "to": "2016-08-16",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1994-02-28",
+    "to": "2000-01-31",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1999-02-23": 2.0,
+   "1999-08-02": 2.0,
+   "2000-02-09": 2.0,
+   "2006-03-03": 2.0
+  }
+ },
+ "QRTEA": {
+  "member": "2018-05..2018-12",
+  "member_month_cover": 1.0,
+  "first": "2006-05-10",
+  "last": "2024-09-27",
+  "rows": 4628,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "2006-05-10",
+    "to": "2024-09-27",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2020-09-15": 1.384372
+  }
+ },
+ "QVCA": {
+  "member": "2014-12..2018-04",
+  "member_month_cover": 0.951,
+  "first": "2006-05-04",
+  "last": "2018-02-23",
+  "rows": 2973,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "2006-05-10",
+    "to": "2018-02-23",
+    "dividends": "derived"
+   },
+   {
+    "source": "kaggle_stooq",
+    "from": "2006-05-04",
+    "to": "2006-05-09",
+    "dividends": "in the prices"
+   }
+  ],
+  "splits": {}
+ },
+ "SGEN": {
+  "member": "2020-01..2023-12",
+  "member_month_cover": 1.0,
+  "first": "2001-03-09",
+  "last": "2024-01-09",
+  "rows": 5745,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "2001-03-09",
+    "to": "2024-01-09",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {}
+ },
+ "SHLD-2018": {
+  "member": "2005-11..2013-12",
+  "member_month_cover": 1.0,
+  "first": "2003-04-28",
+  "last": "2018-03-29",
+  "rows": 3757,
+  "segments": [
+   {
+    "source": "kaggle_stooq",
+    "from": "2005-02-25",
+    "to": "2017-11-10",
+    "dividends": "in the prices"
+   },
+   {
+    "source": "stooq_2018",
+    "from": "2017-11-13",
+    "to": "2018-03-29",
+    "dividends": "in the prices"
+   },
+   {
+    "source": "qstk",
+    "from": "2003-05-02",
+    "to": "2005-02-24",
+    "dividends": "derived"
+   },
+   {
+    "source": "cmu",
+    "from": "2003-04-28",
+    "to": "2003-04-30",
+    "dividends": "none (price return)"
+   },
+   {
+    "source": "qstk",
+    "from": "2003-05-02",
+    "to": "2012-09-12",
+    "overlay": true,
+    "dividends": "derived"
+   }
+  ],
+  "splits": {},
+  "stands_for": "SHLD before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "SHPG": {
+  "member": "2016-12..2018-12",
+  "member_month_cover": 1.0,
+  "first": "1998-03-25",
+  "last": "2019-01-07",
+  "rows": 5231,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "1998-03-25",
+    "to": "2019-01-07",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {}
+ },
+ "SIAL": {
+  "member": "2004-03..2015-08",
+  "member_month_cover": 1.0,
+  "first": "1990-03-26",
+  "last": "2015-11-18",
+  "rows": 6466,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2015-11-18",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1990-03-26",
+    "to": "1997-12-30",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1991-01-03": 2.0,
+   "1997-01-03": 2.0,
+   "2007-01-03": 2.0
+  }
+ },
+ "SNDK-2016": {
+  "member": "2004-03..2026-09",
+  "member_month_cover": 0.964,
+  "first": "1995-11-08",
+  "last": "2016-05-11",
+  "rows": 5162,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2016-05-11",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1995-11-08",
+    "to": "1997-12-30",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2000-02-23": 2.0,
+   "2004-02-19": 2.0
+  },
+  "stands_for": "SNDK before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "SPLK": {
+  "member": "2020-01..2024-03",
+  "member_month_cover": 1.0,
+  "first": "2012-04-19",
+  "last": "2024-09-04",
+  "rows": 3114,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "2012-04-19",
+    "to": "2024-09-04",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {}
+ },
+ "SPLS-2017": {
+  "member": "2004-03..2015-12",
+  "member_month_cover": 1.0,
+  "first": "1990-03-26",
+  "last": "2017-09-12",
+  "rows": 6922,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2017-09-12",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1990-03-26",
+    "to": "1997-12-30",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1991-07-11": 1.5,
+   "1993-12-14": 1.5,
+   "1994-10-31": 1.5,
+   "1995-07-25": 1.5,
+   "1996-03-26": 1.5,
+   "1998-02-02": 1.5,
+   "1999-01-29": 1.5,
+   "2005-04-18": 1.5
+  },
+  "stands_for": "SPLS before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ },
+ "SRCL": {
+  "member": "2008-01..2016-12",
+  "member_month_cover": 1.0,
+  "first": "1996-08-23",
+  "last": "2024-09-27",
+  "rows": 7057,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1996-08-23",
+    "to": "2022-11-15",
+    "dividends": "derived"
+   },
+   {
+    "source": "stonks",
+    "from": "2022-11-16",
+    "to": "2023-10-10",
+    "dividends": "in the prices"
+   },
+   {
+    "source": "intrader",
+    "from": "2023-10-11",
+    "to": "2024-09-27",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2002-06-03": 2.0,
+   "2007-06-01": 2.0
+  }
+ },
+ "SUNW": {
+  "member": "2004-03..2007-08",
+  "member_month_cover": 1.0,
+  "first": "2001-01-02",
+  "last": "2010-01-26",
+  "rows": 2277,
+  "segments": [
+   {
+    "source": "qstk:JAVA",
+    "from": "2005-01-03",
+    "to": "2010-01-26",
+    "dividends": "derived"
+   },
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2004-12-31",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {
+   "2007-11-12": 0.25
+  },
+  "repaired_splits": {
+   "2007-11-12": 0.25
+  }
+ },
+ "TLAB": {
+  "member": "2004-03..2008-05",
+  "member_month_cover": 1.0,
+  "first": "1997-12-31",
+  "last": "2013-12-03",
+  "rows": 4007,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2013-12-03",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {}
+ },
+ "VIAB": {
+  "member": "2012-06..2017-12",
+  "member_month_cover": 1.0,
+  "first": "2005-12-05",
+  "last": "2019-12-04",
+  "rows": 3524,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "2005-12-05",
+    "to": "2019-12-04",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {}
+ },
+ "WBA": {
+  "member": "2015-04..2024-07",
+  "member_month_cover": 1.0,
+  "first": "1984-11-05",
+  "last": "2025-08-27",
+  "rows": 10282,
+  "segments": [
+   {
+    "source": "intrader",
+    "from": "1985-07-01",
+    "to": "2024-09-27",
+    "dividends": "derived"
+   },
+   {
+    "source": "jamwevan",
+    "from": "2024-09-30",
+    "to": "2025-08-27",
+    "dividends": "none (price return)"
+   },
+   {
+    "source": "bdi",
+    "from": "1984-11-05",
+    "to": "1985-06-28",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1985-05-09": 2.0,
+   "1991-02-04": 2.0,
+   "1995-08-09": 2.0,
+   "1997-08-11": 2.0,
+   "1999-02-16": 2.0
+  }
+ },
+ "WFM": {
+  "member": "2011-06..2016-12",
+  "member_month_cover": 1.0,
+  "first": "1992-01-23",
+  "last": "2017-08-28",
+  "rows": 6449,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2017-08-28",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1992-01-23",
+    "to": "1997-12-30",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1993-11-30": 2.0,
+   "2001-06-05": 2.0,
+   "2005-12-28": 2.0,
+   "2013-05-30": 2.0
+  }
+ },
+ "WFMI": {
+  "member": "2004-03..2011-05",
+  "member_month_cover": 1.0,
+  "first": "1992-01-23",
+  "last": "2017-08-28",
+  "rows": 6449,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2017-08-28",
+    "dividends": "derived"
+   },
+   {
+    "source": "intrader",
+    "from": "1992-01-23",
+    "to": "1997-12-30",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1993-11-30": 2.0,
+   "2001-06-05": 2.0,
+   "2005-12-28": 2.0,
+   "2013-05-30": 2.0
+  },
+  "copy_of": "WFM"
+ },
+ "XLNX": {
+  "member": "2004-03..2022-02",
+  "member_month_cover": 1.0,
+  "first": "1990-06-12",
+  "last": "2022-02-11",
+  "rows": 7981,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1990-06-12",
+    "to": "2022-02-11",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "1995-08-14": 3.0,
+   "1999-03-12": 2.0,
+   "1999-12-28": 2.0
+  }
+ },
+ "YHOO": {
+  "member": "2004-03..2017-06",
+  "member_month_cover": 1.0,
+  "first": "1997-12-31",
+  "last": "2017-06-16",
+  "rows": 4897,
+  "segments": [
+   {
+    "source": "bdi",
+    "from": "1997-12-31",
+    "to": "2017-06-16",
+    "dividends": "derived"
+   }
+  ],
+  "splits": {
+   "2000-02-14": 2.0,
+   "2004-05-12": 2.0
+  }
+ },
+ "AMLN": {
+  "member": "2006-02..2008-12",
+  "member_month_cover": 0.314,
+  "first": "2001-01-02",
+  "last": "2006-12-29",
+  "rows": 1502,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {}
+ },
+ "APCC": {
+  "member": "2004-03..2007-02",
+  "member_month_cover": 0.944,
+  "first": "2001-01-02",
+  "last": "2006-12-29",
+  "rows": 1503,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {}
+ },
+ "BEAS": {
+  "member": "2004-03..2008-04",
+  "member_month_cover": 0.68,
+  "first": "2001-01-02",
+  "last": "2006-12-29",
+  "rows": 1504,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {}
+ },
+ "BMET": {
+  "member": "2004-03..2007-07",
+  "member_month_cover": 0.829,
+  "first": "2001-01-02",
+  "last": "2006-12-29",
+  "rows": 1491,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {}
+ },
+ "CDWC": {
+  "member": "2004-03..2007-10",
+  "member_month_cover": 0.773,
+  "first": "2001-01-02",
+  "last": "2006-12-29",
+  "rows": 1503,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {}
+ },
+ "CHIR": {
+  "member": "2004-03..2006-10",
+  "member_month_cover": 0.688,
+  "first": "2001-01-02",
+  "last": "2005-12-30",
+  "rows": 1250,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2005-12-30",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {}
+ },
+ "CKFR": {
+  "member": "2006-01..2007-12",
+  "member_month_cover": 0.5,
+  "first": "2001-01-02",
+  "last": "2006-12-29",
+  "rows": 1504,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {}
+ },
+ "CMVT": {
+  "member": "2004-03..2007-01",
+  "member_month_cover": 0.971,
+  "first": "2001-01-02",
+  "last": "2006-12-29",
+  "rows": 1499,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {}
+ },
+ "IVGN": {
+  "member": "2004-03..2005-12",
+  "member_month_cover": 1.0,
+  "first": "2001-01-02",
+  "last": "2006-12-29",
+  "rows": 1503,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {}
+ },
+ "LNCR": {
+  "member": "2004-03..2006-12",
+  "member_month_cover": 1.0,
+  "first": "2001-01-02",
+  "last": "2006-12-29",
+  "rows": 1504,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {
+   "2001-06-25": 2.0
+  },
+  "repaired_splits": {
+   "2001-06-25": 2.0
+  }
+ },
+ "MEDI-2006": {
+  "source": "keyed"
+ },
+ "MLNM": {
+  "member": "2004-03..2005-12",
+  "member_month_cover": 1.0,
+  "first": "2001-01-02",
+  "last": "2006-12-29",
+  "rows": 1504,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {}
+ },
+ "NIHD": {
+  "member": "2006-01..2011-12",
+  "member_month_cover": 0.167,
+  "first": "2002-11-22",
+  "last": "2006-12-29",
+  "rows": 1030,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2002-11-22",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {
+   "2004-03-23": 3.0,
+   "2005-11-22": 2.0
+  },
+  "repaired_splits": {
+   "2004-03-23": 3.0,
+   "2005-11-22": 2.0
+  }
+ },
+ "NTLI": {
+  "member": "2005-11..2007-08",
+  "member_month_cover": 0.636,
+  "first": "2004-07-19",
+  "last": "2006-12-29",
+  "rows": 618,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2004-07-19",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {}
+ },
+ "SEPR": {
+  "member": "2005-09..2007-12",
+  "member_month_cover": 0.571,
+  "first": "2001-01-02",
+  "last": "2006-12-29",
+  "rows": 1503,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {}
+ },
+ "XMSR": {
+  "member": "2005-11..2007-12",
+  "member_month_cover": 0.538,
+  "first": "2001-01-02",
+  "last": "2006-12-29",
+  "rows": 1499,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {}
+ },
+ "MEDI-2007": {
+  "member": "2004-03..2007-05",
+  "member_month_cover": 0.872,
+  "first": "2001-01-02",
+  "last": "2006-12-29",
+  "rows": 1502,
+  "segments": [
+   {
+    "source": "cmu",
+    "from": "2001-01-02",
+    "to": "2006-12-29",
+    "dividends": "none (price return)"
+   }
+  ],
+  "splits": {},
+  "stands_for": "MEDI before its symbol was reused (backtester/data.py FORMER_LISTINGS)"
+ }
+}

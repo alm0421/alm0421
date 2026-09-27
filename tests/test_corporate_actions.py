@@ -368,8 +368,11 @@ def test_liquidity_ignores_stale_bars(fake, monkeypatch):
 
 @pytest.mark.skipif(data.membership() is None, reason="membership data not downloaded")
 def test_missing_members_and_tiingo_hint():
-    assert data.delisted()["EA"]["history"].startswith("history unavailable - needs TIINGO_API_KEY")
-    miss = dict(data.missing_members("2013-01-01", "2020-12-31", n=12))
-    assert "EA" in miss and miss["EA"] >= 60
-    note = data.coverage_note("2013-01-01", "2020-12-31")
-    assert "Biggest missing members" in note and "TIINGO_API_KEY" in note and "ATVI (" in note
+    # EA's history was restored from archives (data/delisted_sources.json), so it is no longer missing
+    assert "history" not in data.delisted()["EA"] and data.load("EA").index[0].year <= 1990
+    assert "EA" not in dict(data.missing_members("2013-01-01", "2020-12-31", n=12))
+    # companies no free archive carries are still named, with the Tiingo hint
+    miss = dict(data.missing_members("2004-01-01", "2008-12-31", n=12))
+    assert {"PIXR", "SEBL", "MERQ"} <= set(miss)
+    note = data.coverage_note("2004-01-01", "2008-12-31")
+    assert "Biggest missing members" in note and "TIINGO_API_KEY" in note and "PIXR (" in note
