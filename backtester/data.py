@@ -60,7 +60,7 @@ def custom_notes(tickers) -> list[str]:
             from . import custom_series
             info = next((x for x in custom_series.list_series() if x.get("name") == t), {"name": t})
             out.append("Custom series: " + custom_series.describe(info))
-    return out
+    return out + on_demand_notes(tickers)
 
 
 def clear_caches() -> None:
@@ -612,7 +612,7 @@ def membership() -> pd.DataFrame | None:
     if raw.empty:
         return None
     # strip funds, never stocks (older universe files listed some large stocks among the ETFs)
-    stocks = set(universe_meta().get("stocks", [])) | LARGE_STOCKS
+    stocks = set(universe_meta().get("stocks", [])) | set(broad_stocks()) | LARGE_STOCKS
     from .fund_lists import ALL_FUNDS
     bad = NOT_MEMBERS | ((set(etfs()) | set(funds()) | ALL_FUNDS) - stocks)
     rows = {pd.Period(m, "M").to_timestamp(): set(t.split()) - bad for m, t in zip(raw["month"], raw["tickers"])}
@@ -1385,31 +1385,116 @@ def open_anomalies(ticker: str, jump: float = 0.08) -> pd.DataFrame:
                          "close": c[rows].to_numpy(), "next_open": no[rows].to_numpy()})
 
 
-def fetch_on_demand(ticker: str) -> bool:
-    """Download a missing ticker's full daily history with yfinance (needs internet; used on your own
-    machine - the cloud sandbox relies on the GitHub Action instead). Returns True on success."""
+ON_DEMAND: dict[str, str] = {}          # ticker -> note, for the symbols fetch_on_demand downloaded in this process
+_ON_DEMAND_FAILED: dict[str, float] = {}   # ticker -> time of a failed attempt (not retried for 10 minutes)
+import threading as _threading  # noqa: E402
+_FETCH_LOCK = _threading.Lock()
+
+
+def offline() -> bool:
     import os
-    if os.environ.get("BACKTESTER_OFFLINE"):
-        return False
+    return bool(os.environ.get("BACKTESTER_OFFLINE"))
+
+
+def _download_yahoo(ticker: str) -> pd.DataFrame | None:
+    """The full daily history from Yahoo (yfinance) in the price-file layout, or None."""
     try:
         import yfinance as yf
     except ImportError:
-        return False
+        return None
     try:
         df = yf.Ticker(ticker).history(period="max", interval="1d", auto_adjust=False, actions=True)
     except Exception:  # noqa: BLE001 - no internet, unknown symbol, rate limit...
-        return False
-    if df is None or len(df) < 20:
-        return False
+        return None
+    if df is None or not len(df):
+        return None
     df.index = pd.to_datetime(df.index).tz_localize(None).normalize()
     df = df.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Adj Close": "adj_close",
                             "Volume": "volume", "Dividends": "dividend", "Stock Splits": "split"})
     cols = [c for c in ("open", "high", "low", "close", "adj_close", "volume", "dividend", "split") if c in df]
-    df = df[cols][~df.index.duplicated(keep="last")].dropna(subset=["close"])
+    df = df[cols][~df.index.duplicated(keep="last")].dropna(subset=["close"]).sort_index()
     df.index.name = "date"
-    PRICES.mkdir(parents=True, exist_ok=True)
-    df.round(6).to_csv(PRICES / f"{ticker}.csv", float_format="%.6g")
+    return df
+
+
+def validate_download(df: pd.DataFrame | None) -> str | None:
+    """Why a downloaded history can't be used (None = fine): too short, no positive closes, missing columns."""
+    if df is None or not len(df):
+        return "no data"
+    if not {"open", "high", "low", "close"} <= set(df.columns):
+        return "missing price columns"
+    c = pd.to_numeric(df["close"], errors="coerce")
+    if (c > 0).sum() < 20:
+        return f"only {(c > 0).sum()} days with a price"
+    return None
+
+
+def fetch_on_demand(ticker: str, download=None) -> bool:
+    """Download a missing ticker's full daily history from Yahoo (yfinance) and save it to data/prices, so a backtest,
+    grid, Monte Carlo run, optimiser, factor or correlation analysis or fund comparison that names it just works.
+    Needs internet: off when BACKTESTER_OFFLINE is set (the cloud sandbox, tests), where the caller queues the symbol
+    in data/extra_tickers.txt for the data job instead. The file then passes the same price-integrity gate as every
+    other file (data.load: missed splits, bad ticks); a download too short to use is not saved. The symbol is also
+    added to data/extra_tickers.txt so the daily data job keeps it up to date. Returns True when the file exists."""
+    import re
+    import time as _time
+    t = canonical(ticker)
+    if (PRICES / f"{t}.csv").exists():
+        return True
+    if not re.fullmatch(TICKER_SYMBOL_RE, t) or t.endswith("SIM"):
+        return False
+    if download is None and offline():
+        return False
+    with _FETCH_LOCK:
+        if (PRICES / f"{t}.csv").exists():
+            return True
+        if _time.time() - _ON_DEMAND_FAILED.get(t, 0) < 600:
+            return False
+        df = (download or _download_yahoo)(t)
+        why = validate_download(df)
+        if why:
+            _ON_DEMAND_FAILED[t] = _time.time()
+            return False
+        PRICES.mkdir(parents=True, exist_ok=True)
+        tmp = PRICES / f".{t}.csv.part"
+        df.round(6).to_csv(tmp, float_format="%.6g")
+        tmp.replace(PRICES / f"{t}.csv")
+    clear_caches()
+    try:
+        _nasdaq100_ever.cache_clear()
+    except AttributeError:
+        pass
+    PRICE_REPAIRS.pop(t, None)
+    try:
+        rep = price_repairs(t)                       # the integrity gate, as data.load applies it
+        n_rep = len(rep)
+    except Exception:  # noqa: BLE001 - an unreadable download: drop it
+        (PRICES / f"{t}.csv").unlink(missing_ok=True)
+        _ON_DEMAND_FAILED[t] = _time.time()
+        return False
+    queued = ""
+    try:
+        how = request_ticker(t)
+        if how == "added":
+            queued = " and added to data/extra_tickers.txt so the data job keeps it updated"
+    except Exception:  # noqa: BLE001 - queuing is a convenience
+        pass
+    ON_DEMAND[t] = (f"{t} was not in the data files: downloaded from Yahoo Finance just now ({len(df)} daily bars, "
+                    f"{df.index[0].date()} to {df.index[-1].date()}), saved to data/prices/{t}.csv{queued}"
+                    + (f"; the price-integrity gate repaired {n_rep} day(s) (data.price_repairs('{t}'))" if n_rep else
+                       "; it passed the price-integrity gate with no repairs") + ".")
     return True
+
+
+def ensure(ticker: str) -> bool:
+    """True when `ticker` has a price file (or an imported series), downloading it on demand when online."""
+    t = canonical(ticker)
+    return price_path(t).exists() or fetch_on_demand(t)
+
+
+def on_demand_notes(tickers) -> list[str]:
+    """The notes of the tickers among `tickers` that were downloaded on demand in this process."""
+    return [ON_DEMAND[t] for t in dict.fromkeys(canonical(x) for x in tickers) if t in ON_DEMAND]
 
 
 EXTRA_TICKERS_FILE = DATA / "extra_tickers.txt"
@@ -1434,8 +1519,7 @@ def request_ticker(ticker: str) -> str:
     t = canonical(ticker)
     if not re.fullmatch(TICKER_SYMBOL_RE, t):
         raise DataError(f"{ticker!r} is not a ticker symbol.")
-    from .fund_lists import ALL_FUNDS
-    if t in ALL_FUNDS:
+    if t in builtin_symbols():
         return "in the built-in list"
     if t in requested_tickers():
         return "already requested"
@@ -1444,6 +1528,42 @@ def request_ticker(ticker: str) -> str:
     with EXTRA_TICKERS_FILE.open("a") as f:
         f.write(("" if not text or text.endswith("\n") else "\n") + t + "\n")
     return "added"
+
+
+def index_constituents() -> dict:
+    """data/index_constituents.json: today's S&P 500 / 400 / 600 members {symbol: company} (the data job refreshes it
+    from Wikipedia) and the other large stocks it downloads."""
+    return _json_file(str(DATA / "index_constituents.json"), _mtime(DATA / "index_constituents.json"))
+
+
+@lru_cache(maxsize=16)
+def _json_file(path: str, _mt) -> dict:
+    try:
+        doc = json.loads(Path(path).read_text())
+        return doc if isinstance(doc, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _mtime(p: Path):
+    try:
+        return p.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+def builtin_symbols() -> set[str]:
+    """Every symbol the data job downloads by itself (rotating batches): the fund lists, the S&P 1500 members and the
+    other large stocks."""
+    from .fund_lists import ALL_FUNDS, OTHER_STOCKS
+    doc = index_constituents()
+    return set(ALL_FUNDS) | set(OTHER_STOCKS) | {t for k in ("sp500", "sp400", "sp600") for t in (doc.get(k) or {})}
+
+
+def broad_stocks() -> list[str]:
+    """S&P 1500 members and other large stocks with a price file (universe.json "broad_stocks"): stocks, never funds
+    and never Nasdaq-100 members."""
+    return list(universe_meta().get("broad_stocks", []))
 
 
 def load_many(tickers: list[str]) -> dict[str, pd.DataFrame]:
@@ -1821,7 +1941,7 @@ def is_fund(ticker: str) -> bool:
     if t.startswith("^") or is_sim(t):
         return True
     from .fund_lists import ALL_FUNDS
-    stocks = set(universe_meta().get("stocks", [])) | LARGE_STOCKS
+    stocks = set(universe_meta().get("stocks", [])) | set(broad_stocks()) | LARGE_STOCKS
     return t not in stocks and (t in set(etfs()) or t in set(funds()) or t in ALL_FUNDS)
 
 

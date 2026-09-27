@@ -687,6 +687,8 @@ def _grid_asset(name: str) -> tuple[str | None, str | None]:
         return ac[0], f"'{n}' is read as {ac[0]}"
     if " " not in n and t in have:
         return t, None
+    if " " not in n and n == n.upper() and data.fetch_on_demand(t):     # online: download a ticker we don't have
+        return t, data.ON_DEMAND.get(t)
     s = data.suggest(t) if " " not in n else []
     return None, (f"Unknown ticker or asset class '{n}'." + (f" Did you mean {', '.join(s)}?" if s else "")
                   + " Asset classes are names such as 'US Stock Market', 'Total Bond Market' or 'US Small Cap Value'.")
@@ -1319,6 +1321,19 @@ def api_funds(query: dict) -> dict:
     return report._clean(funds.table(f))
 
 
+def api_directory(query: dict) -> dict:
+    """GET /api/directory?q=vanguard small value&kind=Mutual fund&limit=100 - the ticker directory: every ticker with
+    price data or metadata, searched by ticker, name, category, family, type or index (backtester/funds.py)."""
+    from . import funds
+    f = {k: (v[0] if isinstance(v, list) else v) for k, v in query.items()}
+    try:
+        limit = max(1, min(500, int(f.get("limit") or 100)))
+    except ValueError:
+        raise ClientError(f"Bad limit {f.get('limit')!r}: give a number.")
+    hd = {"1": True, "true": True, "0": False, "false": False}.get(str(f.get("has_data") or "").lower())
+    return report._clean(funds.directory(f.get("q") or "", f.get("kind") or None, limit, hd))
+
+
 def api_fund_detail(query: dict) -> dict:
     from . import funds
     t = (query.get("t") or query.get("ticker") or [""])[0]
@@ -1346,7 +1361,7 @@ def api_fetch(body):
     if data.fetch_on_demand(t):
         data.load.cache_clear()
         data._nasdaq100_ever.cache_clear()
-        return {"ticker": t, "status": "downloaded"}
+        return {"ticker": t, "status": "downloaded", "note": data.ON_DEMAND.get(t)}
     # no internet here (the cloud sandbox) or an unknown symbol: queue it for the data job
     try:
         how = data.request_ticker(t)
@@ -1355,8 +1370,9 @@ def api_fetch(body):
     after = ("then run the 'Fetch price data' workflow if it doesn't start by itself, and pull the new data. "
              "(A symbol Yahoo doesn't know is listed under requested_failed in data/universe.json.)")
     if how == "in the built-in list":
-        msg = (f"{t} is in the built-in fund list, downloaded in rotating batches by the daily 'Fetch price data' "
-               "workflow: it arrives with one of the next runs (or run the workflow now), then pull.")
+        msg = (f"{t} is in the built-in lists (funds, S&P 500/400/600 members, large ADRs), downloaded in rotating "
+               "batches by the daily 'Fetch price data' workflow: it arrives with one of the next runs (or run the "
+               "workflow now), then pull.")
     elif how == "already requested":
         msg = f"{t} is already in data/extra_tickers.txt: commit and push that file, " + after
     else:
@@ -1476,10 +1492,11 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(400, {"error": str(e)})
             if path == "/api/paper":
                 return self._json(200, api_paper({}, "GET"))
-            if path in ("/api/funds", "/api/funds/detail"):
+            if path in ("/api/funds", "/api/funds/detail", "/api/directory"):
                 try:
                     q = urllib.parse.parse_qs(u.query)
-                    return self._json(200, api_funds(q) if path == "/api/funds" else api_fund_detail(q))
+                    fn = {"/api/funds": api_funds, "/api/funds/detail": api_fund_detail, "/api/directory": api_directory}[path]
+                    return self._json(200, fn(q))
                 except ClientError as e:
                     return self._json(400, {"error": str(e)})
             if path.startswith("/r/"):

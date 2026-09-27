@@ -66,6 +66,10 @@ def _corporate_action_note(spec: Spec, res: Result) -> None:
         n = data.integrity_note(sorted(set(held) | set(_run_tickers(spec))), eq.index[0], eq.index[-1])
         if n and n not in spec.notes:
             spec.notes.append(n)
+        # tickers downloaded from Yahoo on demand for this run (data.fetch_on_demand)
+        for n in data.on_demand_notes(sorted(set(held) | set(_run_tickers(spec)))):
+            if n not in spec.notes:
+                spec.notes.append(n)
         # SIM series held during their model period: that period is net of an estimated fee/cost drag
         n = data.sim_drag_note([t for t in held if data.is_sim(t)], eq.index[0], eq.index[-1])
         if n and n not in spec.notes:
