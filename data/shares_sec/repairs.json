@@ -1,0 +1,193 @@
+{
+ "AEP": [
+  {
+   "date": "2010-07-30",
+   "reported": 479437027000000,
+   "action": "rescaled by 1/1e+06 (units error)"
+  },
+  {
+   "date": "2010-11-01",
+   "reported": 480276270000000,
+   "action": "rescaled by 1/1e+06 (units error)"
+  },
+  {
+   "date": "2011-05-03",
+   "reported": 481790955000000,
+   "action": "rescaled by 1/1e+06 (units error)"
+  }
+ ],
+ "AMD": [
+  {
+   "date": "2012-08-02",
+   "reported": 707555106000000,
+   "action": "rescaled by 1/1e+06 (units error)"
+  }
+ ],
+ "CSX": [
+  {
+   "date": "2011-04-20",
+   "reported": 1,
+   "action": "dropped (2.72e-09x its neighbours, no split explains it)"
+  }
+ ],
+ "EXC": [
+  {
+   "date": "2010-04-23",
+   "reported": 660578698000000,
+   "action": "rescaled by 1/1e+06 (units error)"
+  }
+ ],
+ "FTNT": [
+  {
+   "date": "2014-03-03",
+   "reported": 162853313000,
+   "action": "rescaled by 1/1000 (units error)"
+  },
+  {
+   "date": "2014-05-07",
+   "reported": 163069548000,
+   "action": "rescaled by 1/1000 (units error)"
+  }
+ ],
+ "GRMN": [
+  {
+   "date": "2016-04-27",
+   "reported": 208077418000,
+   "action": "rescaled by 1/1000 (units error)"
+  },
+  {
+   "date": "2016-07-27",
+   "reported": 208077418000,
+   "action": "rescaled by 1/1000 (units error)"
+  },
+  {
+   "date": "2016-10-26",
+   "reported": 198077418000,
+   "action": "rescaled by 1/1000 (units error)"
+  },
+  {
+   "date": "2018-08-01",
+   "reported": 198077418000,
+   "action": "rescaled by 1/1000 (units error)"
+  },
+  {
+   "date": "2018-10-31",
+   "reported": 198077418000,
+   "action": "rescaled by 1/1000 (units error)"
+  }
+ ],
+ "LIN": [
+  {
+   "date": "2017-10-30",
+   "reported": 25000,
+   "action": "dropped (4.59e-05x its neighbours, no split explains it)"
+  },
+  {
+   "date": "2018-03-23",
+   "reported": 25000,
+   "action": "dropped (4.59e-05x its neighbours, no split explains it)"
+  }
+ ],
+ "MAR": [
+  {
+   "date": "2010-04-23",
+   "reported": 361332043000000,
+   "action": "rescaled by 1/1e+06 (units error)"
+  }
+ ],
+ "MXIM": [
+  {
+   "date": "2011-01-24",
+   "reported": 296476075000,
+   "action": "rescaled by 1/1000 (units error)"
+  },
+  {
+   "date": "2011-04-28",
+   "reported": 295367676000,
+   "action": "rescaled by 1/1000 (units error)"
+  }
+ ],
+ "NTAP": [
+  {
+   "date": "2024-02-29",
+   "reported": 20637666,
+   "action": "dropped (0.0988x its neighbours, no split explains it)"
+  }
+ ],
+ "ON": [
+  {
+   "date": "2012-08-03",
+   "reported": 455571966000000,
+   "action": "rescaled by 1/1e+06 (units error)"
+  },
+  {
+   "date": "2012-11-02",
+   "reported": 448293513000000,
+   "action": "rescaled by 1/1e+06 (units error)"
+  },
+  {
+   "date": "2013-05-03",
+   "reported": 450761359000000,
+   "action": "rescaled by 1/1e+06 (units error)"
+  }
+ ],
+ "ORCL": [
+  {
+   "date": "2012-09-24",
+   "reported": 4819056000000000,
+   "action": "rescaled by 1/1e+06 (units error)"
+  }
+ ],
+ "QCOM": [
+  {
+   "date": "2011-04-20",
+   "reported": 1669532005000,
+   "action": "rescaled by 1/1000 (units error)"
+  },
+  {
+   "date": "2011-11-02",
+   "reported": 1680984426000,
+   "action": "rescaled by 1/1000 (units error)"
+  }
+ ],
+ "STX": [
+  {
+   "date": "2015-04-30",
+   "reported": 317381531000000,
+   "action": "rescaled by 1/1e+06 (units error)"
+  }
+ ],
+ "SWKS": [
+  {
+   "date": "2011-11-28",
+   "reported": 187889808000,
+   "action": "rescaled by 1/1000 (units error)"
+  },
+  {
+   "date": "2012-02-07",
+   "reported": 188415515000,
+   "action": "rescaled by 1/1000 (units error)"
+  }
+ ],
+ "WBA": [
+  {
+   "date": "2014-12-30",
+   "reported": 100,
+   "action": "dropped (9.17e-08x its neighbours, no split explains it)"
+  }
+ ],
+ "WBD": [
+  {
+   "date": "2010-02-22",
+   "reported": 135226377,
+   "action": "dropped (0.0557x its neighbours, no split explains it)"
+  }
+ ],
+ "XLNX": [
+  {
+   "date": "2015-07-31",
+   "reported": 258657885000,
+   "action": "rescaled by 1/1000 (units error)"
+  }
+ ]
+}

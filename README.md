@@ -773,8 +773,15 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
     context, an equal-weight portfolio of the members with data against a fund holding the whole index
     (QQQE, else QQQ) over the same months. A free Tiingo key fills most of the gap (see Data).
   - Market-cap rankings and weights ("top 10 Nasdaq 100 stocks by market cap") start on the first day
-    share counts cover at least 80% of the members (a note says so), and a note lists any rebalance where
-    a top-N filter ranked fewer than N names or under 80% of its universe.
+    share counts cover the universe *by size*, not only by number: at least 80% of the members have a count,
+    those members hold at least 95% of the index's estimated value, and none of the largest fifth of the
+    members (by estimated size) is missing one (a note says which condition held the start back). A member's
+    size is estimated even without a point-in-time count - its close times the nearest share count reported
+    at any time, else its dollar volume / 0.8% - and this estimate only decides where a run can start and what
+    to warn about, never a ranking or a weight. When a probable top-N member still has no count on some day of
+    a top-N-by-market-cap run, a warning names it, its dates and its approximate size ("Market-cap ranking
+    misses large members"). A note also lists any rebalance where a top-N filter ranked fewer than N names or
+    under 80% of its universe. "Top 10 by market cap since 2005" therefore starts in September 2010.
   - Share classes of one company (GOOG/GOOGL, FOX/FOXA, LBTYA/LBTYK, BATRA/BATRK, LILA/LILAK, DISCA/DISCK,
     NWS/NWSA) are one name: a top-N ranking counts the company once (by market cap: its full market cap) and
     holds its more liquid class that day (higher 3-month average dollar volume), so "the top 10 by market cap"
@@ -787,6 +794,12 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   note). The signal engine keeps the proceeds in cash for new signals; a portfolio holds them in cash until
   its next rebalance, where the ticker counts as no longer trading (a fixed slice of it stays in cash, a
   filter or weighting picks among the rest). An index universe drops it from membership.
+  A rebuilt history that stops at a source boundary before the company stopped trading (the Carnegie Mellon
+  archive ends 2006-12-29: AMLN traded until Bristol-Myers Squibb bought it in 2012; QSTK ends 2012-09: DELL
+  until the 2013 buy-out) is not a delisting: `data/delisted.json` records each history's real end
+  (`listing_ended`, `event` with the terms, e.g. XMSR merged into Sirius on 2008-07-28 at 4.6 SIRI shares), such a
+  position is closed at its last price with trades/orders marked `data ends` and a "Data ends: ..." note naming
+  the real exit, and the member-months after the data ends count as missing coverage.
 - **Spin-offs.** A "dividend" worth more than 15% of the price (the data books spun-off shares at their
   value, e.g. MDLZ on 2012-10-02) is paid in cash like a dividend but labelled a spin-off/special
   distribution in the notes and the portfolio ledger.
@@ -803,6 +816,13 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   over a repaired day says so ("Data repaired: ..."); `data.price_repairs(ticker)` lists them. Two or three bars
   in a row with no volume, far from the closes around them (which agree), are quotes that never traded and are
   replaced the same way (INDV 2022-11-23..25; IPAR 1990-08-03, with the phantom 2-for-5 "split" booked on them).
+  Multi-bar level-shift junk - closes flipping back and forth between two price levels in blocks of a few days,
+  at least eight 15%+ jumps a few bars apart, each level with its own distinct closes, and no day's range
+  spanning both (two sources mixed: WFM 1996-08..10, blocks about 1.3x apart; SZK 2014-12..2015-03, untraded
+  quotes) - is replaced by the path between the closes around the stretch and never traded at, since which
+  level was real is unknown (`integrity.level_junk_stretches`). A thin stock bouncing between two ticks (GFF
+  1977, LCII 1987) or trading between the levels (ODFL 1998) is left alone. All 2,103 price files were scanned:
+  WFM/WFMI and SZK are the only ones.
 - **Bankruptcy re-listings (security breaks).** When a company's old shares are cancelled in Chapter 11 and the new
   shares list under the same symbol, the price source splices the two: CHRD (Oasis Petroleum) closed at $0.12 on
   2020-11-19 and at $31 on 2020-11-20, a 258x "gain" nobody earned. A 10x-or-more overnight jump from a price that
@@ -1025,9 +1045,18 @@ close and commits updates, so `git pull` gets fresh data. It downloads:
   outstanding, else the weighted-average count - dated by the filing date, so it is only used once public.
   They come from a public mirror of EDGAR's cover-page data and from EDGAR's companyconcept API (the SEC
   blocks the download from GitHub Actions, so the job does not refresh them). SEC counts fill the dates
-  before Yahoo's first count and any gap of more than 120 days in Yahoo's. With them, share counts cover at
-  least 80% of Nasdaq-100 members from 2011-03 (about 45% in late 2009 and 74% in late 2010), so market-cap
-  rankings of the index start in 2011 rather than late 2015.
+  before Yahoo's first count and any gap of more than 120 days in Yahoo's. Every count file is validated on
+  load (`data.clean_share_counts`): a count 8x or more away from the median of its neighbours (on the
+  split-adjusted basis, so a split is never mistaken for a jump; a count reported around a split on the other
+  basis is kept) is rescaled when it is off by a power of 1,000 (units errors: MXIM's 2011 10-Qs in thousands,
+  296,476,075,000 shares, which had put Maxim in the "top 10"; ORCL, QCOM, AEP, ON, GRMN, ...) and dropped
+  otherwise, and a count implying a market cap outside $100k-$6T is dropped (WBA's 100 shell shares). The SEC
+  files were repaired this way (`data/shares_sec/repairs.json` lists each change). Counts added by hand from
+  SEC filings (`data/shares_sec/sources.json` gives each one's source): Google/Alphabet from 2009-08 (class
+  A + B from the balance sheet), Facebook/Meta from its 2012 IPO, VOD, BIDU, INFY and RIMM/BB from their
+  20-F/40-F cover pages (in ADS units), TEVA, AVGO (Avago), the old News Corp (NWSA-2013), DirecTV before
+  2011, Kraft Foods Group, Seagen and Splunk. Share counts now cover the largest members from 2010-09 (at
+  least 80% of the members and 95% of the index's estimated value).
 
 **Market cap** is the close as quoted that day times the shares outstanding last reported before that day
 (each count is used from the next session). Yahoo's share counts are in the share units of their date, so
@@ -1171,7 +1200,14 @@ Stooq and Carnegie Mellon's historical archive, joined where they overlap. `data
 records every source with its licence, how the histories were joined and, per ticker, which source covers
 which dates, the splits and any repairs. Each series had to overlap the membership months as a large Nasdaq
 stock, agree with every other source on overlapping days and show consistent split and dividend events;
-histories from the archive that ends in 2006 are price-return only. Coverage is now about 97% over
+histories from the archive that ends in 2006 are price-return only. Dividends a source's adjusted close did
+not carry (bdi2357's adjusted close equals its close for many names) were filled from the Intrader files'
+cash dividends where their split-adjusted closes match the file (LLTC, BRCM, WFM, KRFT, CA, SIAL, PETM, CMCSK,
+VIAB, GMCR; `dividends_added` per ticker) and the adjusted close recomputed from them. Where no source has
+them, the ticker is marked price-only for those dates (`price_only`: ALTR 2007-2015, MOLX, SPLS, TLAB,
+SNDK-2016 from 2013, and BMET/APCC/CDWC in the 2006 archive), and a run holding it says so with the yield
+missing where it could be measured ("Price-only history: ... total return understated by about 0.8%/yr").
+Each history's true end is recorded too (see Delistings). Coverage is now about 97% over
 2004-2026 and 90% in 2004. A symbol that was later reused by another company keeps that company's file,
 and the former member's history is stored as `<SYMBOL>-<YEAR>` (DELL-2013, SNDK-2016, BBBY-2023, …;
 `FORMER_LISTINGS` in `backtester/data.py`), which the membership uses up to the day the symbol changed

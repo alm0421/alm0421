@@ -52,6 +52,70 @@ EVENT_COLUMNS = ["date", "kind", "ratio", "applied", "day_return_raw", "day_retu
                  "reference", "volume_ratio", "why"]
 
 
+LEVEL_JUMP = np.log(1.15)     # level-shift junk: jumps of at least 15% ...
+LEVEL_SD = 5.0                # ... and 5 robust daily sds,
+LEVEL_MIN_JUMPS = 8           # at least this many of them (four round trips),
+LEVEL_MAX_RUN = 12            # at most this many bars apart,
+LEVEL_SPREAD = 0.3            # between two levels whose own spread is under 30% of the gap between them,
+LEVEL_DISTINCT = 0.3          # with distinct closes on each level (a thin stock's bid/ask bounce sits on a few ticks)
+LEVEL_STRADDLE = 0.2          # and few days whose high-low range spans both levels (real trading between them)
+
+
+def level_junk_stretches(lc: np.ndarray, r: np.ndarray, lh: np.ndarray | None = None,
+                         ll: np.ndarray | None = None) -> list[tuple[int, int, float, float, int]]:
+    """Stretches where the log close flips back and forth between two price levels in blocks of a few bars (WFM
+    1996-08..10: blocks ~1.33x apart - two sources mixed), as (a, b, lo, hi, jumps): bars a..b-1 are inside (bar a-1
+    before the first jump and bar b after the last one are the anchors), lo/hi the two levels (log). A real stock
+    moves on from a big jump; here the price keeps returning to the same two levels, jump after jump."""
+    n = len(lc)
+    if n < 30:
+        return []
+    ar = np.abs(np.nan_to_num(r, nan=0.0))
+    med = pd.Series(ar).rolling(250, min_periods=20).median().shift(1).to_numpy() * 1.4826
+    med = np.where(np.isfinite(med) & (med > 0), med, 0.02)
+    big = np.flatnonzero((ar >= LEVEL_JUMP) & (ar >= LEVEL_SD * med))
+    out = []
+    i = 0
+    while i < len(big):
+        j = i
+        while j + 1 < len(big) and big[j + 1] - big[j] <= LEVEL_MAX_RUN:
+            j += 1
+        grp = big[i:j + 1]
+        i = j + 1
+        if len(grp) < LEVEL_MIN_JUMPS:
+            continue
+        flips = sum(1 for p, q in zip(grp[:-1], grp[1:]) if np.sign(r[p]) != np.sign(r[q]))
+        if flips < 0.7 * (len(grp) - 1):
+            continue                                     # jumps mostly one way: a trend or a crash, not flipping
+        a, b = int(grp[0]), int(grp[-1])
+        seg = lc[a - 1:b + 1]
+        if a < 1 or not np.isfinite(seg).all():
+            continue
+        # two levels: split at the largest gap between the sorted closes
+        srt = np.sort(seg)
+        cut = int(np.argmax(np.diff(srt)))
+        low, high = srt[:cut + 1], srt[cut + 1:]
+        gap = float(high.mean() - low.mean())
+        if gap < LEVEL_JUMP or len(low) < 2 or len(high) < 2:
+            continue
+        if max(float(low.std()), float(high.std())) > LEVEL_SPREAD * gap:
+            continue
+        if min(len(np.unique(np.round(low, 6))), len(np.unique(np.round(high, 6)))) < LEVEL_DISTINCT * min(len(low), len(high)):
+            continue                                     # a thin stock bouncing between two ticks (GFF 1977, LCII 1987)
+        # every jump in the group crosses between the levels (not a trend through them)
+        mid = 0.5 * (float(low.max()) + float(high.min()))
+        crosses = sum(1 for q in grp if (lc[q] - mid) * (lc[q - 1] - mid) < 0)
+        if crosses < 0.8 * len(grp):
+            continue
+        if lh is not None and ll is not None:
+            # real trading between the levels: days whose own high-low range spans both (a thin stock, ODFL 1998)
+            span = np.nan_to_num((lh[a - 1:b + 1] > mid) & (ll[a - 1:b + 1] < mid), nan=False)
+            if span.mean() > LEVEL_STRADDLE:
+                continue
+        out.append((a, b, float(low.mean()), float(high.mean()), len(grp)))
+    return out
+
+
 def _ok(x) -> bool:
     return x is not None and np.isfinite(x)
 
@@ -301,6 +365,37 @@ def check(t: str, raw: pd.DataFrame, ref_returns: Callable[[str], pd.Series | No
                                            "by the path between those closes" + phantom)})
                 taken = j
                 break
+    # ---------------------------------------------------------------- level-shift junk
+    if events:
+        ctx = _Ctx(t, raw, ref_returns)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        lh = np.log(raw["high"].where(raw["high"] > 0)).to_numpy()
+        ll = np.log(raw["low"].where(raw["low"] > 0)).to_numpy()
+    for a, b, lo, hi, n_jumps in level_junk_stretches(ctx.lc.to_numpy(), ctx.r.to_numpy(), lh, ll):
+        if any(raw.index[q] in ignore for q in range(a, b)):
+            continue
+        pred = [ctx.predict(q)[0] for q in range(a, b + 1)]
+        if max(abs(x) for x in pred) > 0.3 * (hi - lo):
+            continue                                     # the market itself swung that much: real (if wild) days
+        la, lb = float(ctx.lc.iloc[a - 1]), float(ctx.lc.iloc[b])
+        k = b - a + 1
+        for q in range(a, b):
+            new = float(np.exp(la + (lb - la) * (q - a + 1) / k))
+            old = float(raw["close"].iloc[q])
+            prev = float(raw["close"].iloc[q - 1])
+            for col in ("open", "high", "low", "close"):
+                raw.iloc[q, raw.columns.get_loc(col)] = new
+            if "adj_close" in raw and raw["adj_close"].iloc[q] > 0:
+                raw.iloc[q, raw.columns.get_loc("adj_close")] = raw["adj_close"].iloc[q] * new / old
+            events.append({"date": raw.index[q], "kind": "level_junk", "ratio": np.nan, "applied": "replaced",
+                           "day_return_raw": old / prev - 1 if q == a else np.nan,
+                           "day_return_now": new / prev - 1, "expected": np.nan, "sigma": np.nan,
+                           "reference": None, "volume_ratio": np.nan,
+                           "why": (f"{raw.index[a].date()}..{raw.index[b - 1].date()}: the closes jump back and forth "
+                                   f"{n_jumps} times between two levels {np.exp(hi - lo):.2f}x apart ({np.exp(lo):.4g} "
+                                   f"and {np.exp(hi):.4g}) - two sources mixed in blocks of a few days. Which level "
+                                   "is right is unknown, so the stretch is replaced by the path between the closes "
+                                   f"around it ({np.exp(la):.4g} and {np.exp(lb):.4g}) and never traded at")})
     if events:
         ctx = _Ctx(t, raw, ref_returns)
 

@@ -405,6 +405,11 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
             if len(cal) < 2:
                 raise ValueError(f"Market-cap data only covers enough of the Nasdaq-100 from {d.date()}, at the end of "
                                  "this period.")
+        if strat.rank_by and re.sub(r"\s+", "", str(strat.rank_by)) == "market_cap" and not strat.rank_ascending:
+            # size-aware: a probable top-N member (N = the position slots) with no share count is warned about loudly
+            w = data.mcap_gap_warning(elig[len(elig) - len(cal):], names, cal, int(strat.max_positions or 1))
+            if w and w not in strat.notes:
+                strat.notes.append(w)
 
     tick = list(dfs)
     T, N = len(cal), len(tick)
@@ -727,7 +732,7 @@ def run(strat: Strategy) -> Result:
     has = ~np.isnan(C)
     last_bar = np.array([np.flatnonzero(has[:, j])[-1] if has[:, j].any() else -1 for j in range(N)])
     delist = P["delist"]
-    delisted: list[str] = []
+    delisted: list[tuple[str, str]] = []   # (trade reason, note text)
     # security breaks (data.security_breaks): a position held into one is closed at the old security's last close
     seg_ns = P["seg_ns"]
     BRK = np.zeros((T, N), bool)
@@ -1644,8 +1649,8 @@ def run(strat: Strategy) -> Result:
                     continue
                 p.pending_open_exit, p.pending_reason = True, "exit rule"
             if delist[k] == i:
-                close_part(i, p, c[k], "delisted", at_open=False)
-                delisted.append(f"{tick[k]} delisted/acquired on {cal[i].date()}")
+                close_part(i, p, c[k], data.end_label(tick[k]), at_open=False)
+                delisted.append((data.end_label(tick[k]), data.end_note_text(tick[k], cal[i])))
         np.copyto(last_close, c, where=~np.isnan(c))
 
         # ---- 3b. entries at the close / orders for tomorrow
@@ -1708,10 +1713,15 @@ def run(strat: Strategy) -> Result:
     bn = data.break_note(broken)
     if bn and bn not in strat.notes:
         strat.notes.append(bn)
-    if delisted:
-        more = f" and {len(delisted) - 5} more" if len(delisted) > 5 else ""
-        strat.notes.append(f"Delisted: {', '.join(delisted[:5])}{more}; the position was closed at its last price (the "
+    gone = [x for lab, x in delisted if lab == "delisted"]
+    cut = [x for lab, x in delisted if lab != "delisted"]
+    if gone:
+        more = f" and {len(gone) - 5} more" if len(gone) > 5 else ""
+        strat.notes.append(f"Delisted: {', '.join(gone[:5])}{more}; the position was closed at its last price (the "
                            "final close in the data; trades marked 'delisted') and the proceeds were held in cash.")
+    if cut:
+        more = f" and {len(cut) - 5} more" if len(cut) > 5 else ""
+        strat.notes.append(data.DATA_ENDS_NOTE.format(items="; ".join(cut[:5]) + more))
     if margin_calls:
         more = f" and {len(margin_calls) - 5} more" if len(margin_calls) > 5 else ""
         strat.notes = [n for n in strat.notes if not n.startswith("Margin call")]

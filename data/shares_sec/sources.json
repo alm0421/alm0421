@@ -1,0 +1,17 @@
+{
+ "AVGO": "CIK0001441634 dei/EntityCommonStockSharesOutstanding (Avago Technologies Ltd)",
+ "BB": "40-F cover pages (Research In Motion, CIK0001070235): common shares outstanding at fiscal year end (RIMM until 2013, now BB)",
+ "BIDU": "20-F cover pages (CIK0001329099): Class A + Class B ordinary shares at 31 December, in ADS units as quoted (1 ADS = 1 share until the 2010-05-12 ratio change, 10 ADS = 1 share after)",
+ "DTV": "CIK0001465112 dei/EntityCommonStockSharesOutstanding from 2011-05; before it us-gaap/WeightedAverageNumberOfSharesOutstandingBasic (Class A + B; the FY2009 and FY2010 10-K annual averages and the Q1 2010 quarter)",
+ "GOOG": "CIK0001288776 us-gaap/CommonStockSharesOutstanding (Google Inc., Class A + Class B, balance-sheet count of the filing's own quarter, dated by filing) to 2014-04-24; dei/weighted-average after. GOOGL: the same company counts",
+ "GOOGL": "CIK0001288776 us-gaap/CommonStockSharesOutstanding (Google Inc., Class A + Class B) to 2014-04-24, as GOOG",
+ "INFY": "20-F cover pages (CIK0001067491): equity shares outstanding at 31 March (1 ADS = 1 equity share)",
+ "KRFT": "CIK0001545158 dei/EntityCommonStockSharesOutstanding (Kraft Foods Group)",
+ "META": "CIK0001326801 us-gaap/WeightedAverageNumberOfSharesOutstandingBasic (Facebook/Meta, Class A + Class B, the filing's own quarter; the FY2012 10-K's annual average, distorted by the IPO, left out). FB reads it through RENAMED",
+ "MXIM": "existing SEC counts; the 2011-01-24 and 2011-04-28 10-Q counts were in thousands (296,476,075,000) and are rescaled",
+ "NWSA-2013": "CIK0001308161 us-gaap/WeightedAverageNumberOfSharesOutstandingBasic (the old News Corp, Class A + Class B, the filing's own quarter; 10-K annual averages where there is no quarter)",
+ "SGEN": "CIK0001060736 dei/EntityCommonStockSharesOutstanding (Seagen / Seattle Genetics)",
+ "SPLK": "CIK0001353283 dei/EntityCommonStockSharesOutstanding (Splunk)",
+ "TEVA": "CIK0000818686 dei/EntityCommonStockSharesOutstanding (Teva; 6-K/20-F, 1 ADS = 1 ordinary share)",
+ "VOD": "20-F cover pages (CIK0000839923): ordinary shares outstanding at 31 March / 10 = ADS equivalent (1 ADS = 10 ordinary shares); 2014-02-24 derived from the 6-for-11 consolidation"
+}

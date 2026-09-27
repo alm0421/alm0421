@@ -4,7 +4,9 @@
   "first_date": "1988-04-04",
   "rows": 6991,
   "member_months": "2004-03..2015-10",
-  "source": "intrader_old"
+  "source": "intrader_old",
+  "event": "acquired by Intel for $54.00 per share in cash",
+  "end_reason": "delisted"
  },
  "ALXN": {
   "last_date": "2021-07-28",
@@ -18,7 +20,10 @@
   "first_date": "2001-01-02",
   "rows": 1502,
   "member_months": "2006-02..2008-12",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "acquired by Bristol-Myers Squibb for $31.00 per share in cash",
+  "listing_ended": "2012-08-08",
+  "end_reason": "data ends (source boundary)"
  },
  "ANSS": {
   "last_date": "2025-07-16",
@@ -32,14 +37,19 @@
   "first_date": "2001-01-02",
   "rows": 1503,
   "member_months": "2004-03..2007-02",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "acquired by Schneider Electric for $31.00 per share in cash",
+  "listing_ended": "2007-02-14",
+  "end_reason": "data ends (source boundary)"
  },
  "APOL": {
   "last_date": "2017-02-01",
   "first_date": "1995-01-04",
   "rows": 5560,
   "member_months": "2004-03..2012-12",
-  "source": "bdi+intrader"
+  "source": "bdi+intrader",
+  "event": "taken private (Apollo Global, Vistria) for $10.00 per share in cash",
+  "end_reason": "delisted"
  },
  "ATVI": {
   "last_date": "2023-10-12",
@@ -61,42 +71,57 @@
   "first_date": "2001-01-02",
   "rows": 1504,
   "member_months": "2004-03..2008-04",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "acquired by Oracle for $19.375 per share in cash",
+  "listing_ended": "2008-04-29",
+  "end_reason": "data ends (source boundary)"
  },
  "BMC": {
   "last_date": "2013-09-10",
   "first_date": "1997-12-31",
   "rows": 3948,
   "member_months": "2010-01..2013-09",
-  "source": "bdi"
+  "source": "bdi",
+  "event": "taken private (Bain Capital, Golden Gate) for $46.25 per share in cash",
+  "end_reason": "delisted"
  },
  "BMET": {
   "last_date": "2006-12-29",
   "first_date": "2001-01-02",
   "rows": 1491,
   "member_months": "2004-03..2007-07",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "taken private by a private-equity consortium (LVB Acquisition) for $46.00 per share in cash; the tender offer ran from June 2007",
+  "listing_ended": "2007-09-25",
+  "end_reason": "data ends (source boundary)"
  },
  "BRCM": {
   "last_date": "2016-01-29",
   "first_date": "1998-04-17",
   "rows": 4476,
   "member_months": "2004-03..2015-12",
-  "source": "bdi"
+  "source": "bdi",
+  "event": "acquired by Avago (Broadcom Ltd.): cash or Broadcom Ltd. shares",
+  "end_reason": "delisted"
  },
  "CA": {
   "last_date": "2018-11-05",
   "first_date": "1984-09-07",
   "rows": 8614,
   "member_months": "2008-06..2018-11",
-  "source": "bdi+intrader"
+  "source": "bdi+intrader",
+  "event": "acquired by Broadcom for $44.50 per share in cash",
+  "end_reason": "delisted"
  },
  "CDWC": {
   "last_date": "2006-12-29",
   "first_date": "2001-01-02",
   "rows": 1503,
   "member_months": "2004-03..2007-10",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "taken private by Madison Dearborn and Providence Equity for $87.75 per share in cash",
+  "listing_ended": "2007-10-12",
+  "end_reason": "data ends (source boundary)"
  },
  "CECO-2019": {
   "last_date": "2018-03-29",
@@ -104,21 +129,29 @@
   "rows": 5040,
   "member_months": "2004-03..2005-12",
   "reason": "the former company listed as CECO until 2020-01-01 (the symbol was later reused)",
-  "source": "kaggle_stooq+stooq_2018"
+  "source": "kaggle_stooq+stooq_2018",
+  "event": "Career Education renamed Perdoceo Education (symbol PRDO); it kept trading",
+  "listing_ended": "2020-01-01",
+  "listing_ended_text": "January 2020",
+  "end_reason": "data ends (source boundary)"
  },
  "CELG": {
   "last_date": "2019-11-22",
   "first_date": "1990-03-26",
   "rows": 7476,
   "member_months": "2005-11..2019-11",
-  "source": "bdi+intrader"
+  "source": "bdi+intrader",
+  "event": "acquired by Bristol-Myers Squibb for $50.00 in cash, 1 BMY share and a CVR per share",
+  "end_reason": "delisted"
  },
  "CEPH": {
   "last_date": "2011-10-13",
   "first_date": "1997-12-31",
   "rows": 3470,
   "member_months": "2004-03..2011-07",
-  "source": "bdi"
+  "source": "bdi",
+  "event": "acquired by Teva for $81.50 per share in cash",
+  "end_reason": "delisted"
  },
  "CERN": {
   "last_date": "2022-08-09",
@@ -132,14 +165,20 @@
   "first_date": "2001-01-02",
   "rows": 1250,
   "member_months": "2004-03..2006-10",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "acquired by Novartis for $48.00 per share in cash",
+  "listing_ended": "2006-04-19",
+  "end_reason": "data ends (source boundary)"
  },
  "CKFR": {
   "last_date": "2006-12-29",
   "first_date": "2001-01-02",
   "rows": 1504,
   "member_months": "2006-01..2007-12",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "acquired by Fiserv for $48.00 per share in cash",
+  "listing_ended": "2007-12-03",
+  "end_reason": "data ends (source boundary)"
  },
  "CMCSK": {
   "last_date": "2015-12-11",
@@ -153,7 +192,10 @@
   "first_date": "2001-01-02",
   "rows": 1499,
   "member_months": "2004-03..2007-01",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "delisted from Nasdaq for late filings (options-backdating restatement); it traded over the counter afterwards",
+  "listing_ended": "2007-02-01",
+  "end_reason": "data ends (source boundary)"
  },
  "CPWR-2014": {
   "last_date": "2014-12-15",
@@ -168,7 +210,9 @@
   "first_date": "2006-07-03",
   "rows": 2280,
   "member_months": "2013-01..2015-07",
-  "source": "intrader"
+  "source": "intrader",
+  "event": "acquired by UnitedHealth for $61.50 per share in cash",
+  "end_reason": "delisted"
  },
  "CTXS": {
   "last_date": "2022-09-29",
@@ -183,7 +227,10 @@
   "rows": 3175,
   "member_months": "2004-03..2013-10",
   "reason": "the former company listed as DELL until 2013-10-30 (the symbol was later reused)",
-  "source": "qstk"
+  "source": "qstk",
+  "event": "taken private by Michael Dell and Silver Lake for $13.75 per share in cash plus a $0.13 special dividend",
+  "listing_ended": "2013-10-29",
+  "end_reason": "data ends (source boundary)"
  },
  "DISCK": {
   "last_date": "2022-08-09",
@@ -204,7 +251,9 @@
   "first_date": "2003-12-23",
   "rows": 2916,
   "member_months": "2008-05..2015-07",
-  "source": "intrader_old"
+  "source": "intrader_old",
+  "event": "acquired by AT&T for $28.50 in cash plus 1.892 T shares per share",
+  "end_reason": "delisted"
  },
  "EA": {
   "last_date": "2026-08-04",
@@ -233,7 +282,9 @@
   "first_date": "1992-06-09",
   "rows": 6685,
   "member_months": "2004-03..2018-12",
-  "source": "bdi+intrader"
+  "source": "bdi+intrader",
+  "event": "acquired by Cigna for $48.75 in cash plus 0.2434 CI shares per share",
+  "end_reason": "delisted"
  },
  "FLIR": {
   "last_date": "2021-05-14",
@@ -271,14 +322,18 @@
   "rows": 2457,
   "member_months": "2004-03..2011-04",
   "reason": "the former company listed as GENZ until 2011-04-11 (the symbol was later reused)",
-  "source": "qstk"
+  "source": "qstk",
+  "event": "acquired by Sanofi for $74.00 per share in cash plus a contingent value right",
+  "end_reason": "delisted"
  },
  "GMCR": {
   "last_date": "2016-03-02",
   "first_date": "1993-09-27",
   "rows": 5649,
   "member_months": "2011-06..2015-12",
-  "source": "bdi+intrader"
+  "source": "bdi+intrader",
+  "event": "Keurig Green Mountain taken private by JAB for $92.00 per share in cash",
+  "end_reason": "delisted"
  },
  "GOLD-2019": {
   "last_date": "2014-03-14",
@@ -286,7 +341,11 @@
   "rows": 2927,
   "member_months": "2012-01..2013-12",
   "reason": "the former company listed as GOLD until 2019-01-02 (the symbol was later reused)",
-  "source": "intrader_old"
+  "source": "intrader_old",
+  "event": "Randgold Resources merged with Barrick Gold (6.1280 Barrick shares per Randgold share)",
+  "listing_ended": "2019-01-01",
+  "listing_ended_text": "January 2019",
+  "end_reason": "data ends (source boundary)"
  },
  "HOLX": {
   "last_date": "2024-09-27",
@@ -300,21 +359,31 @@
   "first_date": "1993-01-19",
   "rows": 3927,
   "member_months": "2004-03..2009-12",
-  "source": "qstk+intrader"
+  "source": "qstk+intrader",
+  "event": "IAC spun off HSN, Interval Leisure, Ticketmaster and Tree.com and made a 1-for-2 reverse split on 2008-08-20; IACI kept trading (the sources book the spin-off inconsistently, so the rebuilt history stops before it)",
+  "listing_ended_text": "after its 2008-08-20 spin-offs",
+  "end_reason": "data ends (source boundary)",
+  "data_ends": true
  },
  "ISIL": {
   "last_date": "2017-02-23",
   "first_date": "2000-02-25",
   "rows": 4276,
   "member_months": "2004-03..2005-12",
-  "source": "intrader"
+  "source": "intrader",
+  "event": "acquired by Renesas for $22.50 per share in cash",
+  "end_reason": "delisted"
  },
  "IVGN": {
   "last_date": "2006-12-29",
   "first_date": "2001-01-02",
   "rows": 1503,
   "member_months": "2004-03..2005-12",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "merged with Applied Biosystems and renamed Life Technologies (symbol LIFE); the same company's later history is LIFE-2014",
+  "listing_ended": "2008-11-21",
+  "listing_ended_text": "November 2008",
+  "end_reason": "data ends (source boundary)"
  },
  "JAVA-2010": {
   "last_date": "2010-01-26",
@@ -322,7 +391,9 @@
   "rows": 1275,
   "member_months": "2007-09..2009-09",
   "reason": "the former company listed as JAVA until 2010-01-27 (the symbol was later reused)",
-  "source": "qstk"
+  "source": "qstk",
+  "event": "acquired by Oracle for $9.50 per share in cash",
+  "end_reason": "delisted"
  },
  "JNPR": {
   "last_date": "2024-09-27",
@@ -336,7 +407,9 @@
   "first_date": "2012-09-17",
   "rows": 702,
   "member_months": "2013-05..2015-07",
-  "source": "bdi"
+  "source": "bdi",
+  "event": "merged with H.J. Heinz to form Kraft Heinz (KHC): 1 KHC share and a $16.50 special dividend per share",
+  "end_reason": "delisted"
  },
  "LIFE-2014": {
   "last_date": "2012-09-11",
@@ -344,7 +417,10 @@
   "rows": 3167,
   "member_months": "2009-01..2013-09",
   "reason": "the former company listed as LIFE until 2014-02-04 (the symbol was later reused)",
-  "source": "qstk"
+  "source": "qstk",
+  "event": "acquired by Thermo Fisher Scientific for $76.13 per share in cash",
+  "listing_ended": "2014-02-03",
+  "end_reason": "data ends (source boundary)"
  },
  "LINTA": {
   "last_date": "2024-09-27",
@@ -358,14 +434,20 @@
   "first_date": "1990-03-26",
   "rows": 6794,
   "member_months": "2004-03..2016-11",
-  "source": "bdi+intrader"
+  "source": "bdi+intrader",
+  "event": "acquired by Analog Devices for $46.00 in cash plus 0.2321 ADI shares per share",
+  "end_reason": "delisted"
  },
  "LNCR": {
   "last_date": "2006-12-29",
   "first_date": "2001-01-02",
   "rows": 1504,
   "member_months": "2004-03..2006-12",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "acquired by Linde for $41.50 per share in cash",
+  "listing_ended": "2012-08-01",
+  "listing_ended_text": "August 2012",
+  "end_reason": "data ends (source boundary)"
  },
  "LVLT": {
   "last_date": "2017-10-31",
@@ -387,21 +469,30 @@
   "rows": 1502,
   "member_months": "2004-03..2007-05",
   "reason": "the former company listed as MEDI until 2007-06-19 (the symbol was later reused)",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "acquired by AstraZeneca for $58.00 per share in cash",
+  "listing_ended": "2007-06-18",
+  "end_reason": "data ends (source boundary)"
  },
  "MLNM": {
   "last_date": "2006-12-29",
   "first_date": "2001-01-02",
   "rows": 1504,
   "member_months": "2004-03..2005-12",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "acquired by Takeda for $25.00 per share in cash",
+  "listing_ended": "2008-05-01",
+  "listing_ended_text": "May 2008",
+  "end_reason": "data ends (source boundary)"
  },
  "MOLX": {
   "last_date": "2013-12-06",
   "first_date": "1997-12-31",
   "rows": 4010,
   "member_months": "2004-03..2005-12",
-  "source": "bdi"
+  "source": "bdi",
+  "event": "acquired by Koch Industries for $38.50 per share in cash",
+  "end_reason": "delisted"
  },
  "MXIM": {
   "last_date": "2021-08-26",
@@ -415,14 +506,21 @@
   "first_date": "2002-11-22",
   "rows": 1030,
   "member_months": "2006-01..2011-12",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "filed for Chapter 11 on 2014-09-15; the old shares were cancelled when it emerged in June 2015",
+  "listing_ended": "2014-09-15",
+  "end_reason": "data ends (source boundary)"
  },
  "NTLI": {
   "last_date": "2006-12-29",
   "first_date": "2004-07-19",
   "rows": 618,
   "member_months": "2005-11..2007-08",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "renamed Virgin Media (symbol VMED), acquired by Liberty Global on 2013-06-07 for $17.50 in cash plus Liberty Global shares",
+  "listing_ended": "2007-02-08",
+  "listing_ended_text": "February 2007",
+  "end_reason": "data ends (source boundary)"
  },
  "NUAN": {
   "last_date": "2022-03-03",
@@ -436,7 +534,9 @@
   "first_date": "2000-02-01",
   "rows": 3099,
   "member_months": "2004-03..2005-12",
-  "source": "qstk"
+  "source": "qstk",
+  "event": "acquired by Lam Research for 1.125 LRCX shares per share",
+  "end_reason": "delisted"
  },
  "NWSA-2013": {
   "last_date": "2013-06-18",
@@ -458,7 +558,9 @@
   "first_date": "1993-07-23",
   "rows": 5448,
   "member_months": "2004-03..2008-12",
-  "source": "bdi+intrader"
+  "source": "bdi+intrader",
+  "event": "taken private (BC Partners) for $83.00 per share in cash",
+  "end_reason": "delisted"
  },
  "QLGC": {
   "last_date": "2016-08-16",
@@ -486,7 +588,10 @@
   "first_date": "2001-01-02",
   "rows": 1503,
   "member_months": "2005-09..2007-12",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "acquired by Dainippon Sumitomo Pharma for $23.00 per share in cash",
+  "listing_ended": "2009-10-20",
+  "end_reason": "data ends (source boundary)"
  },
  "SGEN": {
   "last_date": "2024-01-09",
@@ -501,7 +606,11 @@
   "rows": 3757,
   "member_months": "2005-11..2013-12",
   "reason": "the former company listed as SHLD until 2018-10-16 (the symbol was later reused)",
-  "source": "kaggle_stooq+stooq_2018+qstk+cmu"
+  "source": "kaggle_stooq+stooq_2018+qstk+cmu",
+  "event": "Sears Holdings filed for Chapter 11 on 2018-10-15 and was delisted",
+  "listing_ended": "2018-10-15",
+  "listing_ended_text": "October 2018",
+  "end_reason": "data ends (source boundary)"
  },
  "SHPG": {
   "last_date": "2019-01-07",
@@ -515,7 +624,9 @@
   "first_date": "1990-03-26",
   "rows": 6466,
   "member_months": "2004-03..2015-08",
-  "source": "bdi+intrader"
+  "source": "bdi+intrader",
+  "event": "acquired by Merck KGaA for $140.00 per share in cash",
+  "end_reason": "delisted"
  },
  "SNDK-2016": {
   "last_date": "2016-05-11",
@@ -538,7 +649,9 @@
   "rows": 6922,
   "member_months": "2004-03..2015-12",
   "reason": "the former company listed as SPLS until 2017-09-13 (the symbol was later reused)",
-  "source": "bdi+intrader"
+  "source": "bdi+intrader",
+  "event": "taken private by Sycamore Partners for $10.25 per share in cash",
+  "end_reason": "delisted"
  },
  "SRCL": {
   "last_date": "2024-09-27",
@@ -552,14 +665,18 @@
   "first_date": "2001-01-02",
   "rows": 2277,
   "member_months": "2004-03..2007-08",
-  "source": "qstk+cmu"
+  "source": "qstk+cmu",
+  "event": "Sun Microsystems: changed its symbol to JAVA (2007-08), acquired by Oracle on 2010-01-26",
+  "end_reason": "delisted"
  },
  "TLAB": {
   "last_date": "2013-12-03",
   "first_date": "1997-12-31",
   "rows": 4007,
   "member_months": "2004-03..2008-05",
-  "source": "bdi"
+  "source": "bdi",
+  "event": "acquired by Marlin Equity for $2.45 per share in cash",
+  "end_reason": "delisted"
  },
  "VIAB": {
   "last_date": "2019-12-04",
@@ -580,28 +697,37 @@
   "first_date": "1992-01-23",
   "rows": 6449,
   "member_months": "2011-06..2016-12",
-  "source": "bdi+intrader"
+  "source": "bdi+intrader",
+  "event": "acquired by Amazon for $42.00 per share in cash",
+  "end_reason": "delisted"
  },
  "WFMI": {
   "last_date": "2017-08-28",
   "first_date": "1992-01-23",
   "rows": 6449,
   "member_months": "2004-03..2011-05",
-  "source": "bdi+intrader"
+  "source": "bdi+intrader",
+  "event": "acquired by Amazon for $42.00 per share in cash (symbol WFM from 2011)",
+  "end_reason": "delisted"
  },
  "XLNX": {
   "last_date": "2022-02-11",
   "first_date": "1990-06-12",
   "rows": 7981,
   "member_months": "2004-03..2022-02",
-  "source": "bdi"
+  "source": "bdi",
+  "event": "acquired by AMD for 1.7234 AMD shares per share",
+  "end_reason": "delisted"
  },
  "XMSR": {
   "last_date": "2006-12-29",
   "first_date": "2001-01-02",
   "rows": 1499,
   "member_months": "2005-11..2007-12",
-  "source": "cmu"
+  "source": "cmu",
+  "event": "merged with Sirius Satellite Radio: 4.6 SIRI shares per XMSR share",
+  "listing_ended": "2008-07-28",
+  "end_reason": "data ends (source boundary)"
  },
  "YHOO": {
   "last_date": "2017-06-16",
