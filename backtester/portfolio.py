@@ -1269,6 +1269,59 @@ def level_notes(r: str, q: str, why: set) -> list[str]:
     return out
 
 
+MCAP_FUND_HINT = ("Use equal or inverse-volatility weighting instead (weighting funds by their size, AUM, is not "
+                  "available), or name stocks.")
+
+
+def _funds_named(tickers) -> list[str]:
+    out = []
+    for t in tickers:
+        try:
+            if isinstance(t, str) and t and data.is_fund(t):
+                out.append(data.canonical(t))
+        except Exception:
+            continue
+    return list(dict.fromkeys(out))
+
+
+def _check_market_cap_funds(n: dict) -> None:
+    """Market cap over funds is refused, however the tree was written: an ETF, mutual fund, index or simulated
+    series has no shares outstanding of a company, so no market cap. Weighting SPY, QQQ and TLT by market cap
+    would quietly be equal weight, ranking them by it would rank nothing, and a condition on it is never true."""
+    def refuse(funds, what):
+        lst = ", ".join(funds[:6]) + (" …" if len(funds) > 6 else "")
+        raise ValueError(f"{what}: {lst} {'is a fund' if len(funds) == 1 else 'are funds'} (ETF, mutual fund, index or "
+                         "simulated series), and funds have no market cap (no shares outstanding of a company). "
+                         + MCAP_FUND_HINT)
+    kids = [c.get("asset") for c in (n.get("children") or []) if isinstance(c, dict) and c.get("asset")]
+    if n.get("weights") == "market_cap":
+        funds = _funds_named(kids)
+        if funds:
+            refuse(funds, f"Market-cap weighting of {', '.join(kids[:6])}")
+    f = n.get("filter")
+    if isinstance(f, dict):
+        u = n.get("universe", "children")
+        cands = kids if u in (None, "children") else [t for t in u if isinstance(t, str)] if isinstance(u, list) else []
+        uses = [k for k in ("by", "require") if re.search(r"(?<![\w.])market_cap\b", str(f.get(k) or ""))]
+        if f.get("weights") == "market_cap":
+            uses.append("weights")
+        funds = _funds_named(cands) if uses else []
+        if funds:
+            what = {"by": "ranked by market cap", "require": "required to pass a market-cap rule",
+                    "weights": "weighted by market cap"}
+            refuse(funds, "The filter's candidates are " + " and ".join(what[k] for k in uses))
+    for key, on in (("if", n.get("on", "SPY")), ):
+        r = n.get(key)
+        if not isinstance(r, str):
+            continue
+        named = [m.group(1) for m in re.finditer(r"sym\(\s*[\"']([^\"']+)[\"']\s*\)\.market_cap\b", r)]
+        if re.search(r"(?<![\w.])market_cap\b", r):
+            named.append(on)
+        funds = _funds_named(named)
+        if funds:
+            refuse(funds, f"The condition `{r}` reads a market cap")
+
+
 def _self_comparison(rule: str, on: str | None) -> str | None:
     """The first comparison of an expression with itself ('close > close', 'rsi(close, 10) > rsi(close, 10)',
     'close > sym("SPY").close' on SPY), which is always true or always false, as text; else None."""
@@ -1321,6 +1374,17 @@ def check_tree(p: "Portfolio") -> None:
                     holder[key] = q
                 for m in msgs:
                     note(m)
+                # bounds on one value that contradict each other (above 79 and below 30) or cover everything
+                # (below 5% or above -5%): the condition does not depend on the data
+                const, msgs = expr.bound_conflicts(q)
+                if msgs:
+                    what2 = "condition" if key == "if" else "requirement"
+                    tail = ("" if const is None else
+                            (" The otherwise branch is always held." if key == "if" else " No candidate ever qualifies (the fallback is always held).")
+                            if const is False else
+                            (" The then branch is always held." if key == "if" else " The requirement never excludes anything."))
+                    note(f"Warning: the {what2} {msgs[0]}{' ' + ' '.join(msgs[1:]) if len(msgs) > 1 else ''}{tail}")
+        _check_market_cap_funds(n)
         if isinstance(f0, dict) and isinstance(f0.get("by"), str):
             expr.check_windows(f0["by"], f"the ranking `{f0['by']}`")
         if isinstance(n.get("if"), str):

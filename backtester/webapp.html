@@ -242,8 +242,8 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       <div class="err" id="treeErrors"></div>
       <h3>Portfolio settings</h3>
       <div class="grid">
-        <label>Rebalance<select id="p_rebalance"><option>daily</option><option>weekly</option><option selected>monthly</option><option>quarterly</option><option>yearly</option><option value="none">none (buy and hold)</option></select></label>
-        <label>Drift band (%)<input id="p_drift_band" type="number" step="0.5" placeholder="off"></label>
+        <label>Rebalance<select id="p_rebalance"><option>daily</option><option>weekly</option><option selected>monthly</option><option>quarterly</option><option>yearly</option><option value="none">none (buy and hold)</option><option value="threshold">threshold (drift band)</option></select></label>
+        <label title="rebalance a holding back to its target when its weight is this many percentage points off (Composer's rebalance corridor); with Rebalance = threshold it is the only rebalancing">Drift band (%)<input id="p_drift_band" type="number" step="0.5" placeholder="off"></label>
         <label>Trade at<select id="p_fill"><option value="close">the close</option><option value="next_open">next open</option></select></label>
         <label>Starting capital ($)<input id="p_capital" type="number" value="10000"></label>
         <label>Contribution ($)<input id="p_contribution" type="number" value="0"></label>
@@ -928,15 +928,20 @@ window.addEventListener('blur', unpress);
   // quoted(x): the server reads a price level compared with a fixed number on quoted prices (it adds quoted() itself)
   const unquote = s => { const m = (s || '').trim().match(/^quoted\((.*)\)$/); return m && balanced(m[1]) ? m[1] : s; };
   function parseCond(s, own) {
-    const m = stripParens(s).match(/^([^<>=]+?)\s*(>=|<=|==|>|<)\s*([^<>=]+)$/);
+    const m = stripParens(s).match(/^([^<>=]+?)\s*(>=|<=|==|>|<)\s*([^<>=]*)$/);
     if (!m) return null;
     const lhs = parseInd(unquote(m[1]), own); if (!lhs) return null;
     const r = unquote(m[3]).trim();
+    // no number after the comparison (a cleared threshold field): kept empty and marked red, never read as 0
+    if (r === '') return { lhs, op: m[2], rhs: { num: '' } };
     if (NUM.test(r)) return { lhs, op: m[2], rhs: { num: INDK[lhs.k].pct ? +r * 100 : +r } };
     const rhs = parseInd(r, own); return rhs ? { lhs, op: m[2], rhs } : null;
   }
+  // a threshold as typed: '' (or anything that is not a number) stays empty in the rule, which the editor marks red
+  // and the server refuses; it never becomes 0
+  const badNum = v => v === '' || v == null || !NUM.test(String(v).trim());
   function condExpr(c, own) {
-    const r = c.rhs.num !== undefined ? fmtN(INDK[c.lhs.k].pct ? c.rhs.num / 100 : c.rhs.num) : indExpr(c.rhs, own);
+    const r = c.rhs.num !== undefined ? (badNum(c.rhs.num) ? '' : fmtN(INDK[c.lhs.k].pct ? +c.rhs.num / 100 : +c.rhs.num)) : indExpr(c.rhs, own);
     return `${indExpr(c.lhs, own)} ${c.op} ${r}`;
   }
   // an indicator picker: [indicator][window][of TICKER]
@@ -996,7 +1001,13 @@ window.addEventListener('blur', unpress);
       }, withTicker));
       cl.append(sel([['>', 'is greater than'], ['<', 'is less than'], ['>=', 'is at least'], ['<=', 'is at most'], ['==', 'is equal to']], st.op, v => { st.op = v; commit(); }));
       cl.append(sel([['num', 'a number'], ['ind', 'an indicator']], st.rhsMode, v => { st.rhsMode = v; if (v === 'ind') st.rhs = { k: st.lhs.k === 'close' ? 'sma' : st.lhs.k, n: INDK[st.lhs.k].def || 200, t: st.lhs.t || own }; commit(true); }));
-      if (st.rhsMode === 'num') { cl.append(inp(fmtN(st.num), v => { st.num = +v; commit(); }, { type: 'number', step: 'any', style: 'width:84px' })); if (INDK[st.lhs.k].pct) cl.append(el('span', { class: 'lab' }, '%')); }
+      if (st.rhsMode === 'num') {
+        const ni = inp(badNum(st.num) ? '' : fmtN(st.num), v => { st.num = v.trim(); commit(); }, { type: 'number', step: 'any', style: 'width:84px', class: 'thr', title: 'the number to compare with' });
+        // empty, or not a number (a number box reads "abc" as empty): red, and the rule keeps no threshold, so Run refuses it
+        const mark = () => { const bad = badNum(ni.value) || (ni.validity && ni.validity.badInput); ni.classList.toggle('bad-in', bad); ni.title = bad ? 'Enter a number: an empty threshold is never read as 0.' : 'the number to compare with'; };
+        ni.addEventListener('input', mark); mark();
+        cl.append(ni); if (INDK[st.lhs.k].pct) cl.append(el('span', { class: 'lab' }, '%'));
+      }
       else cl.append(indPicker(st.rhs, commit, withTicker));
       if (multi) { const x = el('button', { class: 'btn small', type: 'button', title: 'remove this condition' }, '✕'); x.onclick = () => { states.splice(i, 1); commit(true); }; cl.append(x); }
       box.append(cl);
@@ -1196,6 +1207,7 @@ window.addEventListener('blur', unpress);
     const e = [], w = [];
     cc.clauses.forEach(c => {
       const L = INDK[c.lhs.k].label, v = c.rhs.num;
+      if (v === '') { e.push(`${L} ${c.op} ?: enter the number to compare it with (an empty threshold is never read as 0).`); return; }
       if (v !== undefined && UNIT[c.lhs.k] === 'price' && $('p_price_basis').value === 'adjusted')
         w.push(`${L} is compared with the fixed price ${v}: it is read on quoted prices (quoted(...)), since the total-return prices the other indicators use sit above the quote for a dividend payer.`);
       if (v !== undefined) {
@@ -1216,8 +1228,23 @@ window.addEventListener('blur', unpress);
     });
     return { e, w };
   }
+  // a comparison with nothing on one side ("tret(tr, 63) >" typed as rule text): refused here and by the server
+  const MISSING_RX = /(?:[<>]=?|==|!=)\s*(?:$|\)|,|\band\b|\bor\b)|(?:^|\(|,|\band\b|\bor\b|\bnot\b)\s*(?:[<>]=?|==|!=)/;
+  function missingOperand(rule, own, e) {
+    if (rule && MISSING_RX.test(rule.trim()) && !parseCompound(rule, own)) e.push('A comparison is missing its number or indicator: enter the threshold to compare with (an empty one is never read as 0).');
+  }
+  // funds have no market cap (the server refuses market-cap weights, rankings and rules over them too)
+  function mcapFunds(n, e) {
+    const etfs = new Set((STATUS && STATUS.etfs) || []);
+    const f = n.filter || {};
+    const uses = n.weights === 'market_cap' || f.weights === 'market_cap' || /(^|[^\w.])market_cap\b/.test((f.by || '') + ' ' + (f.require || ''));
+    if (!uses || (n.filter && n.universe === 'NDX')) return;
+    const funds = (n.children || []).filter(c => typeOf(c) === 'asset' && etfs.has((c.asset || '').toUpperCase().trim())).map(c => c.asset.toUpperCase().trim());
+    if (funds.length) e.push(`${funds.join(', ')} ${funds.length > 1 ? 'are funds' : 'is a fund'}: funds have no market cap, so market-cap weights or rankings cannot use ${funds.length > 1 ? 'them' : 'it'}. Use equal or inverse-volatility weighting instead.`);
+  }
   function validateNode(n, errs) {
     const e = [], w = [], t = typeOf(n);
+    if (t === 'weights' || t === 'filter') mcapFunds(n, e);
     if (t === 'asset') { const s = (n.asset || '').toUpperCase().trim(); if (!s || !known(s)) e.push(tickerMsg(s)); }
     if (t === 'weights') {
       const k = n.children || [];
@@ -1229,13 +1256,13 @@ window.addEventListener('blur', unpress);
       if (LOOKBACK[n.weights] && n.lookback != null && !(Number.isInteger(+n.lookback) && n.lookback >= 2)) e.push('The lookback must be a whole number of days, at least 2.');
     }
     if (t === 'if') { if (!(n.if || '').trim()) e.push('Enter a condition.'); const on = (n.on || 'SPY').toUpperCase(); if (!known(on)) e.push(tickerMsg(on)); checkRuleTickers(n.if, e);
-      e.push(...winErrors(n.if)); const u = unitChecks(n.if, on); e.push(...u.e); w.push(...u.w); }
+      e.push(...winErrors(n.if)); missingOperand(n.if, on, e); const u = unitChecks(n.if, on); e.push(...u.e); w.push(...u.w); }
     if (t === 'filter') {
       const f = n.filter;
       if (!(f.by || '').trim()) e.push('Choose what to rank by.');
       if (!(Number.isInteger(+f.n) && +f.n >= 1)) e.push('Pick a whole number, at least 1.');
       checkRuleTickers(f.by, e); checkRuleTickers(f.require, e); e.push(...winErrors(f.by), ...winErrors(f.require));
-      if (f.require) { const u = unitChecks(f.require, null); e.push(...u.e); w.push(...u.w); }
+      if (f.require) { missingOperand(f.require, null, e); const u = unitChecks(f.require, null); e.push(...u.e); w.push(...u.w); }
       if (n.universe !== 'NDX') {
         const k = n.children || [];
         if (!k.length) e.push('Empty list: add assets to choose from.');
@@ -1253,7 +1280,7 @@ window.addEventListener('blur', unpress);
     const errs = validateNode(tree, new Map());
     if (pressed) {   // the messages reflow the page: they are shown just after the click (afterPress)
       afterPress(revalidate, 'revalidate');
-      let c = 0; errBoxes.forEach((_, n) => { c += ((errs.get(n) || {}).e || []).length; }); return c;
+      let c = rebalProblems().length; errBoxes.forEach((_, n) => { c += ((errs.get(n) || {}).e || []).length; }); return c;
     }
     let count = 0;
     errBoxes.forEach((box, n) => {
@@ -1265,10 +1292,41 @@ window.addEventListener('blur', unpress);
       }
       box.closest('.node').classList.toggle('bad', r.e.length > 0);
     });
-    $('treeErrors').textContent = count ? `${count} problem${count > 1 ? 's' : ''} to fix before running (marked in red).` : '';
+    const rp = rebalProblems(); count += rp.length;
+    $('treeErrors').textContent = count ? `${count} problem${count > 1 ? 's' : ''} to fix before running (marked in red).` + (rp.length ? ' ' + rp.join(' ') : '') : '';
     if (!count && /to fix before running/.test($('buildStatus').textContent)) $('buildStatus').textContent = '';
     if (!count) buildPreview();
     return count;
+  }
+
+  // ---- rebalancing as the simulator runs it (portfolio.follows_rules): with no schedule ("none", or "threshold" =
+  // none + a drift band) a tree with if/else or filters is still re-evaluated at every close and trades when a rule
+  // switches; a drift band also trades a holding back to its target when it drifts that far
+  function bandText() {
+    const v = $('p_drift_band').value.trim();
+    if (v !== '' && +v > 0) return `${fmtN(+v)}%`;
+    let adv = {}; try { adv = advanced('p_'); } catch (e) { adv = {}; }
+    return adv.drift_band_relative > 0 ? `${fmtN(adv.drift_band_relative * 100)}% relative` : '';
+  }
+  function evalBadge() {
+    const rb = $('p_rebalance').value, band = bandText();
+    if (rb === 'threshold' || (rb === 'none' && band)) return { daily: true, text: 'evaluated daily' + (band ? ' · threshold ' + band : ''),
+      title: 'Threshold rebalancing: the condition is checked at every close and the switch trades that day; '
+        + (band ? `a holding is also traded back to its target when its weight drifts more than ${band} from it.` : 'enter a drift band (%) for the threshold.') };
+    if (rb === 'none') return { daily: true, text: 'evaluated daily',
+      title: 'No rebalancing schedule: the condition is still checked at every close and the portfolio trades only when it switches (holdings are otherwise left to drift).' };
+    if (rb === 'daily') return { daily: true, text: 'evaluated daily' + (band ? ' · band ' + band : ''), title: 'The condition is checked at every close and the switch trades that day (Composer-style).' };
+    return { daily: false, text: 'evaluated ' + rb, title: `The condition is only checked on each ${rb.replace(/ly$/, '').replace('dai', 'day')}'s last close; set Rebalance to daily to switch as soon as it changes.` };
+  }
+  // the "none" option says what it does for this tree: buy and hold only when nothing in the tree switches
+  function rebalLabels() {
+    const o = [...$('p_rebalance').options].find(x => x.value === 'none');
+    if (o) o.textContent = isDynamic(tree) ? 'none (trade only when a rule switches)' : 'none (buy and hold)';
+  }
+  function rebalProblems() {
+    if ($('p_rebalance').value !== 'threshold' || bandText()) { $('p_drift_band').classList.remove('bad-in'); return []; }
+    $('p_drift_band').classList.add('bad-in');
+    return ['Threshold rebalancing needs a drift band: enter it in "Drift band (%)" (e.g. 5).'];
   }
 
   // ---- rendering
@@ -1286,10 +1344,8 @@ window.addEventListener('blur', unpress);
     if (t === 'asset') hd.append(inp(n.asset, v => { n.asset = v.toUpperCase().trim(); revalidate(); }, { list: 'tickerList', placeholder: 'ticker', style: 'width:110px' }));
     if (t === 'weights') hd.append(weightPicker(n, 'weights', 'lookback', true, v => { if (v === 'specified') n.w = n.children.map(() => +(1 / n.children.length).toFixed(6)); else delete n.w; }));
     if (t === 'if') {
-      const rb = $('p_rebalance').value, daily = rb === 'daily';
-      hd.append(el('span', { class: 'badge' + (daily ? ' daily' : ''), title: daily ? 'The condition is checked at every close and the switch trades that day (Composer-style).'
-        : `The condition is only checked on ${rb === 'none' ? 'the first day (buy and hold)' : 'each ' + rb.replace(/ly$/, '').replace('dai', 'day') + '\'s last close'}; set Rebalance to daily to switch as soon as it changes.` },
-        daily ? 'evaluated daily' : rb === 'none' ? 'evaluated once' : 'evaluated ' + rb));
+      const b = evalBadge();
+      hd.append(el('span', { class: 'badge' + (b.daily ? ' daily' : ''), title: b.title }, b.text));
       hd.append(el('span', { class: 'lab' }, 'if'), condEditor(() => n.if, v => { n.if = v; }, (n.on || 'SPY').toUpperCase(), v => { n.on = v; }, n, true));
     }
     if (t === 'filter') {
@@ -1358,7 +1414,7 @@ window.addEventListener('blur', unpress);
     drawing = true;
     try {
       const a = document.activeElement; if (a && $('tree').contains(a)) a.blur();   // commit a pending edit before its input is replaced
-      autoRebalance();
+      autoRebalance(); rebalLabels();
       errBoxes.clear(); $('tree').replaceChildren(renderNode(tree, { kind: 'slot', owner: null, key: 'root' })); revalidate();
     } finally { drawing = false; }
     if (redraw) { redraw = false; draw(); }
@@ -1439,7 +1495,11 @@ window.addEventListener('blur', unpress);
     return JSON.parse(JSON.stringify(buildOwn || {}));
   }
   function specFromEditor() {
-    if (buildMode === 'portfolio') return Object.assign({ kind: 'allocation' }, advanced('p_'), { tree: JSON.parse(JSON.stringify(tree)) }, buildName ? { name: buildName } : {}, fromForm('p_', P_FIELDS), keptOwn());
+    if (buildMode === 'portfolio') {
+      const p = Object.assign({ kind: 'allocation' }, advanced('p_'), { tree: JSON.parse(JSON.stringify(tree)) }, buildName ? { name: buildName } : {}, fromForm('p_', P_FIELDS), keptOwn());
+      if (p.rebalance === 'threshold') p.rebalance = 'none';   // threshold rebalancing = no schedule + the drift band
+      return p;
+    }
     const s = Object.assign({}, advanced('s_'), fromForm('s_', S_FIELDS), keptOwn());
     const u = $('s_universe').value.trim();
     if (u.toUpperCase() === 'NDX') { s.universe = (STATUS && STATUS.nasdaq100) || []; s.universe_name = 'NDX'; }
@@ -1536,6 +1596,8 @@ window.addEventListener('blur', unpress);
     }, 500);
   }
   $('p_rebalance').addEventListener('change', () => { rebalTouched = true; afterPress(() => { $('rebalNote').textContent = ''; }, 'rebalNote'); if (buildMode === 'portfolio') draw(); });
+  // the if-blocks' badges say the band ("evaluated daily · threshold 5%")
+  $('p_drift_band').addEventListener('change', () => { if (buildMode === 'portfolio') draw(); });
   async function importComposer(src, label) {
     $('composerNotes').replaceChildren();
     $('composerStatus').replaceChildren(el('span', { class: 'spin' }));
@@ -1553,7 +1615,9 @@ window.addEventListener('blur', unpress);
     if (spec && spec.spec && typeof spec.spec === 'object') spec = spec.spec;   // a gallery/export wrapper
     if (!spec || typeof spec !== 'object' || (!spec.tree && !spec.entry)) throw new Error('Not a strategy: expected a portfolio (with "tree") or a signal strategy (with "entry").');
     if (spec.tree) { setBuildMode('portfolio'); tree = withDefaults(JSON.parse(JSON.stringify(spec.tree))); if (spec.benchmark && typeof spec.benchmark === 'object') spec = { ...spec, benchmark: Object.entries(spec.benchmark).map(([t, w]) => `${+(w * 100).toFixed(4)} ${t}`).join(' ') };
-      toForm('p_', P_FIELDS, spec); setAdvanced('p_', spec, P_FIELDS, P_OWN); rebalTouched = 'rebalance' in spec; $('rebalNote').textContent = ''; draw(); }
+      toForm('p_', P_FIELDS, spec); setAdvanced('p_', spec, P_FIELDS, P_OWN); rebalTouched = 'rebalance' in spec; $('rebalNote').textContent = '';
+      if (spec.rebalance === 'none' && (spec.drift_band > 0 || spec.drift_band_relative > 0)) $('p_rebalance').value = 'threshold';   // Composer's threshold rebalancing
+      draw(); }
     else { setBuildMode('signal'); toForm('s_', S_FIELDS, spec); setAdvanced('s_', spec, S_FIELDS, S_OWN); $('s_universe').value = spec.universe_name === 'NDX' ? 'NDX' : (spec.universe || []).join(', '); }
     guardStart(spec);
     buildOwn = {}; ['notes', 'description'].forEach(k => { if (spec[k] != null && spec[k] !== '' && !(Array.isArray(spec[k]) && !spec[k].length)) buildOwn[k] = spec[k]; });

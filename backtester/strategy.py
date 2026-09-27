@@ -174,6 +174,7 @@ class Strategy:
             v = getattr(self, name)
             if v is not None and not callable(v) and not (isinstance(v, str) and v.strip()):
                 setattr(self, name, None)
+        self._check_bounds()
         if not any([self.hold_bars is not None, self.exit_when, self.stop_loss, self.take_profit, self.trailing_stop,
                     self.stop_atr, self.take_profit_atr, self.trailing_atr, self.breakeven_after, self.side == "both",
                     self.stop_level, self.target_level, self.target_r, self.trailing_points, self.breakeven_r]):
@@ -342,6 +343,28 @@ class Strategy:
             self._check_margin(f"{need:.0%} per position needs {need:g}x leverage: ")
 
     LEVEL_VARS = {"stop_level": {"entry_price", "side"}, "target_level": {"entry_price", "stop_price", "side"}}
+
+    def _check_bounds(self) -> None:
+        """Bounds on one value that contradict each other ('RSI above 79 and below 30') or cover every value ('return
+        below 5% or above -5%'): an entry that can never be true is refused (it would never trade); anything else
+        of the kind earns a warning."""
+        from .expr import bound_conflicts
+        labels = {"entry": "entry", "short_entry": "short entry", "exit_when": "exit rule"}
+        for name, label in labels.items():
+            r = getattr(self, name)
+            if not isinstance(r, str) or not r.strip():
+                continue
+            const, msgs = bound_conflicts(r)
+            if not msgs:
+                continue
+            if const is False and name != "exit_when":
+                raise ValueError(f"The {label} {msgs[0]} It would never trade. Check the numbers (e.g. 'above 79 or "
+                                 "below 30' for either extreme, or 'between 30 and 79').")
+            tail = ("" if const is None else " It never fires, so other exits must close every trade." if const is False and name == "exit_when"
+                    else f" It is true on every bar." if const else "")
+            msg = f"Warning: the {label} {' '.join(msgs)}{tail}"
+            if msg not in self.notes:
+                self.notes.append(msg)
 
     def _check_levels(self) -> None:
         """stop_level / target_level: rule-language price expressions evaluated once, when a position opens;

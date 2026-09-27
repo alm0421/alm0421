@@ -1760,12 +1760,135 @@ def check_rule(rule: str, what: str = "") -> tuple[str, list[str]]:
     return rule, notes
 
 
+def _fmt_bound(v: float) -> str:
+    return f"{v:g}"
+
+
+def bound_conflicts(rule: str) -> tuple[bool | None, list[str]]:
+    """Interval arithmetic on the comparisons of one value with fixed numbers inside an and / or:
+
+      rsi(close, 10) > 79 and rsi(close, 10) < 30   can never be true (the bounds do not overlap)
+      tret(tr, 63) < 0.05 or tret(tr, 63) > -0.05     is always true (the two bounds cover every value)
+
+    Only textually identical values are compared (the same indicator, window and ticker). Returns (the rule's
+    constant truth: False = never true, True = always true, None = depends on the data, and one message per
+    contradictory or tautological group). Anything the check does not understand counts as 'depends on the data'."""
+    try:
+        tree = ast.parse(pine_to_rule(rule).strip(), mode="eval")
+    except (SyntaxError, ValueError):
+        return None, []
+    msgs: list[str] = []
+
+    def bounds(node) -> list[tuple[str, str, str, float]] | None:
+        """(key, source of the value, op, number) of a comparison with a number (a chained one gives two), else None."""
+        if not isinstance(node, ast.Compare):
+            return None
+        items = [node.left, *node.comparators]
+        out = []
+        for a, op_t, b in zip(items, node.ops, items[1:]):
+            op = _CMP_TXT.get(type(op_t))
+            if op is None or op == "!=":
+                return None
+            va, vb = _literal(a), _literal(b)
+            if va is None and vb is not None:
+                out.append((ast.dump(a), ast.unparse(a), op, float(vb)))
+            elif vb is None and va is not None:
+                out.append((ast.dump(b), ast.unparse(b), _FLIP_TXT[op], float(va)))
+            else:
+                return None
+        return out
+
+    def flat(node, kind) -> list:
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, kind):
+            return [x for v in node.values for x in flat(v, kind)]
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitAnd if kind is ast.And else ast.BitOr):
+            return flat(node.left, kind) + flat(node.right, kind)
+        return [node]
+
+    def interval_empty(bs) -> tuple[bool, str]:
+        lo, lo_in, hi, hi_in = -float("inf"), False, float("inf"), False
+        for _, _, op, v in bs:
+            if op in (">", ">=", "=="):
+                if v > lo or (v == lo and op == ">"):
+                    lo, lo_in = v, op != ">"
+            if op in ("<", "<=", "=="):
+                if v < hi or (v == hi and op == "<"):
+                    hi, hi_in = v, op != "<"
+        return (lo > hi or (lo == hi and not (lo_in and hi_in))), ""
+
+    def covers_all(bs) -> bool:
+        ups = [(v, op) for _, _, op, v in bs if op in (">", ">=")]
+        downs = [(v, op) for _, _, op, v in bs if op in ("<", "<=")]
+        for a, oa in ups:
+            for b, ob in downs:
+                if a < b or (a == b and (oa == ">=" or ob == "<=")):
+                    return True
+        return False
+
+    def words(op):
+        return {">": "above", ">=": "at least", "<": "below", "<=": "at most", "==": "equal to"}[op]
+
+    def truth(node) -> bool | None:
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            t = truth(node.operand)
+            return None if t is None else not t
+        for kind, is_and in ((ast.And, True), (ast.Or, False)):
+            parts = flat(node, kind)
+            if len(parts) < 2:
+                continue
+            ts = [truth(p) for p in parts]
+            groups: dict[str, list] = {}
+            for p in parts:
+                b = bounds(p)
+                for x in b or []:
+                    groups.setdefault(x[0], []).append(x)
+            # a chained comparison (30 < x < 70) is an 'and' of its own
+            const = None
+            for key, bs in groups.items():
+                if len(bs) < 2:
+                    continue
+                src = bs[0][1]
+                said = " and ".join(f"{words(op)} {_fmt_bound(v)}" for _, _, op, v in bs) if is_and else \
+                    " or ".join(f"{words(op)} {_fmt_bound(v)}" for _, _, op, v in bs)
+                if is_and and interval_empty(bs)[0]:
+                    msgs.append(f"`{ast.unparse(node)}` can never be true: {src} cannot be {said} at the same time.")
+                    const = False
+                elif not is_and and covers_all(bs):
+                    msgs.append(f"`{ast.unparse(node)}` is always true: every value of {src} is {said}.")
+                    const = True
+            if is_and:
+                if const is False or any(t is False for t in ts):
+                    return False
+                return True if all(t is True for t in ts) else None
+            if const is True or any(t is True for t in ts):
+                return True
+            return False if all(t is False for t in ts) else None
+        b = bounds(node)
+        if b and len(b) >= 2 and interval_empty(b)[0]:     # 70 < x < 30
+            msgs.append(f"`{ast.unparse(node)}` can never be true: {b[0][1]} cannot be "
+                        + " and ".join(f"{words(op)} {_fmt_bound(v)}" for _, _, op, v in b) + " at the same time.")
+            return False
+        return None
+
+    t = truth(tree.body)
+    return t, list(dict.fromkeys(msgs))
+
+
 def compile_expr(text: str):
     return _compile_expr(pine_to_rule(text).strip())
 
 
+_MISSING_OPERAND = re.compile(r"(?P<op>[<>]=?|==|!=)\s*(?:$|\)|,|\band\b|\bor\b)|(?:^|\(|,|\band\b|\bor\b|\bnot\b)\s*(?P<op2>[<>]=?|==|!=)")
+
+
 @lru_cache(maxsize=4096)
 def _compile_expr(text: str):
+    mm = _MISSING_OPERAND.search(text)
+    if mm:
+        # a threshold left empty (a cleared field on the Build page, a half-written rule): refused, never read as 0
+        raise ValueError(f"`{text}`: the comparison `{mm.group('op') or mm.group('op2')}` is missing a number or indicator on "
+                         f"{'its right' if mm.group('op') else 'its left'} side. Enter the threshold to compare with (an empty "
+                         "one is never read as 0).")
     tree = ast.parse(text, mode="eval")
     _check_timeframes(tree)
     _check_arguments(tree)

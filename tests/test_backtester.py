@@ -570,7 +570,8 @@ def test_leverage_and_optimiser_weights_run():
     # 7. time exit OR rule exit; a bare RSI takes the entry's period
     ("buy QQQ when RSI(2) is below 10, sell after 10 days or when RSI above 70",
      lambda s: s.hold_bars == 10 and s.exit_when == "(rsi(close, 2) > 70)"),
-    ("buy QQQ when RSI(2) is below 10, sell when RSI(2) rises above 70", lambda s: s.exit_when == "(rsi(close, 2) > 70)"),
+    # "rises above" in a signal rule is the crossing, as TradingView users mean it (round 11; "is above" is the level)
+    ("buy QQQ when RSI(2) is below 10, sell when RSI(2) rises above 70", lambda s: s.exit_when == "(crossover(rsi(close, 2), 70))"),
     # 8. Bollinger bands without the word Bollinger
     ("buy QQQ when it closes below the lower band, sell when it closes above the middle band",
      lambda s: s.entry == "(close < bb_lower(20, 2))" and s.exit_when == "(close > sma(close, 20))"),

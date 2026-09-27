@@ -281,6 +281,14 @@ class _Importer:
                 raise ComposerImportError(f"{here}: empty block (it has no children)")
             if not all(isinstance(x, dict) and "asset" in x for x in nodes):
                 raise ComposerImportError(f"{here}: market-cap weighting applies to assets only")
+            from .portfolio import MCAP_FUND_HINT, _funds_named
+            funds = _funds_named([x["asset"] for x in nodes])
+            if funds:
+                raise ComposerImportError(
+                    f"{here}: market-cap weighting of {', '.join(funds[:6])}: "
+                    f"{'it is a fund' if len(funds) == 1 else 'they are funds'} (ETF, mutual fund or index), and funds have "
+                    f"no market cap (no shares outstanding of a company), so the weights would quietly be equal. "
+                    + MCAP_FUND_HINT)
             return _with_id({"weights": "market_cap", "children": nodes}, "id", bid)
         if step == "group":
             out = self.group_of(kids, here)
