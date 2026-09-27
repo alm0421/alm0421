@@ -317,8 +317,9 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
         <label>Benchmark<input id="s_benchmark" list="tickerList" placeholder="SPY"></label>
         <label>Starting capital ($)<input id="s_capital" type="number" value="10000"></label>
         <label>Start<input id="s_start" type="date"></label><label>End<input id="s_end" type="date"></label>
-        <label>TradingView-compatible<select id="s_tv_compat"><option value="false">off</option><option value="true">on</option></select></label>
+        <label title="TradingView's defaults: entries and rule exits at the next open (process_orders_on_close = false), no interest on cash, no dividends, no borrow fee on shorts, no margin calls">TradingView-compatible<select id="s_tv_compat"><option value="false">off</option><option value="true">on</option></select></label>
       </div>
+      <p class="note hide" id="s_tvNote"></p>
       <details id="s_advBox" style="margin-top:8px"><summary>Advanced fields (JSON: every other field of the strategy, carried unchanged)</summary>
         <p class="note">Fields without a control above (e.g. margin, short rebate, volume caps, point-in-time membership, min order) are kept here exactly as loaded and run with the strategy. Edit them as JSON.</p>
         <textarea id="s_advanced" style="min-height:90px;font:12px ui-monospace,monospace">{}</textarea></details>
@@ -1622,6 +1623,34 @@ window.addEventListener('blur', unpress);
     })(n);
     return n;
   }
+  // "TradingView-compatible" applies the mode's defaults to the form, as the Backtest page's TradingView mode does for
+  // a sentence: fills at the next open, no interest on cash, no borrow fee, no margin calls (dividends: the default
+  // is already "not credited" in the mode). Only fields still at the other mode's default change; the note lists them.
+  const TV_FORM = [['entry_fill', 'close', 'next_open', 'entry fill: next open'], ['exit_when_fill', 'close', 'next_open', 'exit rule fill: next open'],
+    ['cash_rate', 'tbill', '0', 'cash interest: none'], ['borrow_fee', '', '0', 'borrow fee: 0']];
+  $('s_tv_compat').addEventListener('change', () => {
+    const on = $('s_tv_compat').value === 'true', done = [];
+    TV_FORM.forEach(([f, off, tv, label]) => {
+      const e = $('s_' + f), v = e.value.trim().toLowerCase();
+      if (on && (v === off || (f === 'cash_rate' && v === 't-bill'))) e.value = tv, done.push(label);
+      else if (!on && off !== '' && v === tv) e.value = off, done.push(f.replace(/_/g, ' ') + ': ' + off.replace('_', ' '));
+      else return;
+      if (guard) guard.edited.add(f);
+    });
+    try {   // a loaded spec's maintenance margin sits in "Advanced fields"
+      const a = advanced('s_');
+      if ('maintenance_margin' in a && a.maintenance_margin === (on ? 0.25 : 0)) {
+        a.maintenance_margin = on ? 0 : 0.25; $('s_advanced').value = JSON.stringify(a, null, 2);
+        done.push(on ? 'no margin calls' : 'maintenance margin: 25%');
+        if (guard) guard.edited.add('maintenance_margin');
+      }
+    } catch (e) { /* invalid JSON: reported when run */ }
+    const n = $('s_tvNote');
+    n.classList.toggle('hide', !done.length && !on);
+    n.textContent = on ? 'TradingView-compatible: ' + (done.length ? 'set ' + done.join(', ') + '. ' : '')
+      + 'Dividends are not credited and there are no margin calls unless set. "Hold N days" in TradingView (strategy.close after N bars) is Hold bars N + 1 with Exit fill "open".'
+      : (done.length ? 'Default mode: set ' + done.join(', ') + '.' : '');
+  });
   $('p_price_basis').addEventListener('change', () => { if (buildMode === 'portfolio') revalidate(); });
   // the signal form re-validates its rules as you type (debounced, like the block editor's preview)
   ['input', 'change'].forEach(ev => $('bSignal').addEventListener(ev, () => { if (buildMode === 'signal') buildPreview(); }));
@@ -1632,6 +1661,8 @@ window.addEventListener('blur', unpress);
     prevTimer = setTimeout(async () => {
       if (!location.hash.startsWith('#build')) return;
       const seq = ++prevSeq;
+      const neg = buildMode === 'signal' ? signalFieldProblems() : [];
+      if (neg.length) { $('buildInterp').classList.remove('hide'); $('buildInterp').textContent = neg.join(' '); return; }
       try {
         const spec = specFromEditor();
         const j = await api('/api/parse?soft=1', { spec });
@@ -1677,8 +1708,21 @@ window.addEventListener('blur', unpress);
   // a spec as a portable file: no run notes, and an index universe by name instead of ~270 tickers
   function exportable(spec) { const s = JSON.parse(JSON.stringify(spec)); delete s.notes; if (s.universe_name === 'NDX') delete s.universe; return s; }
   function exportSpec(spec, name) { download((name || spec.name || 'strategy').replace(/[^\w-]+/g, '-').slice(0, 60) + '.json', JSON.stringify(exportable(spec), null, 2), 'application/json'); }
+  // number fields that must be positive (stops, targets, sizes): said in the field's own unit (a percent here)
+  const S_POSITIVE = ['stop_loss', 'take_profit', 'trailing_stop', 'stop_atr', 'take_profit_atr', 'trailing_atr', 'breakeven_after',
+    'target_r', 'position_size', 'risk_per_trade', 'target_vol', 'fixed_amount', 'leverage', 'borrow_fee', 'slippage_bps',
+    'commission', 'commission_per_share', 'commission_pct'];
+  function signalFieldProblems() {
+    const out = [];
+    S_POSITIVE.forEach(f => { const e = $('s_' + f); if (!e || e.value.trim() === '' || !(+e.value < 0)) return;
+      const lab = (e.closest('label') ? e.closest('label').firstChild.textContent : f).trim();
+      const pct = /\(%/.test(lab);
+      out.push(`${lab}: the value must be positive${pct ? ', in percent (e.g. 5 for 5%)' : ''}; ${e.value} is negative.`); });
+    return out;
+  }
   function validateSignalForm() {
     try { advanced('s_'); FROM_TEXT.scale_out($('s_scale_out').value); FROM_TEXT.cash_rate($('s_cash_rate').value || 'tbill'); } catch (e) { return [e.message]; }
+    const neg = signalFieldProblems(); if (neg.length) return neg;
     const u = $('s_universe').value.trim();
     if (u.toUpperCase() === 'NDX') return [];
     const ts = u.split(/[\s,]+/).filter(Boolean).map(x => x.toUpperCase());
@@ -1784,7 +1828,15 @@ window.addEventListener('blur', unpress);
       const j = await api('/api/signals', { text: t });
       $('sigStatus').textContent = 'as of ' + j.as_of;
       out.append(el('p', {}, j.action || ''));
-      if (j.entry_signals) { const tb = el('table'); const hr = el('tr'); ['Signal', 'Ticker', 'Close'].forEach(h => hr.append(el('th', {}, h))); tb.append(hr); j.entry_signals.forEach(s => { const tr = el('tr'); tr.append(el('td', {}, s.side), el('td', {}, s.ticker), el('td', { class: 'n' }, num(s.close))); tb.append(tr); }); if (j.entry_signals.length) out.append(el('h3', {}, 'New entries'), tb); }
+      // entries at the close were filled by the backtest at today's close (BUY, market-on-close); a ticker sold and
+      // bought back at that close is, net, still held
+      if (j.entry_signals) { const tb = el('table', { id: 'sigEntries' }); const hr = el('tr'); ['Signal', 'Ticker', 'When', 'Price', 'Note'].forEach(h => hr.append(el('th', {}, h))); tb.append(hr);
+        j.entry_signals.forEach(s => { const tr = el('tr');
+          tr.append(el('td', {}, s.action || s.side), el('td', {}, s.ticker), el('td', {}, s.when || (s.order ? s.order + ' order @ ' + num(s.level) : 'next fill')),
+            el('td', { class: 'n' }, num(s.done ? s.price : s.close)),
+            el('td', {}, s.rebought ? 'sold and bought back at the same close: net, keep holding' : s.done ? 'new entry (filled at today\'s close)' : ''));
+          tb.append(tr); });
+        if (j.entry_signals.length) out.append(el('h3', {}, 'New entries'), tb); }
       const exitRows = [...(j.exit_signals || []).map(e => [e.action, e.ticker, e.when + (e.done && e.order !== 'MOC' ? ' (filled)' : ''), e.order, '', e.reason]),
                         ...(j.exit_orders || []).map(o => [o.action, o.ticker, o.valid || '', o.order, o.price == null ? '' : num(o.price), o.reason + (o.oca ? ' (one-cancels-other)' : '')])];
       if (exitRows.length) { const tb = el('table'); const hr = el('tr'); ['Action', 'Ticker', 'When', 'Order', 'Price', 'Why'].forEach(h => hr.append(el('th', {}, h))); tb.append(hr); exitRows.forEach(r => { const tr = el('tr'); r.forEach((x, i) => tr.append(el('td', i === 4 ? { class: 'n' } : {}, x))); tb.append(tr); }); out.append(el('h3', {}, 'Exits and exit orders'), tb); }

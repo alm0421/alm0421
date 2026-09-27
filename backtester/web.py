@@ -218,6 +218,12 @@ def _tv_switch(spec, ov: dict) -> None:
     on = bool(ov["tv_compat"])
     if "cash_rate" not in ov and spec.cash_rate in (("tbill",) if on else (None, 0, 0.0)):
         spec.cash_rate = None if on else "tbill"
+    if spec.__class__.__name__ == "Strategy":
+        # TradingView charges no borrow fee on shorts and makes no maintenance-margin calls (its default 100% margin)
+        if "borrow_fee" not in ov and spec.borrow_fee in ((None,) if on else (0, 0.0)):
+            spec.borrow_fee = 0.0 if on else None
+        if "maintenance_margin" not in ov and spec.maintenance_margin == (0.25 if on else 0):
+            spec.maintenance_margin = 0.0 if on else 0.25
     if "dividends" not in ov:
         spec.dividends = None     # the mode's default (validate: credited unless TradingView-compatible)
     if spec.__class__.__name__ == "Strategy" and "fractional_shares" not in ov:

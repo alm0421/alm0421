@@ -24,9 +24,13 @@ Supported:
                            before an exit)
   request.security(syminfo.tickerid, "W" / "M" / "D", x)           weekly(x) / monthly(x) / x (lookahead off)
   time >= timestamp(...)   a date filter becomes the start (end) of the test
-Display-only calls (plot, bgcolor, alertcondition, label.new...) are skipped. Anything else - varip, loops, multi-line
-functions, strategy.order / strategy.cancel, state that depends on the position - is refused with its line number,
-never guessed. The result runs in TradingView-compatible mode.
+  for i = 0 to n - 1       a counting loop with fixed bounds (numbers / inputs, at most MAX_UNROLL iterations) whose body
+                           only updates variables declared before it (total += close[i]): unrolled
+  strategy.exit per side   a long/short script's exits for one side only (Strategy.side_exits)
+Display-only calls (plot, bgcolor, alertcondition, label.new...) are skipped. Anything else - varip, arrays / matrices /
+maps, other loops, multi-line functions, strategy.order / strategy.cancel, state that depends on the position - is
+refused with its line number, never guessed. The result runs in TradingView-compatible mode (no interest, no dividends,
+no borrow fees, no margin calls).
 """
 from __future__ import annotations
 
@@ -741,6 +745,71 @@ def _state_uses(node, ctx) -> set:
     return out
 
 
+MAX_UNROLL = 200       # a for loop is unrolled into this many copies of its body at most
+
+
+def _unroll_for(s: str, line: int, body: list, ctx) -> str:
+    """for i = a to b [by step] whose bounds are constants (numbers, inputs) and whose body only updates variables
+    declared before it (total := total + close[i], total += close[i]): the updates are applied once per value of i, as
+    Pine runs them on every bar, so the result is an ordinary series expression. Anything else is refused."""
+    m = re.match(r"^for\s+([A-Za-z_]\w*)\s*=\s*(.+?)\s+to\s+(.+?)(?:\s+by\s+(.+))?$", s)
+    if not m:
+        _refuse(line, "only a counting loop with fixed bounds is supported ('for i = 0 to 9', unrolled); 'for ... in' "
+                      "loops over arrays are not.")
+    var, lo_t, hi_t, st_t = m.groups()
+
+    def const(t, what):
+        v = _const(_Inputs(ctx, line).visit(_pyexpr(t, line)))
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or v != int(v):
+            _refuse(line, f"the for loop's {what} ({t.strip()}) must be a whole number fixed for the whole test (a number "
+                          "or an input), so the loop can be unrolled; a bound that changes from bar to bar is not supported.")
+        return int(v)
+    lo, hi = const(lo_t, "start"), const(hi_t, "end")
+    step = abs(const(st_t, "step")) if st_t else 1
+    if step == 0:
+        _refuse(line, "the for loop's step is 0.")
+    vals = list(range(lo, hi + 1, step)) if hi >= lo else list(range(lo, hi - 1, -step))
+    if len(vals) > MAX_UNROLL:
+        _refuse(line, f"the for loop runs {len(vals)} times; loops of up to {MAX_UNROLL} iterations are unrolled. Use a "
+                      "built-in over a window instead (math.sum(close, n), ta.sma, ta.highest).")
+    if not body:
+        _refuse(line, "the for loop has no body.")
+    ups = []
+    for bl, _, bc in body:
+        b = bc.strip()
+        mm = re.match(r"^([A-Za-z_]\w*)\s*(:=|\+=|-=|\*=|/=)\s*(.+)$", b)
+        if not mm:
+            _refuse(line, f"inside a for loop only updates of a variable declared before the loop are supported "
+                          f"(total := total + close[{var}] or total += close[{var}]); line {bl}, {b[:50]!r}, is not. (A for loop is "
+                        "unrolled; declarations, ifs, breaks and strategy calls inside it are not supported.)")
+        nm, op, rhs = mm.groups()
+        if nm == var:
+            _refuse(bl, f"the loop variable {var} can't be changed inside the loop.")
+        if nm in ctx.state:
+            _refuse(bl, f"{nm} is a var (kept from bar to bar); a for loop may only update a plain variable declared "
+                        "before it (total = 0.0).")
+        if _user_name(nm) not in ctx.sym:
+            _refuse(bl, f"{nm} is updated inside the for loop but not declared before it (e.g. {nm} = 0.0 above the loop).")
+        ups.append((bl, nm, op, rhs))
+    for k in vals:
+        for bl, nm, op, rhs in ups:
+            txt = re.sub(rf"\b{re.escape(var)}\b", f"({k})", rhs)
+            val = _pyexpr(txt, bl)
+            key = _user_name(nm)
+            if op != ":=":
+                val = ast.BinOp(left=ast.Name(id=key, ctx=ast.Load()),
+                                op={"+=": ast.Add(), "-=": ast.Sub(), "*=": ast.Mult(), "/=": ast.Div()}[op], right=val)
+            cur = ctx.sym[key]
+
+            class _Now(ast.NodeTransformer):
+                def visit_Name(self, n):
+                    return copy.deepcopy(cur) if n.id == key else n
+            ctx.sym[key] = _Now().visit(val)
+    names = ", ".join(dict.fromkeys(nm for _, nm, _, _ in ups))
+    return (f"line {line}: for {var} = {lo} to {hi}{f' by {step}' if step != 1 else ''} unrolled ({len(vals)} "
+            f"iteration{'s' if len(vals) != 1 else ''}), updating {names}")
+
+
 def _translate(text: str, ticker: str | None = None) -> Strategy:
     stmts, comments = _statements(text)
     ctx = _Ctx()
@@ -782,9 +851,29 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
             out.extend(cs)
         return out
 
-    for line, ind, code in stmts:
+    si = 0
+    while si < len(stmts):
+        line, ind, code = stmts[si]
+        si += 1
         s = code.strip()
         head = conds_here(ind)
+        # arrays, matrices and maps: not series the backtest can compute (say so, before any 'var' / type message)
+        if re.search(r"\b(?:array|matrix|map)\.\w+|\b(?:float|int|bool|string)\s*\[\s*\]|\barray\s*<|\bmatrix\s*<|\bmap\s*<", s):
+            _refuse(line, "arrays (array.new_float, float[] ...), matrices and maps are not supported: the importer "
+                          "translates each variable to one value per bar. Use the built-ins over a window instead - "
+                          "ta.highest(high, 20) / ta.lowest(low, 20) for the extremes of the last 20 bars, ta.sma / "
+                          "math.sum(x, n) for averages and sums, x[n] for the value n bars ago - or a var for one value "
+                          "kept from bar to bar.")
+        # a counting loop with fixed bounds ('for i = 0 to 9' summing close[i]): unrolled
+        if re.match(r"^for\b", s):
+            if head or ind > 0:
+                _refuse(line, "a for loop inside a block is not supported; only a loop at the top level is unrolled.")
+            body = []
+            while si < len(stmts) and stmts[si][1] > ind:
+                body.append(stmts[si])
+                si += 1
+            shown.append(_unroll_for(s, line, body, ctx))
+            continue
         m_if = re.match(r"^(else\s+if|if)\s+(.+)$", s)
         if m_if or s == "else":
             if m_if and m_if.group(1) == "if":
@@ -806,7 +895,7 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
         # (a statement at this indent ends any if-chain deeper than it)
         for k in [k for k in last_if if k > ind]:
             del last_if[k]
-        if re.match(r"^(for|while|switch|import|export|method|type|enum)\b", s):
+        if re.match(r"^(while|switch|import|export|method|type|enum)\b", s):
             _refuse(line, f"'{s.split()[0]}' is not supported by the importer.")
         # one-line custom functions: f(x, y = 2) => expression (inlined where called)
         m = re.match(r"^([A-Za-z_]\w*)\s*\(([^()]*)\)\s*=>\s*(.*)$", s)
@@ -1207,10 +1296,15 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
         n_ = _Inputs(ctx, line).visit(copy.deepcopy(a[key]))
         return any(_attr(x) == "strategy.position_avg_price" for x in ast.walk(n_))
 
+    per_side: dict = {1: {}, -1: {}}                 # side -> exit fields of the strategy.exit()s for that side
+    cur_sides = [1]                                  # the sides of the strategy.exit() being read
+
     def put(field_, v, line):
-        if field_ in ex and ex[field_] != v and not (isinstance(v, float) and abs(ex[field_] - v) < 1e-12):
-            _refuse(line, "two different stops (or targets) for the same entries are not supported.")
-        ex[field_] = v
+        for sg in cur_sides:
+            d = per_side[sg]
+            if field_ in d and d[field_] != v and not (isinstance(v, float) and abs(d[field_] - v) < 1e-12):
+                _refuse(line, "two different stops (or targets) for the same entries are not supported.")
+            d[field_] = v
 
     def as_fields(k, v, per, what, sides_):
         """A level of the given kind as Strategy fields: {field: value} (+ per-side level expressions)."""
@@ -1228,13 +1322,9 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
     for x in exits:
         a, line = x["a"], x["line"]
         sd = ids_side([x["from"]] if x["from"] else None, line)
-        if side == "both" and sd != {1, -1} and x["from"]:
-            others = [y for y in exits if y is not x]
-            if not any(set(ids_side([y["from"]] if y["from"] else None, y["line"])) - sd for y in others):
-                raise PineImportError(f"Pine script line {line}: strategy.exit() for one side only of a long/short script: "
-                                      "the backtest's stops and targets apply to both sides. Give both sides the same exit.")
         s1 = 1 if sd == {1} else (-1 if sd == {-1} else (1 if side != "short" else -1))
         sides_x = sorted(sd) if sd else [s1]
+        cur_sides[:] = sides_x          # (a long/short script's exit for one side applies to that side only)
         for c in x["cs"]:
             r = _rule(c, ctx, line, "exit-long" if s1 == 1 else "exit-short")
             if r != "True":
@@ -1397,6 +1487,28 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
         if not got:
             _refuse(line, "strategy.exit() without a stop, limit, profit, loss or trailing stop has no effect.")
         notes.append(f"line {line}{' (qty_percent=' + format(qp, 'g') + ')' if qp < 100 else ''}: strategy.exit -> {', '.join(got)}")
+    # the fields each side's exits set: common to both sides when they agree, else per side (side_exits)
+    if side == "both":
+        one_side: dict = {"long": {}, "short": {}}
+        for f_ in list(dict.fromkeys([*per_side[1], *per_side[-1]])):
+            has_l, has_s = f_ in per_side[1], f_ in per_side[-1]
+            vl, vs = per_side[1].get(f_), per_side[-1].get(f_)
+            if has_l and has_s and (vl == vs or (isinstance(vl, float) and isinstance(vs, float) and abs(vl - vs) < 1e-12)):
+                ex[f_] = vl
+            elif f_ in ("atr_period", "current_atr"):
+                if has_l and has_s:
+                    raise PineImportError("Pine script: the long and short exits use ATRs of different lengths; use one "
+                                          "length.")
+                ex[f_] = vl if has_l else vs
+            else:
+                if has_l:
+                    one_side["long"][f_] = vl
+                if has_s:
+                    one_side["short"][f_] = vs
+        if one_side["long"] or one_side["short"]:
+            ex["side_exits"] = {k_: v_ for k_, v_ in one_side.items() if v_}
+    else:
+        ex.update(per_side[1 if side != "short" else -1])
     # a stop on part of the position: TradingView's exits each cover their own quantity
     uncovered = []
     for lst, rest, what in ((part_stop, rest_stop, "stop"), (part_trail, rest_trail, "trailing stop")):
@@ -1424,9 +1536,12 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
             continue
         if side == "both":
             if set(v_) != {1, -1}:
-                raise PineImportError(f"Pine script: the {f_.replace('_', ' ')} is given for one side only of a long/short "
-                                      "script; give both sides one.")
-            ex[f_] = v_[1] if v_[1] == v_[-1] else f"where(side > 0, {v_[1]}, {v_[-1]})"
+                # a level for one side only: the other side has none (its own exits, or the reversal, close it)
+                other = "short" if 1 in v_ else "long"
+                ex[f_] = next(iter(v_.values()))
+                ex.setdefault("side_exits", {}).setdefault(other, {})[f_] = None
+            else:
+                ex[f_] = v_[1] if v_[1] == v_[-1] else f"where(side > 0, {v_[1]}, {v_[-1]})"
         else:
             ex[f_] = next(iter(v_.values()))
         dyn = bool(expr_names(ex[f_]) - {"entry_price", "side", "stop_price"})
@@ -1490,12 +1605,13 @@ def _translate(text: str, ticker: str | None = None) -> Strategy:
         notes.append(f"Display-only lines skipped (plots, colours, alerts): {', '.join(map(str, skipped[:12]))}"
                      f"{' and more' if len(skipped) > 12 else ''}.")
     notes.append("TradingView-compatible mode: the Pine script was translated to the rules above and runs with "
-                 "TradingView's conventions (next-open fills unless process_orders_on_close, no interest, no dividends).")
+                 "TradingView's conventions (next-open fills unless process_orders_on_close, no interest, no dividends, no borrow fees on shorts, no margin calls).")
     strat = Strategy(
         universe=[tick], entry=long_rule if side != "short" else short_rule,
         short_entry=short_rule if side == "both" else None, side=side, reverse=True,
         entry_fill=fill, exit_when=exit_rule, exit_when_fill="close" if poc else "next_open",
         tv_compat=True, cash_rate=None, dividends=False, start=ctx.start, end=ctx.end,
+        borrow_fee=kw.pop("borrow_fee", 0.0), maintenance_margin=kw.pop("maintenance_margin", 0.0),
         name=str(title)[:80] if title else "", description=f"Pine script: {title or 'strategy'} on {tick}",
         notes=[f"Pine import: {n}" for n in notes],
         **ex, **kw)

@@ -1097,14 +1097,24 @@ footer { color: var(--text-3); font-size: 12px; margin-top: 24px; }
     m.classList.toggle('hide', !open); $('pxIndBtn').setAttribute('aria-expanded', String(open)); $('pxIndBtn').classList.toggle('on', open);
     if (open) { if (!$('pxIndParams').children.length) indParams(); indList(); }
   });
-  $('pxIndClose').addEventListener('click', () => { $('pxIndMenu').classList.add('hide'); $('pxIndBtn').setAttribute('aria-expanded', 'false'); $('pxIndBtn').classList.remove('on'); });
+  function indClose() { $('pxIndMenu').classList.add('hide'); $('pxIndBtn').setAttribute('aria-expanded', 'false'); $('pxIndBtn').classList.remove('on'); }
+  $('pxIndClose').addEventListener('click', indClose);
+  // the menu floats over the chart's controls (Replay, range, drawing tools): a click outside it or Escape closes it,
+  // as does adding an indicator (pointerdown: a remove button inside is still in the menu when it is pressed)
+  document.addEventListener('pointerdown', e => {
+    if ($('pxIndMenu').classList.contains('hide') || e.target.closest('#pxIndMenu, #pxIndBtn')) return;
+    indClose();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !$('pxIndMenu').classList.contains('hide')) { indClose(); $('pxIndBtn').focus(); }
+  });
   $('pxIndAdd').addEventListener('click', () => {
     if (!PX.P) return;
     const k = $('pxIndType').value, d = { k, p: IND[k].params.map((q, j) => { const v = +$('pxIndP' + j).value; return q[2] >= 1 ? Math.max(1, Math.round(v)) : v; }) };
     if (!indOk(d)) return;
     const t = pxTickerNow(), v = userInds(t);
     if (!v.some(x => x.k === d.k && x.p.join() === d.p.join())) { v.push(d); saveInds(t, v); }
-    indList(); pxRebuild();
+    indList(); pxRebuild(); indClose();
   });
   $('pxView').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b || !PX.P || b.dataset.v === PX.view) return;

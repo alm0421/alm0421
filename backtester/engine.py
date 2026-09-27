@@ -191,6 +191,13 @@ def _namespace(df: pd.DataFrame, t: str, close_fill: bool = False) -> expr.Names
     return ns
 
 
+def _side_views(strat) -> dict:
+    """{1: the long side's exit fields, -1: the short side's} (Strategy.exits_for: the common exits with side_exits on
+    top), as attributes: the engine reads a position's exits from its side's view."""
+    from types import SimpleNamespace
+    return {1: SimpleNamespace(**strat.exits_for("long")), -1: SimpleNamespace(**strat.exits_for("short"))}
+
+
 def strategy_namespace(strat, df: pd.DataFrame, t: str, close_fill: bool = False) -> expr.Namespace:
     """The namespace a strategy's rules are read in: the ticker's bars, plus its Pine `var` state series if any (the
     report's chart and today's signals read the rules the way the engine does)."""
@@ -448,7 +455,11 @@ def _prepare_bars(strat: Strategy, _stream_tok=None):
             raise ValueError(f"Lookahead: the exit rule is filled at the open but {bad} ({t0}). "
                              "Use exit_when_fill 'next_open' instead.")
     # series only some settings read are skipped otherwise (a Nasdaq-100 run computes hundreds of them)
-    need_atr = bool(strat.stop_atr or strat.take_profit_atr or strat.trailing_atr or strat.sizing == "risk"
+    # exits for one side only (side_exits): each side reads its own view of the exit fields
+    SV = _side_views(strat)
+    need_atr = bool(any(v.stop_atr or v.take_profit_atr or v.trailing_atr or v.stop_loss or v.take_profit
+                        or v.trailing_stop or v.trailing_points or v.breakeven_after or v.breakeven_r for v in SV.values())
+                    or strat.stop_atr or strat.take_profit_atr or strat.trailing_atr or strat.sizing == "risk"
                     or strat.stop_loss or strat.take_profit or strat.trailing_stop or strat.scale_out
                     or strat.breakeven_after or strat.stop_level or strat.target_level
                     or strat.target_r or strat.trailing_points or strat.breakeven_r)   # any stop: trades report the ATR
@@ -648,6 +659,8 @@ def run(strat: Strategy) -> Result:
     P = _prepare(strat)
     prep_key = _prep_key(strat)   # after _prepare_bars, which may narrow the universe (today's members)
     cal, tick = P["cal"], P["tick"]
+    # exits for one side only (side_exits): a position reads the exit fields of its side
+    SV = _side_views(strat)
     # annual borrow fee per ticker for shorts: the one given, else the assumed default (margin.default_borrow_fee)
     BF = np.array([_margin.borrow_fee_of(t, strat.borrow_fee) for t in tick])
     if strat.borrow_fee is None and strat.side != "long":
@@ -794,12 +807,15 @@ def run(strat: Strategy) -> Result:
         elif strat.sizing == "fixed_shares":
             value = strat.fixed_amount * SF[i, k] * fill    # a number of shares as traded that day
         elif strat.sizing == "risk":
-            if strat.stop_loss or strat.stop_atr:
-                dist = fill * strat.stop_loss if strat.stop_loss else strat.stop_atr * ATR[ib, k]
-            elif strat.stop_level:   # the distance to the stop level evaluated for this entry
+            sv = SV[sgn]
+            if sv.stop_loss or sv.stop_atr:
+                dist = fill * sv.stop_loss if sv.stop_loss else sv.stop_atr * ATR[ib, k]
+            elif sv.stop_level:   # the distance to the stop level evaluated for this entry
                 dist = sgn * (fill - S["entry_stop"])
-            else:   # only a trailing stop: its starting distance is the risk per share
-                dist = fill * strat.trailing_stop if strat.trailing_stop else strat.trailing_atr * ATR[ib, k]
+            elif sv.trailing_stop or sv.trailing_atr:   # only a trailing stop: its starting distance is the risk per share
+                dist = fill * sv.trailing_stop if sv.trailing_stop else sv.trailing_atr * ATR[ib, k]
+            else:
+                dist = sv.trailing_points or np.nan
             if not np.isfinite(dist) or dist <= 0:
                 return 0.0
             value = eq * strat.risk_per_trade / dist * fill
@@ -874,7 +890,7 @@ def run(strat: Strategy) -> Result:
             return False
         new = k not in positions
         lv = entry_levels(i, k, fill, at_open, sgn) if new and levels_used else (np.nan, np.nan)
-        if new and ((strat.stop_level and not np.isfinite(lv[0])) or (strat.target_level and not np.isfinite(lv[1]))):
+        if new and ((SV[sgn].stop_level and not np.isfinite(lv[0])) or (SV[sgn].target_level and not np.isfinite(lv[1]))):
             S["lvl_nan"] += 1   # the level is not defined yet (an indicator still warming up): no entry without it
             return False
         S["entry_stop"] = lv[0] if new else (positions[k].lvl_stop if k in positions else np.nan)
@@ -1175,9 +1191,10 @@ def run(strat: Strategy) -> Result:
             return strat.side == "both" and strat.reverse
         return len(p.lots) < strat.pyramiding
 
-    stops_used = any([strat.stop_loss, strat.stop_atr, strat.trailing_stop, strat.trailing_atr,
-                      strat.take_profit, strat.take_profit_atr, strat.scale_out, strat.breakeven_after,
-                      strat.stop_level, strat.target_level, strat.target_r, strat.trailing_points, strat.breakeven_r])
+    stops_used = any([v_.stop_loss or v_.stop_atr or v_.trailing_stop or v_.trailing_atr or v_.take_profit
+                      or v_.take_profit_atr or v_.breakeven_after or v_.stop_level or v_.target_level
+                      or v_.trailing_points or v_.breakeven_r for v_ in SV.values()]
+                     + [strat.scale_out, strat.target_r])
     levels_used = bool(strat.stop_level or strat.target_level or strat.target_r)
     LVL = P["LVL"]
     level_dyn = any(getattr(strat, n) and n not in LVL for n in ("stop_level", "target_level"))
@@ -1187,7 +1204,7 @@ def run(strat: Strategy) -> Result:
         """stop_level / target_level for an entry filled on bar i: with the data known at the fill - the bar itself for
         a fill at the close, the previous bar for a fill at (or after) the open unless the expression is open-safe."""
         rule = getattr(strat, name)
-        if not rule:
+        if not rule or not getattr(SV[1 if extra.get("side", 1) > 0 else -1], name):
             return np.nan
         if name in LVL:
             v = LVL[name][1 if at_open else 0][i, k]
@@ -1206,8 +1223,9 @@ def run(strat: Strategy) -> Result:
 
     dyn_levels = bool(strat.dynamic_levels and (strat.stop_level or strat.target_level))
     # levels that move in ways the report's chart can't rebuild from the entry: recorded bar by bar
-    track_levels = stops_used and bool(strat.tv_compat or dyn_levels or strat.trailing_points or strat.trail_activation
-                                       or strat.trail_activation_points or strat.trail_activation_r or strat.breakeven_r or strat.current_atr
+    track_levels = stops_used and bool(strat.tv_compat or dyn_levels or strat.current_atr or strat.side_exits
+                                       or any(v_.trailing_points or v_.trail_activation or v_.trail_activation_points
+                                              or v_.trail_activation_r or v_.breakeven_r for v_ in SV.values())
                                        or not strat.stop_covers_scale_outs)
     level_paths: dict = {}
 
@@ -1218,7 +1236,7 @@ def run(strat: Strategy) -> Result:
         out = []
         for name in ("stop_level", "target_level"):
             rule = getattr(strat, name)
-            if not rule:
+            if not rule or not getattr(SV[sgn], name):
                 out.append(None)
                 continue
             if name in LVL:
@@ -1246,12 +1264,12 @@ def run(strat: Strategy) -> Result:
         the activation distance (TradingView's trail_points / trail_price)."""
         if strat.trail_after_scale_out and not p.scaled:
             return False
-        s, e = p.sign, p.avg_price
-        if strat.trail_activation and (p.peak - e * (1 + s * strat.trail_activation)) * s < 0:
+        s, e, sv = p.sign, p.avg_price, SV[p.sign]
+        if sv.trail_activation and (p.peak - e * (1 + s * sv.trail_activation)) * s < 0:
             return False
-        if strat.trail_activation_points and (p.peak - (e + s * strat.trail_activation_points)) * s < 0:
+        if sv.trail_activation_points and (p.peak - (e + s * sv.trail_activation_points)) * s < 0:
             return False
-        if strat.trail_activation_r and not (np.isfinite(p.risk) and (p.peak - (e + s * strat.trail_activation_r * p.risk)) * s >= 0):
+        if sv.trail_activation_r and not (np.isfinite(p.risk) and (p.peak - (e + s * sv.trail_activation_r * p.risk)) * s >= 0):
             return False
         return True
 
@@ -1259,27 +1277,27 @@ def run(strat: Strategy) -> Result:
         """(level, reason) of the trailing stops that are live."""
         if not trail_armed(p):
             return []
-        s, out = p.sign, []
-        if strat.trailing_stop:
-            out.append((p.peak * (1 - s * strat.trailing_stop), "trailing stop"))
+        s, out, sv = p.sign, [], SV[p.sign]
+        if sv.trailing_stop:
+            out.append((p.peak * (1 - s * sv.trailing_stop), "trailing stop"))
         a = atr_of(p, "trail")
-        if strat.trailing_atr and np.isfinite(a):
-            out.append((p.peak - s * strat.trailing_atr * a, "chandelier stop"))
-        if strat.trailing_points:
-            out.append((p.peak - s * strat.trailing_points, "trailing stop"))
+        if sv.trailing_atr and np.isfinite(a):
+            out.append((p.peak - s * sv.trailing_atr * a, "chandelier stop"))
+        if sv.trailing_points:
+            out.append((p.peak - s * sv.trailing_points, "trailing stop"))
         return out
 
     def initial_stop(p: Position, e: float) -> float:
         """The stop a new position starts with: the tightest fixed stop (stop loss, ATR stop, stop level), else the
         trailing stop's starting distance. NaN when there is none."""
-        s = p.sign
-        fixed = [x for x in ((e * (1 - s * strat.stop_loss)) if strat.stop_loss else None,
-                             (e - s * strat.stop_atr * p.atr_at_entry) if strat.stop_atr and np.isfinite(p.atr_at_entry) else None,
+        s, sv = p.sign, SV[p.sign]
+        fixed = [x for x in ((e * (1 - s * sv.stop_loss)) if sv.stop_loss else None,
+                             (e - s * sv.stop_atr * p.atr_at_entry) if sv.stop_atr and np.isfinite(p.atr_at_entry) else None,
                              p.lvl_stop if np.isfinite(p.lvl_stop) else None) if x is not None]
         if not fixed:
-            fixed = [x for x in ((e * (1 - s * strat.trailing_stop)) if strat.trailing_stop else None,
-                                 (e - s * strat.trailing_atr * p.atr_at_entry) if strat.trailing_atr and np.isfinite(p.atr_at_entry) else None,
-                                 (e - s * strat.trailing_points) if strat.trailing_points else None)
+            fixed = [x for x in ((e * (1 - s * sv.trailing_stop)) if sv.trailing_stop else None,
+                                 (e - s * sv.trailing_atr * p.atr_at_entry) if sv.trailing_atr and np.isfinite(p.atr_at_entry) else None,
+                                 (e - s * sv.trailing_points) if sv.trailing_points else None)
                      if x is not None]
         if not fixed:
             return np.nan
@@ -1290,7 +1308,7 @@ def run(strat: Strategy) -> Result:
         initial stop: the tightest of the stop level and the percentage / ATR stops)."""
         stop = level_value("stop_level", i, k, at_open, {"entry_price": fill, "side": float(sgn)})
         tgt = np.nan
-        if strat.target_level:
+        if SV[sgn].target_level:
             atr = ATR[i - 1, k] if at_open and i > 0 else ATR[i, k]
             probe = Position(k, sgn, [], i, fill, atr, None, False, lvl_stop=stop)
             tgt = level_value("target_level", i, k, at_open, {"entry_price": fill, "side": float(sgn),
@@ -1299,10 +1317,10 @@ def run(strat: Strategy) -> Result:
 
     def split_levels(p: Position):
         """(fixed stop, trailing stop, target) at this moment, NaN where not used: the chart draws them."""
-        s, e = p.sign, p.avg_price
+        s, e, sv = p.sign, p.avg_price, SV[p.sign]
         a = atr_of(p, "stop")
-        fixed = [x for x in ((e * (1 - s * strat.stop_loss)) if strat.stop_loss else None,
-                             (e - s * strat.stop_atr * a) if strat.stop_atr and np.isfinite(a) else None,
+        fixed = [x for x in ((e * (1 - s * sv.stop_loss)) if sv.stop_loss else None,
+                             (e - s * sv.stop_atr * a) if sv.stop_atr and np.isfinite(a) else None,
                              p.lvl_stop if np.isfinite(p.lvl_stop) else None)
                  if x is not None]
         trail = [lv for lv, _ in trail_levels(p)]
@@ -1348,34 +1366,34 @@ def run(strat: Strategy) -> Result:
 
     def levels(p: Position):
         """(stop level or None, stop reason, target level or None)"""
-        s, e = p.sign, p.avg_price
+        s, e, sv = p.sign, p.avg_price, SV[p.sign]
         stop, why = None, ""
         if p.rest_done:          # only scale-out tranches left, which the stop and target do not cover
             return None, "", None
         cands = []
         a = atr_of(p, "stop")
         fixed_ok = placed(p, "stop")
-        if strat.stop_loss and fixed_ok:
-            cands.append((e * (1 - s * strat.stop_loss), "stop loss"))
-        if strat.stop_atr and np.isfinite(a) and fixed_ok:
-            cands.append((e - s * strat.stop_atr * a, "ATR stop"))
+        if sv.stop_loss and fixed_ok:
+            cands.append((e * (1 - s * sv.stop_loss), "stop loss"))
+        if sv.stop_atr and np.isfinite(a) and fixed_ok:
+            cands.append((e - s * sv.stop_atr * a, "ATR stop"))
         if np.isfinite(p.lvl_stop) and fixed_ok:
             cands.append((p.lvl_stop, "trailing stop" if strat.stop_ratchet else "stop level"))
         cands += trail_levels(p)      # "trail the rest": after the first scale-out; after the activation distance
         arm = p.arm_peak if np.isfinite(p.arm_peak) else p.peak
-        if strat.breakeven_after and (arm - e * (1 + s * strat.breakeven_after)) * s >= 0:
+        if sv.breakeven_after and (arm - e * (1 + s * sv.breakeven_after)) * s >= 0:
             cands.append((e, "breakeven stop"))    # armed once the best price reached +breakeven_after
-        elif strat.breakeven_r and np.isfinite(p.risk) and (arm - (e + s * strat.breakeven_r * p.risk)) * s >= 0:
+        elif sv.breakeven_r and np.isfinite(p.risk) and (arm - (e + s * sv.breakeven_r * p.risk)) * s >= 0:
             cands.append((e, "breakeven stop"))    # ... or breakeven_r x the initial risk
         if cands:  # the tightest stop (closest to price) triggers first
             stop, why = max(cands, key=lambda c: c[0] * s)
         tgt = None
         if not placed(p, "target"):
             return stop, why, None
-        if strat.take_profit:
-            tgt = e * (1 + s * strat.take_profit)
-        if strat.take_profit_atr and np.isfinite(a):
-            t2 = e + s * strat.take_profit_atr * a
+        if sv.take_profit:
+            tgt = e * (1 + s * sv.take_profit)
+        if sv.take_profit_atr and np.isfinite(a):
+            t2 = e + s * sv.take_profit_atr * a
             tgt = t2 if tgt is None else (min(tgt, t2) if s == 1 else max(tgt, t2))
         if np.isfinite(p.lvl_tgt):
             t2 = p.lvl_tgt

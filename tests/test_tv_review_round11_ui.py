@@ -126,11 +126,16 @@ def test_drawings_indicators_and_bar_period_in_the_browser(fake, tmp_path):
         pg.click("#pxIndAdd")
         pg.wait_for_function("document.querySelector('#pxChart canvas').dataset.inds === '1'")
         assert "SMA(30)" in pg.inner_text("#pxLegend") and "SMA(30)" not in legend0
+        # (adding an indicator closes the menu: it floats over the chart's controls; reopen it for the next one)
+        assert not pg.is_visible("#pxIndMenu")
+        pg.click("#pxIndBtn")
         pg.select_option("#pxIndType", "bb")
         pg.click("#pxIndAdd")
+        pg.click("#pxIndBtn")
         pg.select_option("#pxIndType", "rsi")
         pg.fill("#pxIndP0", "7")
         pg.click("#pxIndAdd")
+        pg.click("#pxIndBtn")
         pg.select_option("#pxIndType", "macd")
         pg.click("#pxIndAdd")
         pg.wait_for_function("document.querySelector('#pxChart canvas').dataset.inds === '4'")
@@ -146,6 +151,7 @@ def test_drawings_indicators_and_bar_period_in_the_browser(fake, tmp_path):
         assert abs(float(got.replace(",", "")) - want) < 0.01
         assert pg.evaluate("document.querySelectorAll('#pxIndList .indrow').length") == 4
         # remove one; the list and the chart follow; the choice survives a reload
+        pg.click("#pxIndBtn")
         pg.click("#pxIndList .indrow:first-child button")
         pg.wait_for_function("document.querySelector('#pxChart canvas').dataset.inds === '3'")
         pg.reload()

@@ -119,6 +119,11 @@ class Strategy:
     stop_covers_scale_outs: bool = True          # False: the stop / trailing stop / target cover only the shares not set
                                                  # aside for the scale-outs, which keep only their own limit orders
                                                  # (TradingView: strategy.exit(qty_percent = 50, limit = ...) with no stop)
+    side_exits: dict | None = None               # exits for one side only of a long/short strategy: {"long": {...},
+                                                 # "short": {...}} of the fields in SIDE_EXIT_FIELDS, which replace the
+                                                 # common ones for that side (a Pine script's strategy.exit("xl", "L",
+                                                 # profit=, loss=) and strategy.exit("xs", "S", trail_points=, ...));
+                                                 # "stop_level": null / "target_level": null: none for that side
     state_vars: list[dict] = field(default_factory=list)   # Pine `var` state (see pine_import.state_series)
     exits_after_fill: list[str] = field(default_factory=list)   # "stop" / "target" (a scale-out: "after_fill": true): these exit orders
                                                  # are placed only once the script has seen the position at a close
@@ -200,7 +205,9 @@ class Strategy:
             if v is not None and not callable(v) and not (isinstance(v, str) and v.strip()):
                 setattr(self, name, None)
         self._check_bounds()
-        if not any([self.hold_bars is not None, self.exit_when, self.stop_loss, self.take_profit, self.trailing_stop,
+        self._check_side_exits()
+        side_ex = [v for d in (self.side_exits or {}).values() for k, v in d.items() if k not in ("stop_level", "target_level")]
+        if not any([self.hold_bars is not None, *side_ex, self.exit_when, self.stop_loss, self.take_profit, self.trailing_stop,
                     self.stop_atr, self.take_profit_atr, self.trailing_atr, self.breakeven_after, self.side == "both",
                     self.stop_level, self.target_level, self.target_r, self.trailing_points, self.breakeven_r]):
             raise ValueError("strategy needs at least one exit rule (hold_bars, exit_when, stop_loss, "
@@ -231,7 +238,10 @@ class Strategy:
         for name in ("stop_loss", "trailing_stop", "take_profit"):
             v = getattr(self, name)
             if v is not None and v < 0:
-                raise ValueError(f"{name} cannot be negative (write 0.05 for 5%)")
+                label = name.replace("_", " ")
+                raise ValueError(f"{name} cannot be negative (got {v:g}): a {label} is a distance from the entry, so it must "
+                                 f"be positive - a fraction in a JSON spec ({name}: 0.05 for 5%), a percent in the site's "
+                                 f"'{label.capitalize()} (%)' field (5 for 5%).")
         for name, label in (("stop_loss", "stop loss"), ("trailing_stop", "trailing stop"), ("take_profit", "take profit"),
                             ("stop_atr", "ATR stop"), ("trailing_atr", "chandelier stop"),
                             ("take_profit_atr", "ATR take profit"), ("breakeven_after", "breakeven trigger")):
@@ -345,7 +355,20 @@ class Strategy:
             div = ("dividends are not credited (TradingView's strategies receive none, and its default charts are "
                    "split-adjusted, not dividend-adjusted; say 'with dividends' to credit them)" if not self.dividends else
                    "dividends are credited on the ex-date (TradingView credits none; say 'no dividends' to match it)")
-            self.notes.append(f"TradingView-compatible returns: {cash}; {div}."
+            fin = ""
+            if self.side != "long" or (self.leverage or 1) > 1:
+                bf = ("no borrow fee on shorts (TradingView charges none; say 'with a 0.3% borrow fee' to add one)"
+                      if self.borrow_fee == 0 else
+                      "assumed borrow fees on shorts (TradingView charges none; say 'no borrow fee' to match it)"
+                      if self.borrow_fee is None else
+                      f"a {self.borrow_fee:.2%}/yr borrow fee on shorts (TradingView charges none)") \
+                    if self.side != "long" else ""
+                mm = ("no maintenance-margin calls (TradingView's default 100% margin makes none; say 'a 25% maintenance "
+                      "margin' to add them)" if not self.maintenance_margin else
+                      f"margin calls at a {self.maintenance_margin:.0%} maintenance margin (TradingView makes none at its "
+                      "default 100% margin; say 'no margin calls' to match it)")
+                fin = "; " + "; ".join(x for x in (bf, mm) if x)
+            self.notes.append(f"TradingView-compatible returns: {cash}; {div}{fin}."
                               + (" These are price-only returns, as TradingView's strategy tester reports them."
                                  if no_cash and not self.dividends else ""))
         if self.commission_model not in COMMISSION_MODELS:
@@ -381,6 +404,38 @@ class Strategy:
 
     LEVEL_VARS = {"stop_level": {"entry_price", "side"}, "target_level": {"entry_price", "stop_price", "side"}}
 
+    SIDE_EXIT_FIELDS = ("stop_loss", "stop_atr", "take_profit", "take_profit_atr", "trailing_stop", "trailing_atr",
+                        "trailing_points", "trail_activation", "trail_activation_points", "trail_activation_r",
+                        "breakeven_after", "breakeven_r", "stop_level", "target_level")
+
+    def exits_for(self, side: str) -> dict:
+        """The exit fields that apply to one side ("long" / "short"): the common ones, with side_exits on top."""
+        base = {f: getattr(self, f) for f in self.SIDE_EXIT_FIELDS}
+        return {**base, **((self.side_exits or {}).get(side) or {})}
+
+    def _check_side_exits(self) -> None:
+        se = self.side_exits
+        if se is None:
+            return
+        if not isinstance(se, dict) or set(se) - {"long", "short"}:
+            raise ValueError("side_exits must be {\"long\": {...}, \"short\": {...}} (exit fields for one side only)")
+        for sd, d in se.items():
+            if not isinstance(d, dict):
+                raise ValueError(f"side_exits.{sd} must be an object of exit fields")
+            bad = set(d) - set(self.SIDE_EXIT_FIELDS)
+            if bad:
+                raise ValueError(f"side_exits.{sd}: {', '.join(sorted(bad))} can't be set for one side (per-side fields: "
+                                 f"{', '.join(self.SIDE_EXIT_FIELDS)})")
+            for f_, v in d.items():
+                if f_ in ("stop_level", "target_level"):
+                    if v is not None:
+                        raise ValueError(f"side_exits.{sd}.{f_}: only null (no {f_.replace('_', ' ')} for that side); a "
+                                         f"level for one side is written with side: where(side > 0, long level, short level)")
+                elif v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or not v > 0):
+                    raise ValueError(f"side_exits.{sd}.{f_} must be a positive number (got {v!r})")
+            if sd == "long" and self.side == "short" or sd == "short" and self.side == "long":
+                raise ValueError(f"side_exits.{sd}: this strategy has no {sd} positions")
+
     def _check_bounds(self) -> None:
         """Bounds on one value that contradict each other ('RSI above 79 and below 30') or cover every value ('return
         below 5% or above -5%'): an entry that can never be true is refused (it would never trade); anything else
@@ -395,8 +450,12 @@ class Strategy:
             if not msgs:
                 continue
             if const is False and name != "exit_when":
-                raise ValueError(f"The {label} {msgs[0]} It would never trade. Check the numbers (e.g. 'above 79 or "
-                                 "below 30' for either extreme, or 'between 30 and 79').")
+                import re as _re
+                if _re.search(r"(?:above|below|at least|at most|equal to) -?\d", msgs[0]):
+                    raise ValueError(f"The {label} {msgs[0]} It would never trade. Check the numbers (e.g. 'above 79 or "
+                                     "below 30' for either extreme, or 'between 30 and 79').")
+                raise ValueError(f"The {label} {msgs[0]} It would never trade. Keep the comparison you mean (e.g. 'the "
+                                 "50 day SMA is above the 200 day SMA'), or join the two with 'or' for either.")
             tail = ("" if const is None else " It never fires, so other exits must close every trade." if const is False and name == "exit_when"
                     else f" It is true on every bar." if const else "")
             msg = f"Warning: the {label} {' '.join(msgs)}{tail}"
@@ -591,6 +650,9 @@ class Strategy:
             raise ValueError(f"unknown strategy field(s): {', '.join(sorted(unknown))}")
         if d.get("tv_compat") is True and "cash_rate" not in d:
             d = {**d, "cash_rate": None}   # TradingView-compatible mode: cash earns nothing unless the spec says so
+        if d.get("tv_compat") is True:
+            # nor are shorts charged a borrow fee, nor positions cut by maintenance-margin calls (TradingView does neither)
+            d = {"borrow_fee": 0.0, "maintenance_margin": 0.0, **d}
         return cls(**d)
 
     def summary(self) -> str:
@@ -683,6 +745,26 @@ class Strategy:
                       "close in the position (from strategy.position_avg_price)")
         if self.state_vars:
             ex.append(f"state kept bar to bar: {', '.join(str(v.get('name', '?')) for v in self.state_vars)}")
+        se = self.side_exits if isinstance(self.side_exits, dict) else {}
+        for sd in ("long", "short"):
+            d = se.get(sd) or {}
+            other = "short" if sd == "long" else "long"
+            lv = [k.replace("_level", "") for k in ("stop_level", "target_level") if k in d and d[k] is None]
+            if lv:   # the common level applies to the other side only
+                ex.append(f"(the {' and '.join(lv)} level{'s' if len(lv) > 1 else ''} above: {other} positions only)")
+            own = {k: v for k, v in d.items() if v is not None}
+            if own:
+                txt = ", ".join(
+                    f"stop loss {f(v, '.1%')}" if k == "stop_loss" else f"take profit {f(v, '.1%')}" if k == "take_profit" else
+                    f"trailing stop {f(v, '.1%')}" if k == "trailing_stop" else f"trailing stop {f(v, 'g')} points from the best price" if k == "trailing_points" else
+                    f"stop {f(v, 'g')}x ATR" if k == "stop_atr" else f"take profit {f(v, 'g')}x ATR" if k == "take_profit_atr" else
+                    f"chandelier stop {f(v, 'g')}x ATR" if k == "trailing_atr" else
+                    f"trailing starts at +{f(v, '.1%')}" if k == "trail_activation" else
+                    f"trailing starts {f(v, 'g')} points in favour" if k == "trail_activation_points" else
+                    f"trailing starts at {f(v, 'g')}R" if k == "trail_activation_r" else
+                    f"breakeven after +{f(v, '.1%')}" if k == "breakeven_after" else f"breakeven after {f(v, 'g')}R"
+                    for k, v in own.items())
+                ex.append(f"{sd} positions only: {txt}")
         if self.side == "both" and not ex:
             ex.append("opposite signal")
         lines.append("Exit: " + ("; ".join(ex) if ex else "none"))
