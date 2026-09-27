@@ -1590,7 +1590,15 @@ class _Evaluator:
         key = (rule, t, kind)
         if key not in self.cache:
             ns = self.ns[t]
-            ev = expr.evaluate(rule, ns) if kind == "bool" else expr.evaluate_value(rule, ns)
+            fn = expr.evaluate if kind == "bool" else expr.evaluate_value
+            segs = data.segments(t, self.dfs[t]) if t in self.dfs else []
+            if len(segs) > 1:
+                # a security break: each security's own bars, so no indicator spans it
+                ev = pd.concat([fn(rule, expr.Namespace(sg, ticker=t, price_basis=self.basis,
+                                                        month_lookbacks=self.months, close_fill=self.ns.close_fill))
+                                for sg in segs])
+            else:
+                ev = fn(rule, ns)
             lag = self._lag_note(t)
             if lag:
                 # a rule on a series that closes after the stock market (a crypto day ends at 8pm New York, VIX at
@@ -2799,6 +2807,14 @@ def run(p: Portfolio) -> Result:
     div_day = (DIV != 0).any(axis=1).tolist() if N else [False] * T   # a day with any dividend (or NaN) at all
     delisted: list[str] = []
     spun: list[str] = []
+    # security breaks inside the run (not on its first day: nothing is held before it)
+    brk_on: dict[int, list[int]] = {}
+    broken: list = []
+    for j, t in enumerate(tick):
+        for d in data.security_breaks(t, dfs[t]):
+            b = int(cal.searchsorted(d))
+            if 0 < b < T and cal[b] == d:
+                brk_on.setdefault(b, []).append(j)
     rate = _daily_rate(cal, p.cash_rate)
     borrow_extra = p.margin_rate / 252.0
     fee_daily = p.expense_ratio / 252.0
@@ -3007,6 +3023,25 @@ def run(p: Portfolio) -> Result:
 
     for i in range(T):
         o, c = O[i], C[i]
+        # a security break (data.security_breaks: a new security spliced into the series, e.g. shares cancelled in a
+        # bankruptcy and new ones listed under the same symbol): the old holding is settled at its last close, at no
+        # cost, before anything else happens today; the next rebalance buys the new security if the rules want it.
+        # Known only today (the new security's first print): the equity up to yesterday's close is unchanged.
+        for j in brk_on.get(i, ()):
+            if pending_target:
+                pending_target.pop(tick[j], None)
+            target.pop(tick[j], None)
+            if shares[j] and np.isfinite(last_px[j]):
+                q = -shares[j]
+                fill = float(last_px[j])
+                cash -= q * fill
+                tcash[j] -= q * fill
+                ledger.append((cal[i], tick[j], "buy" if q > 0 else "sell", q, abs(q) * fill, 0.0))
+                orders.append({"date": cal[i].date(), "ticker": tick[j], "side": "buy" if q > 0 else "sell",
+                               "shares": abs(q) / SF[i - 1, j], "price": fill * SF[i - 1, j], "value": abs(q) * fill,
+                               "commission": 0.0, "reason": "security break"})
+                broken.append((tick[j], cal[i], fill * SF[i - 1, j], float(c[j]) * SF[i, j]))
+                shares[j] = 0.0
         # overnight interest and dividends
         if i > 0:
             r = rate[i - 1]
@@ -3232,6 +3267,9 @@ def run(p: Portfolio) -> Result:
                                "simulation stopped there and the balance is shown as $0 from then on.")
             equity[i:] = 0.0
             break
+    bn = data.break_note(broken)
+    if bn and bn not in p.notes:
+        p.notes.append(bn)
     if delisted:
         more = f" and {len(delisted) - 5} more" if len(delisted) > 5 else ""
         p.notes.append(f"Delisted: {', '.join(delisted[:5])}{more}; the position was closed at its last price (the final "

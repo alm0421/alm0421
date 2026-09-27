@@ -800,7 +800,27 @@ python -m backtester composer-export "if SPY is above its 200 day moving average
   day 2024-06-03). Real crashes stay (SVXY 2018-02-06, AAPL 2000-09-29): the ratio leaves no plausible day or the
   volume burst says otherwise. `data/inferred_splits.json` holds manual overrides (SOXS 2026-05-26: prices 15x
   too high before it, no split that day) and the data job's log of every repair with its evidence; a backtest
-  over a repaired day says so ("Data repaired: ..."); `data.price_repairs(ticker)` lists them.
+  over a repaired day says so ("Data repaired: ..."); `data.price_repairs(ticker)` lists them. Two or three bars
+  in a row with no volume, far from the closes around them (which agree), are quotes that never traded and are
+  replaced the same way (INDV 2022-11-23..25; IPAR 1990-08-03, with the phantom 2-for-5 "split" booked on them).
+- **Bankruptcy re-listings (security breaks).** When a company's old shares are cancelled in Chapter 11 and the new
+  shares list under the same symbol, the price source splices the two: CHRD (Oasis Petroleum) closed at $0.12 on
+  2020-11-19 and at $31 on 2020-11-20, a 258x "gain" nobody earned. A 10x-or-more overnight jump from a price that
+  had collapsed to 10% or less of its high of the year before, on share volume that neither fell like a reverse
+  split's nor burst like news (or after 10+ days without trading), is a *security break*
+  (`integrity.find_breaks`, decided from the bars up to that day only; `data/inferred_splits.json` can force or
+  veto one with `"action": "break"` / `"no_break"`). A position held into it is settled at the old shares' last
+  close on the break day, at no cost (trades/orders marked `security break`, and a note); rules and indicators read
+  each security's own bars (a 20-day average of the new shares needs 20 of their days); a portfolio buys the new
+  security at its next rebalance. Truncating the data at any date gives the same breaks before it.
+- **Anything else unexplained is flagged, not used silently.** Every price file is scanned for one-day total
+  returns beyond +60% / -60% and for days whose total return disagrees with the adjusted close by more than 2%.
+  Each is either explained (a security break, a curated entry with its evidence in `backtester/known_moves.py`, a
+  mutual fund's misreported distribution) or recorded in `data/price_flags.json` (`backtester/price_flags.py`); a
+  backtest that holds a ticker across a flagged day gets a note ("Warning: unexplained price moves: ..."). The file
+  also fingerprints each price file: the data job regenerates the entries of the files it wrote, and the tests fail
+  when an entry is stale (by hand: `python -m backtester.price_flags [--all] [TICKER ...]`). In the core universe
+  (Nasdaq-100 members past and present, the core ETFs, SPY / QQQ) the tests require every such day to be explained.
 - **Corporate actions booked twice.** Yahoo sometimes records one event in two ways on its ex-date: DHR on
   2016-07-05 (Fortive spin-off) has both a $24.56 payout and a 1.319 "split", which together gave a phantom
   +39% day; EXPE 2011-12-21 (TripAdvisor) and TMUS 2013-05-01 (MetroPCS) pay per pre-split share on a

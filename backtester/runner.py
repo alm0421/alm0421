@@ -65,6 +65,11 @@ def _corporate_action_note(spec: Spec, res: Result) -> None:
         n = data.distribution_note(held, eq.index[0], eq.index[-1])
         if n and n not in spec.notes:
             spec.notes.append(n)
+        # days nothing explains in the data of a ticker the run held across them (backtester/price_flags.py)
+        from . import price_flags
+        n = price_flags.flag_note(hw[held])
+        if n and n not in spec.notes:
+            spec.notes.append(n)
         # price-integrity repairs (inferred splits, bad ticks) of any ticker the run held or read
         n = data.integrity_note(sorted(set(held) | set(_run_tickers(spec))), eq.index[0], eq.index[-1])
         if n and n not in spec.notes:

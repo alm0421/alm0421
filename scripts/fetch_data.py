@@ -3254,6 +3254,10 @@ def main() -> None:
     except Exception as e:  # noqa: BLE001 - the log is informational
         print(f"price integrity log failed: {e}", file=sys.stderr)
     try:
+        write_price_flags()
+    except Exception as e:  # noqa: BLE001 - backtests scan a file themselves when its flags entry is stale
+        print(f"price flags failed: {e}", file=sys.stderr)
+    try:
         write_ticker_info()
     except Exception as e:  # noqa: BLE001 - names are informational
         print(f"ticker info failed: {e}", file=sys.stderr)
@@ -3315,6 +3319,17 @@ def write_integrity_log(tickers: list[str] | None = None, path: Path | None = No
     n = sum(len(v) for v in found.values())
     print(f"price integrity: {n} repairs in {len(found)} files (data/inferred_splits.json)")
     return doc
+
+
+def write_price_flags(tickers: list[str] | None = None) -> dict:
+    """Regenerate data/price_flags.json (backtester/price_flags.py) for the price files this run wrote - every file
+    whose content no longer matches its entry - and drop the entries of deleted files: the days no repair, corporate
+    action, security break or curated entry explains, which backtests holding across them are warned about. The test
+    suite fails when an entry is stale, so a refresh that skipped this step is caught."""
+    from backtester import data as bt_data, price_flags as bt_flags
+    bt_data.load.cache_clear()
+    bt_data.universe_meta.cache_clear()
+    return bt_flags.write(tickers)
 
 
 if __name__ == "__main__":
