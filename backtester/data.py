@@ -130,8 +130,15 @@ SIMS = {"SPYSIM": "US stock market (Fama-French market return) from 1926, splice
         "BNDSIM": "US aggregate bonds: 70% 5-year Treasury / 30% IG corporate model from 1962, the Vanguard Total Bond "
                   "Market Index fund (VBMFX) from Dec 1986, then BND",
         "LQDSIM": "Investment-grade corporates priced off Moody's Aaa/Baa yields from 1953, spliced into LQD",
-        "HYGSIM": "US high-yield bonds: the Vanguard High-Yield Corporate fund (VWEHX) from 1985, then HYG (no model before)",
-        "TIPSIM": "US TIPS: the Vanguard Inflation-Protected Securities fund (VIPSX) from mid-2000, then TIP (no model before)",
+        "HYGSIM": "US high-yield bonds: a MODEL from 1953 (a 7-year par bond at Moody's Baa yield mixed with the US stock "
+                  "market, the mix that tracks VWEHX best, net of a default-loss/fee haircut calibrated on their overlap), "
+                  "the Vanguard High-Yield Corporate fund (VWEHX) from 1980, then HYG",
+        "TIPSIM": "US TIPS: a MODEL from 1972 (monthly steps; an 8-year real par bond priced off the Cleveland Fed 10-year "
+                  "real rate from 1982 and the 10-year Treasury yield minus trailing CPI inflation before, plus CPI accrual "
+                  "lagged 3 months; TIPS only exist from 1997), the Vanguard Inflation-Protected Securities fund (VIPSX) "
+                  "from mid-2000, then TIP",
+        "BWXSIM": "International government bonds, unhedged: a par-bond model on OECD 10-year yields of up to 12 developed "
+                  "markets converted to USD at month-end exchange rates (monthly steps) from 1971, spliced into BWX",
         "BNDXSIM": "International government bonds hedged to USD: a par-bond model on OECD 10-year yields of up to 12 "
                    "developed markets (monthly steps) from 1970, PIMCO International Bond USD-hedged (PFORX) from 1993, then BNDX",
         "VBSIM": "US small caps (Fama-French small portfolios) from 1926, the Vanguard Small-Cap Index fund (NAESX) from "
@@ -160,7 +167,8 @@ SIMS = {"SPYSIM": "US stock market (Fama-French market return) from 1926, splice
                   "see data/sims_log.txt)",
         # "fund-exact": the named fund as soon as it or its mutual-fund twin exists
         "VTISIM": "US total stock market: Fama-French market return from 1926, the Vanguard Total Stock Market Index fund "
-                  "(VTSMX) from April 1992, then VTI from 2001",
+                  "(VTSMX, with the 1993-96 ex-dates whose distribution Yahoo understates repaired) from April 1992, then "
+                  "VTI from 2001",
         "VXUSSIM": "Total international stocks: 80% developed ex-US (Fama-French EAFE) + 20% emerging markets (from 1989) "
                    "from 1975, the Vanguard Total International Stock Index fund (VGTSX) from 1996, then VXUS from 2011",
         "VWOSIM": "Emerging markets (Fama-French, monthly steps) from 1989, the Vanguard Emerging Markets Stock Index fund "
@@ -1459,6 +1467,84 @@ def cpi_monthly() -> pd.Series:
             join = parts[1].reindex([s.index[0]]).iloc[0] if s.index[0] in parts[1].index else older.iloc[-1]
             s = pd.concat([older * (s.iloc[0] / join), s])
     return s
+
+
+# ---- valuation: Robert Shiller's CAPE (data/macro/shiller.csv, written by scripts/fetch_data.py)
+#
+# Shiller's row for month M uses that month's AVERAGE price and trailing earnings that are only reported one to
+# two quarters later (S&P's four-quarter totals, interpolated to months; the latest rows are his estimates). So a
+# rule may only see month M's CAPE from the first day of month M + 1 + CAPE_LAG_MONTHS: with a lag of 4, the
+# CAPE for January is used from the 1st of June. That is conservative (the quarter's earnings are out by then)
+# and makes every value causal: truncating the data at any date changes nothing before it.
+CAPE_LAG_MONTHS = 4
+SHILLER_FILE = DATA / "macro" / "shiller.csv"
+
+
+@lru_cache(maxsize=2)
+def _shiller(path: str) -> pd.DataFrame:
+    try:
+        df = pd.read_csv(path)
+    except (OSError, ValueError):
+        return pd.DataFrame()
+    if "month" not in df:
+        return pd.DataFrame()
+    df.index = pd.PeriodIndex(df.pop("month"), freq="M")
+    return df.apply(pd.to_numeric, errors="coerce").sort_index()
+
+
+def shiller() -> pd.DataFrame:
+    """Shiller's monthly data by the month it describes (PeriodIndex): price, dividend, earnings, cpi, gs10,
+    cape, tr_cape; empty when the file is missing. For research displays, not for rules (see shiller_known)."""
+    return _shiller(str(SHILLER_FILE))
+
+
+def shiller_known(column: str, lag_months: int | None = None) -> pd.Series:
+    """A Shiller column point in time: month M's value dated the 1st calendar day of month M + 1 + lag, the first
+    day it is treated as known (see CAPE_LAG_MONTHS). Held until the next value by the caller's reindex/ffill."""
+    lag = CAPE_LAG_MONTHS if lag_months is None else int(lag_months)
+    df = shiller()
+    if df.empty or column not in df:
+        return pd.Series(dtype=float)
+    s = df[column].dropna()
+    s.index = (s.index + 1 + lag).to_timestamp(how="start")
+    return s
+
+
+def cape_percentile(years: int = 0) -> pd.Series:
+    """Point-in-time percentile (0..1) of the CAPE among the values known so far: over all history from 1881
+    (years=0) or the last `years` years of monthly values. Dated like shiller_known."""
+    s = shiller_known("cape")
+    if s.empty:
+        return s
+    v = s.to_numpy(dtype=float)
+    out = np.full(len(v), np.nan)
+    for i in range(len(v)):
+        lo = 0 if not years else max(0, i - 12 * int(years) + 1)
+        w = v[lo:i + 1]
+        out[i] = (w <= v[i]).sum() / len(w) if len(w) >= 12 else np.nan
+    return pd.Series(out, index=s.index)
+
+
+def treasury_10y() -> pd.Series:
+    """10-year Treasury yield (decimal) by the day it was known: FRED's daily DGS10 (from 1962), before that the
+    monthly GS10 average dated the 1st of the following month."""
+    parts = []
+    f = DATA / "macro" / "DGS10.csv"
+    if f.exists():
+        d = pd.read_csv(f, parse_dates=["date"], index_col="date")["value"]
+        parts.append(pd.to_numeric(d, errors="coerce").dropna() / 100)
+    g = DATA / "macro" / "GS10.csv"
+    if g.exists():
+        m = pd.read_csv(g, parse_dates=["date"], index_col="date")["value"]
+        m = pd.to_numeric(m, errors="coerce").dropna() / 100
+        m.index = m.index + pd.offsets.MonthBegin(1)
+        if parts:
+            m = m[m.index < parts[0].index[0]]
+        parts.insert(0, m)
+    if not parts:
+        return pd.Series(dtype=float)
+    s = pd.concat(parts).sort_index()
+    return s[~s.index.duplicated(keep="last")]
 
 
 @lru_cache(maxsize=1)

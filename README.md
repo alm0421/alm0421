@@ -25,6 +25,7 @@ python -m backtester "buy at the close Microsoft when it trades down 5 days in a
 | **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates, also per percentile of the paths (10th-90th, as Portfolio Visualizer; for contribute-then-withdraw plans measured from the balance when withdrawals start) (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), any number of cash-flow phases (contribute, then withdraw), and a glide path (e.g. 90/10 -> 40/60 over 30 years, linear or target-date shaped). |
 | **Factors** | Regress a ticker, portfolio, sentence or saved run on CAPM, Fama-French 3, Carhart 4, Fama-French 5 or FF5 + momentum for the US or a region (developed, developed ex US, Europe, Japan, Asia Pacific ex Japan, North America, emerging), AQR's quality (QMJ) and betting-against-beta (BAB) factors, and the bond factors TERM and DEF, monthly (French's official monthly files) or daily: loadings with t-stats, R², annualised alpha and rolling 36-month loadings. **Style analysis** (Sharpe 1992) finds the asset-class mix that best tracks the returns, with rolling 36-month weights. |
 | **Correlations** | The correlation matrix of daily or monthly total returns over a chosen period, a rolling correlation of any pair, and per-asset statistics (CAGR, volatility, Sharpe, max drawdown, best/worst year, first date of data; on the matrix's frequency: with monthly returns, volatility and Sharpe from monthly returns and the max drawdown from month-end values), like Portfolio Visualizer's asset correlations. |
+| **Funds** | Fund research: every ETF and mutual fund with data in one sortable, filterable table (search, type, category, expense ratio, years of history, assets, 5-year return, 3-year volatility), with trailing 1/3/5/10-year total returns, volatility and max drawdown computed from our own total-return prices, and fund facts (name, category, family, expense ratio, inception, net assets, yield, top holdings) from `data/funds_meta.json`. Click a ticker for its profile and top holdings; tick 2-6 funds (or type them) to compare growth of $10,000, statistics, calendar-year returns and correlations over their common period. Funds without metadata yet still get every statistic (their category from the built-in fund lists), and a ⚠ marks a history with a one-day move far outside the fund's range (a likely data error). API: `GET /api/funds` (filters `q`, `kind`, `category`, `max_er`, `min_years`, `min_aum`, `min_r5y`, `max_vol`), `GET /api/funds/detail?t=VTI`, `POST /api/funds/compare {"tickers": [...]}`. |
 | **Signals & paper** | Shows what a strategy says to do on the latest bar: new entries, open positions and target weights. You can also start a forward test ("paper trading") that only uses data arriving after you saved it. |
 | **History** | Saved runs, with open, edit, share and delete. |
 | **Data** | Data freshness, coverage and a ticker browser. |
@@ -161,6 +162,7 @@ exported symphony gives back the same tree.
 | Portfolio conditions | any indicator phrase compared with a number or another ticker's indicator: "TQQQ 6 day cumulative return is less than -12%", "the 10 day max drawdown of TQQQ is above 20%", "SPY 10 day standard deviation of return is above 2%", "QQQ's 3 month return beats TLT's" (total returns); "the RSI of SPY is 10 points above the RSI of QQQ" (a difference: `rsi(close, 14) - rsi(sym("QQQ").close, 14) >= 10`; points of a return are percentage points) |
 | Schedules and flows | semi-annually, relative bands ("drifts 25% relative to its target"), schedule + band ("rebalance quarterly or when any weight drifts more than 5%": every quarter AND whenever a weight leaves its band in between), fortnightly (every 2nd week-end); a band with no schedule, or "never rebalance" with if/else or filters, re-evaluates the rules every close and trades only when the target allocation changes or a holding leaves its band (Composer's threshold rebalancing), contributions/withdrawals for N years / starting in YEAR / from year N, growing X% a year |
 | Other | starting with $X, since/from/until YEAR, month names and months ("from March 2005 to June 2015", "since Jan 1999", "until 2020-06": the month's first / last day), weight-first lists without commas ("60% VTI 40% BND since 2010", "VTI 60 BND 40"), "rebalance when drift exceeds 5%" / "at 5% drift", "a 10% target volatility using 60 day volatility" (rescaled monthly unless you say otherwise), vs TICKER (incl. SPYSIM), a blended benchmark ("vs 60/40 SPY/AGG", "compared with 60% SPY and 40% AGG", "benchmark 60/40 SPY/AGG"), versus T-bills, cash earns nothing / no interest on cash / with interest on cash, no dividends / with dividends / price-only returns (signal strategies), using today's members only; TradingView syntax without backticks ("when close > ta.sma(close, 200)"); a cross needs a direction ("crosses 70" is refused with the two readings) |
+| Valuation | "the Shiller CAPE is below 25" (`cape() < 25`), "the CAPE percentile is below 70%" (`cape_pct(0) < 0.7`: its rank among all values since 1881 known at the time; "... over the last 30 years" for a window), "the earnings yield is above the 10 year treasury yield" (`earnings_yield() > treasury_10y()`); the named tactical model "CAPE-based allocation" (between VTI and BND by default, or "between SPY and IEF"): 80/20 stocks/bonds while the CAPE is in the cheapest third of its history, 60/40 in the middle third, 40/60 in the dearest third, checked monthly. CAPE is Shiller's monthly data, used 4 months after the month it describes (see "Valuation data" below) |
 | Relative hurdles | "only if their 12 month return is above BIL's 12 month return" (each candidate vs BIL; also beats / exceeds / greater than / higher than, "above BIL" = the same indicator), "hold SPY if its 12 month return beats BIL's, otherwise IEF". A condition that compares a value with itself is refused |
 
 Anything else can be written in the **rule language** inside backticks
@@ -670,7 +672,14 @@ close and commits updates, so `git pull` gets fresh data. It downloads:
   (`data/ndx_changes.csv`: date, added, removed, reason, from the "Historical components of the Nasdaq-100"
   table, February 2007 on). Within 40 days of a dated change the table decides membership (a member from the
   effective day); elsewhere the monthly snapshots stand
-- the T-bill rate and CPI from FRED
+- the T-bill rate and CPI from FRED; Treasury, corporate and OECD government yields, the Cleveland Fed's
+  10-year real rate and expected inflation (for the TIPS model) and exchange rates (daily H.10 series and
+  monthly averages, legacy euro-area currencies 1971-2001, for the unhedged international bond model)
+- Robert Shiller's monthly S&P data with the CAPE (`data/macro/shiller.csv`, from `ie_data.xls` on
+  shillerdata.com: price, dividend, earnings, CPI, 10-year yield, CAPE, total-return CAPE, from 1871)
+- fund metadata for every ETF and mutual fund of the universe (`data/funds_meta.json`: name, category,
+  family, expense ratio, inception, net assets, yield, turnover, top 10 holdings, asset classes, sectors), from
+  Yahoo via yfinance's `Ticker.info` and `Ticker.funds_data`, 300 funds a run, each refreshed after 30 days
 - Fama-French factors from Kenneth French's data library: US daily and official monthly files
   (3 factors, 5 factors, momentum), the same for developed, developed ex US, Europe, Japan, Asia Pacific
   ex Japan and North America, and emerging markets (monthly only)
@@ -814,8 +823,9 @@ failed to build and, for each one, how the model compares with the real fund whe
 | VCLTSIM | Long-term IG corporates: 20-year par bond at the average of Moody's Aaa and Baa yields (1953; monthly yields before 1986) | the Vanguard Long-Term Investment-Grade fund VWESX (Yahoo history from 1980), then VCLT (2009) |
 | MUBSIM | US municipal bonds: the Vanguard Intermediate-Term Tax-Exempt fund VWITX (Yahoo history); no model before it (no free long muni index) | MUB (2007) |
 | EMBSIM | Emerging-market USD bonds: the Fidelity New Markets Income fund FNMIX (1993); no model before it | EMB (2007) |
-| TIPSIM | US TIPS: the Vanguard Inflation-Protected Securities fund VIPSX (mid-2000); no model before it (TIPS date from 1997) | TIP |
-| HYGSIM | US high yield: the Vanguard High-Yield Corporate fund VWEHX (1985); no model before it | HYG |
+| TIPSIM | US TIPS, a **model** (1972, monthly steps; TIPS only exist from 1997): an 8-year real par bond priced off the Cleveland Fed 10-year real rate (1982 on) or the 10-year Treasury yield minus trailing 10-year CPI inflation (before), plus CPI-U accrual lagged 3 months (see below) | the Vanguard Inflation-Protected Securities fund VIPSX (mid-2000), then TIP |
+| HYGSIM | US high yield, a **model** (1953, daily): a 7-year par bond at Moody's Baa yield mixed with the US stock market (the stock share with the lowest tracking error against VWEHX, 20%), net of the default-loss / fee haircut its excess over VWEHX shows | the Vanguard High-Yield Corporate fund VWEHX (Yahoo history from 1980), then HYG |
+| BWXSIM | International government bonds, **unhedged** (1971, monthly steps): BNDXSIM's par-bond model on OECD 10-year yields of up to 12 developed markets, converted to USD at month-end exchange rates | BWX (2007) |
 | BNDXSIM | International government bonds hedged to USD: a 9-year par-bond model on OECD 10-year yields of up to 12 developed markets, hedged at the short-rate differential (1970, monthly steps), then the PIMCO International Bond (USD-hedged) fund PFORX (1993) | BNDX |
 | GLDSIM | Gold: World Bank monthly average price (1960-1968, monthly steps), LBMA PM fixing (April 1968, daily) | GLD |
 | DBCSIM | Commodity futures: AQR "Commodities for the Long Run" equal-weight index excess return + T-bills (1960, monthly steps) | the PIMCO CommodityRealReturn Strategy fund PCRIX (mid-2002) when it tracks DBC better than the model on their overlap (the log shows both), then DBC |
@@ -838,8 +848,65 @@ proportion to calendar time, so monthly-stepped models pay the same per year. Wi
 overlap equals the fund's (unless the fund did better or the gap hit the 3% cap, which flags model error
 rather than costs). `data/sims_log.txt` logs each series' drag, its basis and the check; `data/sims_drag.json`
 holds the figures; SIM descriptions on the site and backtests that hold a SIM during its model period state
-it ("model periods are net of an estimated X%/yr fee/cost drag"). Series with no model (TIPSIM, HYGSIM,
-MUBSIM, EMBSIM: real funds only) are untouched.
+it ("model periods are net of an estimated X%/yr fee/cost drag"). Series with no model (MUBSIM, EMBSIM: real
+funds only) are untouched.
+
+**The TIPS, high-yield and unhedged-bond models** (added in round 10; each is a model, labelled so in its
+description, and validated on the overlap in `data/sims_log.txt`):
+- *TIPSIM*: a TIPS fund earns a real bond's return plus its principal's inflation accrual. Real yield: the
+  Cleveland Fed's 10-year real interest rate (FRED `REAINTRATREARAT10Y`, a model estimate from Treasury yields,
+  inflation, swaps and surveys, monthly from 1982; its value dated the 1st of a month is the previous month-end's,
+  which is how it is published). Before 1982: the 10-year Treasury yield (GS10) minus trailing CPI inflation, the
+  window (1, 3, 5 or 10 years) chosen by how closely its monthly changes match the Cleveland rate's over
+  1982-1999 (10 years wins; a 1-year window gives real-bond returns of -40% and +40% in the 1970s). Price: an
+  8-year real par bond (duration about 7, like VIPSX and TIP). Accrual: CPI-U NSA with TIPS' 3-month lag, so
+  month m accrues CPI(m-2)/CPI(m-3). Returns (not yields) are spliced at 1982, so the switch adds no jump.
+  Against VIPSX 2000-2026: monthly correlation 0.61, tracking error 5.0%/yr, CAGR 4.07% vs 3.96%, volatility
+  5.6% vs 5.7%; the drag is VIPSX's 0.20% expense ratio. The correlation is modest: the Cleveland estimate is
+  itself a model and the 1972-81 real yield is a rough proxy. Treat pre-1997 TIPS results as indicative.
+- *HYGSIM*: FRED's ICE BofA high-yield index only covers the last three years, so before VWEHX there is no free
+  high-yield index. A Baa-priced bond alone tracks VWEHX poorly (correlation 0.61, volatility 4.9% vs 7.4%: it
+  misses the equity-like default risk, e.g. 2008). The model mixes it with the US stock market; the data job
+  picks the stock share (0-35%) by tracking error (80/20 wins: correlation 0.75, tracking error 4.9%/yr against
+  VWEHX 1980-2026, 0.75 against HYG), and the model's 1.78%/yr excess over VWEHX on the overlap (defaults plus
+  fees) is taken off as its drag. A factor mimic, not a credit model: before 1980 it shows the carry and the
+  equity sensitivity of junk bonds, not their default cycles.
+- *BWXSIM*: each country's 9-year par-bond return (OECD 10-year yields, as BNDXSIM) times the change in its
+  currency's USD value: month-end rates from FRED's daily series (yen, pound, Swiss franc, Canadian and
+  Australian dollars, krona, and the euro from 1999), monthly averages where no daily series exists (the mark,
+  franc, lira, peseta, guilder and Belgian franc, 1971-1998, which continue as the euro at the fixed conversion
+  rates). Against BWX 2007-2026: correlation 0.89, tracking error 4.1%/yr, CAGR 0.73% vs 0.37%, volatility 8.7%
+  vs 9.0% (IGOV: 0.88, 4.2%). `IGOV` and "unhedged international bonds" map to it.
+
+**What has no longer history (and why).**
+- International small caps and small value before 1990 (SCZSIM, AVDVSIM): Ken French's international data
+  before July 1990 is sorted on B/M, E/P, CE/P and D/P only (the "Index" and "Country" portfolio files, 1975 on);
+  no size sort exists before the developed-market factor files start in 1990, and no other free source has one.
+- Emerging markets before 1989 (EEMSIM, VWOSIM): French's emerging-market files start in July 1989 and MSCI's
+  Emerging Markets index itself starts at the end of 1987; an earlier "emerging market" series would have to be
+  invented.
+- Global / international REITs (RWO, REET, VNQI): no free ex-US listed real-estate total-return index goes back
+  before the funds (FTSE EPRA Nareit and S&P global property indexes are licensed; French's international
+  files have no industry split). A blend of VNQSIM and a developed-market *stock* index would be a stock
+  proxy, not real estate, so none is built: these funds start with their own history.
+- VTSMX's early distributions: Yahoo's VTSMX misses part of some 1993-1996 distributions (its dividend column
+  and its adj_close, which Yahoo derives from it, agree to 0.03%/yr, so adj_close is no better: 1993 10.34%,
+  1994 -0.43%, 1995 34.97% against Vanguard's published 10.62%, -0.17%, 35.79%). On an ex-dividend day where
+  VTSMX trails the Fama-French market by more than max(3 robust daily deviations, 0.10%), VTISIM uses the
+  market's return for that day (4 days: 1993-12-29, 1994-12-28, 1995-12-22, 1996-03-26), giving 10.55%,
+  -0.21%, 35.88%, 21.04% (1996 published 20.96%); the data job logs the days and the years. VTSMX's own file
+  is unchanged.
+- VBSIM is validated against NAESX from 1990 only (NAESX was an actively managed small-cap fund until late
+  1989; before, it was no benchmark for an index model).
+
+**Valuation data (CAPE).** `cape()`, `earnings_yield()` (= 1 / CAPE), `cape_pct(years)` and the "CAPE-based
+allocation" read Shiller's monthly data. His row for month M uses that month's *average* price and four-quarter
+earnings interpolated to months, which S&P reports a quarter or two later (the newest rows are his estimates).
+To stay point in time, month M's value is used only from the first day of month M+5 (`CAPE_LAG_MONTHS = 4` in
+`backtester/data.py`): the CAPE for January drives decisions from June 1. That lag is deliberately
+conservative; the tests check that truncating the prices at any date changes nothing before it, and the rules
+are open-safe (known before the open). `treasury_10y()` is FRED's daily 10-year yield as of each close (the
+monthly GS10 average, dated the next month's first day, before 1962).
 
 **Fund-exact series.** VTISIM, VXUSSIM, VWOSIM, VNQSIM, BNDSIM, VBSIM, VBRSIM, VBKSIM, VTVSIM and VUGSIM
 become the named fund as soon as it or its Vanguard mutual-fund twin (same index, same manager) exists, so a
@@ -853,7 +920,7 @@ holds VTISIM, VXUSSIM and BNDSIM. Recognised: (US / total) stock market, stocks;
 each with value or growth; international stocks, international developed, international small cap (value),
 international value, emerging markets, European stocks, Japan; REITs / real estate; gold; commodities; total
 bond / bonds / aggregate bonds; short, intermediate and long term Treasuries; TIPS; corporate bonds;
-long-term corporate bonds; high yield; municipal bonds; international bonds; emerging market bonds;
+long-term corporate bonds; high yield; municipal bonds; international bonds (hedged: BNDXSIM; "unhedged international bonds": BWXSIM); emerging market bonds;
 T-bills. Name a fund (VTI, BND, ...) to use the fund alone; "cash" stays cash earning the T-bill rate. Next
 to real tickers, names that always meant a fund keep it ("60% SPY and 40% gold" holds GLD), so such a mix
 compares fund with fund.

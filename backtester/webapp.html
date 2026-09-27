@@ -17,7 +17,7 @@ header { position:sticky; top:0; z-index:10; background:var(--surface); border-b
 .bar { max-width:1320px; margin:0 auto; padding:10px 16px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
 .brand { font-weight:700; font-size:16px; }
 nav { display:flex; gap:4px; flex-wrap:wrap; }
-nav a { color:var(--text-2); text-decoration:none; padding:6px 10px; border-radius:8px; font-size:13.5px; }
+nav a { color:var(--text-2); text-decoration:none; padding:6px 8px; border-radius:8px; font-size:13.5px; }
 nav a.on { background:var(--surface-2); color:var(--text); font-weight:600; }
 main { max-width:1320px; margin:0 auto; padding:16px; }
 .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; min-width:0; }
@@ -98,13 +98,16 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
 .gtbl input.gname { width:96px; font-weight:600; }
 .gtbl input.gw { width:72px; text-align:right; }
 .gtbl tr.gtot td, .gtbl tr.gtot th { font-weight:600; border-bottom:0; }
+.ftbl th, .ftbl td { white-space:nowrap; }
+.ftbl td.fname { max-width:260px; overflow:hidden; text-overflow:ellipsis; }
+@media (max-width: 600px) { .ftbl td.fname { max-width:120px; } }
 @media (max-width: 600px) { .gtbl input.gasset { min-width:92px; } .gtbl input.gname { width:64px; } .gtbl input.gw { width:52px; padding:6px 4px; } .gflow input, .gflow select { max-width:100%; } }
 </style>
 </head>
 <body>
 <header><div class="bar"><div class="brand">📈 Backtester</div>
   <nav id="nav">
-    <a href="#backtest">Backtest</a><a href="#library">Library</a><a href="#gallery">Gallery</a><a href="#community">Community</a><a href="#build">Build</a><a href="#compare">Compare</a><a href="#research">Research</a><a href="#montecarlo">Monte Carlo</a><a href="#factors">Factors</a><a href="#correlations">Correlations</a>
+    <a href="#backtest">Backtest</a><a href="#library">Library</a><a href="#gallery">Gallery</a><a href="#community">Community</a><a href="#build">Build</a><a href="#compare">Compare</a><a href="#research">Research</a><a href="#montecarlo">Monte Carlo</a><a href="#factors">Factors</a><a href="#correlations">Correlations</a><a href="#funds">Funds</a>
     <a href="#signals">Signals &amp; paper</a><a href="#history">History</a><a href="#data">Data</a>
   </nav><div class="note" id="dataStamp" style="margin-left:auto"></div></div></header>
 <main>
@@ -550,6 +553,37 @@ pre.help { white-space:pre-wrap; font-size:12px; background:var(--surface-2); pa
       <p class="note">Total returns over the common period; Sharpe is against T-bills; best and worst year are calendar years (the first and last can be partial). "Data since" is each asset's own first date.</p></div>
   </div>
 </section>
+<!-- FUNDS -->
+<section id="p-funds" class="hide">
+  <div class="card"><h2>Funds</h2>
+    <p class="note">Every ETF and mutual fund with price data: returns and risk from our own total-return prices (dividends reinvested), fund facts (category, expense ratio, assets, inception, holdings) from Yahoo as the data job collects them. Filter to screen, tick up to 6 funds (or type them) to compare.</p>
+    <div class="grid">
+      <label>Search<input id="f_q" placeholder="ticker or name"></label>
+      <label>Type<select id="f_kind"><option value="">All</option><option value="ETF">ETF</option><option value="Mutual fund">Mutual fund</option></select></label>
+      <label>Category<select id="f_cat"><option value="">All</option></select></label>
+      <label>Max expense ratio (%)<input id="f_er" type="number" step="0.01" min="0" placeholder="e.g. 0.2"></label>
+      <label>Min history (years)<input id="f_years" type="number" min="0" placeholder="e.g. 10"></label>
+      <label>Min assets ($ millions)<input id="f_aum" type="number" min="0" placeholder="e.g. 1000"></label>
+      <label>Min 5-year return (%/yr)<input id="f_r5" type="number" step="0.1" placeholder="e.g. 6"></label>
+      <label>Max volatility, 3y (%)<input id="f_vol" type="number" step="0.1" min="0" placeholder="e.g. 15"></label>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="btn" id="fReset">Clear filters</button><span class="note" id="fStatus"></span></div>
+  </div>
+  <div class="card"><h2 id="fTitle">Funds</h2>
+    <div class="row"><label style="flex:1 1 260px">Compare (2-6 funds)<input id="f_cmp" class="w" list="tickerList" placeholder="e.g. VTI VXUS BND"></label>
+      <button class="btn primary" id="fCmpRun">Compare</button><span class="note" id="fCmpStatus"></span></div>
+    <div class="xscroll"><table id="fTable" class="ftbl"></table></div>
+    <div class="row" style="margin-top:8px"><button class="btn small hide" id="fMore">Show more</button><span class="note" id="fShown"></span></div>
+    <div id="fNotes"></div>
+  </div>
+  <div id="fDetail" class="card hide"></div>
+  <div id="fCmpOut" class="hide">
+    <div class="card"><h2 id="fGrowthTitle">Growth of $10,000</h2><div class="lg" id="fGrowthLegend"></div><div class="chart2" id="fGrowth"></div></div>
+    <div class="card"><h2>Statistics over the common period</h2><div class="xscroll"><table id="fCmpStats"></table></div></div>
+    <div class="card"><h2>Annual returns</h2><div class="xscroll"><table id="fAnnual"></table></div></div>
+    <div class="card"><h2 id="fCorrTitle">Correlations of monthly returns</h2><div class="xscroll"><table id="fCorr"></table></div><div id="fCmpNotes"></div></div>
+  </div>
+</section>
 <datalist id="tickerList"></datalist>
 </main>
 
@@ -586,7 +620,7 @@ window.addEventListener('blur', unpress);
   let STATUS = null;
 
   // ---------- routing
-  const pages = ['backtest', 'library', 'gallery', 'community', 'build', 'compare', 'research', 'montecarlo', 'factors', 'correlations', 'signals', 'history', 'data'];
+  const pages = ['backtest', 'library', 'gallery', 'community', 'build', 'compare', 'research', 'montecarlo', 'factors', 'correlations', 'funds', 'signals', 'history', 'data'];
   function route() {
     const h = location.hash.replace('#', '');
     const [page, qs] = h.split('?');
@@ -2112,6 +2146,141 @@ window.addEventListener('blur', unpress);
     table($('kStats'), ['Asset', 'CAGR', 'Volatility', 'Sharpe', 'Sortino', 'Max drawdown', 'Best year', 'Worst year', 'Data since'],
       R.stats.map(x => [x.ticker, { t: pct(x.cagr), c: x.cagr >= 0 ? 'pos' : 'neg' }, pct(x.volatility, 1), num(x.sharpe), num(x.sortino), { t: pct(x.max_drawdown, 1), c: 'neg' }, pct(x.best_year, 1), pct(x.worst_year, 1), x.data_from]));
   }
+
+  // ---------------------------------------------------------------- Funds (screener, detail, comparison)
+  let FUNDS = null, fSort = { k: 'net_assets', dir: -1 }, fLimit = 100, fLoading = false;
+  const FCOLS = [['', null], ['Ticker', 'ticker'], ['Name', 'name'], ['Type', 'type'], ['Category', 'category'], ['Expense', 'expense_ratio'],
+    ['Since', 'first'], ['Assets', 'net_assets'], ['1y', 'r1y'], ['3y', 'r3y'], ['5y', 'r5y'], ['10y', 'r10y'], ['Vol 3y', 'vol3y'], ['Max DD', 'max_dd']];
+  const fCmpList = () => $('f_cmp').value.replace(/[,;]/g, ' ').split(/\s+/).filter(Boolean).map(t => t.toUpperCase());
+  const fNum = id => { const v = $(id).value.trim(); return v === '' ? null : Number(v); };
+  function fFiltered() {
+    if (!FUNDS) return [];
+    const q = $('f_q').value.trim().toLowerCase(), kind = $('f_kind').value, cat = $('f_cat').value;
+    const er = fNum('f_er'), yrs = fNum('f_years'), aum = fNum('f_aum'), r5 = fNum('f_r5'), vol = fNum('f_vol');
+    const need = (v, lim, ok) => lim == null || (isNum(v) && ok(v, lim));
+    return FUNDS.funds.filter(r => (!q || r.ticker.toLowerCase().includes(q) || String(r.name || '').toLowerCase().includes(q))
+      && (!kind || r.type === kind) && (!cat || r.category === cat)
+      && need(r.expense_ratio, er, (v, l) => v * 100 <= l) && need(r.years, yrs, (v, l) => v >= l)
+      && need(r.net_assets, aum, (v, l) => v >= l * 1e6) && need(r.r5y, r5, (v, l) => v * 100 >= l) && need(r.vol3y, vol, (v, l) => v * 100 <= l));
+  }
+  function fSorted(rows) {
+    const { k, dir } = fSort;
+    return rows.slice().sort((a, b) => { const x = a[k], y = b[k];
+      const xm = x == null || x === '', ym = y == null || y === '';
+      if (xm || ym) return xm && ym ? a.ticker.localeCompare(b.ticker) : xm ? 1 : -1;   // missing values last either way
+      return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y))) * dir || a.ticker.localeCompare(b.ticker); });
+  }
+  const bigUsd = v => isNum(v) ? (v >= 1e9 ? '$' + (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(0) + 'M' : usd(v)) : '—';
+  function drawFunds() {
+    if (!FUNDS) return;
+    const rows = fSorted(fFiltered()), shown = rows.slice(0, fLimit), sel = new Set(fCmpList());
+    $('fTitle').textContent = `Funds: ${rows.length.toLocaleString()} of ${FUNDS.funds.length.toLocaleString()}`;
+    const tbl = $('fTable'); tbl.replaceChildren();
+    const hr = el('tr');
+    FCOLS.forEach(([h, k]) => { const th = el('th', { class: k && !['ticker', 'name', 'type', 'category'].includes(k) ? 'n' : '' }, h + (k && fSort.k === k ? (fSort.dir > 0 ? ' ▲' : ' ▼') : ''));
+      if (k) { th.style.cursor = 'pointer'; th.title = 'sort'; th.onclick = () => { fSort = { k, dir: fSort.k === k ? -fSort.dir : (['ticker', 'name', 'type', 'category', 'first', 'max_dd'].includes(k) ? 1 : -1) }; drawFunds(); }; }
+      hr.append(th); });
+    tbl.append(hr);
+    const ret = v => ({ t: pct(v, 1), c: isNum(v) ? (v >= 0 ? 'pos' : 'neg') : '' });
+    shown.forEach(r => {
+      const tr = el('tr');
+      const cb = el('input', { type: 'checkbox', 'aria-label': 'compare ' + r.ticker }); cb.checked = sel.has(r.ticker);
+      cb.onchange = () => { let L = fCmpList().filter(t => t !== r.ticker); if (cb.checked) { if (L.length >= 6) { cb.checked = false; $('fCmpStatus').textContent = 'Up to 6 funds.'; return; } L.push(r.ticker); } $('f_cmp').value = L.join(' '); $('fCmpStatus').textContent = ''; };
+      const c0 = el('td'); c0.append(cb); tr.append(c0);
+      const tk = el('td'); const a = el('a', { href: '#funds' }, r.ticker); a.onclick = e => { e.preventDefault(); fundDetail(r.ticker); }; tk.append(a);
+      if (r.warning) { const w = el('span', { class: 'err', title: r.warning, 'aria-label': r.warning }, ' ⚠'); tk.append(w); } tr.append(tk);
+      const nm = el('td', { class: 'fname' }, r.name || '—'); nm.title = r.name || 'no metadata yet'; tr.append(nm);
+      tr.append(el('td', {}, r.type));
+      const ct = el('td', {}, r.category || '—'); if (r.category_source) ct.title = 'from the built-in fund list (no Yahoo category yet)'; tr.append(ct);
+      [[isNum(r.expense_ratio) ? pct(r.expense_ratio, 2) : '—'], [r.inception && r.inception < (r.first || '9') ? r.inception.slice(0, 4) + '*' : (r.first || '').slice(0, 4)],
+        [bigUsd(r.net_assets)], [ret(r.r1y)], [ret(r.r3y)], [ret(r.r5y)], [ret(r.r10y)], [pct(r.vol3y, 1)], [{ t: pct(r.max_dd, 1), c: 'neg' }]]
+        .forEach(([v]) => { const td = el('td', { class: 'n' }); if (v && typeof v === 'object') { td.textContent = v.t; if (v.c) td.className += ' ' + v.c; } else td.textContent = v; tr.append(td); });
+      tbl.append(tr);
+    });
+    $('fMore').classList.toggle('hide', rows.length <= fLimit);
+    $('fShown').textContent = rows.length > fLimit ? `showing ${fLimit} of ${rows.length}` : '';
+    const ck = FUNDS.checking || {};
+    $('fStatus').textContent = ck.running ? `checking prices for the integrity-repaired statistics: ${ck.done} of ${ck.total}…` : '';
+  }
+  async function loadFunds(force) {
+    if ((FUNDS && !force) || fLoading) return drawFunds();
+    fLoading = true; spin($('fStatus'), 'computing statistics for every fund (the first time takes a few seconds)…');
+    try {
+      FUNDS = await api('/api/funds');
+      const cur = $('f_cat').value;
+      $('f_cat').replaceChildren(el('option', { value: '' }, 'All'), ...FUNDS.categories.map(c => el('option', { value: c }, c)));
+      if (FUNDS.categories.includes(cur)) $('f_cat').value = cur;
+      $('fNotes').replaceChildren(...(FUNDS.notes || []).map(x => el('p', { class: 'note' }, x)),
+        el('p', { class: 'note' }, 'Returns: total returns to each fund\'s last price (3y, 5y, 10y annualised). Vol 3y: annualised standard deviation of the last 36 monthly returns. Max DD: the deepest fall of the daily total-return index over its whole history. Since: the first price on file (a year with * is the inception date from the fund\'s profile, earlier than our prices).'));
+      $('fStatus').textContent = '';
+      drawFunds();
+    } catch (e) { $('fStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
+    fLoading = false;
+  }
+  ['f_q', 'f_kind', 'f_cat', 'f_er', 'f_years', 'f_aum', 'f_r5', 'f_vol'].forEach(id => $(id).addEventListener('input', () => { fLimit = 100; drawFunds(); }));
+  $('fReset').addEventListener('click', () => { ['f_q', 'f_er', 'f_years', 'f_aum', 'f_r5', 'f_vol'].forEach(id => { $(id).value = ''; }); $('f_kind').value = ''; $('f_cat').value = ''; fLimit = 100; drawFunds(); });
+  $('fMore').addEventListener('click', () => { fLimit += 100; drawFunds(); });
+  async function fundDetail(t) {
+    const box = $('fDetail'); box.classList.remove('hide'); spin(box, 'loading ' + t + '…');
+    try {
+      const D = await api('/api/funds/detail?t=' + encodeURIComponent(t)), m = D.meta || {}, s = D.stats || {};
+      box.replaceChildren(el('h2', {}, `${D.ticker}${m.name ? ' · ' + m.name : ''}`));
+      const tiles = el('div', { class: 'tiles' });
+      [['Category', m.category || '—'], ['Family', m.family || '—'], ['Expense ratio', isNum(m.expense_ratio) ? pct(m.expense_ratio, 2) : '—'],
+        ['Assets', bigUsd(m.net_assets)], ['Yield', isNum(m.yield) ? pct(m.yield, 2) : '—'], ['Inception', m.inception || '—'],
+        ['Prices since', s.first || '—'], ['CAGR since', pct(s.cagr)], ['Max drawdown', pct(s.max_dd, 1)]].forEach(([k, v]) => tiles.append(tile(k, v)));
+      box.append(tiles);
+      if (m.description) box.append(el('p', { class: 'note' }, m.description));
+      const wr = (FUNDS && FUNDS.funds.find(r => r.ticker === D.ticker) || {}).warning;
+      if (wr) box.append(el('p', { class: 'err' }, '⚠ ' + wr));
+      if ((m.top_holdings || []).length) {
+        box.append(el('h3', {}, 'Top holdings'));
+        const tb = el('table'); table(tb, ['Holding', 'Name', 'Weight'], m.top_holdings.map(h => [h.symbol, h.name, pct(h.weight, 2)]), 2);
+        const wrap = el('div', { class: 'xscroll' }); wrap.append(tb); box.append(wrap);
+      }
+      if (!Object.keys(m).length) box.append(el('p', { class: 'note' }, 'No fund profile on file yet (the data job fetches a batch each run); the statistics come from the price file.'));
+      const add = el('button', { class: 'btn small' }, 'Add to comparison');
+      add.onclick = () => { const L = fCmpList(); if (!L.includes(D.ticker) && L.length < 6) L.push(D.ticker); $('f_cmp').value = L.join(' '); drawFunds(); };
+      box.append(add);
+    } catch (e) { box.replaceChildren(el('span', { class: 'err' }, e.message)); }
+  }
+  async function runFundCompare() {
+    const tk = fCmpList();
+    if (tk.length < 2 || tk.length > 6) { $('fCmpStatus').replaceChildren(el('span', { class: 'err' }, 'Choose 2 to 6 funds.')); return; }
+    spin($('fCmpStatus'), 'comparing…'); $('fCmpRun').disabled = true;
+    try { const C = await api('/api/funds/compare', { tickers: tk }); $('fCmpStatus').textContent = ''; drawFundCompare(C); }
+    catch (e) { $('fCmpStatus').replaceChildren(el('span', { class: 'err' }, e.message)); }
+    $('fCmpRun').disabled = false;
+  }
+  $('fCmpRun').addEventListener('click', runFundCompare);
+  $('f_cmp').addEventListener('keydown', e => { if (e.key === 'Enter') runFundCompare(); });
+  function drawFundCompare(C) {
+    $('fCmpOut').classList.remove('hide');
+    const cols = FCOL.map(css), color = i => cols[i % cols.length];
+    $('fGrowthTitle').textContent = `Growth of $10,000, ${C.start} → ${C.end}`;
+    legend($('fGrowthLegend'), C.tickers.map((t, i) => ({ name: t, color: color(i) })));
+    const T = C.growth.dates.map(d => Date.parse(d));
+    lineChart($('fGrowth'), { x: T, height: 300, series: C.tickers.map((t, i) => ({ name: t, color: color(i), values: C.growth.values[t] })),
+      fmtY: v => compact(v), fmtX: (v, full) => full ? C.growth.dates[T.indexOf(v)] || '' : new Date(v).getUTCFullYear(),
+      tipRows: i => C.tickers.map(t => [t, usd(C.growth.values[t][i])]) });
+    table($('fCmpStats'), ['Fund', 'CAGR', 'Volatility', 'Sharpe', 'Sortino', 'Max drawdown', 'Best year', 'Worst year', 'Expense', 'Data since'],
+      C.stats.map(x => [x.ticker, { t: pct(x.cagr), c: x.cagr >= 0 ? 'pos' : 'neg' }, pct(x.volatility, 1), num(x.sharpe), num(x.sortino), { t: pct(x.max_drawdown, 1), c: 'neg' },
+        pct(x.best_year, 1), pct(x.worst_year, 1), isNum((C.meta[x.ticker] || {}).expense_ratio) ? pct(C.meta[x.ticker].expense_ratio, 2) : '—', x.data_from]));
+    const part = C.annual.partial || {};
+    table($('fAnnual'), ['Year', ...C.tickers], C.annual.years.map((y, i) => [part[y] ? `${y}*` : String(y),
+      ...C.tickers.map(t => { const v = C.annual.values[t][i]; return { t: pct(v, 1), c: v >= 0 ? 'pos' : 'neg' }; })]));
+    const pn = Object.entries(part).map(([y, s]) => `${y}: ${s}`).join('; ');
+    const tb = $('fCorr'); tb.replaceChildren();
+    const hr = el('tr'); hr.append(el('th', {}, '')); C.tickers.forEach(t => hr.append(el('th', { class: 'n' }, t))); tb.append(hr);
+    const mid = hexOf('--surface-2'), pos = hexOf('--s1'), neg = hexOf('--s2');
+    C.correlation.matrix.forEach((row, i) => { const tr = el('tr'); tr.append(el('td', {}, C.tickers[i]));
+      row.forEach((v, j) => { const td = el('td', { class: 'n' }, num(v)); if (i !== j) td.style.background = mixc(mid, v >= 0 ? pos : neg, Math.min(1, Math.abs(v)) * 0.75); tr.append(td); }); tb.append(tr); });
+    $('fCorrTitle').textContent = `Correlations of monthly returns (${C.correlation.observations} months)`;
+    $('fCmpNotes').replaceChildren(...[...(C.notes || []), ...(pn ? ['* partial year (' + pn + ').'] : [])].map(x => el('p', { class: 'note' }, 'Note: ' + x)));
+    $('fCmpOut').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  const fRoute = () => { if (location.hash.replace('#', '').split('?')[0] === 'funds') loadFunds(); };
+  window.addEventListener('hashchange', fRoute); fRoute();
 
   // ---------------------------------------------------------------- init
   async function initPages() {

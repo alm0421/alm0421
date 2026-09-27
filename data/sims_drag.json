@@ -42,6 +42,16 @@
    "basis": "expense ratio (the model did not beat the fund)",
    "model_until": "1992-12-03"
   },
+  "BWXSIM": {
+   "drag": 0.0035827418690546065,
+   "expense_ratio": 0.0035,
+   "fund": "BWX",
+   "gap": 0.0035827418690546065,
+   "overlap": "2007-11..2026-07",
+   "months": 225,
+   "basis": "overlap gap",
+   "model_until": "2007-10-12"
+  },
   "DBCSIM": {
    "drag": 0.02044680173512914,
    "expense_ratio": 0.0085,
@@ -172,6 +182,16 @@
    "basis": "overlap gap",
    "model_until": "2004-11-19"
   },
+  "HYGSIM": {
+   "drag": 0.017819333670886506,
+   "expense_ratio": 0.0023,
+   "fund": "VWEHX",
+   "gap": 0.017819333670886506,
+   "overlap": "1980-02..2026-07",
+   "months": 558,
+   "basis": "overlap gap",
+   "model_until": "1980-01-03"
+  },
   "IEFSIM": {
    "drag": 0.0015,
    "expense_ratio": 0.0015,
@@ -241,6 +261,16 @@
    "months": 401,
    "basis": "overlap gap",
    "model_until": "1993-02-01"
+  },
+  "TIPSIM": {
+   "drag": 0.002,
+   "expense_ratio": 0.002,
+   "fund": "VIPSX",
+   "gap": 0.0009880291437949218,
+   "overlap": "2000-07..2026-07",
+   "months": 313,
+   "basis": "expense ratio (the model did not beat the fund)",
+   "model_until": "2000-06-30"
   },
   "TLTSIM": {
    "drag": 0.0015,
@@ -333,10 +363,10 @@
    "model_until": "2006-08-28"
   },
   "VTISIM": {
-   "drag": 0.0028375361276433697,
+   "drag": 0.0024454840457808213,
    "expense_ratio": 0.0014,
    "fund": "VTSMX",
-   "gap": 0.0028375361276433697,
+   "gap": 0.0024454840457808213,
    "overlap": "1992-05..2026-07",
    "months": 411,
    "basis": "overlap gap",
