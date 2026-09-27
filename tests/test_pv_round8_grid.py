@@ -37,7 +37,11 @@ def test_grid_builds_one_portfolio_per_column():
     assert problems == [] and [s.name for s in specs] == ["60/40", "Three-fund"]
     a, b = specs
     assert a.tree == {"weights": "specified", "w": [0.6, 0.4], "children": [{"asset": "SPY"}, {"asset": "AGG"}]}
-    assert b.universe == ["VTI", "VXUSSIM", "BNDSIM"] and "'International Stocks' is read as VXUSSIM." in notes
+    # round 12: grid asset classes follow the sentence rule - next to tickers, the fund (BND existed in 2010), its
+    # long-history series only before the fund's first day (VXUS starts in 2011)
+    assert b.universe == ["VTI", "VXUSSIM", "BND"]
+    assert any(n.startswith("'International Stocks' (") and "is read as VXUSSIM: the start 2010-01-01 is before VXUS" in n
+               for n in notes), notes
     for s in specs:
         assert (s.start, s.end, s.capital) == ("2010-01-01", "2020-06-30", 100000.0)
         assert s.rebalance == "none" and s.drift_band == 0.05 and s.expense_ratio == pytest.approx(0.001)

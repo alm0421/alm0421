@@ -22,9 +22,9 @@ python -m backtester "buy at the close Microsoft when it trades down 5 days in a
 | **Community** | Strategies people published with "Publish to the community gallery" (Backtest and Build pages: a name, an author and a description; the strategy is backtested first). Search, sort by CAGR, Sharpe or max drawdown, **Fork** into the editor or **Run**. Kept in `data/community.json` (`BACKTESTER_COMMUNITY` points elsewhere). |
 | **Compare** | Put several strategies (from history or typed) in one report. Every column is compared over the same period; a benchmark whose data starts later than that period is listed separately with its own dates. |
 | **Research** | A parameter sweep (`hold {1..5} days`) with a heatmap. Walk-forward optimisation (rolling or anchored). A portfolio optimiser: max Sharpe, min variance, max Sortino, min CVaR (95%), risk parity, max diversification, max return / max drawdown, max Omega (at a threshold return), target return, target volatility, inverse volatility and equal weight (pick any subset), with per-asset and group limits (`SPY+QQQ <= 70%`), the efficient frontier, an out-of-sample check and rolling (walk-forward) re-optimisation compared with the static weights. A target that can't be reached says what can ("the minimum achievable volatility is 9.1%"). **Inputs**: historical means by default, or your expected returns (and optionally volatilities and correlations), or **Black-Litterman** (market-cap, equal or given prior weights plus absolute/relative views with confidences; the posterior feeds every objective). **Benchmark-relative**: min tracking error (optionally with a return floor) and max information ratio against a ticker or blend. **Resampled frontier** (Michaud): average the optimal weights over N simulated histories. |
-| **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates, also per percentile of the paths (10th-90th, as Portfolio Visualizer; for contribute-then-withdraw plans measured from the balance when withdrawals start) (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), any number of cash-flow phases (contribute, then withdraw), and a glide path (e.g. 90/10 -> 40/60 over 30 years, linear or target-date shaped). |
+| **Monte Carlo** | Thousands of simulated futures for a portfolio (tickers and weights, a sentence or a saved run): percentile bands of the balance (nominal and after inflation), chance of success over time, safe and perpetual withdrawal rates, also per percentile of the paths (10th-90th, as Portfolio Visualizer; for contribute-then-withdraw plans measured from the balance when withdrawals start) (not shown for savings plans with contributions only), return and drawdown percentiles. Stress tests (the worst historical 10-year sequence first - never milder than the worst of the long-history series when the window is recent, with a warning when a stressed result beats the unstressed one or the history is under 40 years -, or a -30% first year), a horizon set by age ("until age 95") or by the SSA life table (a lifetime, for a man, a woman or a couple, with success weighted by survival), any number of cash-flow phases (contribute, then withdraw), and a glide path (e.g. 90/10 -> 40/60 over 30 years, linear or target-date shaped). |
 | **Factors** | Regress a ticker, portfolio, sentence or saved run on CAPM, Fama-French 3, Carhart 4, Fama-French 5 or FF5 + momentum for the US or a region (developed, developed ex US, Europe, Japan, Asia Pacific ex Japan, North America, emerging), AQR's quality (QMJ) and betting-against-beta (BAB) factors, and the bond factors TERM and DEF, monthly (French's official monthly files) or daily: loadings with t-stats, R², annualised alpha and rolling 36-month loadings. **Style analysis** (Sharpe 1992) finds the asset-class mix that best tracks the returns, with rolling 36-month weights. |
-| **Correlations** | The correlation matrix of daily or monthly total returns over a chosen period, a rolling correlation of any pair, and per-asset statistics (CAGR, volatility, Sharpe, max drawdown, best/worst year, first date of data; on the matrix's frequency: with monthly returns, volatility and Sharpe from monthly returns and the max drawdown from month-end values), like Portfolio Visualizer's asset correlations. |
+| **Correlations** | The correlation matrix of daily or monthly total returns over a chosen period, a rolling correlation of any pair (its whole-history figure labelled with its own dates, next to the pair's value over the matrix period), a warning naming the ticker whose later data moved the start, and per-asset statistics (CAGR, volatility, Sharpe, max drawdown, best/worst year, first date of data; on the matrix's frequency: with monthly returns, volatility and Sharpe from monthly returns and the max drawdown from month-end values), like Portfolio Visualizer's asset correlations. |
 | **Funds** | Fund research: every ETF and mutual fund with data in one sortable, filterable table (search, type, category, expense ratio, years of history, assets, 5-year return, 3-year volatility), with trailing 1/3/5/10-year total returns, volatility and max drawdown computed from our own total-return prices, and fund facts (name, category, family, expense ratio, inception, net assets, yield, top holdings) from `data/funds_meta.json`. Click a ticker for its profile and top holdings; tick 2-6 funds (or type them) to compare growth of $10,000, statistics, calendar-year returns and correlations over their common period. Funds without Yahoo metadata yet use the issuers' fund lists (`data/fund_reference.json`, marked †) and still get every statistic; a filter on a value a fund doesn't have yet (expense ratio, assets) leaves it out and says how many, with a box to include them (`include_unknown=1`). Statistics are precomputed by the data job (`data/fund_stats.json`), so the page opens at once; without that file the table answers in about 2.5 s and fills in the rest as they are computed. A ⚠ marks a history with a one-day move far outside the fund's range (a likely data error). API: `GET /api/funds` (filters `q`, `kind`, `category`, `max_er`, `min_years`, `min_aum`, `min_r5y`, `max_vol`), `GET /api/funds/detail?t=VTI`, `POST /api/funds/compare {"tickers": [...]}`. |
 | **Signals & paper** | Shows what a strategy says to do on the latest bar: new entries, open positions and target weights. You can also start a forward test ("paper trading") that only uses data arriving after you saved it. |
 | **History** | Saved runs, with open, edit, share and delete. |
@@ -95,12 +95,19 @@ hold 25% each of VTI, TLT, GLD and SHY, start 2008, starting balance $1,000,000 
 hold the top 3 of SPY, EFA, TLT and GLD by 3 month return weighted 50%, 6 month weighted 30% and 12 month weighted 20%
 hold 60% SPY and 40% TLT, rebalance every year in June            (or "rebalance annually in June", "each December")
 hold 60% SPY and 40% TLT, withdraw 5% a year taken quarterly      (1.25% of the balance each quarter)
+hold 60% SPY and 40% TLT, start with $1,000,000, withdraw 4% a year adjusted for inflation, taken monthly   (the 4% rule: $40,000 a year, $3,333 a month)
+hold 60% SPY and 40% gold since 1972        (gold = GLD, with GLDSIM before GLD existed; GOLD in capitals is Barrick Gold)
+hold 60% SPY and 40% TLT with Portfolio Visualizer defaults      (yearly rebalancing, calendar-month lookbacks)
 hold 60% SPY and 40% TLT, benchmark 60% US Stock Market and 40% Total Bond Market
 ```
 
 Portfolios with if-conditions, top-N filters or dynamic weights (inverse volatility, risk parity, ...)
 are re-evaluated **every day** by default (as in Composer); fixed-weight trees rebalance monthly unless
-you say otherwise. Named model portfolios work as phrases: "golden butterfly since 1972, rebalance
+you say otherwise (a note says so; Portfolio Visualizer's default is yearly), except the named model portfolios
+below, which rebalance **yearly** by default as Portfolio Visualizer does ("rebalance monthly" to change it).
+**"with Portfolio Visualizer defaults"** (or "PV defaults") asks for its conventions where ours differ: yearly
+rebalancing for fixed weights, month-end rules and rankings for tactical trees, and calendar-month lookbacks
+(the $10,000 start and reinvested dividends are the same already). Named model portfolios work as phrases: "golden butterfly since 1972, rebalance
 yearly", "three fund portfolio", "all weather", "permanent", "coffeehouse", "ivy", "Bernstein
 no-brainer", "60/40 portfolio", "Hedgefundie adventure", "Swensen", "larry portfolio", "Buffett 90/10",
 "global market portfolio", "sandwich", "desert", "Merriman ultimate buy and hold", "weird portfolio",
@@ -113,7 +120,9 @@ before the funds existed). Named **tactical** models too: "GTAA" / "Faber GTAA" 
 5 asset classes, SPY, EFA, IEF, VNQ and DBC, a fifth each, each held only while above its 10-month moving average
 of month-end prices, otherwise that fifth in cash) and "Antonacci GEM" / "global equities momentum" / "dual
 momentum GEM" (when US stocks' 12-month return beats T-bills', the better of SPY and VEU over 12 months, else
-AGG), checked monthly; with an early start ("GTAA since 1973") the long-history series stand in. The same
+AGG), checked monthly at the month-end close with **calendar-month** lookbacks (month-end to month-end, as
+Portfolio Visualizer, Antonacci and Faber measure them; the notes say so, and "GEM using trading days" asks for
+21-trading-day months instead); with an early start ("GTAA since 1973") the long-history series stand in. The same
 per-asset timing on your own list: "SPY, EFA, IEF, VNQ and DBC equally, each only when above its 10 month
 moving average, otherwise cash". A bare asset-class name holds 100% of it ("long-term corporate bonds since
 1955", "US small cap value"). When one sleeve's history starts later than the requested start (Swensen and
@@ -129,7 +138,7 @@ since 1972 with proxies before inception": SPYSIM stands in for EFASIM until 197
 mid-1989); in a JSON spec it is `"proxies": {"EEMSIM": "EFASIM", "EFASIM": "SPYSIM"}`. The proxy's total return is spliced in before the sleeve's
 first date, so the numbers before it are the proxy's, not the asset class's; whatever long-history series
 exist are used first, and a proxy only fills the gap before them. An "N month return" is 21 trading days a month by default (12 months = 252
-sessions); add "using calendar months" (or "using month-end prices", or `"month_lookbacks": "calendar"` in a
+sessions; the named tactical models GEM / GTAA default to calendar months, see above); add "using calendar months" (or "using month-end prices", or `"month_lookbacks": "calendar"` in a
 JSON spec) to measure N-month returns month-end to month-end from the last completed month-end, as Portfolio
 Visualizer and Antonacci do. The interpretation says which one a portfolio uses. With calendar months, "12 month
 return skipping the last month" (12-1 momentum) is measured on month-end prices: the month-end price one month
@@ -257,7 +266,8 @@ never quietly drops them or swaps in a different ticker.
   starting capital.
 - Allocation over time and current holdings for portfolios. A cash-flow summary with money-weighted
   IRR. Trailing returns (3 months, YTD, 1, 3, 5, 10 years and the full period) for the portfolio and each
-  benchmark, and per-asset statistics of the holdings. Trade distribution and excursion charts are only
+  benchmark - in a report of several portfolios, every portfolio side by side in one table (the selected one
+  marked), then each benchmark once -, and per-asset statistics of the holdings. Trade distribution and excursion charts are only
   shown for signal strategies.
 - The price chart also draws each trade's stop, trailing stop and target, the other tickers a rule filters on
   (e.g. SPY and its 200-day average) in their own pane, and a strip of the bars on which the entry and exit
@@ -280,7 +290,10 @@ never quietly drops them or swaps in a different ticker.
   replay (step or play through time, revealing bars and trades one at a time).
 - Returns by year (partial years flagged, including a benchmark's own partial first year, e.g. SPY 1993 from Jan 29) and a monthly heatmap.
 - Rolling 12-month and 3-year return, Sharpe, beta and volatility, plus rolling-period best/worst.
-- The deepest drawdowns, and how the strategy did in 12 historical crises.
+- The deepest drawdowns, and how the strategy did in historical crises: from 1987 to the 2025 tariff shock, and
+  for long-history runs (SPYSIM and the other SIM series) also the 1929-32 crash, 1937-38, the 1939-42 wartime
+  bear market, 1946-49, 1957, the 1962 flash crash, 1966, 1968-70, 1973-74, 1980 and 1981-82 (S&P 500
+  peak-to-trough dates; an event is listed when a series has data on its first day).
 - Fama-French 5-factor + momentum regression, and a correlation matrix.
 - For portfolios: P&L by holding (sales − purchases − costs + dividends + value still held; with
   interest and fees it adds up to the gain after cash flows, to the cent), benchmarks that receive
@@ -1139,22 +1152,35 @@ named portfolio run from 1972 holds, for example, the US market model until Apri
 mid-2001 and VTI after that. Named portfolios use these first and fall back to the older series (SPYSIM,
 EFASIM, ...) until the data job has built them.
 
-**Asset-class names.** After a weight, Portfolio Visualizer's asset-class names are read as the best
-long-history series, with a note: "40% US stock market, 20% international stocks, 40% total bond since 1972"
-holds VTISIM, VXUSSIM and BNDSIM. Recognised: (US / total) stock market, stocks; US large / mid / small cap,
+**Asset-class names.** Portfolio Visualizer's asset-class names and the common words for them ("gold",
+"bonds", "REITs", "commodities", "TIPS", "silver", "treasuries", in any case except an all-capitals ticker) are
+read by one rule, in sentences and in the Backtest grid alike, with a note: the class's **fund** (gold = GLD,
+REITs = VNQ, bonds = BND, TIPS = TIP, commodities = DBC, silver = SLV), and its **long-history series**
+(GLDSIM ...) when the backtest starts before the fund existed: the start you give, or - with no start - a
+portfolio of asset classes alone, which starts as early as the data allows (Portfolio Visualizer's asset-class
+mode). A long-history series *is* the fund from the fund's first day (the returns match to 1e-9), so the choice
+only decides how far back the backtest can go. "40% US stock market, 20% international stocks, 40% total bond
+since 1972" holds VTISIM, VXUSSIM and BNDSIM; "60% SPY and 40% gold" holds GLD (from 2004), "60% SPY and 40% gold
+since 1972" holds GLDSIM (gold before GLD, then GLD itself), and "60% stocks and 40% gold since 2010" VTI and GLD.
+A lowercase word is never read as an unrelated stock: "gold" is gold, "GOLD" Barrick Gold, and a Warning names
+both readings whenever the word is also a ticker. "Treasuries" with no maturity is intermediate-term (IEF), with a
+Warning naming the long- and short-term readings. Recognised: (US / total) stock market, stocks; US large / mid / small cap,
 each with value or growth; international stocks, international developed, international small cap (value),
 international value, emerging markets, European stocks, Japan; REITs / real estate; gold; commodities; total
 bond / bonds / aggregate bonds; short, intermediate and long term Treasuries; TIPS; corporate bonds;
 long-term corporate bonds; high yield; municipal bonds; international bonds (hedged: BNDXSIM; "unhedged international bonds": BWXSIM); emerging market bonds;
-T-bills. Name a fund (VTI, BND, ...) to use the fund alone; "cash" stays cash earning the T-bill rate. Next
-to real tickers, names that always meant a fund keep it ("60% SPY and 40% gold" holds GLD), so such a mix
-compares fund with fund. The same names work wherever tickers are entered in the analysis tools, on the site and
+T-bills; silver; Treasuries. Name a fund (VTI, BND, ...) to use the fund alone; "cash" stays cash earning the
+T-bill rate. Next to real tickers a name is its class's fund (small caps = VB, emerging markets = VWO, international
+stocks = VXUS), so such a mix compares fund with fund; its long-history series stands in only before the fund's
+first day. A blended benchmark of names ("benchmark 60% US Stock Market and 40% Total Bond Market") always uses
+the long-history series, as benchmarks do everywhere. The same names work wherever tickers are entered in the analysis tools, on the site and
 on the command line, and resolve to the same series with a note: the Monte Carlo weights ("US Stock Market 60,
 Total Bond Market 40", `montecarlo --weights`), the optimiser's tickers ("US Stock Market, Total Bond Market,
 Gold", also inside its constraints and forecast inputs), correlations (`correlation "US Stock Market" Gold`),
 factor regressions (`factors "US Small Cap Value"`, or tickers with weights) and style analysis (`--assets`).
 Separate names with commas when they are typed in one box; a word in capitals that is a ticker with data stays
-that ticker ("GOLD" is Barrick Gold, "Gold" the asset class).
+that ticker ("GOLD" is Barrick Gold, "Gold" the asset class). These analysis tools have no backtest start, so a
+name there is always the long-history series (the longest history to fit or resample).
 
 They are total-return indexes: `close` = `adj_close`, no dividends, `volume` 0 and
 open = high = low = close. Use them in the optimiser, Monte Carlo and factor pages (and in JSON
@@ -1233,7 +1259,14 @@ the start of each period, pro rata, and the portfolio is rebalanced on its sched
 - The first flow is at the very start, as in the backtest, so a portfolio sentence gives the same number of
   contributions in both.
 - Stress tests: `worst_sequence` puts the worst historical run of N years (default 10) at the start of every
-  path; `shock` makes the first year return -30% (or your figure). A horizon can be given by age
+  path; `shock` makes the first year return -30% (or your figure). A recent window can hold only mild decades
+  (SPY and TLT from 2002: the worst real 10 years were 2015-25, +49%), so by default (`--stress-history auto`)
+  the worst run is also looked for in the long-history series of the same assets (SPYSIM for SPY, TLTSIM for TLT,
+  ...; when each has one and it starts at least 5 years earlier) and the worse of the two is used (for 60/40,
+  1972-82): the stress is never milder than the worst of the long history, and a "Stress floor" note says which
+  run was used. `--stress-history window` uses only the window's own worst run. Warnings: a history window
+  under 40 years (the model's returns and correlations come from it; the note names the SIM series to use), and
+  a stressed result that beats the same paths without the stress (`prob_success_unstressed` in the JSON). A horizon can be given by age
   (`--age 65 --until-age 95`).
 - Cash-flow phases: on the site, add one row per phase (e.g. contribute $20,000 a year in years 1-15, then
   withdraw $60,000 a year from year 16), each with its own frequency and inflation setting. From the command

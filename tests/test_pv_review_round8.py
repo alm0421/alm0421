@@ -160,7 +160,10 @@ def test_bare_asset_class_is_100_percent():
     p = port("long-term corporate bonds since 1955")
     assert _w(p) == {"VCLTSIM": 1.0} and p.start == "1955-01-01"
     assert _w(port("hold US small cap value")) == {"VBRSIM": 1.0}
-    assert _w(port("hold long-term treasuries")) == {"TLT": 1.0}     # a phrase naming a fund keeps the fund
+    # round 12: one rule for asset-class words - alone and with no start, the long-history series (TLTSIM is TLT
+    # itself from TLT's first day); with a start after the fund existed, the fund
+    assert _w(port("hold long-term treasuries")) == {"TLTSIM": 1.0}
+    assert _w(port("hold long-term treasuries since 2010")) == {"TLT": 1.0}
 
 
 def test_drift_phrases():

@@ -672,9 +672,21 @@ def grid_asset_classes() -> list[str]:
     return [n for n in GRID_ASSET_CLASSES if parser._asset_class_ticker(n)]
 
 
-def _grid_asset(name: str) -> tuple[str | None, str | None]:
+def _grid_is_ticker(name: str) -> bool:
+    """A grid row that names a ticker (not an asset class): capitals with data, or no asset-class name at all."""
+    n = " ".join(str(name or "").split())
+    if not n:
+        return False
+    if n == n.upper() and " " not in n and data.canonical(n) in set(data.available_tickers()):
+        return True
+    return parser._class_row(n) is None
+
+
+def _grid_asset(name: str, start=None, mixed: bool = False) -> tuple[str | None, str | None]:
     """A grid row -> (ticker, note) or (None, error). A ticker typed in capitals is the ticker when it has data
-    ("GOLD" is Barrick Gold); otherwise an asset-class name ("Gold", "US small cap value") comes first."""
+    ("GOLD" is Barrick Gold); otherwise an asset-class name ("Gold", "US small cap value") comes first, read by the
+    sentence parser's rule (parser.class_series): its fund, or the long-history series when the start is before
+    the fund existed or - with no start - when every row is an asset class (`mixed` = some row is a ticker)."""
     n = " ".join(str(name or "").split())
     if not n:
         return None, None
@@ -682,9 +694,9 @@ def _grid_asset(name: str) -> tuple[str | None, str | None]:
     t = data.canonical(n)
     if n == n.upper() and " " not in n and t in have:
         return t, None
-    ac = parser._asset_class_ticker(n)
+    ac = parser.class_series(n, start, mixed)
     if ac:
-        return ac[0], f"'{n}' is read as {ac[0]}"
+        return ac[0], " ".join(x.rstrip(".") + "." for x in ac[1]).rstrip(".")
     if " " not in n and t in have:
         return t, None
     if " " not in n and n == n.upper() and data.fetch_on_demand(t):     # online: download a ticker we don't have
@@ -749,6 +761,11 @@ def grid_specs(body: dict) -> tuple[list, list[str], list[str]]:
     names = list(body.get("names") or [])
     assets: list[tuple[str, list]] = []
     seen: dict[str, str] = {}
+    try:
+        start0 = _grid_date(body.get("start"), False)
+    except ClientError:
+        start0 = None       # reported below
+    mixed = any(_grid_is_ticker((r or {}).get("asset")) for r in rows)
     for r in rows:
         w = list((r or {}).get("w") or [])[:GRID_COLUMNS]
         raw = str((r or {}).get("asset") or "").strip()
@@ -756,7 +773,7 @@ def grid_specs(body: dict) -> tuple[list, list[str], list[str]]:
             if any(x not in (None, "") for x in w):
                 problems.append("A row has weights but no ticker or asset class.")
             continue
-        t, msg = _grid_asset(raw)
+        t, msg = _grid_asset(raw, start0, mixed)
         if t is None:
             problems.append(msg)
             continue
@@ -808,7 +825,7 @@ def grid_specs(body: dict) -> tuple[list, list[str], list[str]]:
         problems.append(f"The period is empty: it starts on {start} and ends on {end}.")
     bench = str(body.get("benchmark") or "").strip()
     if bench:
-        bt, msg = _grid_asset(bench) if " " not in bench or parser._asset_class_ticker(bench) else (bench, None)
+        bt, msg = _grid_asset(bench, start, mixed) if " " not in bench or parser._class_row(bench) else (bench, None)
         if bt is None:
             problems.append("Benchmark: " + msg)
         bench = bt or bench
@@ -1124,6 +1141,8 @@ def api_montecarlo(body):
         st = body.get("stress")
         s.stress = None if st in (None, "", "none") else str(st)
         s.stress_years = int(body.get("stress_years") or 10)
+        if body.get("stress_history") in ("auto", "window"):
+            s.stress_history = body["stress_history"]
         if body.get("stress_shock") not in (None, ""):
             s.stress_shock = float(body["stress_shock"])
         s.horizon = str(body.get("horizon") or "fixed")

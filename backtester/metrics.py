@@ -14,7 +14,21 @@ from . import data
 TRADING_DAYS = 252
 NO_DRAWDOWN = 5e-5   # a drawdown smaller than 0.005% is reported as none
 
+# S&P 500 peak-to-trough dates (closing prices). The pre-1987 events show only for long-history runs (the SIM series,
+# e.g. SPYSIM from 1926): an event is listed when a series has data on its first day. Before the 1950s several of the
+# long-history series move in monthly steps, so their figures there are month-end to month-end.
 CRISES = [
+    ("1929 crash and Great Depression", "1929-09-16", "1932-06-01"),
+    ("1937-38 recession", "1937-03-06", "1938-03-31"),
+    ("1939-42 wartime bear market", "1939-10-25", "1942-04-28"),
+    ("1946-49 post-war bear market", "1946-05-29", "1949-06-13"),
+    ("1957 recession", "1957-07-15", "1957-10-22"),
+    ("1962 flash crash (Kennedy slide)", "1961-12-12", "1962-06-26"),
+    ("1966 credit crunch", "1966-02-09", "1966-10-07"),
+    ("1968-70 bear market", "1968-11-29", "1970-05-26"),
+    ("1973-74 bear market", "1973-01-11", "1974-10-03"),
+    ("1980 recession (Volcker)", "1980-02-13", "1980-03-27"),
+    ("1981-82 bear market", "1980-11-28", "1982-08-12"),
     ("1987 crash", "1987-10-01", "1987-12-04"),
     ("1990 recession", "1990-07-16", "1990-10-11"),
     ("1998 LTCM", "1998-07-17", "1998-10-08"),

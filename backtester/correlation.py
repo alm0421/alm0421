@@ -34,6 +34,18 @@ def _complete_months(px: pd.DataFrame) -> pd.DataFrame:
     return metrics.complete_months(px)
 
 
+def _long_names(tickers: list[str]) -> list[str]:
+    """'GLDSIM for GLD', ... for the tickers that have a long-history series."""
+    from .parser import SIM_FOR
+    known = set(data.available_tickers())
+    out = []
+    for t in tickers:
+        c = [x for x, _ in SIM_FOR.get(t, []) if x in known]
+        if c:
+            out.append(f"{c[0]} for {t}")
+    return out
+
+
 def returns_frame(tickers: list[str], freq: str = "monthly", start=None, end=None) -> tuple[pd.DataFrame, dict]:
     """(returns over the common period, {ticker: first date of its data})."""
     px_all = _prices(tickers)
@@ -59,7 +71,7 @@ def _pair_rolling(a: str, b: str, freq: str, window: int, start=None, end=None) 
     return {"pair": [a, b], "window": window, "freq": freq,
             "dates": [d.strftime("%Y-%m-%d") for d in rc.index], "values": [round(float(v), 4) for v in rc],
             "full_period": round(float(r[a].corr(r[b])), 4) if len(r) > 2 else None,
-            "start": r.index[0].date() if len(r) else None}
+            "start": r.index[0].date() if len(r) else None, "end": r.index[-1].date() if len(r) else None}
 
 
 def asset_stats(ticker: str, start, end, rf="tbill", first_date=None, basis: str | None = None) -> dict:
@@ -125,10 +137,24 @@ def analyze(tickers: list[str], freq: str = "monthly", window: int | None = None
     if not start:
         notes.append(f"The common period starts {r.index[0].date()}, when {late} has data (it starts {first[late]}); "
                      "each asset's own history may be longer.")
+    elif pd.Timestamp(first[late]) > pd.Timestamp(start):
+        # the requested start is before one of the assets has data: say which one moved it
+        movers = sorted((t for t in tickers if pd.Timestamp(first[t]) > pd.Timestamp(start)), key=lambda t: first[t],
+                        reverse=True)
+        notes.append(f"Warning: the requested start {pd.Timestamp(start).date()} is before {late}'s data begins "
+                     f"({first[late]}), so the common period starts {r.index[0].date()}"
+                     + (f" (also later than the start: {', '.join(f'{t} from {first[t]}' for t in movers[1:])})"
+                        if len(movers) > 1 else "")
+                     + f". Drop {late}, or use long-history series"
+                     + (f" ({', '.join(sims)})" if (sims := _long_names(movers)) else "") + " to go back further.")
     pair = [data.canonical(x) for x in (pair or tickers[:2])]
     if len(pair) != 2 or pair[0] == pair[1] or any(p not in tickers for p in pair):
         raise ValueError("The rolling pair must be two different tickers from the list.")
     roll = _pair_rolling(pair[0], pair[1], freq, window, start, end)
+    # the pair over the matrix's own window too, so the two figures are comparable (they differ when the pair's common
+    # history is longer than the whole group's)
+    roll["matrix_period"] = round(float(C.loc[pair[0], pair[1]]), 4)
+    roll["matrix_start"], roll["matrix_end"] = r.index[0].date(), r.index[-1].date()
     if not roll["values"]:
         notes.append(f"Not enough history for a {window}-{'month' if freq == 'monthly' else 'day'} rolling window.")
     a, b = r.index[0], r.index[-1]
@@ -158,7 +184,10 @@ def console(R: dict) -> str:
     if ro["values"]:
         v = np.array(ro["values"])
         L.append(f"Rolling {ro['window']}-{'month' if R['freq'] == 'monthly' else 'day'} correlation {ro['pair'][0]} / {ro['pair'][1]}: "
-                 f"latest {v[-1]:.2f} ({ro['dates'][-1]}), min {v.min():.2f}, max {v.max():.2f}, whole period {ro['full_period']:.2f}")
+                 f"latest {v[-1]:.2f} ({ro['dates'][-1]}), min {v.min():.2f}, max {v.max():.2f}; "
+                 f"over the pair's own history ({ro['start']} -> {ro.get('end') or R['end']}) {ro['full_period']:.2f}"
+                 + (f", over the matrix period ({R['start']} -> {R['end']}) {ro['matrix_period']:.2f}"
+                    if ro.get("matrix_period") is not None and str(ro["start"]) != str(R["start"]) else ""))
     basis = ("monthly returns, like the matrix: volatility, Sharpe and Sortino from monthly returns, max drawdown "
              "from month-end values" if R.get("stats_basis") == "monthly" else "daily returns")
     L.append(f"Asset statistics {R['stats_start']} -> {R['stats_end']} (total returns; Sharpe against T-bills; {basis})")
