@@ -114,10 +114,15 @@ def test_expense_table_covers_every_fund_a_model_hands_over_to(fd):
               "SCZ", "AVDV", "EFV", "LQD", "VBMFX", "PFORX", "EEM", "VEIEX", "VGTSX", "VGSIX", "GLD", "DBC", "PCRIX",
               "VWESX", "TLT", "IEF", "SHY", "IEI", "EWJ", "EWH"):
         assert 0 < fd.SIM_EXPENSE_RATIOS[t] < 0.01, t
-    # the real-fund-only series are built without a drag
-    for t in ("TIPSIM", "HYGSIM", "MUBSIM", "EMBSIM"):
+    # the real-fund-only series are built without a drag (TIPSIM and HYGSIM have models since round 10)
+    for t in ("MUBSIM", "EMBSIM"):
         i = src.index(f'build("{t}"')
         assert "model=False" in src[i:i + 400], t
+    for t in ("TIPSIM", "HYGSIM", "BWXSIM"):
+        i = src.index(f'build("{t}"')
+        assert "model=False" not in src[i:i + 600], t
+    for t in ("VIPSX", "VWEHX", "BWX"):
+        assert 0 < fd.SIM_EXPENSE_RATIOS[t] < 0.01, t
 
 
 def test_write_merges_old_entries(fd, tmp_path, monkeypatch):

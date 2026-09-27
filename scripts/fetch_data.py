@@ -130,7 +130,7 @@ CWEB RETL MIDU DFEN PILL DUSL UYG SPDN SPUU FNGO BNKU TPOR WANT
 # real funds the simulated series splice in before their ETF existed (build_sims): refreshed every run
 SIM_FUNDS = """
 VTSMX VGTSX VGSIX VIVAX VIGRX NAESX VISVX VISGX VWESX VWITX VWLTX FNMIX PCRIX VEIEX
-EWJ EWU EWG EWC EWA EWQ EWL EWH VCLT MUB EMB VOE VOT
+EWJ EWU EWG EWC EWA EWQ EWL EWH VCLT MUB EMB VOE VOT BWX IGOV HYG VIPSX TIP
 """.split()
 ETFS = list(dict.fromkeys(ETFS + SIM_FUNDS))
 # large US stocks outside the Nasdaq-100 (stocks, not ETFs: kept separate so they are never mistaken
@@ -653,10 +653,32 @@ def intl_bond_ids() -> list[str]:
     return out
 
 
+# Exchange rates for the unhedged international bond model (BWXSIM), FRED H.10 / G.5 series. Per country:
+# (daily series or None, monthly-average series, True when quoted in USD per foreign unit). The daily series
+# give month-end rates; the monthly averages fill months without a daily quote (the legacy euro-area
+# currencies have monthly series only, 1971-2001). The euro-area members convert to the euro from 1999 at the
+# fixed conversion rates (EURO_RATES). Series ids verified on fred.stlouisfed.org (fredgraph.csv) in 2026-09.
+FX_SERIES = {"JP": ("DEXJPUS", "EXJPUS", False), "GB": ("DEXUSUK", "EXUSUK", True), "CH": ("DEXSZUS", "EXSZUS", False),
+             "CA": ("DEXCAUS", "EXCAUS", False), "AU": ("DEXUSAL", "EXUSAL", True), "SE": ("DEXSDUS", "EXSDUS", False),
+             "DE": (None, "EXGEUS", False), "FR": (None, "EXFRUS", False), "IT": (None, "EXITUS", False),
+             "ES": (None, "EXSPUS", False), "NL": (None, "EXNEUS", False), "BE": (None, "EXBEUS", False),
+             "EU": ("DEXUSEU", "EXUSEU", True)}
+# legacy currency units per euro, fixed on 1999-01-01 (Council Regulation (EC) No 2866/98)
+EURO_RATES = {"DE": 1.95583, "FR": 6.55957, "IT": 1936.27, "ES": 166.386, "NL": 2.20371, "BE": 40.3399}
+
+
+def fx_ids() -> list[str]:
+    return [sid for d, m, _ in FX_SERIES.values() for sid in (d, m) if sid]
+
+
+# the TIPS model: the Cleveland Fed's 10-year real interest rate and expected inflation (monthly, from 1982)
+TIPS_IDS = ["REAINTRATREARAT10Y", "EXPINF10YR"]
+
+
 def fetch_macro() -> None:
     MACRO.mkdir(parents=True, exist_ok=True)
     for sid in ["CPIAUCSL", "DTB3", "DGS10", "DGS20", "DGS30", "DGS5", "DGS2", "DGS1", "GS10", "TB3MS",
-                "DAAA", "DBAA", "AAA", "BAA", "CPIAUCNS"] + intl_bond_ids():
+                "DAAA", "DBAA", "AAA", "BAA", "CPIAUCNS"] + intl_bond_ids() + TIPS_IDS + fx_ids():
         try:
             txt = requests.get(f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={sid}", headers=UA, timeout=60).text
             df = pd.read_csv(io.StringIO(txt))
@@ -668,6 +690,96 @@ def fetch_macro() -> None:
             print(f"macro {sid}: {len(df)} rows {df['date'].iloc[0]} .. {df['date'].iloc[-1]}")
         except Exception as e:  # noqa: BLE001
             print(f"macro {sid} failed: {e}", file=sys.stderr)
+
+
+# ---- Robert Shiller's monthly US stock market data (price, dividends, earnings, CPI, 10-year yield, CAPE)
+
+SHILLER_PAGE = "https://shillerdata.com/"        # the data moved here from econ.yale.edu in 2024
+SHILLER_FALLBACK = "http://www.econ.yale.edu/~shiller/data/ie_data.xls"
+SHILLER_COLUMNS = {"P": "price", "D": "dividend", "E": "earnings", "CPI": "cpi", "CAPE": "cape", "TR CAPE": "tr_cape"}
+
+
+def _shiller_month(v) -> str | None:
+    """Shiller's date cell -> 'YYYY-MM'. The sheet writes October as 1871.1 (a number), January as 1871.01."""
+    if v is None or (isinstance(v, float) and v != v):
+        return None
+    if isinstance(v, (int, float, np.floating)):
+        y = int(v)
+        mo = int(round((float(v) - y) * 100))
+    else:
+        m = re.fullmatch(r"\s*(\d{4})\.(\d{1,2})\s*", str(v))
+        if not m:
+            return None
+        y, frac = int(m.group(1)), m.group(2)
+        mo = int(frac.ljust(2, "0"))
+    if not (1 <= mo <= 12 and 1800 < y < 2200):
+        return None
+    return f"{y:04d}-{mo:02d}"
+
+
+def parse_shiller(raw: pd.DataFrame) -> pd.DataFrame:
+    """The 'Data' sheet of Shiller's ie_data.xls (read with header=None) -> one row per month: month (YYYY-MM),
+    price (S&P Composite, the month's average of daily closes), dividend and earnings (four-quarter totals,
+    interpolated to months), cpi, gs10 (the long interest rate, percent), cape (P/E10) and tr_cape (the total
+    return version). The header spans several rows; the last one ('Date', 'P', 'D', 'E', 'CPI', ...) names the
+    columns. Checked against the file published on shillerdata.com in 2026-09."""
+    txt = raw.map(lambda v: "" if v is None or (isinstance(v, float) and v != v) else str(v).strip())
+    hdr = next((r for r in range(min(len(raw), 40)) if txt.iat[r, 0].lower() == "date"
+                and r + 1 < len(raw) and _shiller_month(raw.iat[r + 1, 0]) is not None), None)
+    if hdr is None:
+        raise RuntimeError("Shiller data: no 'Date' header row followed by monthly rows")
+    cols = {}
+    for j in range(raw.shape[1]):
+        lab = txt.iat[hdr, j]
+        if lab in SHILLER_COLUMNS and SHILLER_COLUMNS[lab] not in cols.values():
+            cols[j] = SHILLER_COLUMNS[lab]
+        elif "GS10" in lab.upper().replace(" ", "") and "gs10" not in cols.values():
+            cols[j] = "gs10"
+    missing = {"price", "earnings", "cpi", "cape"} - set(cols.values())
+    if missing:
+        raise RuntimeError(f"Shiller data: columns {sorted(missing)} not found in header {list(txt.iloc[hdr])[:16]}")
+    rows = []
+    for r in range(hdr + 1, len(raw)):
+        mo = _shiller_month(raw.iat[r, 0])
+        if mo is None:
+            if rows:
+                break
+            continue
+        row = {"month": mo}
+        for j, name in cols.items():
+            v = raw.iat[r, j]
+            if isinstance(v, str):
+                v = v.replace(",", "").strip()
+            row[name] = pd.to_numeric(v, errors="coerce")
+        rows.append(row)
+    df = pd.DataFrame(rows).drop_duplicates("month", keep="last")
+    if len(df) < 120:
+        raise RuntimeError(f"Shiller data: only {len(df)} monthly rows")
+    return df[["month"] + [c for c in ("price", "dividend", "earnings", "cpi", "gs10", "cape", "tr_cape") if c in df]]
+
+
+def fetch_shiller() -> None:
+    """data/macro/shiller.csv from ie_data.xls (the link on shillerdata.com changes with every update, so it is
+    read off the page; the old Yale address is the fallback). A failure keeps the previous file."""
+    try:
+        url = SHILLER_FALLBACK
+        try:
+            page = requests.get(SHILLER_PAGE, headers=UA, timeout=60).text
+            m = re.search(r'https?://[^"\'\s>]+ie_data\.xls[^"\'\s>]*', page)
+            if m:
+                url = m.group(0).replace("&amp;", "&")
+        except Exception as e:  # noqa: BLE001
+            print(f"shiller page failed ({e}); trying {url}", file=sys.stderr)
+        content = requests.get(url, headers=UA, timeout=120).content
+        book = pd.ExcelFile(io.BytesIO(content))
+        sheet = "Data" if "Data" in book.sheet_names else book.sheet_names[0]
+        df = parse_shiller(book.parse(sheet, header=None))
+        MACRO.mkdir(parents=True, exist_ok=True)
+        df.to_csv(MACRO / "shiller.csv", index=False)
+        print(f"shiller: {len(df)} months {df['month'].iloc[0]} .. {df['month'].iloc[-1]} from {url}")
+    except Exception as e:  # noqa: BLE001
+        print(f"shiller failed: {e}", file=sys.stderr)
+        SIM_LOG.append(f"Shiller CAPE data failed: {e}")
 
 
 def parse_french_csv(raw: list[str]) -> pd.DataFrame:
@@ -921,7 +1033,10 @@ def _series_file(t: str, level: pd.Series, note: str) -> None:
 
 
 def _real_returns(real: str) -> pd.Series:
-    """Daily total returns (from adj_close) of a downloaded fund, or an empty series."""
+    """Daily total returns (from adj_close) of a downloaded fund, or an empty series (REAL_OVERRIDES: a fund
+    whose distributions were repaired for its use in the SIMs)."""
+    if real in REAL_OVERRIDES:
+        return REAL_OVERRIDES[real].copy()
     p = PRICES / f"{real}.csv"
     if not p.exists():
         return pd.Series(dtype=float)
@@ -973,6 +1088,9 @@ SIM_EXPENSE_RATIOS = {
     "VGTSX": 0.0017, "VXUS": 0.0005, "VGSIX": 0.0027, "VNQ": 0.0013, "GLD": 0.0040, "DBC": 0.0085, "PCRIX": 0.0074,
     "VWESX": 0.0021, "VCLT": 0.0004, "EWJ": 0.0050, "EWU": 0.0050, "EWG": 0.0050, "EWC": 0.0050, "EWA": 0.0050,
     "EWQ": 0.0050, "EWL": 0.0050, "EWH": 0.0050,
+    # added with the TIPS / high-yield / unhedged-bond models (Vanguard, iShares, SPDR fund pages; BWX checked
+    # on ssga.com and Morningstar 2026-09: 0.35%)
+    "VIPSX": 0.0020, "TIP": 0.0018, "VWEHX": 0.0023, "HYG": 0.0049, "BWX": 0.0035, "IGOV": 0.0035,
 }
 SIM_DRAG_CAP = 0.03          # a larger gap is model error, not costs: never haircut more than 3% a year
 SIM_DRAG: dict[str, dict] = {}   # ticker -> the drag applied this run (written to data/sims_drag.json)
@@ -1216,23 +1334,29 @@ def internal_gaps(level: pd.Series, max_sessions: int = MAX_GAP_SESSIONS) -> lis
     return [(idx[k], idx[k + 1], int(missing[k])) for k in np.nonzero(missing > max_sessions)[0]]
 
 
-def _validate(name: str, sim_ret: pd.Series, real: str) -> None:
-    """Log how the model (before splicing) compares with the real fund over their overlap (monthly)."""
+def _validate(name: str, sim_ret: pd.Series, real: str, since=None) -> None:
+    """Log how the model (before splicing) compares with the real fund over their overlap (monthly); `since`: only
+    from that date (a whole month), e.g. from when the fund became an index fund."""
     try:
         r = _real_returns(real)
         s = sim_ret.dropna()
+        if since is not None:
+            r, s = r[r.index >= pd.Timestamp(since)], s[s.index >= pd.Timestamp(since)]
         if r.empty or s.empty:
             _simnote(f"validate {name} vs {real}: no overlap (fund or model missing)")
             return
         both = pd.concat({"m": s, "e": r}, axis=1).loc[max(s.index[0], r.index[0]):min(s.index[-1], r.index[-1])].fillna(0.0)
         mo = (1 + both).groupby(both.index.to_period("M")).prod() - 1
-        mo = mo.iloc[1:-1]   # partial first / last months
+        # partial first / last months (with `since` on a month start the first month is whole)
+        whole_first = since is not None and pd.Timestamp(since).day == 1 and both.index[0] - pd.Timestamp(since) < pd.Timedelta(days=5)
+        mo = mo.iloc[(0 if whole_first else 1):-1]
         if len(mo) < 12:
             _simnote(f"validate {name} vs {real}: only {len(mo)} overlapping months")
             return
         yrs = len(mo) / 12
         cm, ce = (1 + mo["m"]).prod() ** (1 / yrs) - 1, (1 + mo["e"]).prod() ** (1 / yrs) - 1
-        _simnote(f"validate {name} vs {real} {mo.index[0]}..{mo.index[-1]}: monthly correlation "
+        _simnote(f"validate {name} vs {real}{' (from ' + str(since)[:10] + ')' if since is not None else ''} "
+                 f"{mo.index[0]}..{mo.index[-1]}: monthly correlation "
                  f"{mo['m'].corr(mo['e']):.3f}, tracking error {(mo['m'] - mo['e']).std() * 12 ** 0.5:.2%}/yr, "
                  f"CAGR model {cm:.2%} vs fund {ce:.2%}, volatility {mo['m'].std() * 12 ** 0.5:.1%} vs {mo['e'].std() * 12 ** 0.5:.1%}")
     except Exception as e:  # noqa: BLE001
@@ -1296,20 +1420,21 @@ def _col(df: pd.DataFrame, *keys: str) -> str:
     raise KeyError(f"none of {keys} in {list(df.columns)}")
 
 
-def build_sims() -> list[str]:
+def build_sims(only: set[str] | None = None) -> list[str]:
     """Long total-return histories for portfolio research: a model (index data or yields) before each
     fund existed, then the fund's own total return. Each series is built independently: one failing
-    source is logged in data/sims_log.txt and never stops the others."""
+    source is logged in data/sims_log.txt and never stops the others. `only`: build just these groups (the
+    attempt labels, e.g. {"SPYSIM/BILSIM", "TIPSIM"}), to rebuild a few series by hand."""
     made: list[str] = []
 
     def build(t: str, sim_ret: pd.Series, reals: tuple[str, ...], note: str, validate: str | None = None,
-              model: bool = True) -> None:
+              model: bool = True, validate_since=None) -> None:
         """`model=False`: sim_ret is itself a real fund's return (net of its costs), so no fee/cost drag."""
         sim_ret = sim_ret.dropna()
         if sim_ret.empty:
             raise RuntimeError("empty model series")
         if validate:
-            _validate(t, sim_ret, validate)   # the gross model: the gap it shows calibrates the drag
+            _validate(t, sim_ret, validate, since=validate_since)   # the gross model: the gap it shows calibrates the drag
         if model:
             sim_ret = haircut_model(t, sim_ret, reals)
             note += f" (model period net of an estimated {SIM_DRAG[t]['drag']:.2%}/yr fee/cost drag)"
@@ -1322,6 +1447,8 @@ def build_sims() -> list[str]:
         made.append(t)
 
     def attempt(label: str, fn) -> None:
+        if only is not None and label not in only:
+            return
         try:
             fn()
         except Exception as e:  # noqa: BLE001 - one series never breaks the run
@@ -1339,9 +1466,29 @@ def build_sims() -> list[str]:
 
     # "fund-exact" series: the named fund as soon as it or its mutual-fund twin exists
     def total_market():
-        build("VTISIM", ff["mkt"], ("VTSMX", "VTI"),
-              "US total market: Fama-French market return until April 1992, then the Vanguard Total Stock Market "
-              "Index fund (VTSMX), then VTI from June 2001", "VTSMX")
+        note = ("US total market: Fama-French market return until April 1992, then the Vanguard Total Stock Market "
+                "Index fund (VTSMX), then VTI from June 2001")
+        try:
+            # Yahoo's VTSMX misses part of some early distributions: repair those ex-dates against the market
+            # (see repair_missed_distributions) for its use here only
+            p = pd.read_csv(PRICES / "VTSMX.csv", parse_dates=["date"], index_col="date").sort_index()
+            p = p[~p.index.duplicated(keep="last")]
+            raw = _real_returns("VTSMX")
+            vti = _real_returns("VTI")
+            fixed, days = repair_missed_distributions(raw, ff["mkt"], p["dividend"],
+                                                      until=vti.index[0] if len(vti) else None)
+            if days:
+                REAL_OVERRIDES["VTSMX"] = fixed
+                yr = lambda s: (1 + s).groupby(s.index.year).prod() - 1   # noqa: E731
+                a, b = yr(raw), yr(fixed)
+                years = sorted({d.year for d, *_ in days})
+                _simnote("VTSMX distribution repair (for VTISIM): " + "; ".join(
+                    f"{d.date()} fund {f:+.2%} vs market {m:+.2%}" for d, f, m in days)
+                    + " -> calendar years " + ", ".join(f"{y} {a[y]:.2%} -> {b[y]:.2%}" for y in years))
+                note += " (early VTSMX ex-dates whose distribution Yahoo understates repaired, see data/sims_log.txt)"
+        except Exception as e:  # noqa: BLE001 - the unrepaired fund
+            _simlog(f"VTSMX distribution repair failed: {e}")
+        build("VTISIM", ff["mkt"], ("VTSMX", "VTI"), note, "VTSMX")
     attempt("VTISIM", total_market)
 
     bonds = {}
@@ -1404,7 +1551,8 @@ def build_sims() -> list[str]:
                 label, model = _pick_model(t, cands, funds, since=reals[0].partition("@")[2] or None)
                 etf = funds[-1]
                 note = f"{what}: Fama-French {label} (daily from 1926)" + (f", then the {twin}" if twin else "") + f", then {etf}"
-                build(t, model, reals, note, funds[0])
+                # NAESX was an actively managed small-cap fund until late 1989: validate from 1990 only
+                build(t, model, reals, note, funds[0], validate_since="1990-01-01" if t == "VBSIM" else None)
                 if len(funds) > 1:
                     _validate(t, model, etf)
             except Exception as e:  # noqa: BLE001
@@ -1483,20 +1631,54 @@ def build_sims() -> list[str]:
     attempt("BNDSIM", total_bond)
 
     def tips():
-        # TIPS were first issued in 1997: the Vanguard Inflation-Protected Securities fund (VIPSX, June
-        # 2000) is the longest real history; no model before it
-        r = _real_returns("VIPSX")
-        build("TIPSIM", r, ("TIP",), "US TIPS: Vanguard Inflation-Protected Securities fund (VIPSX) from 2000, then TIP",
-              model=False)
+        # TIPS were first issued in 1997: a MODEL before the Vanguard Inflation-Protected Securities fund (VIPSX,
+        # June 2000) - an 8-year real par bond off an estimated real yield plus lagged CPI accrual (tips_model)
+        m, info = tips_model(_fred("GS10"), _fred("CPIAUCNS"), _fred("REAINTRATREARAT10Y"))
+        _simnote(f"TIPSIM model: {len(m)} months {m.index[0]}..{m.index[-1]}; real yield = Cleveland Fed 10-year real "
+                 f"rate from {info['first_real_month']}, before that GS10 minus trailing {info['proxy_window']}-month CPI "
+                 "inflation (monthly-change RMSE vs the Cleveland rate 1982-99: "
+                 + ", ".join(f"{k} months {v:.3f}" for k, v in info["change_rmse"].items())
+                 + f"); {info['maturity']:g}-year real par bond + CPI-U accrual lagged 3 months")
+        steps = _monthly_steps(pd.Series(m.to_numpy(), index=m.index.to_timestamp(how="end").normalize()))
+        _validate("TIPSIM model", steps, "TIP")
+        build("TIPSIM", steps, ("VIPSX", "TIP"),
+              "US TIPS: MODEL (monthly steps) from 1972 - an 8-year real par bond priced off the Cleveland Fed 10-year "
+              "real rate (from 1982; before, the 10-year Treasury yield minus trailing CPI inflation) plus CPI accrual "
+              "lagged 3 months - then the Vanguard Inflation-Protected Securities fund (VIPSX) from mid-2000, then TIP",
+              "VIPSX")
     attempt("TIPSIM", tips)
 
     def high_yield():
         # FRED's ICE BofA high-yield total-return index only covers the last three years; the Vanguard
-        # High-Yield Corporate fund (VWEHX, Yahoo history from 1985) is the longest free record
-        r = _real_returns("VWEHX")
-        build("HYGSIM", r, ("HYG",), "US high-yield bonds: Vanguard High-Yield Corporate fund (VWEHX) from 1985, then HYG",
-              model=False)
+        # High-Yield Corporate fund (VWEHX, Yahoo history from 1980) is the longest free record. Before it, a
+        # factor-mimicking MODEL: a 7-year par bond at Moody's Baa yield (the lowest investment grade; credit
+        # carry and rate risk) mixed with the US stock market (the equity-like default risk of junk bonds: HY fell
+        # 20-30% in 2008 when Baa bonds did not), the stock share picked by tracking error against VWEHX; the
+        # CAGR gap on the overlap (defaults and fees) is taken off as the model's drag.
+        baa = corporate_yield(_fred("DBAA"), _fred("DBAA"), _fred("BAA"), _fred("BAA"))
+        bond = _bond_returns(baa, 7)
+        mkt = ff.get("mkt")
+        if mkt is None:
+            f = _factor_file("ff3_daily")
+            mkt = (f["Mkt-RF"] + f["RF"]).dropna()
+        days = bond.index.intersection(mkt.index)
+        cands = {f"{1 - w:.0%} Baa 7-year par bond + {w:.0%} US stock market": (1 - w) * bond.reindex(days) + w * mkt.reindex(days)
+                 for w in (0.0, 0.2, 0.25, 0.3, 0.35)}
+        label, model = _pick_model("HYGSIM", cands, ("VWEHX",))
+        build("HYGSIM", model, ("VWEHX", "HYG"),
+              f"US high-yield bonds: MODEL from 1953 ({label}, a factor mimic net of a default-loss/fee haircut "
+              "calibrated on the overlap), then the Vanguard High-Yield Corporate fund (VWEHX) from 1980, then HYG", "VWEHX")
+        _validate("HYGSIM model", model, "HYG")
     attempt("HYGSIM", high_yield)
+
+    def unhedged_intl_bonds():
+        m = unhedged_bond_monthly()
+        steps = _monthly_steps(m)
+        _validate("BWXSIM model", steps, "IGOV")
+        build("BWXSIM", steps, ("BWX",),
+              "international government bonds, NOT hedged: OECD 10-year yields of up to 12 developed markets (9-year "
+              "par bonds) converted to USD at month-end exchange rates (monthly steps) from 1971, then BWX", "BWX")
+    attempt("BWXSIM", unhedged_intl_bonds)
 
     def intl_bonds():
         m = intl_bond_monthly()
@@ -1981,6 +2163,376 @@ def intl_bond_monthly() -> pd.Series:
     return pd.Series(m.to_numpy(), index=m.index.to_timestamp(how="end").normalize())
 
 
+# ---- TIPS before 1997: a real-yield model (TIPSIM)
+#
+# A TIPS fund earns (1) the return of a real par bond priced off the real yield and (2) the inflation accrual of
+# its principal. The model:
+#   real yield: the Cleveland Fed's 10-year real interest rate (FRED REAINTRATREARAT10Y, monthly, from 1982; a
+#     model estimate from Treasury yields, inflation, swaps and surveys). Before 1982: the 10-year Treasury yield
+#     (GS10) minus trailing CPI inflation, the trailing window (1, 3, 5 or 10 years) picked by how closely the
+#     monthly changes of GS10 - trailing inflation match those of the Cleveland real rate over 1982-1999
+#     (logged; the longer windows win: a 1-year window swings far more than any real yield).
+#     The Cleveland value dated the 1st of month m is read as the real yield at the end of month m-1.
+#   price: an 8-year real par bond (duration about 7, like VIPSX / TIP) re-priced monthly off that yield
+#     (_bond_returns), plus its real coupon.
+#   inflation accrual: TIPS principal follows CPI-U (not seasonally adjusted) with a 3-month lag, so the
+#     accrual over month m is CPI(m-2) / CPI(m-3) - 1.
+# Returns are spliced, not yields: the months before the first Cleveland month are priced off the proxy yield,
+# the rest off the Cleveland yield, so the switch adds no jump. The model is a model: before 1997 no US
+# inflation-linked bond existed, and the pre-1982 real yield is a rough estimate (the 1970s' trailing inflation
+# moved far faster than any expectation). Validated against VIPSX and TIP on their overlap (data/sims_log.txt).
+
+TIPS_MATURITY = 8.0
+TIPS_START = "1972-01"
+TIPS_PROXY_WINDOWS = (12, 36, 60, 120)
+
+
+def _monthly(s: pd.Series) -> pd.Series:
+    """A monthly series indexed by month (Period 'M'), last value per month."""
+    s = pd.to_numeric(s, errors="coerce").dropna().sort_index()
+    idx = s.index if isinstance(s.index, pd.PeriodIndex) else pd.DatetimeIndex(s.index).to_period("M")
+    out = pd.Series(s.to_numpy(), index=idx)
+    return out[~out.index.duplicated(keep="last")]
+
+
+def trailing_inflation(cpi: pd.Series, months: int) -> pd.Series:
+    """Annualised CPI inflation (percent) over the `months` months to the month before (known at month m)."""
+    c = _monthly(cpi)
+    c = c.reindex(pd.period_range(c.index[0], c.index[-1], freq="M")).interpolate()
+    return (((c / c.shift(months)) ** (12 / months) - 1) * 100).shift(1)
+
+
+def _real_bond_monthly(real_yield: pd.Series, maturity: float) -> pd.Series:
+    """Monthly return of a `maturity`-year par bond re-priced monthly off `real_yield` (percent, monthly)."""
+    y = _monthly(real_yield)
+    yd = pd.Series(y.to_numpy(), index=y.index.to_timestamp(how="end").normalize())
+    r = _bond_returns(yd, maturity, step_years=1 / 12)
+    r.index = r.index.to_period("M")
+    return r.dropna()
+
+
+def tips_model(gs10: pd.Series, cpi: pd.Series, real10: pd.Series, maturity: float = TIPS_MATURITY,
+               start: str = TIPS_START) -> tuple[pd.Series, dict]:
+    """Monthly model return of a TIPS index (PeriodIndex) and a description of the choices made.
+    gs10: 10-year Treasury yield (percent, monthly); cpi: CPI-U NSA level (monthly); real10: the Cleveland Fed
+    10-year real rate (percent, monthly, from 1982)."""
+    g, c, rr = _monthly(gs10), _monthly(cpi), _monthly(real10)
+    if rr.empty:
+        raise RuntimeError("no real-rate series")
+    # the Cleveland estimate dated the 1st of month m is built from data through the end of month m-1 (it is
+    # published at the start of the month): it is that month-end's real yield (checked: its bond returns
+    # correlate 0.63 with VIPSX's in the same month when shifted, 0.03 when not)
+    rr.index = rr.index - 1
+    lo, hi = rr.index[0], min(rr.index[-1], pd.Period("1999-12", "M"))
+    scores = {}
+    for k in TIPS_PROXY_WINDOWS:
+        # scored on monthly CHANGES (what drives the bond's return), not levels: the 1-year window matches the
+        # level best but swings far more than any real yield (1972-81 real-bond returns of -40% and +40% a year)
+        proxy = (g - trailing_inflation(c, k)).dropna()
+        both = pd.concat({"p": proxy, "r": rr}, axis=1).loc[lo:hi].dropna()
+        if len(both) >= 60:
+            scores[k] = float(((both["p"].diff() - both["r"].diff()) ** 2).mean() ** 0.5)
+    if not scores:
+        raise RuntimeError("no overlap between GS10 - trailing inflation and the real rate")
+    k = min(scores, key=scores.get)
+    proxy = (g - trailing_inflation(c, k)).dropna()
+    early = _real_bond_monthly(proxy, maturity)
+    late = _real_bond_monthly(rr, maturity)
+    real = pd.concat([early[early.index <= late.index[0] - 1], late]) if len(late) else early
+    real = real[~real.index.duplicated(keep="last")]
+    cm = c.reindex(pd.period_range(c.index[0], c.index[-1] + 3, freq="M"))
+    accrual = (cm.shift(2) / cm.shift(3) - 1).reindex(real.index)
+    out = ((1 + real) * (1 + accrual) - 1).dropna()
+    out = out[out.index >= pd.Period(start, "M")]
+    info = {"proxy_window": k, "change_rmse": scores, "first_real_month": str(rr.index[0]), "maturity": maturity}
+    return out, info
+
+
+# ---- unhedged international government bonds (BWXSIM)
+#
+# The same par-bond model as BNDXSIM (OECD 10-year yields, 9-year par bonds, BNDX-like country weights), but in
+# USD without a currency hedge: each country's local bond return is converted at the change in its exchange
+# rate. BWX (2007) and IGOV (2009) hold developed ex-US government bonds unhedged.
+
+def fx_usd_per_unit(daily: pd.Series | None, monthly: pd.Series | None, usd_per_unit: bool) -> pd.Series:
+    """Month-end USD value of one unit of a currency (PeriodIndex 'M'): the last daily quote of each month
+    where a daily series exists, else the monthly average."""
+    parts = []
+    if daily is not None and len(daily):
+        parts.append(_monthly(daily))
+    if monthly is not None and len(monthly):
+        parts.append(_monthly(monthly))
+    if not parts:
+        return pd.Series(dtype=float)
+    s = parts[0]
+    for p in parts[1:]:
+        s = s.combine_first(p)
+    s = s[s > 0]
+    return s if usd_per_unit else 1.0 / s
+
+
+def unhedged_bond_model(long: dict, fx: dict, weights: dict | None = None, maturity: float = 9) -> pd.Series:
+    """Monthly USD return of an unhedged developed-market government bond index (PeriodIndex): per country the
+    local par-bond return times the change in the currency's USD value; weights renormalised each month over
+    the countries with data; at least three countries (a third of the weight) per month."""
+    weights = weights or dict(INTL_BONDS)
+    rets = {}
+    for cty, y in long.items():
+        f = fx.get(cty)
+        y = _monthly(y)
+        if f is None or len(f) < 13 or len(y) < 13:
+            continue
+        local = _real_bond_monthly(y, maturity)      # a nominal par bond: the same pricing
+        fxr = f.sort_index().pct_change()
+        rets[cty] = ((1 + local) * (1 + fxr.reindex(local.index)) - 1).dropna()
+    if not rets:
+        raise RuntimeError("no country has both a yield and an exchange rate")
+    df = pd.DataFrame(rets).sort_index()
+    w = pd.DataFrame({c: np.where(df[c].notna(), weights.get(c, 0.0), 0.0) for c in df.columns}, index=df.index)
+    tot = w.sum(axis=1)
+    out = (df.fillna(0.0) * w).sum(axis=1) / tot.where(tot > 0)
+    ok = (df.notna().sum(axis=1) >= 3) & (tot >= 0.3)
+    out = out[ok].dropna()
+    if out.empty:
+        raise RuntimeError("no month with enough countries")
+    return out
+
+
+def fx_monthly_all() -> dict:
+    """{country: month-end USD per unit} from data/macro; the euro-area members follow their legacy currency
+    until 1998 and the euro (at the fixed conversion rate) from 1999."""
+    def opt(sid):
+        try:
+            return _fred(sid) if sid else None
+        except Exception:  # noqa: BLE001 - a missing file: the other source, or no country
+            return None
+    eur = None
+    d, m, usd = FX_SERIES["EU"]
+    try:
+        eur = fx_usd_per_unit(opt(d), opt(m), usd)
+    except Exception:  # noqa: BLE001
+        eur = None
+    out = {}
+    for cty, (d, m, usd) in FX_SERIES.items():
+        if cty == "EU":
+            continue
+        s = fx_usd_per_unit(opt(d), opt(m), usd)
+        if cty in EURO_RATES:
+            s = s[s.index < pd.Period("1999-01", "M")]
+            if eur is not None and len(eur):
+                s = pd.concat([s, eur / EURO_RATES[cty]])
+                s = s[~s.index.duplicated(keep="last")]
+        if len(s):
+            out[cty] = s
+    return out
+
+
+def unhedged_bond_monthly() -> pd.Series:
+    long = {}
+    for c, _ in INTL_BONDS:
+        try:
+            long[c] = _fred(f"IRLTLT01{c}M156N")
+        except Exception as e:  # noqa: BLE001
+            print(f"unhedged bonds: no long yield for {c}: {e}")
+    fx = fx_monthly_all()
+    m = unhedged_bond_model(long, fx)
+    used = sorted(set(long) & set(fx))
+    _simnote(f"BWXSIM model: {len(m)} months {m.index[0]}..{m.index[-1]}, countries {used} (unhedged, month-end "
+             "exchange rates; monthly averages where FRED has no daily series)")
+    return pd.Series(m.to_numpy(), index=m.index.to_timestamp(how="end").normalize())
+
+
+# ---- missed mutual-fund distributions (VTSMX)
+#
+# Yahoo's mutual-fund histories understate some early distributions: on the ex-date the NAV drops by the full
+# payout, but the dividend column (and Yahoo's adj_close, which is derived from it - the two agree to within
+# 0.03%/yr for VTSMX) records less, so the day shows a loss the market never had. VTSMX 1993-1996 (the
+# Vanguard-published calendar-year returns are 10.62%, -0.17%, 35.79%, 20.96%): from its price file 10.34%,
+# -0.43%, 34.97%, 20.74%; 1995-12-22, for example, records a $0.10 dividend while the NAV fell 1.0% on a day the
+# market rose 0.34%. The repair: on an ex-dividend day (dividend > 0) where the fund trails a daily reference of
+# the same market (the Fama-French US market for VTSMX, tracking error 0.6%/yr) by more than max(3 robust daily
+# tracking deviations, 0.10%), the day's return is set to the reference's. With it VTSMX's 1993-1996 read 10.55%,
+# -0.21%, 35.88%, 21.04%. Used only where the fund is a SIM twin (VTISIM); VTSMX's own file is not changed.
+
+def repair_missed_distributions(fund_ret: pd.Series, ref_ret: pd.Series, dividends: pd.Series,
+                                k: float = 3.0, floor: float = 0.001, window: int = 250,
+                                until=None) -> tuple[pd.Series, list]:
+    """(repaired daily returns, [(date, fund return, reference return)]) - see the note above. The threshold
+    uses the median absolute deviation of fund - reference over the previous `window` days (x 1.4826). Only
+    days before `until` (the date the fund stops being used) are repaired."""
+    both = pd.concat({"f": fund_ret, "r": ref_ret}, axis=1, sort=True).dropna()
+    res = both["f"] - both["r"]
+    mad = res.abs().rolling(window, min_periods=60).median().shift(1) * 1.4826
+    div = pd.to_numeric(dividends, errors="coerce").reindex(both.index).fillna(0.0)
+    hit = (div > 0) & (res < -np.maximum(k * mad, floor))
+    if until is not None:
+        hit &= both.index < pd.Timestamp(until)
+    out = fund_ret.copy()
+    fixed = []
+    for d in both.index[hit.fillna(False).to_numpy()]:
+        fixed.append((d, float(both.at[d, "f"]), float(both.at[d, "r"])))
+        out.loc[d] = both.at[d, "r"]
+    return out, fixed
+
+
+REAL_OVERRIDES: dict[str, pd.Series] = {}   # fund -> repaired daily returns, used by _real_returns in the SIMs
+
+
+# ------------------------------------------------------------------ fund research metadata
+
+FUNDS_META_FILE = ROOT / "data" / "funds_meta.json"
+FUNDS_META_PER_RUN = 300      # symbols looked up per run (two Yahoo requests each)
+FUNDS_META_MAX_AGE = 30       # days before an entry is refreshed
+
+
+def _num(v):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if np.isfinite(x) else None
+
+
+def extract_fund_meta(info: dict | None, funds=None) -> dict:
+    """Fund metadata from yfinance: `info` (Ticker.info, Yahoo's quoteSummary: longName, category, fundFamily,
+    legalType, quoteType, fundInceptionDate (epoch seconds), totalAssets, yield (a fraction), netExpenseRatio (in
+    PERCENT) / annualReportExpenseRatio (a fraction)) and `funds` (Ticker.funds_data, yfinance >= 0.2.40:
+    fund_overview {categoryName, family, legalType}, fund_operations (rows 'Annual Report Expense Ratio' (a
+    fraction), 'Annual Holdings Turnover', 'Total Net Assets'), top_holdings (Symbol index, Name, Holding
+    Percent), asset_classes {stockPosition, bondPosition, cashPosition, ...}, sector_weightings, description).
+    Fields that are missing stay out; every value is a plain JSON type. Checked against yfinance 1.7.0's
+    scrapers/funds.py."""
+    info = info or {}
+    out: dict = {}
+
+    def put(k, v):
+        if v is not None and v != "" and not (isinstance(v, float) and not np.isfinite(v)):
+            out[k] = v
+    put("name", info.get("longName") or info.get("shortName"))
+    put("quote_type", info.get("quoteType"))
+    put("category", info.get("category"))
+    put("family", info.get("fundFamily"))
+    put("legal_type", info.get("legalType"))
+    inc = _num(info.get("fundInceptionDate"))
+    if inc:
+        put("inception", str(pd.Timestamp(inc, unit="s").date()))
+    put("net_assets", _num(info.get("totalAssets")) or _num(info.get("netAssets")))
+    put("yield", _num(info.get("yield")))
+    er = _num(info.get("netExpenseRatio"))
+    if er is not None:
+        put("expense_ratio", er / 100)                        # Yahoo gives this one in percent
+    elif _num(info.get("annualReportExpenseRatio")) is not None:
+        put("expense_ratio", _num(info.get("annualReportExpenseRatio")))
+    if funds is not None:
+        def safe(attr):
+            try:
+                return getattr(funds, attr)
+            except Exception:  # noqa: BLE001 - yfinance raises on funds it has no profile for
+                return None
+        ov = safe("fund_overview") or {}
+        if isinstance(ov, dict):
+            for key, src in (("category", "categoryName"), ("family", "family"), ("legal_type", "legalType")):
+                if ov.get(src) and key not in out:
+                    out[key] = ov[src]
+        ops = safe("fund_operations")
+        if isinstance(ops, pd.DataFrame) and len(ops.columns):
+            col = ops.columns[0]
+
+            def row(name):
+                return _num(ops[col].get(name)) if name in ops.index else None
+            if row("Annual Report Expense Ratio") is not None:
+                out["expense_ratio"] = row("Annual Report Expense Ratio")   # a fraction: preferred
+            put("turnover", row("Annual Holdings Turnover"))
+            if "net_assets" not in out:
+                put("net_assets", row("Total Net Assets"))
+        th = safe("top_holdings")
+        if isinstance(th, pd.DataFrame) and len(th):
+            hold = []
+            for sym, r in th.head(10).iterrows():
+                w = _num(r.get("Holding Percent"))
+                hold.append({"symbol": str(sym), "name": str(r.get("Name") or ""), "weight": w})
+            out["top_holdings"] = hold
+        ac = safe("asset_classes")
+        if isinstance(ac, dict):
+            cls = {k.replace("Position", ""): _num(v) for k, v in ac.items() if _num(v) is not None}
+            if cls:
+                out["asset_classes"] = cls
+        sw = safe("sector_weightings")
+        if isinstance(sw, dict):
+            sec = {k: _num(v) for k, v in sw.items() if _num(v)}
+            if sec:
+                out["sectors"] = sec
+        desc = safe("description")
+        if isinstance(desc, str) and desc.strip():
+            out["description"] = desc.strip()[:600]
+    return out
+
+
+def funds_meta_batch(universe: list[str], entries: dict, today: str, budget: int = FUNDS_META_PER_RUN,
+                     max_age: int = FUNDS_META_MAX_AGE, failed: dict | None = None) -> list[str]:
+    """The symbols to look up this run: those with no entry first, then the stalest entries older than
+    `max_age` days; a symbol that failed is retried after `max_age` days."""
+    failed = failed or {}
+    t0 = pd.Timestamp(today)
+
+    def age(d):
+        try:
+            return (t0 - pd.Timestamp(d)).days
+        except Exception:  # noqa: BLE001
+            return 10 ** 6
+    missing = [t for t in universe if t not in entries and age(failed.get(t, "1900-01-01")) >= max_age]
+    stale = sorted((t for t in universe if t in entries and age(entries[t].get("fetched")) >= max_age),
+                   key=lambda t: entries[t].get("fetched") or "")
+    return (missing + stale)[:budget]
+
+
+def fetch_funds_meta(universe: list[str], path: Path | None = None, today: str | None = None) -> dict:
+    """data/funds_meta.json: fund metadata (extract_fund_meta) for the ETFs and mutual funds of the universe, a
+    rotating batch per run; an entry that fails to refresh is kept."""
+    path = path or FUNDS_META_FILE
+    today = today or str(pd.Timestamp.today().date())
+    try:
+        doc = json.loads(path.read_text())
+    except (OSError, ValueError):
+        doc = {}
+    entries, failed = dict(doc.get("funds") or {}), dict(doc.get("failed") or {})
+    batch = funds_meta_batch(universe, entries, today, failed=failed)
+
+    def one(t):
+        try:
+            tk = yf.Ticker(t)
+            try:
+                info = tk.info or {}
+            except Exception:  # noqa: BLE001
+                info = {}
+            try:
+                funds = tk.funds_data
+            except Exception:  # noqa: BLE001
+                funds = None
+            return t, extract_fund_meta(info, funds)
+        except Exception as e:  # noqa: BLE001
+            print(f"fund meta {t} failed: {e}", file=sys.stderr)
+            return t, None
+    from concurrent.futures import ThreadPoolExecutor
+    got = 0
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for t, m in pool.map(one, batch):
+            if m and len(m) >= 2:
+                m["fetched"] = today
+                entries[t] = m
+                failed.pop(t, None)
+                got += 1
+            else:
+                failed[t] = today
+    doc = {"updated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+           "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are "
+                     "fractions, net_assets in USD, top_holdings weights are fractions",
+           "funds": dict(sorted(entries.items())), "failed": dict(sorted(failed.items()))}
+    path.write_text(json.dumps(doc, indent=1, default=str) + "\n")
+    print(f"fund metadata: {got} of {len(batch)} looked up; {len(entries)} funds on file")
+    return doc
+
+
 def main() -> None:
     PRICES.mkdir(parents=True, exist_ok=True)
     ndx, source = constituents()
@@ -2156,6 +2708,7 @@ def main() -> None:
     (ROOT / "data" / "merge_log.txt").write_text("\n".join(merge_log) + "\n")
 
     fetch_macro()
+    fetch_shiller()
     fetch_factors()
     fetch_shares(sorted(set(ndx) | set(former_ok)))
     try:
@@ -2195,6 +2748,12 @@ def main() -> None:
     }
     (ROOT / "data" / "universe.json").write_text(json.dumps(meta, indent=1))
     KEYED_FILE.write_text(json.dumps(sorted(KEYED_OK), indent=1))
+    try:
+        # fund research: metadata for every ETF and mutual fund (a rotating batch per run)
+        fund_syms = [t for t in dict.fromkeys(meta["etfs"] + meta["funds"]) if "-" not in t and not t.startswith("^")]
+        fetch_funds_meta(fund_syms)
+    except Exception as e:  # noqa: BLE001 - metadata is optional
+        print(f"fund metadata failed: {e}", file=sys.stderr)
     write_sim_drag()
     try:
         write_integrity_log()

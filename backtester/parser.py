@@ -70,6 +70,7 @@ NOT_TICKERS = {
     "MACD", "ADX", "CCI", "MFI", "OBV", "VWAP", "SAR", "DI", "ROC", "TR", "OK", "AI", "CAGR", "YTD",
     "BPS", "ADV", "PE", "EPS", "TO", "OF", "IN", "BY", "NO", "AS", "OFF", "WHEN", "HOLD", "FOR", "X",
     "IRA", "CPI", "FED", "N", "K", "M", "B", "T", "FOMC", "GDP", "EV", "USA", "NYSE", "NASDAQ", "SPX",
+    "CAPE",   # Shiller's cyclically adjusted P/E (cape() in the rule language), not a ticker
 }
 
 DOW = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4}
@@ -211,6 +212,8 @@ SIM_FOR = {
     "AGG": [("AGGSIM", None), ("BNDSIM", "the US aggregate bond market (VBMFX from 1986), then BND"),
             ("IEFSIM", "intermediate Treasuries, then IEF")],
     "BNDX": [("BNDXSIM", None)],
+    "BWX": [("BWXSIM", None)],
+    "IGOV": [("BWXSIM", "developed ex-US government bonds, unhedged (OECD yields and exchange rates), then BWX")],
     "VXUS": [("VXUSSIM", "80% developed ex-US + 20% emerging markets (Fama-French) until 1996, then the Vanguard Total "
                          "International Stock Index fund VGTSX, and VXUS itself from 2011"),
              ("EFASIM", "developed markets ex-US (no emerging markets), then EFA")],
@@ -353,6 +356,8 @@ ASSET_CLASSES = [
     (rf"{_US}?small{_CAP} value", ["VBRSIM", "VBR"], "US small-cap value"),
     (rf"{_US}?small{_CAP} growth", ["VBKSIM", "VBK"], "US small-cap growth"),
     (rf"{_US}?small{_CAP}(?: blend)?", ["VBSIM", "VB"], "US small caps"),
+    (r"(?:unhedged international (?:government |treasury )?bonds?|international (?:government |treasury )?bonds? \(?unhedged\)?|"
+     r"global bonds?(?: ex[- ]u\.?s\.?)? \(?unhedged\)?)", ["BWXSIM", "BWX"], "international government bonds, unhedged"),
     (r"international (?:government )?bonds?|global bonds?(?: ex[- ]u\.?s\.?)?", ["BNDXSIM", "BNDX"],
      "international bonds (USD-hedged)"),
     (r"international small[- ]?caps? value(?: stocks)?|international small value", ["AVDVSIM", "AVDV"],
@@ -1103,6 +1108,33 @@ def parse_condition(text: str, ctx: Ctx) -> tuple[str | None, str]:
     # volume against its average (before the price-vs-average phrases)
     take(r"volume (?:is )?(above|below|over|under) (?:its |the )?(?:(\d+) day )?(?:average|avg|moving average)(?: volume)?",
          lambda m: f"{v} {_cmp(m.group(1))} sma({v}, {m.group(2) or 20})")
+    # valuation: Shiller's CAPE (point in time, lagged data.CAPE_LAG_MONTHS months), its percentile, the earnings yield
+    cape_w = r"(?:the )?(?:shiller(?:'s)? )?(?:cape|cyclically adjusted (?:p/?e|price[- ]to[- ]earnings)|p/?e ?10|shiller p/?e)(?: ratio)?"
+
+    def cape_note():
+        _note(f"CAPE = Shiller's cyclically adjusted P/E of the US market (monthly), used {data.CAPE_LAG_MONTHS} months "
+              "after the month it describes so that its earnings were already reported: cape() in the rule language.")
+
+    def cape_cmp(m):
+        cape_note()
+        return f"cape() {_cmp(m.group(1))} {float(m.group(2)):g}"
+    take(rf"{cape_w} (?:is |was |stays? |remains? )?{CMPW} (\d+(?:\.\d+)?)(?!%)", cape_cmp)
+
+    def cape_pct_cmp(m):
+        cape_note()
+        yrs = int(m.group(3)) if m.group(3) else 0
+        _note("CAPE percentile: where today's CAPE ranks among " + (f"the last {yrs} years' values" if yrs else
+                                                                     "all values since 1881") + " known at the time.")
+        return f"cape_pct({yrs}) {_cmp(m.group(1))} {float(m.group(2)) / 100:g}"
+    take(rf"{cape_w} (?:percentile|percentile rank|rank) (?:is |was )?{CMPW} (\d+(?:\.\d+)?)(?:%| percent|th percentile)?"
+         r"(?: (?:over|of|in) (?:the )?(?:last |past )?(\d+) years?)?", cape_pct_cmp)
+
+    def ey_cmp(m):
+        cape_note()
+        return f"earnings_yield() {_cmp(m.group(1))} treasury_10y()"
+    take(rf"(?:the )?(?:cape |cyclically adjusted |shiller )?earnings yield (?:is )?{CMPW} (?:the )?(?:10[- ]year|ten[- ]year) "
+         r"(?:treasury |bond )?yield", ey_cmp)
+
     # "not on Fridays" / "except in October"
     take(r"(?:but )?(?:not|except|excluding)(?: on)? (monday|tuesday|wednesday|thursday|friday)s?",
          lambda m: f"dow != {DOW[m.group(1)]}")
@@ -4454,6 +4486,54 @@ def _if_chain(s: str, notes: list[str]) -> dict:
                                   "otherwise <holding>'.")
 
 
+# "CAPE-based allocation": a valuation-driven stock/bond mix. Stocks get 80% while the (point-in-time, lagged) Shiller
+# CAPE is in the cheapest third of its history since 1881, 60% in the middle third, 40% in the most expensive third;
+# bonds the rest. Checked monthly (the CAPE changes once a month).
+CAPE_TIERS = ((1 / 3, 80), (2 / 3, 60), (None, 40))
+CAPE_MODEL_RX = (r"(?:the |a )?(?:shiller(?:'s)? )?(?:cape|valuation)[- ](?:based |driven |tilted )?(?:tactical )?(?:asset )?"
+                 r"allocation(?: (?:model|strategy|portfolio))?(?: (?:between|of|with|using|on|across) (?P<a>.+?) and (?P<b>.+?))?")
+
+
+def _cape_model(s: str, notes: list[str]) -> dict | None:
+    """'CAPE-based allocation between VTI and BND' (or without the funds: VTI and BND, with long-history series
+    for an early start) -> nested if nodes on cape_pct(0) with the CAPE_TIERS stock weights."""
+    m = re.fullmatch(rf"(?i){CAPE_MODEL_RX}", s.strip())
+    if not m:
+        return None
+    if m.group("a"):
+        kids = _asset_list(f"{m.group('a')} and {m.group('b')}")
+        if len(kids) != 2:
+            raise ParseError(f"'{s.strip()}': a CAPE-based allocation takes a stock fund and a bond fund, e.g. "
+                             "'CAPE-based allocation between VTI and BND'.")
+    else:
+        base = _model_node("CAPE-based allocation", [(60, "VTI"), (40, "BND")],
+                           "a valuation-driven stock/bond mix; this 60/40 is its middle tier", notes)
+        kids = base["children"]
+        notes.pop(next(i for i in range(len(notes) - 1, -1, -1) if notes[i].startswith("CAPE-based allocation:")))
+    stock, bond = kids
+    on = stock.get("asset") or bond.get("asset")
+    if not on:
+        raise ParseError(f"'{s.strip()}': name at least one fund (the stock side), e.g. 'CAPE-based allocation between "
+                         "VTI and cash'.")
+
+    def mix(w):
+        return {"weights": "specified", "w": [w / 100, round(1 - w / 100, 10)], "children": [stock, bond]}
+    node = mix(CAPE_TIERS[-1][1])
+    for cut, w in reversed(CAPE_TIERS[:-1]):
+        node = {"if": f"cape_pct(0) <= {cut:.4f}", "on": on, "then": mix(w), "else": node}
+    _TL.tactical = "CAPE-based allocation"
+    sname = _pf_short_name(stock)
+    bname = _pf_short_name(bond)
+    notes.append(f"CAPE-based allocation: {sname} {CAPE_TIERS[0][1]}% / {bname} {100 - CAPE_TIERS[0][1]}% while Shiller's "
+                 f"CAPE is in the cheapest third of its history since 1881 (its percentile among the values known at "
+                 f"the time), {CAPE_TIERS[1][1]}/{100 - CAPE_TIERS[1][1]} in the middle third, {CAPE_TIERS[2][1]}/"
+                 f"{100 - CAPE_TIERS[2][1]} in the most expensive third. The CAPE of month M is used from the start of "
+                 f"month M+{data.CAPE_LAG_MONTHS + 1} (its earnings are reported late), so the model never sees data "
+                 "it could not have had. Write your own tiers with cape(), cape_pct(years) or earnings_yield() - "
+                 "treasury_10y() in backticks.")
+    return node
+
+
 def _node(text: str, notes: list[str] | None = None) -> dict:
     """Parse an allocation phrase into a portfolio tree node (strict: every word must be understood)."""
     notes = notes if notes is not None else []
@@ -4465,6 +4545,9 @@ def _node(text: str, notes: list[str] | None = None) -> dict:
     if re.fullmatch(r"(?:cash|t-?bills|treasury bills|money market|nothing|flat)", low):
         return {"cash": True}
 
+    cm = _cape_model(s, notes)
+    if cm:
+        return cm
     mp = _model_portfolio(s, notes)
     if mp:
         return mp

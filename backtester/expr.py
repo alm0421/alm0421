@@ -547,6 +547,28 @@ class Namespace(dict):
                 return cal_ret(idx, int(n) // MONTH_BARS)
             return idx / idx.shift(int(n)) - 1
 
+        def _known(s: pd.Series) -> pd.Series:
+            """A macro series dated by when it became known, held forward onto this ticker's bars (NaN before)."""
+            if s is None or s.empty:
+                return pd.Series(np.nan, index=c.index)
+            return s.reindex(c.index.union(s.index)).ffill().reindex(c.index)
+
+        def cape():
+            """Shiller's cyclically adjusted P/E (P/E10), lagged data.CAPE_LAG_MONTHS months to be point in time."""
+            return _known(data.shiller_known("cape"))
+
+        def earnings_yield():
+            """The cyclically adjusted earnings yield 1 / CAPE (0.04 = 4%), point in time like cape()."""
+            return 1.0 / cape()
+
+        def cape_pct(years=0):
+            """CAPE percentile (0..1) among the values known so far: all history (years=0) or the last N years."""
+            return _known(data.cape_percentile(int(years)))
+
+        def treasury_10y():
+            """The 10-year Treasury yield (decimal) as of each day's close (FRED DGS10; monthly GS10 before 1962)."""
+            return _known(data.treasury_10y())
+
         def max_drawdown(*a):
             """Largest peak-to-trough fall within the last n bars, as a positive fraction."""
             x, n = pick(a, trs, 63)
@@ -1104,6 +1126,7 @@ class Namespace(dict):
             "sma": sma, "ma": sma, "ema": ema, "rma": rma, "wma": wma, "highest": highest, "lowest": lowest,
             "stdev": stdev, "zscore": zscore, "ref": ref, "ret": ret, "roc": ret,
             "rsi": rsi, "tret": tret, "tbill_ret": tbill_ret, "max_drawdown": max_drawdown,
+            "cape": cape, "earnings_yield": earnings_yield, "cape_pct": cape_pct, "treasury_10y": treasury_10y,
             "ma_return": ma_return, "stdev_return": stdev_return, "atr": atr, "natr": natr, "volatility": volatility, "drawdown": drawdown,
             "bb_upper": bb_upper, "bb_lower": bb_lower, "pct_rank": pct_rank,
             "macd": macd, "macd_signal": macd_signal, "macd_hist": macd_hist, "ppo": ppo, "ppo_signal": ppo_signal,
@@ -1179,6 +1202,12 @@ Functions (x defaults to close; n = lookback in bars, a number written in the ru
                stdev_return(x,n) ma_return(x,n)
   total return tr (dividend-reinvested price)  tret(n) total return over n bars
                tbill_ret(n) compounded T-bill return over n bars   market_cap
+  valuation    cape()  Shiller's cyclically adjusted P/E (US market, monthly from 1881), lagged 4 months so it
+                 is point in time (month M's value is used from the 1st of month M+5: its earnings are
+                 reported a quarter or two late)   earnings_yield()  1 / cape()
+               cape_pct(years)  its percentile (0..1) among the values known so far (years=0: all history)
+               treasury_10y()  the 10-year Treasury yield (0.04 = 4%) as of the close, e.g.
+                 earnings_yield() - treasury_10y() > 0  (the excess CAPE yield is positive)
   timing       ref(x,n) (n >= 0; also written x[n]) crossover(a,b) crossunder(a,b) cross(a,b) count(cond,n)
                bars_since(cond)  bars since cond was last true (0 on a bar where it is true)
                valuewhen(cond,x,k)  x on the k-th most recent bar where cond was true (k=0: the latest)
@@ -1801,6 +1830,8 @@ _OPEN_ELEMENTWISE = _VALUE_FUNCS | {"crossover", "crossunder", "cross", "nz", "n
 # zero-argument calendar functions computed from the published NYSE schedule (backtester/calendar.py), not from
 # prices: known before the open (an unscheduled closure is never in the schedule, so none of them ever uses one)
 _OPEN_CALENDAR_CALLS = {"is_week_end", "is_month_end", "is_quarter_end", "is_year_end"}
+# monthly valuation data used months after the fact (data.CAPE_LAG_MONTHS): known before any open
+_OPEN_LAGGED_CALLS = {"cape", "earnings_yield", "cape_pct"}
 
 
 def _is_sym(node) -> bool:
@@ -1920,6 +1951,8 @@ def open_safe(rule) -> bool:
                 return bool(args) and all(ok(a) for a in args)
             if f in _OPEN_CALENDAR_CALLS:
                 return not args
+            if f in _OPEN_LAGGED_CALLS:
+                return all(_literal(a) is not None for a in args)
             return False
         if isinstance(node, ast.BinOp):
             return ok(node.left) and ok(node.right)

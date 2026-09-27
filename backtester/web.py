@@ -1295,6 +1295,43 @@ def api_correlation(body):
     return report._clean(R)
 
 
+_FUND_NUM_FILTERS = ("max_er", "min_years", "min_aum", "min_r5y", "max_vol")
+
+
+def api_funds(query: dict) -> dict:
+    """GET /api/funds?q=&kind=ETF|Mutual fund&category=&max_er=0.002&min_years=10&min_aum=1e9&min_r5y=0.05&max_vol=0.2
+    - the fund screener (backtester/funds.py). Fractions for ratios and returns, USD for assets."""
+    from . import funds
+    f = {k: (v[0] if isinstance(v, list) else v) for k, v in query.items()}
+    for k in _FUND_NUM_FILTERS:
+        if f.get(k) in (None, ""):
+            f[k] = None
+            continue
+        try:
+            f[k] = float(f[k])
+        except (TypeError, ValueError):
+            raise ClientError(f"Bad {k} {f[k]!r}: give a number (fractions for ratios and returns, e.g. 0.002).")
+    return report._clean(funds.table(f))
+
+
+def api_fund_detail(query: dict) -> dict:
+    from . import funds
+    t = (query.get("t") or query.get("ticker") or [""])[0]
+    if not t:
+        raise ClientError("Give a fund, e.g. /api/funds/detail?t=VTI")
+    try:
+        return report._clean(funds.detail(t))
+    except ValueError as e:
+        raise ClientError(str(e))
+
+
+def api_funds_compare(body) -> dict:
+    from . import funds
+    raw = body.get("tickers") or ""
+    tickers = [t for t in (raw if isinstance(raw, list) else str(raw).replace(",", " ").split()) if str(t).strip()]
+    return report._clean(funds.compare(tickers, body.get("start") or None, body.get("end") or None))
+
+
 def api_fetch(body):
     t = data.canonical(str(body.get("ticker") or ""))
     if not t or len(t) > 12:
@@ -1434,6 +1471,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(400, {"error": str(e)})
             if path == "/api/paper":
                 return self._json(200, api_paper({}, "GET"))
+            if path in ("/api/funds", "/api/funds/detail"):
+                try:
+                    q = urllib.parse.parse_qs(u.query)
+                    return self._json(200, api_funds(q) if path == "/api/funds" else api_fund_detail(q))
+                except ClientError as e:
+                    return self._json(400, {"error": str(e)})
             if path.startswith("/r/"):
                 rel = urllib.parse.unquote(path[3:])
                 f = (RUNS / rel).resolve()
@@ -1464,6 +1507,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/export/composer": api_export_composer, "/api/tickers": api_tickers,
                 "/api/community/publish": api_community_publish,
                 "/api/montecarlo": api_montecarlo, "/api/factors": api_factors, "/api/style": api_style, "/api/correlation": api_correlation,
+                "/api/funds/compare": api_funds_compare,
             }
             if path in handlers:
                 return self._json(200, handlers[path](body))
