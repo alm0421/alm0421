@@ -190,7 +190,7 @@ def test_composer_accepts_benign_metadata_in_both_spellings():
     assert any("corridor" in n for n in spec["notes"])
     assert spec["price_basis"] == "adjusted"                # Composer computes indicators on adjusted prices
     # threshold rebalancing still uses the corridor
-    t = ci.convert(_root({"step": "asset", "ticker": "SPY"}, **{"rebalance": "none", "rebalance-corridor-width": 5}))
+    t = ci.convert(_root({"step": "asset", "ticker": "SPY"}, **{"rebalance": "none", "rebalance-corridor-width": 0.05}))
     assert t["drift_band"] == pytest.approx(0.05)
 
 

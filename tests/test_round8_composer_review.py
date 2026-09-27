@@ -270,7 +270,7 @@ def test_export_keeps_ids_group_names_and_both_window_formats():
     flt = next(b for b in _blocks(sym) if b["step"] == "filter")
     assert flt["sort-by-fn-params"] == {"window": 20} and flt["sort-by-window-days"] == "20"
     assert flt["select-fn"] == "bottom" and flt["select-n"] == 1
-    assert sym["rebalance"] == "none" and sym["rebalance-corridor-width"] == 5
+    assert sym["rebalance"] == "none" and sym["rebalance-corridor-width"] == 0.05
     # round trip: the same tree, ids included
     back = Portfolio.from_dict(dict(ci.convert(json.dumps(sym))))
     assert back.tree == p.tree and back.drift_band == p.drift_band
@@ -285,8 +285,12 @@ def test_export_generates_stable_uuids_when_there_are_none():
     assert a == b
     ids = [x["id"] for x in _blocks(a)]
     assert len(ids) == len(set(ids)) and all(uuid.UUID(i) for i in ids)
-    ic = next(x for x in _blocks(a) if x["step"] == "if-child" and x.get("lhs-fn") == "relative-strength-index")
-    assert ic["lhs-fn-params"] == {"window": 10} and ic["lhs-window-days"] == "10" and ic["rhs-val"] == "79"
+    # "and" is one if-child with Composer's "all" condition block
+    ic = next(x for x in _blocks(a) if x["step"] == "if-child" and "condition" in x)
+    assert ic["condition"]["condition-type"] == "compound" and ic["condition"]["operator"] == "all"
+    rsi = next(c for c in ic["condition"]["conditions"] if c["lhs"]["fn"] == "relative-strength-index")
+    assert rsi["lhs"] == {"fn": "relative-strength-index", "ticker": "TQQQ", "params": {"window": 10}}
+    assert rsi["comparator"] == "lt" and rsi["rhs"] == {"constant": 79}
     # the import keeps the ids, and exporting that gives the same symphony again
     again, _ = ce.export(Portfolio.from_dict(dict(ci.convert(json.dumps(a)))))
     assert again["children"] == a["children"]

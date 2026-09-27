@@ -257,9 +257,9 @@ class Portfolio:
                   f"{u_[:-1]}-end" if n_ > 1 else f"re-evaluated and rebalanced {u_[:-1]}ly")
         bands = []
         if self.drift_band:
-            bands.append(f"drifts {self.drift_band:.0%} from its target")
+            bands.append(f"drifts {fmt_weight(self.drift_band)} from its target")
         if self.drift_band_relative:
-            bands.append(f"drifts by {self.drift_band_relative:.0%} of its own target weight")
+            bands.append(f"drifts by {fmt_weight(self.drift_band_relative)} of its own target weight")
         dyn = _is_dynamic(self.tree)
         what = ("the rules pick different holdings" if _continuous_weights(self.tree) or self.target_vol
                 else "the rules change the target allocation (a different branch, selection or weights)")
@@ -355,7 +355,9 @@ class Portfolio:
 WEIGHTINGS = ("equal", "inverse_vol", "market_cap", "risk_parity", "min_variance", "max_sharpe", "max_diversification")
 
 
-def _wlabel(kind: str, lookback: int | None = None) -> str:
+def _wlabel(kind: str, lookback: int | None = None, w: list | None = None) -> str:
+    if kind == "specified":      # a filter's fixed weights by rank
+        return "weighted " + "/".join(fmt_weight(x) for x in (w or [])) + " by rank"
     base = {"equal": "equal weight", "inverse_vol": "inverse volatility", "market_cap": "market-cap weight",
             "risk_parity": "risk parity (equal risk contribution)", "min_variance": "minimum variance",
             "max_sharpe": "maximum Sharpe", "max_diversification": "maximum diversification"}[kind]
@@ -406,7 +408,7 @@ NODE_KEYS = {  # allowed keys per node type ("name" is an optional label on any 
     "if": {"if", "on", "then", "else"},
     "filter": {"filter", "universe", "children", "fallback"},
 }
-FILTER_KEYS = {"select", "n", "by", "require", "weights", "lookback"}
+FILTER_KEYS = {"select", "n", "by", "require", "weights", "lookback", "w"}
 # labels any node may carry, which never change the allocation: "name" (a group name) and "composer" (the ids of
 # the Composer blocks it came from: "id"; "group_id" of a named group around it; "then_id" / "else_id" of the
 # if-children of an if block), kept so that an exported symphony keeps its ids
@@ -478,7 +480,7 @@ def _continuous_weights(n) -> bool:
         return False
     if "weights" in n and n["weights"] not in ("equal", "specified"):
         return True
-    if "filter" in n and isinstance(n["filter"], dict) and (n["filter"].get("weights") or "equal") != "equal":
+    if "filter" in n and isinstance(n["filter"], dict) and (n["filter"].get("weights") or "equal") not in ("equal", "specified"):
         return True
     return any(_continuous_weights(k) for k in _kids(n))
 
@@ -670,8 +672,19 @@ def validate_node(n: dict, depth: int = 0) -> None:
             raise ValueError("filter n must be at least 1")
         if f.get("select", "top") not in ("top", "bottom"):
             raise ValueError("filter select must be 'top' or 'bottom'")
-        if f.get("weights", "equal") not in WEIGHTINGS:
-            raise ValueError(f"unknown filter weighting {f['weights']!r} (one of {', '.join(WEIGHTINGS)})")
+        if f.get("weights") == "specified":
+            # fixed weights by rank: w[0] for the best pick, w[1] for the next, ...
+            w = f.get("w")
+            if not isinstance(w, list) or len(w) != int(f.get("n", 1)) or not all(
+                    isinstance(x, (int, float)) and not isinstance(x, bool) and x > 0 for x in w):
+                raise ValueError("a filter with 'specified' weights needs 'w': one positive weight per pick (n), best first")
+            if abs(sum(w) - 1) > 1e-6:
+                raise ValueError(f"a filter's weights by rank must add up to 1 (they add up to {sum(w):g})")
+        elif f.get("weights", "equal") not in WEIGHTINGS:
+            raise ValueError(f"unknown filter weighting {f['weights']!r} (one of {', '.join(WEIGHTINGS)}, or specified "
+                             "with 'w')")
+        elif "w" in f:
+            raise ValueError("'w' (weights by rank) goes with weights 'specified'")
         u = n.get("universe", "children")
         if u == "children":
             kids = n.get("children") or []
@@ -852,12 +865,18 @@ def _member_lines(k: dict, indent: int) -> list[str]:
             parts = [describe(c, 0) for c in k["children"]]
             if all(len(x) == 1 for x in parts):
                 return [pad + (f"group{name}: " if name else "") + " / ".join(f"{fmt_weight(w)} {x[0].strip()}" for w, x in zip(k["w"], parts))]
-        return [f"{pad}group{name}:"] + describe(k, indent + 1)
+        return [f"{pad}group{name}:"] + describe(k, indent + 1, named=False)
     return describe(k, indent)
 
 
-def describe(n: dict, indent: int = 0) -> list[str]:
+def describe(n: dict, indent: int = 0, named: bool = True) -> list[str]:
     pad = "  " * indent
+    if named and isinstance(n, dict) and n.get("name"):
+        # a named group (a Composer group block, a named sub-portfolio): its name, then what it holds
+        inner = describe(n, 0, named=False)
+        if len(inner) == 1:
+            return [f"{pad}{n['name']}: {inner[0].strip()}"]
+        return [f"{pad}group {n['name']}:"] + describe(n, indent + 1, named=False)
     if "asset" in n:
         return [f"{pad}{data.canonical(n['asset'])}"]
     if n.get("cash"):
@@ -888,7 +907,11 @@ def describe(n: dict, indent: int = 0) -> list[str]:
             lines.extend(_member_lines(k, indent + 1))
         return lines
     if "if" in n:
-        return ([f"{pad}if {n['if']} (on {data.canonical(n.get('on', 'SPY'))}):"] + describe(n["then"], indent + 1)
+        from .expr import reads_own_series
+        # "(on X)": the ticker whose prices the rule's own series (close, rsi(10), ...) read; a rule that reads only
+        # other tickers (sym("QQQ").close) names them itself
+        on = f" (on {data.canonical(n.get('on', 'SPY'))})" if reads_own_series(n["if"]) else ""
+        return ([f"{pad}if {n['if']}{on}:"] + describe(n["then"], indent + 1)
                 + [f"{pad}otherwise:"] + describe(n["else"], indent + 1))
     if "filter" in n:
         f = n["filter"]
@@ -896,7 +919,7 @@ def describe(n: dict, indent: int = 0) -> list[str]:
         kids = n.get("children") or []
         groups = u == "children" and not all(map(_is_asset, kids))
         wk = f.get("weights", "equal")
-        wl = _wlabel(wk, f.get("lookback"))
+        wl = _wlabel(wk, f.get("lookback"), f.get("w"))
         if groups and wk == "market_cap":
             wl = "equal weight (market-cap weighting needs single assets)"
         if groups:
@@ -1606,6 +1629,23 @@ class _Evaluator:
                 passed = chosen
             if not passed:
                 return self.eval(n.get("fallback") or {"cash": True}, i)
+            if f.get("weights") == "specified":
+                # fixed weights by rank (scaled to 100% over the picks there are); a pick that fails the requirement
+                # passes its weight to the fallback
+                rw = [float(x) for x in f["w"]][: len(chosen)]
+                tot = sum(rw) or 1.0
+                out: dict[str, float] = {}
+                fb = 0.0
+                for m, x in zip(chosen, rw):
+                    if not any(m is q for q in passed):
+                        fb += x / tot
+                        continue
+                    for t, y in self._expand(m, i).items():
+                        out[t] = out.get(t, 0.0) + x / tot * y
+                if fb > 1e-12:
+                    for t, x in self.eval(n.get("fallback") or {"cash": True}, i).items():
+                        out[t] = out.get(t, 0.0) + x * fb
+                return out
             w: dict[str, float] = {}
             for m, x in zip(passed, self._weigh(f.get("weights", "equal"), passed, i, f.get("lookback"))):
                 if x <= 0:

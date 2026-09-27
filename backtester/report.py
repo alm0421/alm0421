@@ -128,6 +128,17 @@ def slug(text: str) -> str:
     return s[:60] or "backtest"
 
 
+def run_slug(text: str, key) -> str:
+    """A report folder name: the readable start of `text` plus a short hash of `key` (the full spec, or whatever
+    else defines the run), so two runs whose descriptions start alike get folders of their own, and re-running the
+    same spec reuses its folder: 'if-spy-is-above-its-200-day-moving-average-then-q-3f9a1c2e'."""
+    import hashlib
+    if not isinstance(key, str):
+        key = json.dumps(key, sort_keys=True, default=str)
+    base = slug(text)[:50].rstrip("-") or "backtest"
+    return f"{base}-{hashlib.sha1(key.encode()).hexdigest()[:8]}"
+
+
 def _clean(o):
     t = type(o)       # fast paths for the exact built-in types that make up most of a report payload
     if t is float:

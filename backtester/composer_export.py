@@ -4,11 +4,15 @@ Composer's editor supports a subset of what the portfolio engine does. This modu
 
   asset                                  {"step": "asset", "ticker": "SPY"}
   equal / specified / inverse_vol        wt-cash-equal / wt-cash-specified (weights as num/den) / wt-inverse-vol
+  market_cap (of single assets)          wt-marketcap
   if ... then ... else                   an "if" block with if-children: one indicator of a ticker compared with a
-                                         fixed number or with an indicator of a ticker (gt, gte, lt, lte);
-                                         "and" / "or" / "not" become nested ifs and flipped comparators
+                                         fixed number or with an indicator of a ticker (gt, gte, lt, lte, eq);
+                                         "and" / "or" become a "condition" block (compound all / any; the same
+                                         comparison on several tickers as binary-compound), "not" flips comparators
   filter (top/bottom N by a metric)      a "filter" block: sort-by-fn over sort-by-window-days, select-fn, select-n
-  cash in an else branch                 left out (Composer holds nothing there, the importer reads it as cash)
+  cash in a branch of an if              Composer's "empty" block
+  a drift band                           threshold rebalancing: "rebalance": "none" with "rebalance-corridor-width"
+                                         as a fraction (0.05 = 5%), as Composer stores it
 
 The indicators are Composer's: current price, moving average of price, exponential moving average of price,
 cumulative return, moving average of return, standard deviation of price / return, max drawdown and RSI (the
@@ -49,8 +53,8 @@ FUNCS = {
     "max_drawdown": ("max-drawdown", "tr", True),
 }
 PCT_FNS = {v[0] for v in FUNCS.values() if v[2]}
-CMP = {ast.Gt: "gt", ast.GtE: "gte", ast.Lt: "lt", ast.LtE: "lte"}
-FLIP = {"gt": "lt", "gte": "lte", "lt": "gt", "lte": "gte"}       # a op b  ==  b FLIP[op] a
+CMP = {ast.Gt: "gt", ast.GtE: "gte", ast.Lt: "lt", ast.LtE: "lte", ast.Eq: "eq"}
+FLIP = {"gt": "lt", "gte": "lte", "lt": "gt", "lte": "gte", "eq": "eq"}       # a op b  ==  b FLIP[op] a
 NEGATE = {"gt": "lte", "gte": "lt", "lt": "gte", "lte": "gt"}     # not (a op b)  ==  a NEGATE[op] b
 REBALANCE = {"daily", "weekly", "monthly", "quarterly", "yearly", "none"}
 SUPPORTED = ("current price, moving average of price (sma), exponential moving average of price (ema), cumulative "
@@ -134,6 +138,12 @@ class _Exporter:
             if n < 1 or not float(n).is_integer():
                 raise ComposerExportError(f"{where}: the window of `{ast.unparse(node)}` must be a whole number of days.")
             return fn, t, int(n)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in (
+                "macd", "macd_signal", "ppo", "ppo_signal", "bb_upper", "bb_lower"):
+            raise ComposerExportError(f"{where}: `{ast.unparse(node)}`: Composer has MACD, PPO and Bollinger bands, but its "
+                                      "published symphony schema does not name the keys of their parameters (fast / slow "
+                                      "/ signal window, standard deviations), so the export does not guess them. They "
+                                      "import from Composer; build this condition in Composer's editor.")
         raise ComposerExportError(f"{where}: `{ast.unparse(node)}` has no Composer equivalent. Composer's conditions "
                                   f"and filters use: {SUPPORTED}.")
 
@@ -141,8 +151,8 @@ class _Exporter:
     def compare(self, node, own: str, where: str) -> dict:
         """One comparison -> the condition fields of an if-child."""
         if not isinstance(node, ast.Compare) or len(node.ops) != 1 or type(node.ops[0]) not in CMP:
-            raise ComposerExportError(f"{where}: `{ast.unparse(node)}` is not a single >, >=, < or <= comparison "
-                                      "(Composer has no ==, != or chained comparisons).")
+            raise ComposerExportError(f"{where}: `{ast.unparse(node)}` is not a single >, >=, <, <= or == comparison "
+                                      "(Composer has no != or chained comparisons).")
         op = CMP[type(node.ops[0])]
         lhs, rhs = node.left, node.comparators[0]
         if _num(lhs) is not None and _num(rhs) is None:
@@ -168,55 +178,81 @@ class _Exporter:
                 out["rhs-window-days"] = str(rwin)
         return out
 
-    def cond_tree(self, node, own: str, then: dict, other: dict | None, where: str, ids: dict | None = None) -> dict:
-        """A boolean rule -> nested Composer if blocks ('and' / 'or' as nesting, 'not' by flipping). `ids` (the
-        if node's own: id, then_id, else_id) go to the outermost block; nested ones get generated ids."""
+    def cond_fields(self, node, own: str, where: str) -> dict:
+        """A rule -> the condition fields of one if-child. A single comparison (or its negation) is written in the
+        single-comparison form (lhs-fn, lhs-val, comparator, rhs-...); 'and' / 'or' of several as Composer's "condition"
+        block: an "all" / "any" compound, 'not' pushed inward by flipping comparators (De Morgan)."""
         while isinstance(node, ast.Expression):
             node = node.body
-        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.Not, ast.Invert)):
-            inner = node.operand
-            if isinstance(inner, ast.BoolOp):   # De Morgan
-                flipped = ast.BoolOp(op=ast.Or() if isinstance(inner.op, ast.And) else ast.And(),
-                                     values=[ast.UnaryOp(op=ast.Not(), operand=v) for v in inner.values])
-                return self.cond_tree(flipped, own, then, other, where, ids)
-            if isinstance(inner, ast.UnaryOp) and isinstance(inner.op, (ast.Not, ast.Invert)):
-                return self.cond_tree(inner.operand, own, then, other, where, ids)
-            c = self.compare(inner, own, where)
-            c["comparator"] = NEGATE[c["comparator"]]
-            return self.if_block(c, then, other, where, ids)
+        neg = False
+        while isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.Not, ast.Invert)):
+            node, neg = node.operand, not neg
         if isinstance(node, ast.BoolOp):
-            first, rest = node.values[0], node.values[1:]
-            rest_node = rest[0] if len(rest) == 1 else ast.BoolOp(op=node.op, values=rest)
-            # the shared branch appears twice in Composer's nesting: the second copy gets ids of its own
-            if isinstance(node.op, ast.And):     # if A then (if B then X else Y) else Y
-                inner = self.cond_tree(rest_node, own, then, self.copy_of(other, where), where)
-                return self.cond_tree(first, own, inner, other, where, ids)
-            inner = self.cond_tree(rest_node, own, self.copy_of(then, where), other, where)
-            return self.cond_tree(first, own, then, inner, where, ids)
-        return self.if_block(self.compare(node, own, where), then, other, where, ids)
+            return {"condition": self.cond_json(node, own, where, neg)}
+        c = self.compare(node, own, where)
+        if neg:
+            c["comparator"] = self._negate(c["comparator"], node, where)
+        return c
 
-    def copy_of(self, b: dict | None, where: str) -> dict | None:
-        """A copy of an exported block with new (stable) ids on it and every block inside it."""
-        if b is None:
-            return None
-        out = json.loads(json.dumps(b))
+    @staticmethod
+    def _negate(op: str, node, where: str) -> str:
+        if op not in NEGATE:
+            raise ComposerExportError(f"{where}: `not ({ast.unparse(node)})` has no Composer comparator (it has no "
+                                      "'not equal').")
+        return NEGATE[op]
 
-        def walk(x):
-            if isinstance(x, dict):
-                if "id" in x:
-                    x["id"] = self.block_id(None, f"copy:{x['id']}", where)
-                for k in x.get("children") or []:
-                    walk(k)
-        walk(out)
-        return out
+    def cond_json(self, node, own: str, where: str, neg: bool = False) -> dict:
+        """A rule -> a Composer condition block (binary / compound / binary-compound)."""
+        while isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.Not, ast.Invert)):
+            node, neg = node.operand, not neg
+        if isinstance(node, ast.BoolOp):
+            is_and = isinstance(node.op, ast.And) != neg          # De Morgan
+            parts = []
+            for v in node.values:
+                j = self.cond_json(v, own, where, neg)
+                # all(a, all(b, c)) = all(a, b, c)
+                if j["condition-type"] == "compound" and j["operator"] == ("all" if is_and else "any"):
+                    parts.extend(j["conditions"])
+                else:
+                    parts.append(j)
+            return self._merge_tickers({"condition-type": "compound", "operator": "all" if is_and else "any",
+                                        "conditions": parts})
+        c = self.compare(node, own, where)
+        if neg:
+            c["comparator"] = self._negate(c["comparator"], node, where)
+        lhs = {"fn": c["lhs-fn"], "ticker": c["lhs-val"]}
+        if "lhs-fn-params" in c:
+            lhs["params"] = c["lhs-fn-params"]
+        if c["rhs-fixed-value?"]:
+            rhs = {"constant": _fmt(float(c["rhs-val"]))}
+        else:
+            rhs = {"fn": c["rhs-fn"], "ticker": c["rhs-val"]}
+            if "rhs-fn-params" in c:
+                rhs["params"] = c["rhs-fn-params"]
+        return {"condition-type": "binary", "lhs": lhs, "comparator": c["comparator"], "rhs": rhs}
 
-    def if_block(self, cond: dict, then: dict, other: dict | None, where: str = "", ids: dict | None = None) -> dict:
+    @staticmethod
+    def _merge_tickers(comp: dict) -> dict:
+        """any/all of the same comparison on several tickers (RSI(10) > 79 of SPY, QQQ and SMH) -> Composer's
+        "binary-compound" form (the comparison once, "%" for each of its tickers), as its editor writes it."""
+        cs = comp["conditions"]
+        if len(cs) < 2 or not all(c["condition-type"] == "binary" and "constant" in c["rhs"] for c in cs):
+            return comp
+        shape = lambda c: (c["lhs"]["fn"], json.dumps(c["lhs"].get("params"), sort_keys=True), c["comparator"],  # noqa: E731
+                           c["rhs"]["constant"])
+        tickers = [c["lhs"]["ticker"] for c in cs]
+        if len({shape(c) for c in cs}) != 1 or len(set(tickers)) != len(tickers):
+            return comp
+        lhs = {**cs[0]["lhs"], "ticker": "%"}
+        return {"condition-type": "binary-compound", "operator": comp["operator"], "tickers": tickers, "lhs": lhs,
+                "comparator": cs[0]["comparator"], "rhs": cs[0]["rhs"]}
+
+    def if_block(self, cond: dict, then: dict, other: dict, where: str = "", ids: dict | None = None) -> dict:
         ids = ids or {}
         kids = [{"id": ids.get("then_id") or self.block_id(None, "then_id", where), "step": "if-child",
-                 "is-else-condition?": False, **cond, "children": [then]}]
-        if other is not None:
-            kids.append({"id": ids.get("else_id") or self.block_id(None, "else_id", where), "step": "if-child",
-                         "is-else-condition?": True, "children": [other]})
+                 "is-else-condition?": False, **cond, "children": [then]},
+                {"id": ids.get("else_id") or self.block_id(None, "else_id", where), "step": "if-child",
+                 "is-else-condition?": True, "children": [other]}]
         return {"id": ids.get("id") or self.block_id(None, "id", where), "step": "if", "children": kids}
 
     # ------------------------------------------------------------ nodes
@@ -239,8 +275,9 @@ class _Exporter:
         if "asset" in n:
             return {"step": "asset", "ticker": _ticker(n["asset"])}
         if n.get("cash"):
-            raise ComposerExportError(f"{where}: Composer has no cash holding. Hold a T-bill fund such as BIL or SHV "
-                                      "instead (an 'otherwise cash' branch is fine: Composer leaves it empty).")
+            raise ComposerExportError(f"{where}: Composer has no cash holding here. Hold a T-bill fund such as BIL or "
+                                      "SHV instead (a branch of an if that holds cash is fine: it becomes Composer's "
+                                      "empty block).")
         if "custom" in n:
             raise ComposerExportError(f"{where}: a Python function node cannot be exported to Composer.")
         if "weights" in n:
@@ -272,25 +309,22 @@ class _Exporter:
             if m == "inverse_vol":
                 return {"step": "wt-inverse-vol", "window-days": str(int(n.get("lookback") or 20)),
                         "children": [self.node(k, f"{where} > {i + 1}") for i, k in enumerate(kids)]}
+            if m == "market_cap":
+                if not kids or not all(isinstance(k, dict) and "asset" in k for k in kids):
+                    raise ComposerExportError(f"{where}: Composer's market-cap weighting applies to single assets only.")
+                return {"step": "wt-marketcap", "children": [self.node(k, f"{where} > {i + 1}") for i, k in enumerate(kids)]}
             raise ComposerExportError(f"{where}: {m.replace('_', ' ')} weighting is not available in Composer (it has "
-                                      "equal, specified and inverse-volatility weights).")
+                                      "equal, specified, inverse-volatility and market-cap weights).")
         if "if" in n:
-            on = data.canonical(n.get("on", "SPY"))
-            try:
-                tree = ast.parse(str(n["if"]).strip(), mode="eval")
-            except SyntaxError as e:
-                raise ComposerExportError(f"{where}: the condition `{n['if']}` is not valid: {e.msg}")
             chain = self.elif_chain(n)
             if len(chain) > 1:
                 return self.multi_if(chain, where)
+            cond = self.condition_of(n, where)
             then = self.branch(n["then"], f"{where} > then")
             other = self.branch(n["else"], f"{where} > else")
-            if then is None:
-                raise ComposerExportError(f"{where}: the 'then' branch holds cash; Composer has no cash holding. Swap the "
-                                          "condition so cash is the else branch, or hold BIL.")
             cm = n.get("composer") if isinstance(n.get("composer"), dict) else {}
             ids = {k: cm[k] for k in ("id", "then_id", "else_id") if cm.get(k)}
-            return self.cond_tree(tree, on, then, other, where, ids)
+            return self.if_block(cond, then, other, where, ids)
         if "filter" in n:
             f = n["filter"]
             u = n.get("universe", "children")
@@ -323,14 +357,13 @@ class _Exporter:
             return blk
         raise ComposerExportError(f"{where}: unknown node {sorted(n)}")
 
-    @staticmethod
-    def _one_compare(rule: str):
-        """The single comparison of a rule (or None): what one if-child can hold."""
+    def condition_of(self, n: dict, where: str) -> dict:
+        """An if node's rule -> the condition fields of its if-child."""
         try:
-            b = ast.parse(str(rule).strip(), mode="eval").body
-        except SyntaxError:
-            return None
-        return b if isinstance(b, ast.Compare) else None
+            tree = ast.parse(str(n["if"]).strip(), mode="eval")
+        except SyntaxError as e:
+            raise ComposerExportError(f"{where}: the condition `{n['if']}` is not valid: {e.msg}")
+        return self.cond_fields(tree, data.canonical(n.get("on", "SPY")), where)
 
     def elif_chain(self, n: dict) -> list[dict]:
         """An imported Composer if block with several conditions became nested if nodes (each else holds the next
@@ -346,32 +379,29 @@ class _Exporter:
                 break
             chain.append(e)
             x = e
-        if len(chain) > 1 and all(self._one_compare(c["if"]) is not None for c in chain):
-            return chain
-        return [n]
+        return chain
 
     def multi_if(self, chain: list[dict], where: str) -> dict:
         kids = []
         w = where
         for c in chain:
             cm = c.get("composer") or {}
+            cond = self.condition_of(c, w)
             then = self.branch(c["then"], f"{w} > then")
-            if then is None:
-                raise ComposerExportError(f"{w}: the 'then' branch holds cash; Composer has no cash holding. Hold BIL "
-                                          "instead.")
-            cond = self.compare(self._one_compare(c["if"]), data.canonical(c.get("on", "SPY")), w)
             kids.append({"id": cm.get("then_id") or self.block_id(None, "then_id", w), "step": "if-child",
                          "is-else-condition?": False, **cond, "children": [then]})
             w = f"{w} > else"
         last = chain[-1]
         other = self.branch(last["else"], w)
-        if other is not None:
-            kids.append({"id": (last.get("composer") or {}).get("else_id") or self.block_id(None, "else_id", where),
-                         "step": "if-child", "is-else-condition?": True, "children": [other]})
+        kids.append({"id": (last.get("composer") or {}).get("else_id") or self.block_id(None, "else_id", where),
+                     "step": "if-child", "is-else-condition?": True, "children": [other]})
         return {"id": self.block_id(chain[0], "id", where), "step": "if", "children": kids}
 
-    def branch(self, n: dict, where: str) -> dict | None:
-        return None if isinstance(n, dict) and n.get("cash") else self.node(n, where)
+    def branch(self, n: dict, where: str) -> dict:
+        """A branch of an if: cash is Composer's empty block."""
+        if isinstance(n, dict) and n.get("cash") and not n.get("name"):
+            return {"id": self.block_id(n, "id", where), "step": "empty"}
+        return self.node(n, where)
 
 
 def export(spec) -> tuple[dict, list[str]]:
@@ -398,16 +428,24 @@ def export(spec) -> tuple[dict, list[str]]:
                   "name": (spec.name or spec.description or "Exported portfolio")[:80],
                   "description": spec.description or "", "rebalance": spec.rebalance}
     if spec.drift_band:
-        if spec.rebalance != "none":
-            raise ComposerExportError("Composer uses a rebalance corridor only instead of a calendar schedule; say "
-                                      "'never rebalance' together with the drift band.")
-        root["rebalance-corridor-width"] = _fmt(round(spec.drift_band * 100, 8))
+        # Composer's threshold rebalancing evaluates the rules at every close and trades when they change the target or
+        # a holding leaves its corridor: this spec's "daily, trading only when the target changes or a holding drifts"
+        # (and "never rebalance" with a band) exactly
+        if spec.rebalance not in ("none", "daily"):
+            raise ComposerExportError(f"Composer uses a rebalance corridor instead of a calendar schedule, not both: "
+                                      f"'rebalance {spec.rebalance} or when a weight drifts' has no equivalent. Drop the "
+                                      "schedule (the rules are then checked every day, as Composer's threshold "
+                                      "rebalancing does) or the drift band.")
+        if not 0 < spec.drift_band < 1:
+            raise ComposerExportError(f"A {spec.drift_band:.0%} drift band is not a corridor Composer can hold.")
+        root["rebalance"] = "none"
+        # a fraction of the portfolio, as Composer stores it: 0.05 is a 5% corridor
+        root["rebalance-corridor-width"] = _fmt(round(spec.drift_band, 10))
     elif spec.rebalance == "none":
         raise ComposerExportError("Composer has no buy-and-hold (never rebalance) setting without a corridor width.")
-    top = ex.branch(spec.tree, "portfolio")
-    if top is None:
+    if isinstance(spec.tree, dict) and spec.tree.get("cash"):
         raise ComposerExportError("The portfolio holds only cash.")
-    root["children"] = [top]
+    root["children"] = [ex.node(spec.tree, "portfolio")]
     if spec.price_basis != "adjusted":
         ex.note("Composer computes indicators on total-return (dividend-adjusted) prices; this spec used prices as "
                 "quoted, so RSI and moving averages of dividend payers can differ slightly.")
