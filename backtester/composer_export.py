@@ -187,10 +187,28 @@ class _Exporter:
         if isinstance(node, ast.BoolOp):
             first, rest = node.values[0], node.values[1:]
             rest_node = rest[0] if len(rest) == 1 else ast.BoolOp(op=node.op, values=rest)
+            # the shared branch appears twice in Composer's nesting: the second copy gets ids of its own
             if isinstance(node.op, ast.And):     # if A then (if B then X else Y) else Y
-                return self.cond_tree(first, own, self.cond_tree(rest_node, own, then, other, where), other, where, ids)
-            return self.cond_tree(first, own, then, self.cond_tree(rest_node, own, then, other, where), where, ids)
+                inner = self.cond_tree(rest_node, own, then, self.copy_of(other, where), where)
+                return self.cond_tree(first, own, inner, other, where, ids)
+            inner = self.cond_tree(rest_node, own, self.copy_of(then, where), other, where)
+            return self.cond_tree(first, own, then, inner, where, ids)
         return self.if_block(self.compare(node, own, where), then, other, where, ids)
+
+    def copy_of(self, b: dict | None, where: str) -> dict | None:
+        """A copy of an exported block with new (stable) ids on it and every block inside it."""
+        if b is None:
+            return None
+        out = json.loads(json.dumps(b))
+
+        def walk(x):
+            if isinstance(x, dict):
+                if "id" in x:
+                    x["id"] = self.block_id(None, f"copy:{x['id']}", where)
+                for k in x.get("children") or []:
+                    walk(k)
+        walk(out)
+        return out
 
     def if_block(self, cond: dict, then: dict, other: dict | None, where: str = "", ids: dict | None = None) -> dict:
         ids = ids or {}

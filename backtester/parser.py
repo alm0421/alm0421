@@ -715,10 +715,16 @@ def _ma(kind: str | None, x: str, n: str, unit: str | None, raw: str) -> str:
     return f"{k}({x}, {_period(n, unit)})"
 
 
+_RSI_DEFAULT_NOTE = ("No RSI period given: using the standard 14 days (Wilder's default). Composer always states one "
+                     "(its symphonies often use 10); say e.g. '10 day RSI' to choose.")
+
+
 def _osc(name: str, n: str | None, ctx: Ctx) -> str:
     """Oscillator expression for a phrase name."""
     name = name.lower().replace("%", "").strip()
     if name.startswith("rsi"):
+        if not n:
+            _note(_RSI_DEFAULT_NOTE)
         return f"rsi({ctx.c}, {int(float(n or 14))})"
     if not ctx.base:
         raise ParseError(f"{name} of another ticker is not supported in English; use backticks")
@@ -2411,10 +2417,39 @@ def _rotation(text: str) -> str | None:
             f"rebalance {freq}{m.group('rest')}")
 
 
+_BARE_SHORT = re.compile(r"(?is)\s*(?:go short|short[- ]sell|sell short|short|be short)\s+(?:the\s+)?(\^?[A-Za-z][A-Za-z0-9.\-]{0,9})"
+                         r"\s*(?:(,|;)\s*(?P<rest>.*))?")
+_SIGNAL_WORDS = re.compile(r"(?i)\b(?:when|whenever|if|while|once|until|after|above|below|cross\w*|rsi|stop|exit|cover|sell|"
+                           r"target|profit|days? in a row|breaks?|falls?|drops?|rises?|gaps?)\b")
+
+
+def _bare_short(text: str) -> str | None:
+    """'short SQQQ' / 'go short SQQQ, since 2015' with no entry condition: a static 100% short allocation, the same
+    as 'hold 100% short SQQQ'. None when the sentence is anything else (a rule to short on a condition)."""
+    m = _BARE_SHORT.fullmatch(text.strip().rstrip("."))
+    if not m or (m.group("rest") and _SIGNAL_WORDS.search(m.group("rest"))):
+        return None
+    try:
+        tk = find_tickers(m.group(1).upper() if m.group(1).islower() else m.group(1), strict=True)
+    except ParseError:
+        return None
+    if len(tk) != 1:
+        return None
+    return f"hold 100% short {tk[0]}" + (f", {m.group('rest')}" if m.group("rest") else "")
+
+
 def _parse_text(text: str):
     rot = _rotation(text)
     if rot:
         return parse_allocation(rot)
+    short = _bare_short(text)
+    if short:
+        obj = parse_allocation(short)
+        head = short.split(",")[0]
+        obj.notes.insert(0, f"'{text.strip()}' has no entry condition, so it was read as a static short allocation held the "
+                            f"whole time, the same as '{head}': -100% reset at each rebalance, the sale proceeds kept in cash. "
+                            f"For a trading rule, say e.g. '{text.strip().split(',')[0]} when ..., cover when ...'.")
+        return obj
     held = _holding_signal(text)
     if held:
         obj = parse_signal(held, holding=True)
@@ -3340,7 +3375,8 @@ def value_phrase(text: str, ctx: Ctx | None = None, default_n: int | None = None
         (r"(?:the )?(weekly|monthly) (?:relative strength index|rsi)(?:\s*\(\s*(\d+)\s*\)|\s+(\d+)(?! (?:day|week|month|year|bar|session)))?",
          lambda m: f"{m.group(1)}_rsi({m.group(2) or m.group(3) or 14}{'' if ctx.base else ', ' + c})"),
         (rf"(?:(\d+) {U} )?(?:relative strength index|rsi)(?:\s*\(\s*(\d+)\s*\)|\s+(\d+)(?! {U}))?",
-         lambda m: f"rsi({c}, {m.group(3) or m.group(4) or _unit_n(m.group(1), m.group(2), 14)})"),
+         lambda m: (notes.append(_RSI_DEFAULT_NOTE) if not (m.group(1) or m.group(3) or m.group(4)) else None,
+                    f"rsi({c}, {m.group(3) or m.group(4) or _unit_n(m.group(1), m.group(2), 14)})")[1]),
         (rf"(?:(\d+) {U} )?(?:cumulative |total |trailing )?(?:returns?|momentum|performance|gains?|rate of change|roc|change|price change)(?: over (?:the )?(?:last |past |prior )?(\d+) {U})?",
          None),
         (r"(?:yesterday|the previous day|previous day|the prior day|prior day|the previous|previous|the prior|prior) (high|low|close|open)",
@@ -4145,12 +4181,36 @@ def _condition_on(cond: str, default: str | None) -> tuple[str, str]:
     return on, rule
 
 
+_PF_STOP = re.compile(r"(?i)\b(?:(?:trailing )?stop[- ]?loss(?:es)?|trailing stop|stop(?:ped)? out|take[- ]profit|profit target|"
+                      r"(?:go|move|switch|get out) (?:to|into) cash (?:when|if|once) (?:the |my )?(?:portfolio|account|balance|equity)"
+                      r"|(?:the |my )?(?:portfolio|account|balance|equity) (?:falls?|drops?|is down|loses?|declines?) \d)")
+
+
+def _refuse_portfolio_stops(t: str) -> None:
+    """Stops and targets belong to signal strategies (they exit a position bought on a signal); an allocation portfolio
+    has no entry price. A stop on the portfolio's own value is refused with the equivalents that do work."""
+    m = _PF_STOP.search(_mask(t, parens=False))
+    if not m:
+        return
+    own = re.search(r"(?i)portfolio|account|balance|equity", m.group(0))
+    raise ParseError(
+        f"'{m.group(0).strip()}': " + (
+            "a stop on the portfolio's own value is not supported: after the stop there is no rule for when to buy back, "
+            "so the portfolio would sit in cash for good. " if own else
+            "stops and profit targets are for signal strategies (they exit a position bought on a signal, e.g. 'buy SPY "
+            "when its RSI(2) is below 10, sell when it closes above its 5 day moving average, stop loss 10%'); an "
+            "allocation portfolio has no entry price to measure them from. ")
+        + "For a portfolio, use a drawdown rule on a market ticker, which also says when to get back in: e.g. 'if SPY is "
+          "down 10% or more from its 52 week high then hold BIL else hold 60% SPY and 40% TLT, rebalance daily'.")
+
+
 def parse_allocation(text: str) -> Portfolio:
     raw = text
     t = _normalize(text)
     t = _sub_outside(r"\[", "(", _sub_outside(r"\]", ")", t))
     # "off by 5 percentage points": an absolute drift of 5% of the portfolio
     t = _sub_outside(r"(?i)(\d+(?:\.\d+)?) ?(?:percentage points?|pct points?|ppts?|pp)\b", r"\1%", t)
+    _refuse_portfolio_stops(t)
     T = Text(t)
     notes: list[str] = []
     flows = _cash_flows(T, notes)

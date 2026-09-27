@@ -1123,7 +1123,7 @@ def check_tree(p: "Portfolio") -> None:
             if bad:
                 raise ValueError(f"The condition `{n['if']}` compares a value with itself ({bad}), so it is always true or "
                                  "always false. Compare it with a number, another indicator or another ticker.")
-            if n.get("then") == n.get("else"):
+            if without_ids(n.get("then")) == without_ids(n.get("else")):
                 note(f"Both branches of the condition `{n['if']}` on {n.get('on', 'SPY')} hold the same thing "
                      f"({short_name(n['then'], 60)}), so the condition changes nothing.")
         f = n.get("filter")
@@ -1131,6 +1131,16 @@ def check_tree(p: "Portfolio") -> None:
             bad = _self_comparison(f["require"], None)
             if bad:
                 raise ValueError(f"The requirement `{f['require']}` compares a value with itself ({bad}).")
+        if isinstance(f, dict):
+            u = n.get("universe", "children")
+            cands = (n.get("children") or []) if u == "children" else u if isinstance(u, list) else None
+            k = int(f.get("n", 1) or 1)
+            if cands is not None and len(cands) and k >= len(cands):
+                what = ", ".join(short_name(c, 30) if isinstance(c, dict) else str(c) for c in cands[:6])
+                note(f"The {f.get('select', 'top')} {k} of {len(cands)} candidate{'s' if len(cands) != 1 else ''} ({what}): "
+                     f"the filter keeps every candidate that has a value, so its ranking by {pretty_rule(f.get('by'))} "
+                     "never leaves anything out" + (" (only its requirement can)" if f.get("require") else "")
+                     + f". Name more than {k} candidates, or pick fewer.")
         if getattr(p, "price_basis", "adjusted") == "adjusted":
             for holder, key, on in ((n, "if", n.get("on", "SPY")), (f if isinstance(f, dict) else {}, "require", None)):
                 r = holder.get(key)
