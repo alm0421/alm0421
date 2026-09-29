@@ -206,6 +206,20 @@ log, assumptions), plus `trades.csv`, `equity_curve.csv` and `summary.json`.
 Starting capital is $10,000, risking 1% of equity per trade with 2x buying power;
 see `--help` for every knob.
 
+### Interactive UI (backtesting tab, wired to the real engine)
+
+A themed single-page UI backed by a dependency-free stdlib server runs the real
+HitchHiker engine over the same 1-minute CSVs and renders live results — KPIs,
+an equity curve vs SPY/QQQ, drawdown, per-trade R, and the full trade list.
+
+```bash
+python scripts/serve_api.py --data-dir backtests/data/2026-09-25   # then open http://localhost:8000
+```
+
+`app/webui/index.html` is the page; `app/backtest/service.py` is the shared
+engine entry point (`POST /api/backtest` returns the same numbers as the report,
+as JSON). It constructs no broker.
+
 Bar data lives in `backtests/data/<set>/<SYMBOL>_1min.csv` (columns
 `time_utc,open,high,low,close,volume`) and is **gitignored**: vendor market
 data may not be redistributed from this public repository.
