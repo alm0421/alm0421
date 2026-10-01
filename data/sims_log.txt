@@ -1,4 +1,14 @@
-all simulated series built
+LBMA gold failed, using World Bank monthly averages: 403 Client Error: Forbidden for url: https://prices.lbma.org.uk/json/gold_pm.json
+Traceback (most recent call last):
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2213, in gold
+    lbma = lbma_gold_daily()
+           ^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2643, in lbma_gold_daily
+    r.raise_for_status()
+  File "/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/requests/models.py", line 1167, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 403 Client Error: Forbidden for url: https://prices.lbma.org.uk/json/gold_pm.json
+
 
 Model vs fund on their overlap:
 validate SPYSIM vs SPY 1993-03..2026-07: monthly correlation 0.987, tracking error 2.45%/yr, CAGR model 10.95% vs fund 10.79%, volatility 15.3% vs 14.8%
@@ -92,8 +102,8 @@ validate VNQSIM model vs VNQ 2004-10..2026-07: monthly correlation 0.998, tracki
 VGSIX fund history (for the SIMs): 5 quarter(s) matched to published returns (1997Q4 +1.09%->+1.33%, 2009Q1 -32.20%->-32.08%, 2014Q4 +15.81%->+14.27%, 2023Q4 +19.54%->+18.11%, 2024Q1 -2.41%->-1.20%)
 validate VNQSIM vs VGSIX 1996-06..2026-07: monthly correlation 0.998, tracking error 1.38%/yr, CAGR model 9.49% vs fund 9.05%, volatility 19.4% vs 19.7%
 drag VNQSIM: 0.40%/yr taken off the model before 1996-05-14 (hands over to VGSIX; expense ratio 0.27%; model beat the fund by 0.40%/yr on 1996-06..2026-07 (362 months); basis: overlap gap); with the drag the model returns 9.05%/yr vs the fund's 9.05% on the overlap
-validate GLDSIM vs GLD 2004-12..2026-08: monthly correlation 0.975, tracking error 3.93%/yr, CAGR model 11.20% vs fund 10.66%, volatility 17.6% vs 17.3%
-drag GLDSIM: 0.49%/yr taken off the model before 2004-11-19 (hands over to GLD; expense ratio 0.40%; model beat the fund by 0.49%/yr on 2004-12..2026-08 (261 months); basis: overlap gap); with the drag the model returns 10.66%/yr vs the fund's 10.66% on the overlap
+validate GLDSIM vs GLD 2004-12..2026-07: monthly correlation 0.623, tracking error 13.72%/yr, CAGR model 10.83% vs fund 10.22%, volatility 13.5% vs 17.2%
+drag GLDSIM: 0.55%/yr taken off the model before 2004-11-19 (hands over to GLD; expense ratio 0.40%; model beat the fund by 0.55%/yr on 2004-12..2026-07 (260 months); basis: overlap gap); with the drag the model returns 10.22%/yr vs the fund's 10.22% on the overlap
 DBCSIM: tracking error vs DBC from 2006: AQR model 7.53%/yr, PCRIX 8.12%/yr
 validate DBCSIM vs DBC 2006-03..2025-04: monthly correlation 0.918, tracking error 7.52%/yr, CAGR model 2.44% vs fund 0.39%, volatility 15.3% vs 18.5%
 drag DBCSIM: 2.04%/yr taken off the model before 2006-02-07 (hands over to DBC; expense ratio 0.85%; model beat the fund by 2.04%/yr on 2006-03..2025-04 (230 months); basis: overlap gap); with the drag the model returns 0.39%/yr vs the fund's 0.39% on the overlap

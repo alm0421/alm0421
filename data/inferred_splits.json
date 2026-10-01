@@ -886,6 +886,32 @@
     "why": "close 5.13 is 25% from the day before and 27% from the day after, which agree within 5.1%; replaced by their geometric mean 6.65295"
    }
   },
+  "EFO": {
+   "2014-12-04": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.249234,
+    "day_return_repaired": -0.005355,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 26.1567..26.7067, x1.28 or more away from the closes around them (34.84 and 34.2833, which agree within 1.6%): quotes that never traded, replaced by the path between those closes"
+   },
+   "2014-12-05": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.021027,
+    "day_return_repaired": -0.005355,
+    "expected_from_reference": NaN,
+    "residual_sd": NaN,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "2 bars in a row with no volume at 26.1567..26.7067, x1.28 or more away from the closes around them (34.84 and 34.2833, which agree within 1.6%): quotes that never traded, replaced by the path between those closes"
+   }
+  },
   "EGHT": {
    "1998-09-02": {
     "kind": "bad_tick",
@@ -1072,6 +1098,20 @@
     "why": "close 4.92 is 26% from the day before and 26% from the day after, which agree within 7.0%; replaced by their geometric mean 6.39138"
    }
   },
+  "FEMS": {
+   "2012-03-13": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.480458,
+    "day_return_repaired": -0.006056,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.005112,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 46.59 is 48% from the day before and 33% from the day after, which agree within 1.2%; replaced by their geometric mean 31.2794"
+   }
+  },
   "FER": {
    "2020-03-13": {
     "kind": "bad_tick",
@@ -1098,6 +1138,20 @@
     "reference": "XOP",
     "volume_ratio_after": null,
     "why": "close 8.6 is 79% from the day before and 42% from the day after, which agree within 4.2%; replaced by their geometric mean 4.89898"
+   }
+  },
+  "FLN": {
+   "2011-08-08": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.273004,
+    "day_return_repaired": 0.002279,
+    "expected_from_reference": -0.050122,
+    "residual_sd": 0.010592,
+    "reference": "EEM",
+    "volume_ratio_after": null,
+    "why": "close 19.12 is 27% from the day before and 38% from the day after, which agree within 0.5%; replaced by their geometric mean 26.3599"
    }
   },
   "FMAGX": {
@@ -1154,6 +1208,20 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "close 21.0667 is 50% from the day before and 33% from the day after, which agree within 0.2%; replaced by their geometric mean 14.0305"
+   }
+  },
+  "FTLS": {
+   "2014-12-10": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.292552,
+    "day_return_repaired": -0.006359,
+    "expected_from_reference": -0.007215,
+    "residual_sd": 0.005131,
+    "reference": "DIA",
+    "volume_ratio_after": null,
+    "why": "close 22.32 is 29% from the day before and 40% from the day after, which agree within 1.3%; replaced by their geometric mean 31.3494"
    }
   },
   "FVCB": {
