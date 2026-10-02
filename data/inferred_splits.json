@@ -1440,6 +1440,20 @@
     "why": "close 12.4353 is 28% from the day before and 43% from the day after, which agree within 3.0%; replaced by their geometric mean 17.5369"
    }
   },
+  "IBCA": {
+   "2025-03-26": {
+    "kind": "inferred_split",
+    "ratio": 0.04,
+    "applied": "recorded",
+    "day_return_in_file": 24.002,
+    "day_return_repaired": 8e-05,
+    "expected_from_reference": -0.002704,
+    "residual_sd": 0.002275,
+    "reference": "QQQ",
+    "volume_ratio_after": null,
+    "why": "the close moved +2400.2% on 2025-03-26 with no split in the source data; a 1-for-25 split leaves +0.0%, in line with QQQ (-0.3% expected, residual sd 0.2%)"
+   }
+  },
   "INDB": {
    "1987-10-01": {
     "kind": "phantom_split",
@@ -1544,6 +1558,20 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "3 bars in a row with no volume at 0.160494..0.160494, x2.31 or more away from the closes around them (0.401235 and 0.37037, which agree within 7.7%): quotes that never traded, replaced by the path between those closes; the 2-for-5 split booked on 1990-08-03 with it is dropped"
+   }
+  },
+  "IPOS": {
+   "2014-12-23": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.281612,
+    "day_return_repaired": 0.006528,
+    "expected_from_reference": -0.001495,
+    "residual_sd": 0.009532,
+    "reference": "EFA",
+    "volume_ratio_after": null,
+    "why": "close 14.26 is 28% from the day before and 41% from the day after, which agree within 1.3%; replaced by their geometric mean 19.9796"
    }
   },
   "IRD": {

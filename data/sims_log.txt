@@ -98,13 +98,13 @@ drag VWOSIM: 0.64%/yr taken off the model before 1994-05-05 (hands over to VEIEX
 VGTSX fund history (for the SIMs): 4 quarter(s) matched to published returns (2002Q4 +7.45%->+6.92%, 2003Q1 -6.79%->-7.90%, 2023Q4 +9.74%->+9.98%, 2024Q1 +4.51%->+4.29%)
 validate VXUSSIM vs VGTSX 1996-05..2026-07: monthly correlation 0.989, tracking error 2.54%/yr, CAGR model 7.36% vs fund 5.89%, volatility 16.4% vs 16.8%
 drag VXUSSIM: 1.39%/yr taken off the model before 1996-04-30 (hands over to VGTSX; expense ratio 0.17%; model beat the fund by 1.39%/yr on 1996-05..2026-07 (363 months); basis: overlap gap); with the drag the model returns 5.89%/yr vs the fund's 5.89% on the overlap
-validate VNQSIM model vs VNQ 2004-10..2026-07: monthly correlation 0.998, tracking error 1.46%/yr, CAGR model 8.06% vs fund 7.68%, volatility 21.2% vs 21.5%
+validate VNQSIM model vs VNQ 2004-10..2026-08: monthly correlation 0.998, tracking error 1.46%/yr, CAGR model 7.89% vs fund 7.53%, volatility 21.2% vs 21.4%
 VGSIX fund history (for the SIMs): 5 quarter(s) matched to published returns (1997Q4 +1.09%->+1.33%, 2009Q1 -32.20%->-32.08%, 2014Q4 +15.81%->+14.27%, 2023Q4 +19.54%->+18.11%, 2024Q1 -2.41%->-1.20%)
-validate VNQSIM vs VGSIX 1996-06..2026-07: monthly correlation 0.998, tracking error 1.38%/yr, CAGR model 9.49% vs fund 9.05%, volatility 19.4% vs 19.7%
-drag VNQSIM: 0.40%/yr taken off the model before 1996-05-14 (hands over to VGSIX; expense ratio 0.27%; model beat the fund by 0.40%/yr on 1996-06..2026-07 (362 months); basis: overlap gap); with the drag the model returns 9.05%/yr vs the fund's 9.05% on the overlap
+validate VNQSIM vs VGSIX 1996-06..2026-08: monthly correlation 0.998, tracking error 1.38%/yr, CAGR model 9.37% vs fund 8.94%, volatility 19.4% vs 19.7%
+drag VNQSIM: 0.40%/yr taken off the model before 1996-05-14 (hands over to VGSIX; expense ratio 0.27%; model beat the fund by 0.40%/yr on 1996-06..2026-08 (363 months); basis: overlap gap); with the drag the model returns 8.94%/yr vs the fund's 8.94% on the overlap
 validate GLDSIM vs GLD 2004-12..2026-07: monthly correlation 0.623, tracking error 13.72%/yr, CAGR model 10.83% vs fund 10.22%, volatility 13.5% vs 17.2%
 drag GLDSIM: 0.55%/yr taken off the model before 2004-11-19 (hands over to GLD; expense ratio 0.40%; model beat the fund by 0.55%/yr on 2004-12..2026-07 (260 months); basis: overlap gap); with the drag the model returns 10.22%/yr vs the fund's 10.22% on the overlap
-DBCSIM: tracking error vs DBC from 2006: AQR model 7.53%/yr, PCRIX 8.12%/yr
+DBCSIM: tracking error vs DBC from 2006: AQR model 7.53%/yr, PCRIX 8.17%/yr
 validate DBCSIM vs DBC 2006-03..2025-04: monthly correlation 0.918, tracking error 7.52%/yr, CAGR model 2.44% vs fund 0.39%, volatility 15.3% vs 18.5%
 drag DBCSIM: 2.04%/yr taken off the model before 2006-02-07 (hands over to DBC; expense ratio 0.85%; model beat the fund by 2.04%/yr on 2006-03..2025-04 (230 months); basis: overlap gap); with the drag the model returns 0.39%/yr vs the fund's 0.39% on the overlap
 validate VCLTSIM model vs VCLT 2009-12..2026-08: monthly correlation 0.959, tracking error 3.08%/yr, CAGR model 4.10% vs fund 4.29%, volatility 9.7% vs 10.8%
@@ -112,9 +112,9 @@ VWESX fund history (for the SIMs): 18 quarter(s) matched to published returns (1
 validate VCLTSIM vs VWESX 1980-02..2026-08: monthly correlation 0.920, tracking error 3.66%/yr, CAGR model 8.72% vs fund 7.61%, volatility 9.1% vs 9.2%
 drag VCLTSIM: 1.03%/yr taken off the model before 1980-01-03 (hands over to VWESX; expense ratio 0.21%; model beat the fund by 1.03%/yr on 1980-02..2026-08 (559 months); basis: overlap gap); with the drag the model returns 7.61%/yr vs the fund's 7.61% on the overlap
 VWITX fund history (for the SIMs): 1 quarter(s) matched to published returns (1987Q4 +4.14%->+4.95%)
-validate MUBSIM (VWITX) vs MUB 2007-10..2026-08: monthly correlation 0.929, tracking error 1.98%/yr, CAGR model 3.20% vs fund 3.04%, volatility 4.4% vs 5.2%
+validate MUBSIM (VWITX) vs MUB 2007-10..2026-09: monthly correlation 0.930, tracking error 1.97%/yr, CAGR model 2.98% vs fund 2.84%, volatility 4.4% vs 5.2%
 FNMIX fund history (for the SIMs): 10 quarter(s) matched to published returns (1994Q2 -4.72%->-4.93%, 1994Q3 +19.48%->+19.72%, 1997Q4 -2.61%->-3.45%, 1999Q4 +15.54%->+15.73%, 2000Q1 +9.47%->+9.15%, 2000Q4 +0.98%->+0.82%, 2001Q4 +5.83%->+4.47%, 2004Q4 +6.71%->+6.23%, 2005Q4 +2.12%->+1.71%, 2007Q4 +2.31%->+2.06%)
-validate EMBSIM (FNMIX) vs EMB 2008-01..2026-08: monthly correlation 0.905, tracking error 4.84%/yr, CAGR model 5.54% vs fund 4.58%, volatility 10.2% vs 11.4%
+validate EMBSIM (FNMIX) vs EMB 2008-01..2026-09: monthly correlation 0.906, tracking error 4.83%/yr, CAGR model 5.30% vs fund 4.35%, volatility 10.3% vs 11.4%
 VFINX fund history (for the SIMs): 9 quarter(s) matched to published returns (1980Q4 +6.45%->+9.62%, 1981Q4 +3.07%->+6.82%, 1982Q4 +16.16%->+17.83%, 1983Q4 -3.29%->+0.18%, 1984Q4 -0.63%->+1.83%, 1985Q4 +9.18%->+16.86%, 1986Q4 -2.37%->+5.47%, 1992Q4 +5.74%->+5.00%, 1993Q1 +3.59%->+4.33%)
 VOOSIM model choice vs VFINX: top 30% of NYSE market caps: tracking error 1.03%/yr (558 months); top 20% of NYSE market caps: tracking error 1.09%/yr (558 months); top 10% of NYSE market caps: tracking error 1.76%/yr (558 months) -> top 30% of NYSE market caps
 validate VOOSIM vs VFINX 1980-02..2026-07: monthly correlation 0.998, tracking error 1.03%/yr, CAGR model 12.25% vs fund 11.98%, volatility 15.2% vs 15.1%
@@ -137,7 +137,7 @@ VPLSIM Japan weight (World Bank year-end market caps): 1980: 79%, 1985: 88%, 199
 validate VPLSIM vs VPACX 1990-07..2026-07: monthly correlation 0.969, tracking error 4.54%/yr, CAGR model 4.33% vs fund 4.21%, volatility 18.2% vs 18.3%
 drag VPLSIM: 0.23%/yr taken off the model before 1990-06-19 (hands over to VPACX; expense ratio 0.23%; model beat the fund by 0.12%/yr on 1990-07..2026-07 (433 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 4.09%/yr vs the fund's 4.21% on the overlap
 validate VPLSIM vs VPL 2005-04..2026-07: monthly correlation 0.941, tracking error 5.55%/yr, CAGR model 6.77% vs fund 6.71%, volatility 15.6% vs 16.4%
-validate VNQISIM (RWX) vs VNQI 2010-12..2026-08: monthly correlation 0.962, tracking error 4.60%/yr, CAGR model 2.98% vs fund 3.65%, volatility 17.0% vs 16.3%
+validate VNQISIM (RWX) vs VNQI 2010-12..2026-09: monthly correlation 0.963, tracking error 4.60%/yr, CAGR model 2.56% vs fund 3.29%, volatility 17.0% vs 16.4%
 French country index Japan.Dat: 612 months 1975-01..2025-12
 validate EWJSIM vs EWJ 1996-04..2026-07: monthly correlation 0.940, tracking error 5.98%/yr, CAGR model 3.83% vs fund 2.79%, volatility 16.9% vs 17.6%
 drag EWJSIM: 1.00%/yr taken off the model before 1996-03-19 (hands over to EWJ; expense ratio 0.50%; model beat the fund by 1.00%/yr on 1996-04..2026-07 (364 months); basis: overlap gap); with the drag the model returns 2.79%/yr vs the fund's 2.79% on the overlap
