@@ -66,28 +66,59 @@ def regular_session(bars: pd.DataFrame) -> pd.DataFrame:
     return bars.between_time(RTH_OPEN, RTH_LAST_BAR)
 
 
+def _calendar_day(bars: pd.DataFrame, day: date) -> pd.DataFrame:
+    """All of one calendar date's bars via the sorted index (O(log n)).
+
+    ``bars.index.date == day`` rebuilds a Python-date array over every row on
+    each call, which is O(n) per day and O(n^2) across a multi-year scan. The
+    index is sorted in :func:`load_minute_bars`, so partial-string label
+    indexing slices the same rows without touching the rest of the frame.
+    """
+    try:
+        same_day = bars.loc[day.isoformat()]
+    except KeyError:
+        return bars.iloc[0:0]
+    # A full-timestamp label would yield a Series; a date string never does,
+    # but guard anyway so callers always get a frame.
+    if isinstance(same_day, pd.Series):
+        same_day = same_day.to_frame().T
+    return same_day
+
+
 def day_bars(bars: pd.DataFrame, day: date) -> pd.DataFrame:
     """Regular-session bars for one date, oldest first."""
-    mask = bars.index.date == day
-    return regular_session(bars[mask])
+    return regular_session(_calendar_day(bars, day))
 
 
 def premarket_bars(bars: pd.DataFrame, day: date) -> pd.DataFrame:
-    mask = bars.index.date == day
-    return bars[mask].between_time(PREMARKET_OPEN, time(9, 29))
+    return _calendar_day(bars, day).between_time(PREMARKET_OPEN, time(9, 29))
 
 
 def previous_session(bars: pd.DataFrame, day: date) -> pd.DataFrame:
-    """Regular-session bars of the last trading date before ``day`` (may be empty)."""
-    earlier = [d for d in sessions(bars) if d < day]
-    if not earlier:
-        return bars.iloc[0:0]
-    return day_bars(bars, earlier[-1])
+    """Regular-session bars of the last trading date before ``day`` (may be empty).
+
+    Walks back through the sorted index with ``searchsorted`` (O(log n)) rather
+    than recomputing the full session list on every call, which is what made a
+    multi-year scan quadratic once a setup was found on most days.
+    """
+    idx = bars.index
+    pos = idx.searchsorted(pd.Timestamp(day, tz=ET))  # first bar on/after `day`
+    while pos > 0:
+        prev_date = idx[pos - 1].date()
+        rth = day_bars(bars, prev_date)
+        if not rth.empty:  # skip calendar dates that only had premarket bars
+            return rth
+        pos = idx.searchsorted(pd.Timestamp(prev_date, tz=ET))
+    return bars.iloc[0:0]
 
 
 def iter_days(bars: pd.DataFrame) -> Iterator[tuple[date, pd.DataFrame]]:
-    for day in sessions(bars):
-        yield day, day_bars(bars, day)
+    # Group the regular session by calendar date once (computing the date array
+    # a single time) rather than re-slicing the whole frame per day, which keeps
+    # a multi-year scan linear instead of quadratic.
+    rth = regular_session(bars)
+    for day, group in rth.groupby(rth.index.date, sort=True):
+        yield day, group
 
 
 def save_minute_bars(bars: pd.DataFrame, path: Path) -> None:
