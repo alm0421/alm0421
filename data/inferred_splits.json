@@ -732,6 +732,20 @@
     "why": "close 7.60043 is 100% from the day before and 52% from the day after, which agree within 3.7%; replaced by their geometric mean 3.73174"
    }
   },
+  "CTVA": {
+   "2026-10-01": {
+    "kind": "inferred_split",
+    "ratio": 6.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.83812,
+    "day_return_repaired": -0.028719,
+    "expected_from_reference": -0.002285,
+    "residual_sd": 0.016312,
+    "reference": "XLB",
+    "volume_ratio_after": 32.2493,
+    "why": "the close moved -83.8% on 2026-10-01 with no split in the source data; a 6-for-1 split leaves -2.9%, in line with XLB (-0.2% expected, residual sd 1.6%); volume x32.2 after"
+   }
+  },
   "CUVL": {
    "2014-09-26": {
     "kind": "bad_tick",
@@ -2076,6 +2090,20 @@
     "why": "the close moved -49.7% on 1986-07-21 with no split in the source data; a 2-for-1 split leaves +0.7% (no reference moves with it; its daily sd is 1.6%); volume x1.47 after"
    }
   },
+  "OSCX": {
+   "2026-09-09": {
+    "kind": "unapplied_split",
+    "ratio": 3.0,
+    "applied": "applied",
+    "day_return_in_file": -0.694137,
+    "day_return_repaired": -0.082412,
+    "expected_from_reference": -0.016937,
+    "residual_sd": 0.077884,
+    "reference": "XLF",
+    "volume_ratio_after": 2.8144,
+    "why": "a 3-for-1 split is booked on 2026-09-09 but the prices were never adjusted for it: earlier prices back-adjusted"
+   }
+  },
   "OTPIX": {
    "2024-10-14": {
     "kind": "inferred_split",
@@ -2130,6 +2158,20 @@
     "reference": null,
     "volume_ratio_after": null,
     "why": "the close moved +200.0% on 2021-07-06 with no split in the source data; a 1-for-3 split leaves -0.0% (no reference moves with it; its daily sd is 3.7%)"
+   }
+  },
+  "PFFR": {
+   "2020-03-18": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.296952,
+    "day_return_repaired": -0.041954,
+    "expected_from_reference": -0.084422,
+    "residual_sd": 0.012897,
+    "reference": "LQD",
+    "volume_ratio_after": null,
+    "why": "close 12.11 is 30% from the day before and 31% from the day after, which agree within 9.0%; replaced by their geometric mean 16.5023"
    }
   },
   "PGOVX": {
@@ -2240,6 +2282,20 @@
     "reference": "DIA",
     "volume_ratio_after": null,
     "why": "the close moved +202.9% on 2023-03-27 with no split in the source data; a 1-for-3 split leaves +1.0%, in line with DIA (+0.6% expected, residual sd 1.0%)"
+   }
+  },
+  "QQQH": {
+   "2024-06-03": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": -0.522087,
+    "day_return_repaired": 0.00336,
+    "expected_from_reference": 0.00298,
+    "residual_sd": 0.003155,
+    "reference": "QQQ",
+    "volume_ratio_after": null,
+    "why": "close 22.72 is 52% from the day before and 111% from the day after, which agree within 0.7%; replaced by their geometric mean 47.6997"
    }
   },
   "QUBT": {
