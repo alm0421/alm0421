@@ -732,20 +732,6 @@
     "why": "close 7.60043 is 100% from the day before and 52% from the day after, which agree within 3.7%; replaced by their geometric mean 3.73174"
    }
   },
-  "CTVA": {
-   "2026-10-01": {
-    "kind": "inferred_split",
-    "ratio": 6.0,
-    "applied": "recorded",
-    "day_return_in_file": -0.83812,
-    "day_return_repaired": -0.028719,
-    "expected_from_reference": -0.002285,
-    "residual_sd": 0.016312,
-    "reference": "XLB",
-    "volume_ratio_after": 32.2493,
-    "why": "the close moved -83.8% on 2026-10-01 with no split in the source data; a 6-for-1 split leaves -2.9%, in line with XLB (-0.2% expected, residual sd 1.6%); volume x32.2 after"
-   }
-  },
   "CUVL": {
    "2014-09-26": {
     "kind": "bad_tick",
@@ -2554,6 +2540,20 @@
     "reference": "XBI",
     "volume_ratio_after": 5.6811,
     "why": "the close moved -87.2% on 2025-12-11 with no split in the source data; a 8-for-1 split leaves +2.4%, in line with XBI (+0.9% expected, residual sd 3.4%); volume x5.68 after"
+   }
+  },
+  "SBTU": {
+   "2026-08-24": {
+    "kind": "inferred_split",
+    "ratio": 0.083333,
+    "applied": "recorded",
+    "day_return_in_file": 9.866578,
+    "day_return_repaired": -0.094452,
+    "expected_from_reference": -0.063958,
+    "residual_sd": 0.054804,
+    "reference": "COIN",
+    "volume_ratio_after": 0.1195,
+    "why": "the close moved +986.7% on 2026-08-24 with no split in the source data; a 1-for-12 split leaves -9.4%, in line with COIN (-6.4% expected, residual sd 5.5%); volume x0.119 after"
    }
   },
   "SCOP": {
