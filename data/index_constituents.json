@@ -1,5 +1,5 @@
 {
-"updated": "2026-10-08",
+"updated": "2026-10-09",
 "source": "Wikipedia 'List of S&P 500 companies', 'List of S&P 400 companies', 'List of S&P 600 companies' (table id=constituents, column Symbol; '.' written as '-' as Yahoo does); refreshed by the data job",
 "sp500": {
 "MMM": "3M",
@@ -130,7 +130,6 @@
 "CPRT": "Copart",
 "GLW": "Corning Inc.",
 "CPAY": "Corpay",
-"CTVA": "Corteva",
 "CSGP": "CoStar Group",
 "COST": "Costco",
 "CRH": "CRH plc",
@@ -360,7 +359,6 @@
 "PKG": "Packaging Corporation of America",
 "PLTR": "Palantir Technologies",
 "PANW": "Palo Alto Networks",
-"PSKY": "Paramount Skydance Corporation",
 "PH": "Parker Hannifin",
 "PAYX": "Paychex",
 "PYPL": "PayPal",
@@ -414,6 +412,7 @@
 "NOW": "ServiceNow",
 "SHW": "Sherwin-Williams",
 "SPG": "Simon Property Group",
+"SKYD": "Skydance Corporation",
 "SWKS": "Skyworks Solutions",
 "SJM": "J.M. Smucker Company (The)",
 "SW": "Smurfit Westrock",
@@ -453,6 +452,7 @@
 "TRV": "Travelers Companies (The)",
 "TRMB": "Trimble Inc.",
 "TFC": "Truist Financial",
+"TWLO": "Twilio",
 "TYL": "Tyler Technologies",
 "TSN": "Tyson Foods",
 "USB": "U.S. Bancorp",
@@ -480,12 +480,12 @@
 "VST": "Vistra Corp.",
 "VMRK": "Vivmark Residential",
 "VMC": "Vulcan Materials Company",
+"VYLR": "Vylor",
 "WRB": "W. R. Berkley Corporation",
 "GWW": "W. W. Grainger",
 "WAB": "Wabtec",
 "WMT": "Walmart",
 "DIS": "Walt Disney Company (The)",
-"WBD": "Warner Bros. Discovery",
 "WM": "Waste Management",
 "WAT": "Waters Corporation",
 "WEC": "WEC Energy Group",
@@ -766,7 +766,6 @@
 "OKTA": "Okta, Inc.",
 "OLED": "Universal Display",
 "OLLI": "Ollie's Bargain Outlet",
-"OLN": "Olin Corporation",
 "ONB": "Old National Bank",
 "ONTO": "Onto Innovation",
 "OPCH": "Option Care Health",
@@ -864,7 +863,6 @@
 "TTC": "Toro",
 "TTEK": "Tetra Tech",
 "TTMI": "TTM Technologies",
-"TWLO": "Twilio",
 "TXNM": "TXNM Energy",
 "TXRH": "Texas Roadhouse",
 "UBSI": "United Bankshares",
@@ -1819,8 +1817,8 @@
 }
 },
 "fetched": {
-"sp500": "2026-10-08",
-"sp400": "2026-10-08",
-"sp600": "2026-10-08"
+"sp500": "2026-10-09",
+"sp400": "2026-10-09",
+"sp600": "2026-10-09"
 }
 }

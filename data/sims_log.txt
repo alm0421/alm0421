@@ -5,7 +5,7 @@ Traceback (most recent call last):
            ^^^^^^^^^^^^^^^^^
   File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2643, in lbma_gold_daily
     r.raise_for_status()
-  File "/opt/hostedtoolcache/Python/3.11.16/x64/lib/python3.11/site-packages/requests/models.py", line 1167, in raise_for_status
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/requests/models.py", line 1167, in raise_for_status
     raise HTTPError(http_error_msg, response=self)
 requests.exceptions.HTTPError: 403 Client Error: Forbidden for url: https://prices.lbma.org.uk/json/gold_pm.json
 
@@ -39,7 +39,7 @@ VBRSIM model choice vs VISVX: small/high B/M: tracking error 6.42%/yr (338 month
 validate VBRSIM vs VISVX 1998-06..2026-07: monthly correlation 0.974, tracking error 4.94%/yr, CAGR model 10.47% vs fund 9.21%, volatility 21.1% vs 19.4%
 drag VBRSIM: 1.15%/yr taken off the model before 1998-05-22 (hands over to VISVX; expense ratio 0.19%; model beat the fund by 1.15%/yr on 1998-06..2026-07 (338 months); basis: overlap gap); with the drag the model returns 9.21%/yr vs the fund's 9.21% on the overlap
 validate VBRSIM vs VBR 2004-03..2026-07: monthly correlation 0.976, tracking error 4.87%/yr, CAGR model 10.00% vs fund 9.55%, volatility 21.2% vs 19.1%
-VISGX fund history (for the SIMs): 7 quarter(s) matched to published returns (2000Q4 -11.17%->-6.39%, 2001Q2 +14.67%->+14.99%, 2001Q3 -17.28%->-17.50%, 2002Q4 +5.39%->+5.09%, 2003Q1 -3.06%->-3.60%, 2023Q4 +14.62%->+13.10%, 2024Q1 +6.52%->+7.96%)
+VISGX fund history (for the SIMs): 7 quarter(s) matched to published returns (2000Q4 -11.17%->-6.39%, 2001Q2 +14.68%->+14.99%, 2001Q3 -17.28%->-17.50%, 2002Q4 +5.39%->+5.09%, 2003Q1 -3.06%->-3.60%, 2023Q4 +14.62%->+13.10%, 2024Q1 +6.52%->+7.96%)
 VBKSIM model choice vs VISGX: small/low B/M: tracking error 8.16%/yr (338 months); 1/2 small/low + 1/2 small/neutral B/M: tracking error 6.10%/yr (338 months); 25 portfolios: size quintiles 2-3 x 2 lowest B/M quintiles: tracking error 5.40%/yr (338 months) -> 25 portfolios: size quintiles 2-3 x 2 lowest B/M quintiles
 validate VBKSIM vs VISGX 1998-06..2026-07: monthly correlation 0.969, tracking error 5.40%/yr, CAGR model 9.96% vs fund 9.14%, volatility 21.8% vs 20.7%
 drag VBKSIM: 0.75%/yr taken off the model before 1998-05-22 (hands over to VISGX; expense ratio 0.19%; model beat the fund by 0.75%/yr on 1998-06..2026-07 (338 months); basis: overlap gap); with the drag the model returns 9.14%/yr vs the fund's 9.14% on the overlap
@@ -125,6 +125,7 @@ validate IWCSIM vs IWC 2005-09..2026-07: monthly correlation 0.989, tracking err
 drag IWCSIM: 0.60%/yr taken off the model before 2005-08-17 (hands over to IWC; expense ratio 0.60%; model beat the fund by 0.34%/yr on 2005-09..2026-07 (251 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 7.36%/yr vs the fund's 7.64% on the overlap
 DFSCX fund history (for the SIMs): 4 quarter(s) matched to published returns (1986Q4 +9.81%->+0.42%, 1987Q4 -28.39%->-28.51%, 2001Q2 +17.30%->+21.83%, 2001Q3 -14.31%->-17.50%)
 validate IWCSIM vs DFSCX 1986-02..2026-07: monthly correlation 0.969, tracking error 5.38%/yr, CAGR model 9.86% vs fund 11.03%, volatility 21.5% vs 20.3%
+World Bank market caps download failed (Expecting value: line 1 column 1 (char 0)); using world_market_caps.csv
 VTSIM model choice vs VT: World Bank year-end market caps, emerging markets x 0.5: tracking error 1.93%/yr (217 months); World Bank year-end market caps, emerging markets x 0.75: tracking error 2.06%/yr (217 months); World Bank year-end market caps, emerging markets x 1: tracking error 2.26%/yr (217 months) -> World Bank year-end market caps, emerging markets x 0.5
 VTSIM US weight among developed markets (World Bank year-end market caps): 1976: 63%, 1980: 52%, 1985: 50%, 1990: 30%, 1995: 37%, 2000: 46%, 2005: 48%, 2008: 40%
 validate VTSIM vs VT 2008-07..2026-07: monthly correlation 0.993, tracking error 1.93%/yr, CAGR model 8.78% vs fund 8.81%, volatility 16.3% vs 16.6%

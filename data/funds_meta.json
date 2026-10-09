@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-10-08T02:26:26+00:00",
+ "updated_utc": "2026-10-09T02:40:34+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
