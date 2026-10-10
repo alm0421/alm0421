@@ -1,5 +1,5 @@
 {
-"updated": "2026-10-09",
+"updated": "2026-10-10",
 "source": "Wikipedia 'List of S&P 500 companies', 'List of S&P 400 companies', 'List of S&P 600 companies' (table id=constituents, column Symbol; '.' written as '-' as Yahoo does); refreshed by the data job",
 "sp500": {
 "MMM": "3M",
@@ -602,6 +602,7 @@
 "CRUS": "Cirrus Logic",
 "CSL": "Carlisle Companies",
 "CTRE": "CareTrust REIT",
+"CTVA": "Corteva",
 "CUBE": "CubeSmart",
 "CUZ": "Cousins Properties",
 "CVLT": "CommVault Systems",
@@ -656,6 +657,7 @@
 "FNB": "FNB Corporation",
 "FND": "Floor & Decor",
 "FNF": "Fidelity National Financial",
+"FORM": "FormFactor, Inc.",
 "FOUR": "Shift4",
 "FR": "First Industrial Realty Trust",
 "FTI": "TechnipFMC",
@@ -1817,8 +1819,8 @@
 }
 },
 "fetched": {
-"sp500": "2026-10-09",
-"sp400": "2026-10-09",
-"sp600": "2026-10-09"
+"sp500": "2026-10-10",
+"sp400": "2026-10-10",
+"sp600": "2026-10-10"
 }
 }
