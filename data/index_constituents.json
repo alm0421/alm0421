@@ -1,5 +1,5 @@
 {
-"updated": "2026-10-14",
+"updated": "2026-10-15",
 "source": "Wikipedia 'List of S&P 500 companies', 'List of S&P 400 companies', 'List of S&P 600 companies' (table id=constituents, column Symbol; '.' written as '-' as Yahoo does); refreshed by the data job",
 "sp500": {
 "MMM": "3M",
@@ -308,7 +308,7 @@
 "MA": "Mastercard",
 "MKC": "McCormick & Company",
 "MCD": "McDonald's",
-"MCK": "McKesson Corporation",
+"MCK": "McKesson",
 "MDT": "Medtronic",
 "MRK": "Merck & Co.",
 "META": "Meta Platforms",
@@ -1819,8 +1819,8 @@
 }
 },
 "fetched": {
-"sp500": "2026-10-14",
-"sp400": "2026-10-14",
-"sp600": "2026-10-14"
+"sp500": "2026-10-15",
+"sp400": "2026-10-15",
+"sp600": "2026-10-15"
 }
 }

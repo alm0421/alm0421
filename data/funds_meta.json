@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-10-14T01:42:37+00:00",
+ "updated_utc": "2026-10-15T00:55:00+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
@@ -269198,6 +269198,19 @@
    },
    "description": "The fund normally invests at least 80% of its total assets in securities that comprise the fund's benchmark index. To be initially eligible for the index, companies must generate at least 50% of their revenues from retail. Retail includes companies engaged primarily in retail distribution; wholesalers; online, direct mail and TV retailers; multi-line retailers; specialty retailers; and food and other staples retailers. The fund is non-diversified.",
    "fetched": "2026-10-07"
+  },
+  "RTHY": {
+   "name": "F/m Long-Term Treasury Inflation-Protected Security (TIPS) ETF",
+   "quote_type": "ETF",
+   "category": "Inflation-Protected Bond",
+   "family": "F/m investments, LLC",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2025-09-29",
+   "expense_ratio": 0.0025,
+   "turnover": 0.0,
+   "net_assets": 0.0,
+   "description": "Under normal market conditions, F/m Investments LLC (the \u201cAdviser\u201d) seeks to achieve the fund\u2019s investment objective by investing at least 80% of the fund\u2019s net assets in TIPS with maturities of greater than or equal to twenty (20) years. The Adviser uses a representative sampling indexing strategy in seeking to achieve the fund\u2019s investment objective. The fund is non-diversified.",
+   "fetched": "2026-10-15"
   },
   "RTOO": {
    "name": "VistaShares Robotics Supercycle ETF",

@@ -2584,6 +2584,20 @@
     "why": "close 233.52 is 28% from the day before and 41% from the day after, which agree within 1.4%; replaced by their geometric mean 327.032"
    }
   },
+  "SEQUX": {
+   "2026-10-09": {
+    "kind": "inferred_split",
+    "ratio": 4.0,
+    "applied": "recorded",
+    "day_return_in_file": -0.747806,
+    "day_return_repaired": 0.008774,
+    "expected_from_reference": 0.006577,
+    "residual_sd": 0.006263,
+    "reference": "DIA",
+    "volume_ratio_after": null,
+    "why": "the close moved -74.8% on 2026-10-09 with no split in the source data; a 4-for-1 split leaves +0.9%, in line with DIA (+0.7% expected, residual sd 0.6%)"
+   }
+  },
   "SFNC": {
    "1985-05-02": {
     "kind": "inferred_split",
