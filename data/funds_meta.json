@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-10-15T00:55:00+00:00",
+ "updated_utc": "2026-10-16T00:54:46+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
@@ -20698,6 +20698,19 @@
    },
    "description": "Under normal market conditions, the fund will invest at least 80% of its assets in equity securities and equity ETFs. The managers will strategically allocate to individual securities and the underlying funds across geographies and investment styles to achieve the desired allocation. The fund is an actively managed exchange-traded fund (ETF) that does not seek to replicate the performance of a specified index.",
    "fetched": "2026-09-29"
+  },
+  "AVUC": {
+   "name": "Avantis U.S. Core Equity ET",
+   "quote_type": "ETF",
+   "category": "Large Blend",
+   "family": "Avantis Investors",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-13",
+   "expense_ratio": 0.0015,
+   "turnover": 0.0,
+   "net_assets": 0.0,
+   "description": "Under normal market conditions, the fund will invest at least 80% of its assets in equity securities of U.S. companies. It invests primarily in a diverse group of U.S. companies across market sectors and industry groups. The fund may invest in companies of all market capitalizations. The fund seeks securities of companies that the Advisor expects to have higher returns by placing an enhanced emphasis on securities of companies with smaller market capitalizations and securities of companies with higher profitability and value characteristics.",
+   "fetched": "2026-10-16"
   },
   "AVUQ": {
    "name": "Avantis U.S. Quality ETF",
@@ -350854,6 +350867,11 @@
    },
    "description": "The fund invests primarily in a portfolio of equity and debt securities. It normally invests at least 25% of its total assets in equity securities, such as common stocks and a variety of securities convertible into common stock such as rights, warrants and convertible preferred stock. The fund will invest at least 25% of its total assets in investment-grade debt securities. The fund may invest in the equity securities of issuers of all sizes.",
    "fetched": "2026-09-27"
+  },
+  "WBEM": {
+   "name": "William Blair ETF Trust - William Blair Emerging Markets Equity ETF",
+   "quote_type": "ETF",
+   "fetched": "2026-10-16"
   },
   "WBIF": {
    "name": "WBI BullBear Value 3000 ETF",

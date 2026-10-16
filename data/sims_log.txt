@@ -39,7 +39,7 @@ VBRSIM model choice vs VISVX: small/high B/M: tracking error 6.42%/yr (338 month
 validate VBRSIM vs VISVX 1998-06..2026-07: monthly correlation 0.974, tracking error 4.94%/yr, CAGR model 10.47% vs fund 9.21%, volatility 21.1% vs 19.4%
 drag VBRSIM: 1.15%/yr taken off the model before 1998-05-22 (hands over to VISVX; expense ratio 0.19%; model beat the fund by 1.15%/yr on 1998-06..2026-07 (338 months); basis: overlap gap); with the drag the model returns 9.21%/yr vs the fund's 9.21% on the overlap
 validate VBRSIM vs VBR 2004-03..2026-07: monthly correlation 0.976, tracking error 4.87%/yr, CAGR model 10.00% vs fund 9.55%, volatility 21.2% vs 19.1%
-VISGX fund history (for the SIMs): 7 quarter(s) matched to published returns (2000Q4 -11.17%->-6.39%, 2001Q2 +14.68%->+14.99%, 2001Q3 -17.28%->-17.50%, 2002Q4 +5.39%->+5.09%, 2003Q1 -3.06%->-3.60%, 2023Q4 +14.62%->+13.10%, 2024Q1 +6.52%->+7.96%)
+VISGX fund history (for the SIMs): 7 quarter(s) matched to published returns (2000Q4 -11.17%->-6.39%, 2001Q2 +14.67%->+14.99%, 2001Q3 -17.28%->-17.50%, 2002Q4 +5.39%->+5.09%, 2003Q1 -3.06%->-3.60%, 2023Q4 +14.62%->+13.10%, 2024Q1 +6.52%->+7.96%)
 VBKSIM model choice vs VISGX: small/low B/M: tracking error 8.16%/yr (338 months); 1/2 small/low + 1/2 small/neutral B/M: tracking error 6.10%/yr (338 months); 25 portfolios: size quintiles 2-3 x 2 lowest B/M quintiles: tracking error 5.40%/yr (338 months) -> 25 portfolios: size quintiles 2-3 x 2 lowest B/M quintiles
 validate VBKSIM vs VISGX 1998-06..2026-07: monthly correlation 0.969, tracking error 5.40%/yr, CAGR model 9.96% vs fund 9.14%, volatility 21.8% vs 20.7%
 drag VBKSIM: 0.75%/yr taken off the model before 1998-05-22 (hands over to VISGX; expense ratio 0.19%; model beat the fund by 0.75%/yr on 1998-06..2026-07 (338 months); basis: overlap gap); with the drag the model returns 9.14%/yr vs the fund's 9.14% on the overlap
@@ -83,14 +83,14 @@ HYGSIM model choice vs VWEHX: 100% Baa 7-year par bond + 0% US stock market: tra
 validate HYGSIM vs VWEHX 1980-02..2026-07: monthly correlation 0.753, tracking error 4.84%/yr, CAGR model 9.72% vs fund 7.80%, volatility 5.8% vs 7.3%
 drag HYGSIM: 1.78%/yr taken off the model before 1980-01-03 (hands over to VWEHX; expense ratio 0.23%; model beat the fund by 1.78%/yr on 1980-02..2026-07 (558 months); basis: overlap gap); with the drag the model returns 7.80%/yr vs the fund's 7.80% on the overlap
 validate HYGSIM model vs HYG 2007-05..2026-07: monthly correlation 0.751, tracking error 6.86%/yr, CAGR model 6.66% vs fund 4.85%, volatility 6.4% vs 10.2%
-BWXSIM model: 667 months 1971-02..2026-08, countries ['AU', 'BE', 'CA', 'CH', 'DE', 'ES', 'FR', 'GB', 'IT', 'JP', 'NL', 'SE'] (unhedged, month-end exchange rates; monthly averages where FRED has no daily series)
-validate BWXSIM model vs IGOV 2009-03..2026-07: monthly correlation 0.924, tracking error 3.37%/yr, CAGR model 0.81% vs fund 0.31%, volatility 8.4% vs 8.8%
-validate BWXSIM vs BWX 2007-11..2026-07: monthly correlation 0.933, tracking error 3.27%/yr, CAGR model 0.77% vs fund 0.37%, volatility 8.9% vs 9.0%
-drag BWXSIM: 0.40%/yr taken off the model before 2007-10-12 (hands over to BWX; expense ratio 0.35%; model beat the fund by 0.40%/yr on 2007-11..2026-07 (225 months); basis: overlap gap); with the drag the model returns 0.37%/yr vs the fund's 0.37% on the overlap
-BNDXSIM model: 799 months 1960-02..2026-08, countries ['AU', 'BE', 'CA', 'CH', 'DE', 'ES', 'FR', 'GB', 'IT', 'JP', 'NL', 'SE']
-validate BNDXSIM model vs BNDX 2013-07..2026-07: monthly correlation 0.704, tracking error 3.03%/yr, CAGR model 1.77% vs fund 2.45%, volatility 3.8% vs 4.1%
-validate BNDXSIM vs PFORX 1993-01..2026-07: monthly correlation 0.597, tracking error 3.49%/yr, CAGR model 4.59% vs fund 5.95%, volatility 3.9% vs 3.9%
-drag BNDXSIM: 0.50%/yr taken off the model before 1992-12-03 (hands over to PFORX; expense ratio 0.50%; model beat the fund by 0.00%/yr on 1993-01..2026-07 (403 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 4.07%/yr vs the fund's 5.95% on the overlap
+BWXSIM model: 668 months 1971-02..2026-09, countries ['AU', 'BE', 'CA', 'CH', 'DE', 'ES', 'FR', 'GB', 'IT', 'JP', 'NL', 'SE'] (unhedged, month-end exchange rates; monthly averages where FRED has no daily series)
+validate BWXSIM model vs IGOV 2009-03..2026-08: monthly correlation 0.924, tracking error 3.36%/yr, CAGR model 0.80% vs fund 0.33%, volatility 8.4% vs 8.7%
+validate BWXSIM vs BWX 2007-11..2026-08: monthly correlation 0.933, tracking error 3.27%/yr, CAGR model 0.76% vs fund 0.40%, volatility 8.9% vs 9.0%
+drag BWXSIM: 0.36%/yr taken off the model before 2007-10-12 (hands over to BWX; expense ratio 0.35%; model beat the fund by 0.36%/yr on 2007-11..2026-08 (226 months); basis: overlap gap); with the drag the model returns 0.40%/yr vs the fund's 0.40% on the overlap
+BNDXSIM model: 800 months 1960-02..2026-09, countries ['AU', 'BE', 'CA', 'CH', 'DE', 'ES', 'FR', 'GB', 'IT', 'JP', 'NL', 'SE']
+validate BNDXSIM model vs BNDX 2013-07..2026-08: monthly correlation 0.704, tracking error 3.03%/yr, CAGR model 1.72% vs fund 2.41%, volatility 3.8% vs 4.0%
+validate BNDXSIM vs PFORX 1993-01..2026-08: monthly correlation 0.598, tracking error 3.49%/yr, CAGR model 4.57% vs fund 5.94%, volatility 3.9% vs 3.9%
+drag BNDXSIM: 0.50%/yr taken off the model before 1992-12-03 (hands over to PFORX; expense ratio 0.50%; model beat the fund by 0.00%/yr on 1993-01..2026-08 (404 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 4.05%/yr vs the fund's 5.94% on the overlap
 validate EEMSIM vs EEM 2003-05..2026-07: monthly correlation 0.968, tracking error 5.22%/yr, CAGR model 11.26% vs fund 9.66%, volatility 19.7% vs 20.8%
 drag EEMSIM: 1.46%/yr taken off the model before 2003-04-15 (hands over to EEM; expense ratio 0.70%; model beat the fund by 1.46%/yr on 2003-05..2026-07 (279 months); basis: overlap gap); with the drag the model returns 9.66%/yr vs the fund's 9.66% on the overlap
 validate VWOSIM vs VEIEX 1994-06..2026-07: monthly correlation 0.971, tracking error 5.12%/yr, CAGR model 7.00% vs fund 6.32%, volatility 20.5% vs 21.4%

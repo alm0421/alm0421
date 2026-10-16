@@ -2,4 +2,4 @@ LEG: kept-old: the new download does not connect to the saved history (download 
 HLX: kept-old: the new download does not connect to the saved history (download 2026-09-01..2026-09-01, 1 rows)
 QRVO: kept-old: the new download does not connect to the saved history (download 2026-10-02..2026-10-02, 1 rows)
 BLFS: kept-old: the new download does not connect to the saved history (download 2026-10-07..2026-10-07, 1 rows)
-HXA: kept-old: the new download does not connect to the saved history (download 2026-09-30..2026-10-13, 10 rows)
+HXA: kept-old: the new download does not connect to the saved history (download 2026-09-30..2026-10-14, 11 rows)
