@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-10-16T00:54:46+00:00",
+ "updated_utc": "2026-10-17T00:53:48+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
@@ -110,6 +110,11 @@
    },
    "description": "The fund is an actively managed exchange-traded fund (\u201cETF\u201d) that seeks to provide disciplined asset allocation to equity securities, fixed income ETFs, and downside protection ETFs. The Sub-Adviser generally will allocate between 60% and 100% of the fund\u2019s net assets to equity securities, which includes common stocks, preferred stocks, and other ETFs that provide such equity exposure (the \u201cEquity Sleeve\u201d). The fund is non-diversified.",
    "fetched": "2026-09-29"
+  },
+  "AAAB": {
+   "name": "Corgi FTSE Aaa\u2013A Intermediate Corporate Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
   },
   "AAAC": {
    "name": "Columbia AAA CLO ETF",
@@ -5437,6 +5442,11 @@
    },
    "description": "The fund is an actively managed exchange-traded fund (\u201cETF\u201d) that seeks to achieve its investment objective by investing primarily in other U.S. fixed income ETFs. Under normal circumstances, the fund will invest at least 80% of its net assets (plus the amount of borrowing for investment purposes) directly or indirectly in U.S. fixed income securities. The fund is non-diversified.",
    "fetched": "2026-09-29"
+  },
+  "AGGB": {
+   "name": "Corgi FTSE U.S. Aggregate Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
   },
   "AGGH": {
    "name": "Simplify Aggregate Bond ETF",
@@ -11294,6 +11304,11 @@
    },
    "description": "The fund invests in financial instruments that ProShare Advisors believes, in combination, should track the performance of the index. The index is designed to measure the performance of companies associated with one or more of the following themes: Future of Work, Digital Consumer, Genomic & Telehealth, and Food Revolution. Under normal circumstances, it will invest at least 80% of its total assets in components of the index or in instruments with similar economic characteristics.",
    "fetched": "2026-09-29"
+  },
+  "ANG": {
+   "name": "Corgi FTSE Fallen Angels Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
   },
   "ANGL": {
    "name": "VanEck Fallen Angel High Yield Bond ETF",
@@ -23628,6 +23643,11 @@
    },
    "description": "The index measures the weighted return performance of a multi-asset strategy that consists of a 75% weight in the S&P 500\u00ae Index and a 25% weight in the S&P CME Bitcoin Futures Index. The fund will invest approximately 75% of its assets a portfolio of common stocks that are included in the S&P 500\u00ae Index and will invest in Bitcoin futures contracts so that the total value of the Bitcoin to which the fund has economic exposure is approximately 25% of the assets of the fund.",
    "fetched": "2026-09-29"
+  },
+  "BBBB": {
+   "name": "Corgi FTSE BBB Rated Corporate Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
   },
   "BBBI": {
    "name": "Bondbloxx BBB Rated 5-10 Year Corporate Bond ETF",
@@ -127576,6 +127596,11 @@
    "quote_type": "ETF",
    "fetched": "2026-10-01"
   },
+  "FTN": {
+   "name": "Corgi FTSE 5\u201310 Year IG Corporate Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
+  },
   "FTNJ": {
    "name": "Franklin New Jersey Municipal Income ETF",
    "quote_type": "ETF",
@@ -132551,6 +132576,11 @@
    },
    "description": "The fund invests, under normal circumstances, at least 80% of its net assets plus any borrowings for investment purposes in fixed income securities issued by or on behalf of the state of California and its political subdivisions, agencies and instrumentalities and other states, territories and possessions of the United States and the political subdivisions, agencies and instrumentalities thereof, the interest on which is exempt from regular federal income tax and California personal income tax. The fund is non-diversified.",
    "fetched": "2026-10-01"
+  },
+  "GCB": {
+   "name": "Corgi FTSE Intermediate Government/Credit Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
   },
   "GCC": {
    "name": "WisdomTree Enhanced Commodity Strategy Fund",
@@ -147823,6 +147853,11 @@
    "description": "The fund seeks to meet its objective by actively managing and investing at least 80% of its net assets (plus any borrowings for investment purposes) in U.S.-listed equity securities. In implementing its main strategies, the fund invests primarily in common stocks and real estate investment trusts (REITs), but it may also invest up to 20% of its total assets in common stocks of foreign companies, including depositary receipts. The fund is non-diversified.",
    "fetched": "2026-10-02"
   },
+  "HH": {
+   "name": "Corgi FTSE High Yield Corporate Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
+  },
   "HIAI": {
    "name": "AI Funds High Conviction US Equity AI-Managed ETF",
    "quote_type": "ETF",
@@ -158517,6 +158552,11 @@
    },
    "description": "The fund invests primarily in stocks of larger, well-established companies domiciled outside the United States, including in emerging markets and developing countries, that the investment adviser believes have the potential for growth and/or to pay dividends. The advisor currently intends to invest at least 90% of its assets in issuers whose securities are listed primarily on exchanges outside the United States, cash, cash equivalents and securities held as collateral issued by U.S. issuers.",
    "fetched": "2026-09-27"
+  },
+  "IGB": {
+   "name": "Corgi FTSE U.S. IG Corporate Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
   },
   "IGBH": {
    "name": "iShares Interest Rate Hedged Long-Term Corporate Bond ETF",
@@ -192513,6 +192553,11 @@
    "description": "The fund is an exchange-traded fund (\u201cETF\u201d) that pursues its investment objective by investing in debt securities issued by the U.S. Treasury (which the manager refers to as \u201cU.S. government Bonds\u201d) as well as money market funds that invest exclusively in U.S. government Bonds or repurchase agreements collateralized by such securities.",
    "fetched": "2026-10-03"
   },
+  "LIGB": {
+   "name": "Corgi FTSE 10+ Year IG Corporate Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
+  },
   "LINT": {
    "name": "Direxion Daily INTC Bull 2X ETF",
    "quote_type": "ETF",
@@ -195814,6 +195859,11 @@
    },
    "description": "Under normal circumstances, the fund will invest at least 80% of its net assets, plus the amount of any borrowings for investment purposes, in securities the income from which is exempt from federal income tax, including the federal alternative minimum tax for certain non-corporate shareholders (the \u201cFederal AMT\u201d). This is a fundamental investment policy that may not be changed without prior shareholder approval.",
    "fetched": "2026-10-03"
+  },
+  "LTB": {
+   "name": "Corgi FTSE 20+ Year U.S. Treasury Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
   },
   "LTCC": {
    "name": "Canary Litecoin ETF",
@@ -205165,6 +205215,11 @@
    },
    "description": "The fund will, under normal circumstances, invest at least 80% of its assets (net assets plus the amount of any borrowings for investment purposes) in municipal bonds, whose interest is, in the opinion of bond counsel for the issuers at the time of issuance, exempt from federal and California income taxes.",
    "fetched": "2026-10-03"
+  },
+  "MMF": {
+   "name": "Corgi Money Market ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
   },
   "MMHI": {
    "name": "NYLIM MacKay Muni High Income ETF",
@@ -297112,6 +297167,11 @@
    "description": "In pursuing its investment objective, the fund primarily purchases or sells futures contracts, call options, and put options on VIX futures. The fund holds cash, cash-like instruments or high-quality fixed income securities (collectively, \u201cCollateral\u201d).",
    "fetched": "2026-09-27"
   },
+  "SVTN": {
+   "name": "Corgi FTSE 7-10 Year U.S. Treasury Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
+  },
   "SVXY": {
    "name": "ProShares Short VIX Short-Term Futures ETF",
    "quote_type": "ETF",
@@ -310995,6 +311055,11 @@
    "description": "Under normal market conditions, the fund will invest at least 80% of its total assets in equity and debt securities of energy companies. It may invest up to 15% of its net assets in securities that are not registered under the Securities Act of 1933 or that otherwise may not be sold in public offerings, which are commonly known as \"restricted\" securities. The fund is non-diversified.",
    "fetched": "2026-10-07"
   },
+  "TNTW": {
+   "name": "Corgi FTSE 10-20 Year U.S. Treasury Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
+  },
   "TNUK": {
    "name": "Tortoise Nuclear Renaissance ETF",
    "quote_type": "ETF",
@@ -317961,6 +318026,11 @@
    "description": "The index is designed to measure the performance of U.S. dollar denominated sovereign debt publicly issued by the U.S. government. Under normal circumstances, the fund will obtain inverse leveraged exposure to at least 80% of its total assets in components of the index or in instruments with similar economic characteristics. The fund is non-diversified.",
    "fetched": "2026-09-27"
   },
+  "TTTT": {
+   "name": "Corgi FTSE U.S. TIPS Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
+  },
   "TTXD": {
    "name": "Direxion Daily Technology Top 5 Bear 2X ETF",
    "quote_type": "ETF",
@@ -320308,6 +320378,11 @@
    },
    "description": "The fund invests at least 80% of its net assets (plus any borrowings for investment purposes) in investments that provide exposure to the State Street\u00ae SPDR\u00ae S&P 500\u00ae ETF Trust. It is non-diversified.",
    "fetched": "2026-10-08"
+  },
+  "UB": {
+   "name": "Corgi FTSE U.S. Treasury Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-10-17"
   },
   "UBEW": {
    "name": "Roundhill UBER WeeklyPay ETF",
