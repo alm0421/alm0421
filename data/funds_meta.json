@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-10-17T00:53:48+00:00",
+ "updated_utc": "2026-10-20T01:29:11+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
@@ -148258,6 +148258,12 @@
    },
    "description": "The fund is an actively managed exchange traded fund (\u201cETF\u201d) that attempts to achieve two times (200%) the daily percentage change in the share price of the underlying security by employing derivatives, namely swap agreements and/or listed options contracts. The fund is non-diversified.",
    "fetched": "2026-10-02"
+  },
+  "HINC": {
+   "name": "Hartford High Yield ETF",
+   "quote_type": "EQUITY",
+   "description": "Hartford Funds Exchange-Traded Trust - Hartford High Yield ETF is an exchange traded fund launched and managed by Hartford Funds Management Company, LLC. The fund is co-managed by Wellington Management Company LLP. The fund invests in fixed income markets of global region. It invests in corporate debts, bank loans, loan participation interests, government debt, and other securities that are rated Ba or lower by Moody's Ratings, BB or lower by S&P Global Ratings or BB or lower by Fitch Ratings, Inc. The fund employs fundamental analysis with bottom-up and top-down security picking approach to c",
+   "fetched": "2026-10-20"
   },
   "HIPS": {
    "name": "GraniteShares HIPS US High Income ETF",
@@ -369142,8 +369148,10 @@
  "failed": {
   "MUNJ": "2026-10-03",
   "QQQ": "2026-09-27",
+  "SEQ": "2026-10-20",
   "SPY": "2026-09-27",
   "TIPE": "2026-10-07",
-  "TIPG": "2026-10-07"
+  "TIPG": "2026-10-07",
+  "WINC": "2026-10-20"
  }
 }
