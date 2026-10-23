@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-10-22T01:05:11+00:00",
+ "updated_utc": "2026-10-23T01:06:55+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
@@ -87406,6 +87406,11 @@
    "description": "The fund invests at least 80% of its net assets (plus borrowings for investment purposes) in securities issued by TSLA and SPCX, and financial instruments. It is non-diversified.",
    "fetched": "2026-10-01"
   },
+  "EMAG": {
+   "name": "Emerging Markets AI Mag 3 ETF",
+   "quote_type": "ETF",
+   "fetched": "2026-10-23"
+  },
   "EMAU": {
    "name": "Corgi ETF Trust I - Corgi Emerging Markets Equities 15% Structured Buffer ETF - August Series",
    "quote_type": "ETF",
@@ -155613,6 +155618,19 @@
    "name": "Symmetry Panoramic International Country Momentum ETF",
    "quote_type": "EQUITY",
    "fetched": "2026-10-02"
+  },
+  "ICOM": {
+   "name": "Tema Commodity Income ETF",
+   "quote_type": "ETF",
+   "category": "Natural Resources",
+   "family": "Tema ETFs",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-21",
+   "expense_ratio": 0.0075,
+   "turnover": 0.0,
+   "net_assets": 0.0,
+   "description": "The fund is an actively managed exchange-traded fund (\u201cETF\u201d) that under normal circumstances seeks to achieve its investment objective by investing at least 80% of its net assets, which include borrowings for investment purposes, in dividend-paying domestic and foreign, common and preferred stocks and American Depositary Receipts (\u201cADRs\u201d) and Global Depositary Receipts (\u201cGDRs\u201d) of publicly listed companies and royalty trusts interests, and Master Limited Partnership (\"MLP\") interests the Adviser determines are \u201ccommodity-related businesses. It is non-diversified.",
+   "fetched": "2026-10-23"
   },
   "ICOP": {
    "name": "iShares Copper and Metals Mining ETF",
@@ -306581,6 +306599,19 @@
    },
    "description": "Under normal market conditions, the fund will invest at least 80% of its net assets plus any borrowings for investment purposes in U.S. equity securities that BFA believes have above-average earnings growth potential. Equity securities include common stocks, preferred stocks, convertible securities, warrants and depositary receipts whose price is linked to the value of common stock. The fund is non-diversified.",
    "fetched": "2026-10-07"
+  },
+  "THRU": {
+   "name": "Tema Commodity Infrastructure ETF",
+   "quote_type": "ETF",
+   "category": "Infrastructure",
+   "family": "Tema ETFs",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-21",
+   "expense_ratio": 0.0075,
+   "turnover": 0.0,
+   "net_assets": 0.0,
+   "description": "The fund is an actively managed exchange-traded fund (\u201cETF\u201d) that under normal circumstances seeks to achieve its investment objective by investing at least 80% of its net assets, which include borrowings for investment purposes, in domestic and foreign, common and preferred stocks and American Depositary Receipts (\u201cADRs\u201d) and Global Depositary Receipts (\u201cGDRs\u201d) and royalty trusts interests, and Master Limited Partnership (\"MLP\") interests of publicly listed companies the Adviser determines are \u201ccommodity infrastructure-related businesses. It is non-diversified.",
+   "fetched": "2026-10-23"
   },
   "THRV": {
    "name": "Prospera Income ETF",
