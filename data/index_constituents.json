@@ -1,5 +1,5 @@
 {
-"updated": "2026-10-24",
+"updated": "2026-10-27",
 "source": "Wikipedia 'List of S&P 500 companies', 'List of S&P 400 companies', 'List of S&P 600 companies' (table id=constituents, column Symbol; '.' written as '-' as Yahoo does); refreshed by the data job",
 "sp500": {
 "MMM": "3M",
@@ -381,14 +381,13 @@
 "PTC": "PTC Inc.",
 "PSA": "Public Storage",
 "PHM": "PulteGroup",
-"PWR": "Quanta Services",
-"QCOM": "Qualcomm",
-"DGX": "Quest Diagnostics",
 "Q": "Qnity Electronics",
+"QCOM": "Qualcomm",
+"PWR": "Quanta Services",
+"DGX": "Quest Diagnostics",
 "RL": "Ralph Lauren Corporation",
 "RJF": "Raymond James Financial",
 "RDDT": "Reddit",
-"RTX": "RTX Corporation",
 "O": "Realty Income",
 "REG": "Regency Centers",
 "REGN": "Regeneron Pharmaceuticals",
@@ -402,6 +401,7 @@
 "ROP": "Roper Technologies",
 "ROST": "Ross Stores",
 "RCL": "Royal Caribbean Group",
+"RTX": "RTX Corporation",
 "SPGI": "S&P Global",
 "CRM": "Salesforce",
 "SNDK": "Sandisk",
@@ -412,7 +412,7 @@
 "NOW": "ServiceNow",
 "SHW": "Sherwin-Williams",
 "SPG": "Simon Property Group",
-"SKYD": "Skydance Corporation",
+"SKYD": "Skydance",
 "SWKS": "Skyworks Solutions",
 "SJM": "J.M. Smucker Company (The)",
 "SW": "Smurfit Westrock",
@@ -1819,8 +1819,8 @@
 }
 },
 "fetched": {
-"sp500": "2026-10-24",
-"sp400": "2026-10-24",
-"sp600": "2026-10-24"
+"sp500": "2026-10-27",
+"sp400": "2026-10-27",
+"sp600": "2026-10-27"
 }
 }
