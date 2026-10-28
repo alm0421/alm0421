@@ -1,5 +1,5 @@
 {
-"updated": "2026-10-27",
+"updated": "2026-10-28",
 "source": "Wikipedia 'List of S&P 500 companies', 'List of S&P 400 companies', 'List of S&P 600 companies' (table id=constituents, column Symbol; '.' written as '-' as Yahoo does); refreshed by the data job",
 "sp500": {
 "MMM": "3M",
@@ -377,8 +377,8 @@
 "PGR": "Progressive Corporation",
 "PLD": "Prologis",
 "PRU": "Prudential Financial",
-"PEG": "Public Service Enterprise Group",
 "PTC": "PTC Inc.",
+"PEG": "Public Service Enterprise Group",
 "PSA": "Public Storage",
 "PHM": "PulteGroup",
 "Q": "Qnity Electronics",
@@ -1819,8 +1819,8 @@
 }
 },
 "fetched": {
-"sp500": "2026-10-27",
-"sp400": "2026-10-27",
-"sp600": "2026-10-27"
+"sp500": "2026-10-28",
+"sp400": "2026-10-28",
+"sp600": "2026-10-28"
 }
 }
