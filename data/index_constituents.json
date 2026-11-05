@@ -1,5 +1,5 @@
 {
-"updated": "2026-11-04",
+"updated": "2026-11-05",
 "source": "Wikipedia 'List of S&P 500 companies', 'List of S&P 400 companies', 'List of S&P 600 companies' (table id=constituents, column Symbol; '.' written as '-' as Yahoo does); refreshed by the data job",
 "sp500": {
 "MMM": "3M",
@@ -271,7 +271,6 @@
 "JNJ": "Johnson & Johnson",
 "JCI": "Johnson Controls",
 "JPM": "JPMorgan Chase",
-"KVUE": "Kenvue",
 "KDP": "Keurig Dr Pepper",
 "KEY": "KeyCorp",
 "KEYS": "Keysight Technologies",
@@ -349,6 +348,7 @@
 "NXPI": "NXP Semiconductors",
 "ORLY": "O'Reilly Automotive",
 "OXY": "Occidental Petroleum",
+"OKTA": "Okta, Inc.",
 "ODFL": "Old Dominion",
 "OMC": "Omnicom Group",
 "ON": "ON Semiconductor",
@@ -668,6 +668,7 @@
 "GEF": "Greif, Inc.",
 "GGG": "Graco Inc.",
 "GHC": "Graham Holdings",
+"GKOS": "Glaukos",
 "GLPI": "Gaming and Leisure Properties",
 "GME": "GameStop",
 "GMED": "Globus Medical",
@@ -765,7 +766,6 @@
 "OGE": "OGE Energy",
 "OGS": "One Gas",
 "OHI": "Omega Healthcare Investors",
-"OKTA": "Okta, Inc.",
 "OLED": "Universal Display",
 "OLLI": "Ollie's Bargain Outlet",
 "ONB": "Old National Bank",
@@ -1819,8 +1819,8 @@
 }
 },
 "fetched": {
-"sp500": "2026-11-04",
-"sp400": "2026-11-04",
-"sp600": "2026-11-04"
+"sp500": "2026-11-05",
+"sp400": "2026-11-05",
+"sp600": "2026-11-05"
 }
 }
