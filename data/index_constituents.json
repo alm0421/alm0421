@@ -1,5 +1,5 @@
 {
-"updated": "2026-11-05",
+"updated": "2026-11-06",
 "source": "Wikipedia 'List of S&P 500 companies', 'List of S&P 400 companies', 'List of S&P 600 companies' (table id=constituents, column Symbol; '.' written as '-' as Yahoo does); refreshed by the data job",
 "sp500": {
 "MMM": "3M",
@@ -657,7 +657,7 @@
 "FNB": "FNB Corporation",
 "FND": "Floor & Decor",
 "FNF": "Fidelity National Financial",
-"FORM": "FormFactor, Inc.",
+"FORM": "FormFactor",
 "FOUR": "Shift4",
 "FR": "First Industrial Realty Trust",
 "FTI": "TechnipFMC",
@@ -1819,8 +1819,8 @@
 }
 },
 "fetched": {
-"sp500": "2026-11-05",
-"sp400": "2026-11-05",
-"sp600": "2026-11-05"
+"sp500": "2026-11-06",
+"sp400": "2026-11-06",
+"sp600": "2026-11-06"
 }
 }
