@@ -1,5 +1,5 @@
 {
-"updated": "2026-11-06",
+"updated": "2026-11-07",
 "source": "Wikipedia 'List of S&P 500 companies', 'List of S&P 400 companies', 'List of S&P 600 companies' (table id=constituents, column Symbol; '.' written as '-' as Yahoo does); refreshed by the data job",
 "sp500": {
 "MMM": "3M",
@@ -1421,7 +1421,7 @@
 "STC": "Stewart Information Services Corporation",
 "STEP": "StepStone Group",
 "STRA": "Strategic Education, Inc.",
-"SUPN": "Supernus Pharmaceuticals, Inc.",
+"SUPN": "Supernus, Inc.",
 "SXI": "Standex International Corporation",
 "SXT": "Sensient Technologies",
 "TALO": "Talos Energy, Inc.",
@@ -1819,8 +1819,8 @@
 }
 },
 "fetched": {
-"sp500": "2026-11-06",
-"sp400": "2026-11-06",
-"sp600": "2026-11-06"
+"sp500": "2026-11-07",
+"sp400": "2026-11-07",
+"sp600": "2026-11-07"
 }
 }
