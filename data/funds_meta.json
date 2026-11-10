@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-11-07T02:29:18+00:00",
+ "updated_utc": "2026-11-10T04:30:20+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
@@ -239192,6 +239192,27 @@
    "description": "The fund invests, under normal circumstances, at least 80% of its net assets, plus any borrowings for investment purposes, in constituents of the index and/or investments that have economic characteristics that are substantially similar to the economic characteristics of such constituents. The index is maintained in accordance with a rules-based methodology overseen and implemented by the WisdomTree Opportunities Index Committee (the \u201cIndex Committee\u201d). The fund is non-diversified.",
    "fetched": "2026-11-05"
   },
+  "OPTO": {
+   "name": "Tuttle Capital Photonics Income Blast ETF",
+   "quote_type": "ETF",
+   "category": "Derivative Income",
+   "family": "Tuttle Capital Management, LLC",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-08",
+   "net_assets": 694593.0,
+   "expense_ratio": 0.0099,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.3821,
+    "stock": -0.6381,
+    "bond": 1.2372,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0188
+   },
+   "description": "Under normal market conditions, the fund will invest at least 80% of its net assets (plus any borrowings for investment purposes) in equity securities and swaps referencing companies whose primary business operations are directly related to photonics. It is non-diversified.",
+   "fetched": "2026-11-10"
+  },
   "OPTZ": {
    "name": "Optimize Strategy Index ETF",
    "quote_type": "ETF",
@@ -351378,6 +351399,47 @@
    "description": "The manager employs an indexing investment approach designed to track the performance of the FTSE Global All Cap ex US Index, a float-adjusted market-capitalization-weighted index designed to measure equity market performance of companies located in developed and emerging markets, excluding the United States. The fund invests all, or substantially all, of its assets in the common stocks included in its target index.",
    "fetched": "2026-10-27"
   },
+  "VGTX": {
+   "name": "XFUNDS Technology Income ETF",
+   "quote_type": "ETF",
+   "category": "Technology",
+   "family": "Tidal Investments LLC",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-08",
+   "net_assets": 1594730.0,
+   "expense_ratio": 0.0075,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "VGT",
+     "name": "Vanguard Information Technology ETF",
+     "weight": 1.0058794
+    },
+    {
+     "symbol": "FGXXX",
+     "name": "First American Government Obligs X",
+     "weight": 0.0044315
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0127,
+    "stock": 0.9871,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0002
+   },
+   "sectors": {
+    "consumer_cyclical": 0.00059999997,
+    "basic_materials": 0.0001,
+    "technology": 0.99300003,
+    "financial_services": 0.0033000002,
+    "industrials": 0.0029,
+    "healthcare": 0.0001
+   },
+   "description": "Under normal circumstances, the fund will invest at least 80% of the value of its assets, plus borrowings for investment purposes, in (1) equity securities of information technology companies and ETFs that track U.S. information technology company indices and (2) options on such securities. It is non-diversified.",
+   "fetched": "2026-11-10"
+  },
   "VGUS": {
    "name": "Vanguard Ultra-Short Treasury ETF",
    "quote_type": "ETF",
@@ -370316,6 +370378,27 @@
    "description": "The fund invests primarily in common stocks of established companies that are listed on, or meet the financial listing requirements of, the New York Stock Exchange and have a strong record of earnings and dividends. Its advisor strives to maintain a fully invested, diversified portfolio, consisting primarily of high-quality common stocks.",
    "fetched": "2026-10-28"
   },
+  "WSLS": {
+   "name": "WisdomTree Efficient Long/Short U.S. SmallCap Equity Fund",
+   "quote_type": "ETF",
+   "category": "Long-Short Equity",
+   "family": "WisdomTree",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-06",
+   "net_assets": 2456438.0,
+   "expense_ratio": 0.0088,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.5671,
+    "stock": -0.0094,
+    "bond": 0.461,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": -0.0186
+   },
+   "description": "The fund seeks to achieve its investment objective by investing its assets in accordance with both (i) a long/short U.S. small-capitalization equity strategy and (ii) a long-only U.S. small-capitalization equity strategy. Under normal circumstances, it invests at least 80% of its net assets, plus any borrowings for investment purposes, in U.S. small-capitalization equity securities and derivative instruments that provide exposure to U.S. small-capitalization equity securities. The fund is non-diversified.",
+   "fetched": "2026-11-10"
+  },
   "WSMD": {
    "name": "Wasatch Small/Mid Cap ETF",
    "quote_type": "ETF",
@@ -370565,6 +370648,27 @@
    },
    "description": "The index is designed to provide exposure to equity securities of exchange-listed companies globally, including developed countries and emerging markets throughout the world, which are primarily involved in the investment theme of Artificial Intelligence and Innovation. To the extent the index concentrates in the securities of a particular industry or group of industries, the fund will concentrate its investments to approximately the same extent as the index. It is non-diversified.",
    "fetched": "2026-11-07"
+  },
+  "WTAL": {
+   "name": "WisdomTree Global Alpha Fund",
+   "quote_type": "ETF",
+   "category": "Long-Short Equity",
+   "family": "WisdomTree",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-06",
+   "net_assets": 3547109.0,
+   "expense_ratio": 0.0088,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.5392,
+    "stock": 0.0,
+    "bond": 0.5135,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": -0.052800003
+   },
+   "description": "The fund may invest in U.S. Treasury securities and cash and cash equivalents to serve as collateral or margin for the fund\u2019s investments in swap contracts and other derivatives.",
+   "fetched": "2026-11-10"
   },
   "WTBN": {
    "name": "Wisdomtree Bianco Fixed Income Total Return Fund",
@@ -381114,6 +381218,91 @@
    "description": "The Advisor intends to invest substantially all of its assets in FLexible EXchange\u00ae options (\u201cFLEX Options\u201d) that reference an Underlying ETF. The FLEX Options in which the fund invests (the \u201cTarget Options\u201d) are structured such that the fund\u2019s overall exposure to the Underlying ETFs behaves like a long call option with a strike price at the Underlying ETF Target with an expiration date of the Defined Target Date. It is non-diversified.",
    "fetched": "2026-11-07"
   },
+  "XXQQ": {
+   "name": "Subversive Growth 100 Redacted ETF",
+   "quote_type": "ETF",
+   "category": "Large Growth",
+   "family": "Tidal Investments LLC",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-08",
+   "net_assets": 908207.0,
+   "expense_ratio": 0.003,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "AAPL",
+     "name": "Apple Inc",
+     "weight": 0.0865177
+    },
+    {
+     "symbol": "NVDA",
+     "name": "NVIDIA Corp",
+     "weight": 0.0833698
+    },
+    {
+     "symbol": "MSFT",
+     "name": "Microsoft Corp",
+     "weight": 0.0678094
+    },
+    {
+     "symbol": "MU",
+     "name": "Micron Technology Inc",
+     "weight": 0.046760302
+    },
+    {
+     "symbol": "AMZN",
+     "name": "Amazon.com Inc",
+     "weight": 0.044460103
+    },
+    {
+     "symbol": "AMD",
+     "name": "Advanced Micro Devices Inc",
+     "weight": 0.040019497
+    },
+    {
+     "symbol": "META",
+     "name": "Meta Platforms Inc Class A",
+     "weight": 0.0325036
+    },
+    {
+     "symbol": "GOOGL",
+     "name": "Alphabet Inc Class A",
+     "weight": 0.0283471
+    },
+    {
+     "symbol": "WMT",
+     "name": "Walmart Inc",
+     "weight": 0.0280145
+    },
+    {
+     "symbol": "AVGO",
+     "name": "Broadcom Inc",
+     "weight": 0.027286699
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.001,
+    "stock": 0.999,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "consumer_cyclical": 0.080699995,
+    "basic_materials": 0.0113,
+    "consumer_defensive": 0.070300005,
+    "technology": 0.6171,
+    "communication_services": 0.1191,
+    "financial_services": 0.0023999999,
+    "utilities": 0.0128,
+    "industrials": 0.0312,
+    "energy": 0.0055,
+    "healthcare": 0.0495
+   },
+   "description": "The fund will invest at least 80% of the value of its net assets, plus the amount of any borrowings for investment purposes, in a portfolio consisting of exposure to the equity securities of growth companies (i.e., companies included in the Nasdaq-100 Index), other than the equity securities of the Excluded Enterprises. The Nasdaq-100 Index includes approximately 100 of the largest domestic and international non-financial companies listed on the Nasdaq Stock Market based on market capitalization. It is non-diversified.",
+   "fetched": "2026-11-10"
+  },
   "XXRP": {
    "name": "Teucrium 2x Long Daily XRP ETF",
    "quote_type": "ETF",
@@ -381135,6 +381324,92 @@
    },
    "description": "The fund invests in financial instruments that the Adviser believes in combination should produce daily returns (before fees and expenses) that correspond to two times (2x) the daily price performance of XRP. It may also invest in equity securities of \u201cXRP-related companies.\u201d The fund is non-diversified.",
    "fetched": "2026-11-07"
+  },
+  "XXSP": {
+   "name": "Subversive S&P 500 Redacted ETF",
+   "quote_type": "ETF",
+   "category": "Large Blend",
+   "family": "Tidal Investments LLC",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-08",
+   "net_assets": 2431031.0,
+   "expense_ratio": 0.003,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "AAPL",
+     "name": "Apple Inc",
+     "weight": 0.0775444
+    },
+    {
+     "symbol": "NVDA",
+     "name": "NVIDIA Corp",
+     "weight": 0.0773597
+    },
+    {
+     "symbol": "MSFT",
+     "name": "Microsoft Corp",
+     "weight": 0.0603271
+    },
+    {
+     "symbol": "AMZN",
+     "name": "Amazon.com Inc",
+     "weight": 0.0363833
+    },
+    {
+     "symbol": "GOOGL",
+     "name": "Alphabet Inc Class A",
+     "weight": 0.0255546
+    },
+    {
+     "symbol": "AVGO",
+     "name": "Broadcom Inc",
+     "weight": 0.024143701
+    },
+    {
+     "symbol": "META",
+     "name": "Meta Platforms Inc Class A",
+     "weight": 0.0215028
+    },
+    {
+     "symbol": "GOOG",
+     "name": "Alphabet Inc Class C",
+     "weight": 0.0206003
+    },
+    {
+     "symbol": "LLY",
+     "name": "Eli Lilly and Co",
+     "weight": 0.0169101
+    },
+    {
+     "symbol": "BRK-B",
+     "name": "Berkshire Hathaway Inc Class B",
+     "weight": 0.0156205
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0016,
+    "stock": 0.9982,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0002
+   },
+   "sectors": {
+    "realestate": 0.0183,
+    "consumer_cyclical": 0.0759,
+    "basic_materials": 0.0163,
+    "consumer_defensive": 0.0495,
+    "technology": 0.38900003,
+    "communication_services": 0.086,
+    "financial_services": 0.123,
+    "utilities": 0.021300001,
+    "industrials": 0.0783,
+    "energy": 0.0398,
+    "healthcare": 0.1026
+   },
+   "description": "The fund will invest at least 80% of the value of its net assets, plus the amount of any borrowings for investment purposes, in a portfolio consisting of exposure to the equity securities of the companies included in the S&P 500 Index, other than the equity securities of the Excluded Enterprises (defined below). The S&P 500 Index includes approximately 500 of the largest U.S. companies listed on U.S. stock exchanges based on market capitalization. It is non-diversified.",
+   "fetched": "2026-11-10"
   },
   "XXV": {
    "name": "Simplify Ancorato Target 25 Distribution ETF",
