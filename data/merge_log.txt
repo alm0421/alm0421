@@ -9,6 +9,4 @@ RAMP: kept-old: the new download does not connect to the saved history (download
 INDV: kept-old: the new download does not connect to the saved history (download 2026-11-02..2026-11-02, 1 rows)
 SUPN: kept-old: the new download disagrees with the saved prices on the overlap (download 2014-12-29..2026-11-09, 2984 rows)
 LXP: kept-old: the new download does not connect to the saved history (download 2026-11-03..2026-11-03, 1 rows)
-ROKU: appended (download 2026-11-06..2026-11-09, 2 rows)
-TCBI: appended (download 2026-11-06..2026-11-06, 1 rows)
 HXA: kept-old: the new download does not connect to the saved history (download 2026-09-30..2026-11-09, 29 rows)
