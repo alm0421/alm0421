@@ -1,5 +1,5 @@
 {
-"updated": "2026-11-11",
+"updated": "2026-11-12",
 "source": "Wikipedia 'List of S&P 500 companies', 'List of S&P 400 companies', 'List of S&P 600 companies' (table id=constituents, column Symbol; '.' written as '-' as Yahoo does); refreshed by the data job",
 "sp500": {
 "MMM": "3M",
@@ -702,6 +702,7 @@
 "ITT": "ITT Inc.",
 "JAZZ": "Jazz Pharmaceuticals",
 "JEF": "Jefferies",
+"JHX": "James Hardie Industries",
 "JLL": "Jones Lang LaSalle",
 "KBH": "KB Home",
 "KBR": "KBR, Inc.",
@@ -809,7 +810,6 @@
 "RMBS": "Rambus",
 "RNR": "RenaissanceRe",
 "ROIV": "Roivant Sciences",
-"ROKU": "Roku, Inc.",
 "RPM": "RPM International",
 "RRC": "Range Resources",
 "RRX": "Regal Rexnord",
@@ -1819,8 +1819,8 @@
 }
 },
 "fetched": {
-"sp500": "2026-11-11",
-"sp400": "2026-11-11",
-"sp600": "2026-11-11"
+"sp500": "2026-11-12",
+"sp400": "2026-11-12",
+"sp600": "2026-11-12"
 }
 }

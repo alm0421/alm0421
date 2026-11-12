@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-11-11T02:16:38+00:00",
+ "updated_utc": "2026-11-12T03:31:53+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
@@ -2787,6 +2787,11 @@
    },
    "description": "Under normal circumstances, the fund will invest at least 80% of the value of its net assets, plus any borrowings for investment purposes, in financial instruments (for example, swaps and futures) that, in the aggregate, provide leveraged exposure to the underlying security equal to approximately two times its daily performance. It is non-diversified.",
    "fetched": "2026-10-29"
+  },
+  "ACMG": {
+   "name": "American Century ETF Trust - American Century Mid Cap Growth Insights ETF",
+   "quote_type": "ETF",
+   "fetched": "2026-11-12"
   },
   "ACMM": {
    "name": "Corgi ACMR 2x Daily ETF",
@@ -163039,6 +163044,11 @@
    },
    "description": "The fund generally will invest at least 80% of its assets in the component securities of its underlying index and in investments that have economic characteristics that are substantially identical to the component securities of its underlying index and may invest up to 20% of its assets in certain futures, options and swap contracts, cash and cash equivalents. It is non-diversified.",
    "fetched": "2026-11-03"
+  },
+  "IBLY": {
+   "name": "FT Vest Equity Target Income Plus 0-3 Month Treasury ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-11-12"
   },
   "IBMO": {
    "name": "iShares iBonds Dec 2026 Term Muni Bond ETF",
