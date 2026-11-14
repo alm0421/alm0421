@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-11-13T02:59:00+00:00",
+ "updated_utc": "2026-11-14T02:55:12+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
@@ -2481,6 +2481,82 @@
    "name": "American Century ETF Trust - American Century Large Cap Growth ETF",
    "quote_type": "ETF",
    "fetched": "2026-10-29"
+  },
+  "ACHP": {
+   "name": "Global X Asia Semiconductor ETF",
+   "quote_type": "ETF",
+   "category": "Technology",
+   "family": "Global X Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-13",
+   "net_assets": 410230.0,
+   "expense_ratio": 0.005,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "2454.TW",
+     "name": "MediaTek Inc",
+     "weight": 0.117651395
+    },
+    {
+     "symbol": "TSM",
+     "name": "Taiwan Semiconductor Manufacturing Co Ltd ADR",
+     "weight": 0.114803
+    },
+    {
+     "symbol": "SKHY",
+     "name": "SK hynix Inc ADR",
+     "weight": 0.1108991
+    },
+    {
+     "symbol": "005930.KQ",
+     "name": "Samsung Electronics Co Ltd",
+     "weight": 0.1047851
+    },
+    {
+     "symbol": "688256.SS",
+     "name": "Cambricon Technologies Corp Ltd Class A",
+     "weight": 0.047701
+    },
+    {
+     "symbol": "2408.TW",
+     "name": "Nanya Technology Corp",
+     "weight": 0.046139497
+    },
+    {
+     "symbol": "2303.TW",
+     "name": "United Microelectronics Corp",
+     "weight": 0.0459101
+    },
+    {
+     "symbol": "6723.T",
+     "name": "Renesas Electronics Corp",
+     "weight": 0.0438885
+    },
+    {
+     "symbol": "285A.T",
+     "name": "Kioxia Holdings Corp Ordinary Shares",
+     "weight": 0.0416858
+    },
+    {
+     "symbol": "2382.TW",
+     "name": "Quanta Computer Inc",
+     "weight": 0.0408879
+    }
+   ],
+   "asset_classes": {
+    "cash": -0.0002,
+    "stock": 1.0001999,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "technology": 1.0
+   },
+   "description": "The fund invests at least 80% of its net assets, plus borrowings for investment purposes (if any), in the securities of the underlying index. Securities of the underlying index may include common stocks and American Depositary Receipts (\"ADRs\"). The underlying index, as presently constituted, is designed to track the performance of companies listed in Asian countries that are involved in the semiconductor ecosystem. The fund is non-diversified.",
+   "fetched": "2026-11-14"
   },
   "ACHX": {
    "name": "Corgi ACHR 2x Daily ETF",
@@ -69035,6 +69111,27 @@
    },
    "description": "The Portfolio, using a market capitalization weighted approach, purchases a broad and diverse set of securities of U.S. and non-U.S. companies principally engaged in the real estate industry, including developed and emerging markets, with a particular focus on real estate investment trusts (\u201cREITs\u201d) and companies the Advisor considers to be REIT-like entities. The Portfolio invests in companies of all sizes.",
    "fetched": "2026-10-27"
+  },
+  "DFGV": {
+   "name": "DFA Intermediate Government Fixed Income Portfolio ETF",
+   "quote_type": "ETF",
+   "category": "Intermediate Government",
+   "family": "Dimensional Fund Advisors",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-13",
+   "net_assets": 6110459392.0,
+   "expense_ratio": 0.0011999999,
+   "turnover": 0.13,
+   "asset_classes": {
+    "cash": 0.0224,
+    "stock": 0.0,
+    "bond": 0.97760004,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "description": "The fund primarily invests in high quality, low-risk obligations of the U.S. government and its agencies with maturities between five and fifteen years from the date of settlement. It normally invests in non-callable obligations issued or guaranteed by the U.S. government and U.S. government agencies, AAA-rated, dollar-denominated obligations of foreign governments, obligations of supranational organizations, and futures contracts on U.S. Treasury securities.",
+   "fetched": "2026-11-14"
   },
   "DFGX": {
    "name": "Dimensional International Core Fixed Income ETF",
@@ -213809,6 +213906,34 @@
    "description": "Under normal circumstances, the fund invests at least 80% of its net assets (plus the amount of any borrowings for investment purposes) in equity securities of companies primarily engaged in natural resources and natural resources-related businesses.",
    "fetched": "2026-11-03"
   },
+  "MGOL": {
+   "name": "Leverage Shares MANGOS ETF",
+   "quote_type": "ETF",
+   "category": "Technology",
+   "family": "Themes Management Company, LLC",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-13",
+   "net_assets": 439757.0,
+   "expense_ratio": 0.0099,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "FXFXX",
+     "name": "First American Treasury Obligs X",
+     "weight": 0.3669814
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0053,
+    "stock": 0.4109,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.5839
+   },
+   "description": "The fund is an actively managed ETF. It invests at least 80% of its net assets (plus borrowings for investment purposes) in securities issued by, and financial instruments with economic characteristics that in combination provide investment exposure to, the following six companies: Meta Platforms, Inc., Anthropic PBC, NVIDIA Corporation, Alphabet Inc., OpenAI, Inc., and Space Exploration Technologies Corp. It is non-diversified.",
+   "fetched": "2026-11-14"
+  },
   "MGOV": {
    "name": "First Trust Intermediate Government Opportunities ETF",
    "quote_type": "ETF",
@@ -246282,6 +246407,83 @@
    },
    "description": "The fund is an actively managed exchange-traded fund (\u201cETF\u201d). The investment objective of the fund is to seek to provide long-term capital appreciation. Under normal circumstances, the fund invests at least 80% of its net assets (plus any borrowings for investment purposes) in equity securities.",
    "fetched": "2026-11-05"
+  },
+  "PEPT": {
+   "name": "REX Peptide ETF",
+   "quote_type": "ETF",
+   "category": "Health",
+   "family": "Rex",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-13",
+   "net_assets": 1888008.0,
+   "expense_ratio": 0.0064999997,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "LLY",
+     "name": "Eli Lilly and Co",
+     "weight": 0.1389001
+    },
+    {
+     "symbol": "ASND",
+     "name": "Ascendis Pharma AS",
+     "weight": 0.10593741
+    },
+    {
+     "symbol": "NVO",
+     "name": "Novo Nordisk AS ADR",
+     "weight": 0.1002325
+    },
+    {
+     "symbol": "PODD",
+     "name": "Insulet Corp",
+     "weight": 0.0811028
+    },
+    {
+     "symbol": "PTGX",
+     "name": "Protagonist Therapeutics Inc",
+     "weight": 0.0698163
+    },
+    {
+     "symbol": "SAN.PA",
+     "name": "Sanofi SA",
+     "weight": 0.0549261
+    },
+    {
+     "symbol": "RYTM",
+     "name": "Rhythm Pharmaceuticals Inc",
+     "weight": 0.0480988
+    },
+    {
+     "symbol": "DAR",
+     "name": "Darling Ingredients Inc",
+     "weight": 0.042033702
+    },
+    {
+     "symbol": "BANB.SW",
+     "name": "Bachem Holding AG",
+     "weight": 0.0382948
+    },
+    {
+     "symbol": "VKTX",
+     "name": "Viking Therapeutics Inc",
+     "weight": 0.0378997
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0036000002,
+    "stock": 0.99660003,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": -0.0001
+   },
+   "sectors": {
+    "consumer_defensive": 0.0422,
+    "healthcare": 0.9578
+   },
+   "description": "It tracks the investment results, before fees and expenses, of the VettaFi Peptide Index? (the \u201cIndex\u201d), which is designed to track the performance of equity securities of companies that are strategically positioned to advance the development, manufacturing, and commercial adoption of peptide-based products\u2014including therapeutics, supplements, cosmetics, and medical devices\u2014along with the enabling technologies essential for peptides. The fund is non-diversified.",
+   "fetched": "2026-11-14"
   },
   "PEVC": {
    "name": "Pacer PE/VC ETF",
@@ -283681,12 +283883,20 @@
    "category": "Inflation-Protected Bond",
    "family": "F/m investments, LLC",
    "legal_type": "Exchange Traded Fund",
-   "inception": "2025-09-29",
+   "inception": "2026-10-13",
+   "net_assets": 34092304.0,
    "expense_ratio": 0.0025,
    "turnover": 0.0,
-   "net_assets": 0.0,
+   "asset_classes": {
+    "cash": 0.0002,
+    "stock": 0.0,
+    "bond": 0.9942,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0056
+   },
    "description": "Under normal market conditions, F/m Investments LLC (the \u201cAdviser\u201d) seeks to achieve the fund\u2019s investment objective by investing at least 80% of the fund\u2019s net assets in TIPS with maturities of greater than or equal to twenty (20) years. The Adviser uses a representative sampling indexing strategy in seeking to achieve the fund\u2019s investment objective. The fund is non-diversified.",
-   "fetched": "2026-10-15"
+   "fetched": "2026-11-14"
   },
   "RTOO": {
    "name": "VistaShares Robotics Supercycle ETF",
@@ -375527,6 +375737,67 @@
    "description": "Under normal circumstances, at least 80% of the fund's net assets (plus any borrowings for investment purposes) in a combination of securities of Energy companies (either directly or indirectly through an underlying ETF) and investments that produce premium income. Energy companies comprise companies included in the Energy sector of the S&P 500 Index, as determined by the Global Industry Classification Standard (GICS\u00ae). The fund is non-diversified.",
    "fetched": "2026-11-07"
   },
+  "XLEM": {
+   "name": "State Street S&P 500 Energy Market Sector SPDR ETF",
+   "quote_type": "ETF",
+   "category": "Equity Energy",
+   "family": "State Street Investment Management",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-13",
+   "net_assets": 530524.0,
+   "expense_ratio": 0.0011999999,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "XLE",
+     "name": "State Street\u00aeEngySelSectSPDR\u00aeETF",
+     "weight": 0.8470394
+    },
+    {
+     "symbol": "XOM",
+     "name": "ExxonMobil Holdings Corp",
+     "weight": 0.094588496
+    },
+    {
+     "symbol": "CVX",
+     "name": "Chevron Corp",
+     "weight": 0.0257477
+    },
+    {
+     "symbol": "COP",
+     "name": "ConocoPhillips",
+     "weight": 0.0098711
+    },
+    {
+     "symbol": "VLO",
+     "name": "Valero Energy Corp",
+     "weight": 0.0090397
+    },
+    {
+     "symbol": "MPC",
+     "name": "Marathon Petroleum Corp",
+     "weight": 0.0083826
+    },
+    {
+     "symbol": "PSX",
+     "name": "Phillips 66",
+     "weight": 0.0053310003
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0013,
+    "stock": 0.9987,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "energy": 1.0
+   },
+   "description": "Under normal market circumstances, at least 80% of the fund's net assets (plus any borrowings for investment purposes) in securities comprising the index the fund seeks to track, either directly or indirectly through underlying exchange-traded funds (\u201cETFs\u201d), and derivatives that provide exposure to such securities.",
+   "fetched": "2026-11-14"
+  },
   "XLEX": {
    "name": "Corgi U.S. Energy 2x Daily ETF",
    "quote_type": "ETF",
@@ -376009,6 +376280,77 @@
    "description": "Under normal circumstances, at least 80% of the fund's net assets (plus any borrowings for investment purposes) in a combination of securities of Technology companies (either directly or indirectly through an underlying ETF) and investments that produce premium income. Technology companies comprise companies included in the Information Technology sector of the S&P 500 Index, as determined by the Global Industry Classification Standard (GICS\u00ae). The fund is non-diversified.",
    "fetched": "2026-11-07"
   },
+  "XLKM": {
+   "name": "State Street S&P 500 Technology Market Sector SPDR ETF",
+   "quote_type": "ETF",
+   "category": "Technology",
+   "family": "State Street Investment Management",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-13",
+   "net_assets": 463858.0,
+   "expense_ratio": 0.0011999999,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "XLK",
+     "name": "State Street\u00aeTechSelSectSPDR\u00aeETF",
+     "weight": 0.65863574
+    },
+    {
+     "symbol": "AAPL",
+     "name": "Apple Inc",
+     "weight": 0.104010694
+    },
+    {
+     "symbol": "NVDA",
+     "name": "NVIDIA Corp",
+     "weight": 0.103229396
+    },
+    {
+     "symbol": "MSFT",
+     "name": "Microsoft Corp",
+     "weight": 0.0810075
+    },
+    {
+     "symbol": "AVGO",
+     "name": "Broadcom Inc",
+     "weight": 0.0323355
+    },
+    {
+     "symbol": "MU",
+     "name": "Micron Technology Inc",
+     "weight": 0.0152582005
+    },
+    {
+     "symbol": "AMD",
+     "name": "Advanced Micro Devices Inc",
+     "weight": 0.0043529
+    },
+    {
+     "symbol": "TWLO",
+     "name": "Twilio Inc Class A",
+     "weight": 0.000884
+    },
+    {
+     "symbol": "INTC",
+     "name": "Intel Corp",
+     "weight": 0.0002835
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.00029999999,
+    "stock": 0.9996,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "technology": 1.0
+   },
+   "description": "Under normal market circumstances, at least 80% of the fund's net assets (plus any borrowings for investment purposes) in securities comprising the index the fund seeks to track, either directly or indirectly through underlying exchange-traded funds (\u201cETFs\u201d), and derivatives that provide exposure to such securities.",
+   "fetched": "2026-11-14"
+  },
   "XLKX": {
    "name": "Corgi U.S. Technology 2x Daily ETF",
    "quote_type": "ETF",
@@ -376140,6 +376482,84 @@
    },
    "description": "The index is a total return index that tracks the performance of the State Street\u00ae Consumer Staples Select Sector SPDR\u00ae ETF and is designed to provide exposure to the consumer staples sector of the S&P 500\u00ae index through a single fund-tracking vehicle.",
    "fetched": "2026-11-07"
+  },
+  "XLPM": {
+   "name": "State Street S&P 500 Consumer Staples Market Sector SPDR ETF",
+   "quote_type": "ETF",
+   "category": "Consumer Defensive",
+   "family": "State Street Investment Management",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-13",
+   "net_assets": 531010.0,
+   "expense_ratio": 0.0011999999,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "XLP",
+     "name": "State Street\u00aeCnsmrStpSelSectSPDR\u00aeETF",
+     "weight": 0.5186365
+    },
+    {
+     "symbol": "WMT",
+     "name": "Walmart Inc",
+     "weight": 0.1107819
+    },
+    {
+     "symbol": "COST",
+     "name": "Costco Wholesale Corp",
+     "weight": 0.0915591
+    },
+    {
+     "symbol": "PG",
+     "name": "Procter & Gamble Co",
+     "weight": 0.0761133
+    },
+    {
+     "symbol": "KO",
+     "name": "Coca-Cola Co",
+     "weight": 0.0733935
+    },
+    {
+     "symbol": "PM",
+     "name": "Philip Morris International Inc",
+     "weight": 0.0653097
+    },
+    {
+     "symbol": "PEP",
+     "name": "PepsiCo Inc",
+     "weight": 0.036231402
+    },
+    {
+     "symbol": "MO",
+     "name": "Altria Group Inc",
+     "weight": 0.0152917
+    },
+    {
+     "symbol": "VYLR",
+     "name": "Vylor Inc",
+     "weight": 0.0070942002
+    },
+    {
+     "symbol": "MDLZ",
+     "name": "Mondelez International Inc Class A",
+     "weight": 0.0034263
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0005,
+    "stock": 0.9995,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "consumer_cyclical": 0.0077,
+    "consumer_defensive": 0.97730005,
+    "financial_services": 0.015
+   },
+   "description": "Under normal market circumstances, at least 80% of the fund's net assets (plus any borrowings for investment purposes) in securities comprising the index the fund seeks to track, either directly or indirectly through underlying exchange-traded funds (\u201cETFs\u201d), and derivatives that provide exposure to such securities.",
+   "fetched": "2026-11-14"
   },
   "XLPU": {
    "name": "MicroSectors 3x Long Consumer Staples (XLP) ETNs",
@@ -376786,6 +377206,53 @@
    },
    "description": "Under normal circumstances, at least 80% of the fund's net assets (plus any borrowings for investment purposes) in a combination of securities of Consumer Discretionary companies (either directly or indirectly through an underlying ETF) and investments that produce premium income. Consumer Discretionary companies comprise companies included in the Consumer Discretionary sector of the S&P 500 Index, as determined by the Global Industry Classification Standard (GICS\u00ae). The fund is non-diversified.",
    "fetched": "2026-11-07"
+  },
+  "XLYM": {
+   "name": "State Street S&P 500 Consumer Discretionary Market Sector SPDR ETF",
+   "quote_type": "ETF",
+   "category": "Consumer Cyclical",
+   "family": "State Street Investment Management",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-13",
+   "net_assets": 500917.0,
+   "expense_ratio": 0.0011999999,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "XLY",
+     "name": "State Street\u00ae CnsmrDiscSelSectSPDR\u00aeETF",
+     "weight": 0.65334356
+    },
+    {
+     "symbol": "AMZN",
+     "name": "Amazon.com Inc",
+     "weight": 0.165084
+    },
+    {
+     "symbol": "TSLA",
+     "name": "Tesla Inc",
+     "weight": 0.067055896
+    },
+    {
+     "symbol": "HD",
+     "name": "The Home Depot Inc",
+     "weight": 0.0184052
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.1043,
+    "stock": 0.8957,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "consumer_cyclical": 0.9914,
+    "technology": 0.0086
+   },
+   "description": "Under normal market circumstances, at least 80% of the fund's net assets (plus any borrowings for investment purposes) in securities comprising the index the fund seeks to track, either directly or indirectly through underlying exchange-traded funds (\u201cETFs\u201d), and derivatives that provide exposure to such securities.",
+   "fetched": "2026-11-14"
   },
   "XLYX": {
    "name": "Corgi U.S. Consumer Discretionary 2x Daily ETF",
