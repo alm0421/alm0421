@@ -1,3 +1,89 @@
+factors ff3_daily (F-F_Research_Data_Factors_daily_CSV.zip) failed: File is not a zip file
+factors ff5_daily (F-F_Research_Data_5_Factors_2x3_daily_CSV.zip) failed: File is not a zip file
+factors mom_daily (F-F_Momentum_Factor_daily_CSV.zip) failed: File is not a zip file
+factors port6_daily (6_Portfolios_2x3_daily_CSV.zip) failed: File is not a zip file
+factors dev_ff3_daily (Developed_ex_US_3_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors em_ff5_monthly (Emerging_5_Factors_CSV.zip) failed: File is not a zip file
+factors ff3_monthly (F-F_Research_Data_Factors_CSV.zip) failed: File is not a zip file
+factors ff5_monthly (F-F_Research_Data_5_Factors_2x3_CSV.zip) failed: File is not a zip file
+factors mom_monthly (F-F_Momentum_Factor_CSV.zip) failed: File is not a zip file
+factors emerging_mom_monthly (Emerging_MOM_Factor_CSV.zip) failed: File is not a zip file
+factors developed_ff3_monthly (Developed_3_Factors_CSV.zip) failed: File is not a zip file
+factors developed_ff5_monthly (Developed_5_Factors_CSV.zip) failed: File is not a zip file
+factors developed_mom_monthly (Developed_Mom_Factor_CSV.zip) failed: File is not a zip file
+factors developed_ff3_daily (Developed_3_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors developed_ff5_daily (Developed_5_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors developed_mom_daily (Developed_Mom_Factor_Daily_CSV.zip) failed: File is not a zip file
+factors developed_ex_us_ff3_monthly (Developed_ex_US_3_Factors_CSV.zip) failed: File is not a zip file
+factors developed_ex_us_ff5_monthly (Developed_ex_US_5_Factors_CSV.zip) failed: File is not a zip file
+factors developed_ex_us_mom_monthly (Developed_ex_US_Mom_Factor_CSV.zip) failed: File is not a zip file
+factors developed_ex_us_ff3_daily (Developed_ex_US_3_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors developed_ex_us_ff5_daily (Developed_ex_US_5_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors developed_ex_us_mom_daily (Developed_ex_US_Mom_Factor_Daily_CSV.zip) failed: File is not a zip file
+factors europe_ff3_monthly (Europe_3_Factors_CSV.zip) failed: File is not a zip file
+factors europe_ff5_monthly (Europe_5_Factors_CSV.zip) failed: File is not a zip file
+factors europe_mom_monthly (Europe_Mom_Factor_CSV.zip) failed: File is not a zip file
+factors europe_ff3_daily (Europe_3_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors europe_ff5_daily (Europe_5_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors europe_mom_daily (Europe_Mom_Factor_Daily_CSV.zip) failed: File is not a zip file
+factors japan_ff3_monthly (Japan_3_Factors_CSV.zip) failed: File is not a zip file
+factors japan_ff5_monthly (Japan_5_Factors_CSV.zip) failed: File is not a zip file
+factors japan_mom_monthly (Japan_Mom_Factor_CSV.zip) failed: File is not a zip file
+factors japan_ff3_daily (Japan_3_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors japan_ff5_daily (Japan_5_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors japan_mom_daily (Japan_Mom_Factor_Daily_CSV.zip) failed: File is not a zip file
+factors asia_pacific_ex_japan_ff3_monthly (Asia_Pacific_ex_Japan_3_Factors_CSV.zip) failed: File is not a zip file
+factors asia_pacific_ex_japan_ff5_monthly (Asia_Pacific_ex_Japan_5_Factors_CSV.zip) failed: File is not a zip file
+factors asia_pacific_ex_japan_mom_monthly (Asia_Pacific_ex_Japan_MOM_Factor_CSV.zip) failed: File is not a zip file
+factors asia_pacific_ex_japan_ff3_daily (Asia_Pacific_ex_Japan_3_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors asia_pacific_ex_japan_ff5_daily (Asia_Pacific_ex_Japan_5_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors asia_pacific_ex_japan_mom_daily (Asia_Pacific_ex_Japan_MOM_Factor_Daily_CSV.zip) failed: File is not a zip file
+factors north_america_ff3_monthly (North_America_3_Factors_CSV.zip) failed: File is not a zip file
+factors north_america_ff5_monthly (North_America_5_Factors_CSV.zip) failed: File is not a zip file
+factors north_america_mom_monthly (North_America_Mom_Factor_CSV.zip) failed: File is not a zip file
+factors north_america_ff3_daily (North_America_3_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors north_america_ff5_daily (North_America_5_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors north_america_mom_daily (North_America_Mom_Factor_Daily_CSV.zip) failed: File is not a zip file
+factors me_daily (Portfolios_Formed_on_ME_Daily_CSV.zip) failed: File is not a zip file
+factors dev_port6_daily (Developed_ex_US_6_Portfolios_ME_BE-ME_daily_CSV.zip) failed: File is not a zip file
+factors eu_ff3_daily (Europe_3_Factors_Daily_CSV.zip) failed: File is not a zip file
+factors port25_daily (25_Portfolios_5x5_Daily_CSV.zip) failed: File is not a zip file
+EAFE monthly failed: File is not a zip file
+Traceback (most recent call last):
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2052, in developed
+    eafe = _monthly_steps(french_international_index("all"))   # 13+ developed markets ex-US, monthly USD, from 1975
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2497, in french_international_index
+    z = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.18/x64/lib/python3.11/zipfile.py", line 1355, in __init__
+    self._RealGetContents()
+zipfile.BadZipFile: File is not a zip file
+
+Europe monthly failed: File is not a zip file
+Traceback (most recent call last):
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2066, in europe
+    m = _monthly_steps(french_international_index("eur_with_uk"))   # Europe incl. UK
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2497, in french_international_index
+    z = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.18/x64/lib/python3.11/zipfile.py", line 1355, in __init__
+    self._RealGetContents()
+zipfile.BadZipFile: File is not a zip file
+
+EAFE value monthly failed: File is not a zip file
+Traceback (most recent call last):
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2084, in intl_size_value
+    m = _monthly_steps(french_international_index("all", column=("HIGH",)))   # first "High" = high BE/ME
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2497, in french_international_index
+    z = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.18/x64/lib/python3.11/zipfile.py", line 1355, in __init__
+    self._RealGetContents()
+zipfile.BadZipFile: File is not a zip file
+
 LBMA gold failed, using World Bank monthly averages: 403 Client Error: Forbidden for url: https://prices.lbma.org.uk/json/gold_pm.json
 Traceback (most recent call last):
   File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2213, in gold
@@ -8,6 +94,114 @@ Traceback (most recent call last):
   File "/opt/hostedtoolcache/Python/3.11.18/x64/lib/python3.11/site-packages/requests/models.py", line 1167, in raise_for_status
     raise HTTPError(http_error_msg, response=self)
 requests.exceptions.HTTPError: 403 Client Error: Forbidden for url: https://prices.lbma.org.uk/json/gold_pm.json
+
+Pacific monthly country indexes failed: File is not a zip file
+Traceback (most recent call last):
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2377, in pacific
+    jm = _monthly_steps(french_country_index("Japan.Dat"))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2441, in french_country_index
+    _ZIPS[url] = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.18/x64/lib/python3.11/zipfile.py", line 1355, in __init__
+    self._RealGetContents()
+zipfile.BadZipFile: File is not a zip file
+
+sim EWJSIM failed: File is not a zip file
+Traceback (most recent call last):
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 1922, in attempt
+    fn()
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2411, in one
+    m = _monthly_steps(french_country_index(member))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2441, in french_country_index
+    _ZIPS[url] = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+zipfile.BadZipFile: File is not a zip file
+
+sim EWUSIM failed: File is not a zip file
+Traceback (most recent call last):
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 1922, in attempt
+    fn()
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2411, in one
+    m = _monthly_steps(french_country_index(member))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2441, in french_country_index
+    _ZIPS[url] = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+zipfile.BadZipFile: File is not a zip file
+
+sim EWGSIM failed: File is not a zip file
+Traceback (most recent call last):
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 1922, in attempt
+    fn()
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2411, in one
+    m = _monthly_steps(french_country_index(member))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2441, in french_country_index
+    _ZIPS[url] = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+zipfile.BadZipFile: File is not a zip file
+
+sim EWCSIM failed: File is not a zip file
+Traceback (most recent call last):
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 1922, in attempt
+    fn()
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2411, in one
+    m = _monthly_steps(french_country_index(member))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2441, in french_country_index
+    _ZIPS[url] = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+zipfile.BadZipFile: File is not a zip file
+
+sim EWASIM failed: File is not a zip file
+Traceback (most recent call last):
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 1922, in attempt
+    fn()
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2411, in one
+    m = _monthly_steps(french_country_index(member))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2441, in french_country_index
+    _ZIPS[url] = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+zipfile.BadZipFile: File is not a zip file
+
+sim EWQSIM failed: File is not a zip file
+Traceback (most recent call last):
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 1922, in attempt
+    fn()
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2411, in one
+    m = _monthly_steps(french_country_index(member))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2441, in french_country_index
+    _ZIPS[url] = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+zipfile.BadZipFile: File is not a zip file
+
+sim EWLSIM failed: File is not a zip file
+Traceback (most recent call last):
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 1922, in attempt
+    fn()
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2411, in one
+    m = _monthly_steps(french_country_index(member))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2441, in french_country_index
+    _ZIPS[url] = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+zipfile.BadZipFile: File is not a zip file
+
+sim EWHSIM failed: File is not a zip file
+Traceback (most recent call last):
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 1922, in attempt
+    fn()
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2411, in one
+    m = _monthly_steps(french_country_index(member))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/alm0421/alm0421/scripts/fetch_data.py", line 2441, in french_country_index
+    _ZIPS[url] = zipfile.ZipFile(io.BytesIO(requests.get(url, headers=UA, timeout=120).content))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+zipfile.BadZipFile: File is not a zip file
 
 
 Model vs fund on their overlap:
@@ -39,7 +233,7 @@ VBRSIM model choice vs VISVX: small/high B/M: tracking error 6.41%/yr (339 month
 validate VBRSIM vs VISVX 1998-06..2026-08: monthly correlation 0.974, tracking error 4.93%/yr, CAGR model 10.43% vs fund 9.19%, volatility 21.0% vs 19.3%
 drag VBRSIM: 1.13%/yr taken off the model before 1998-05-22 (hands over to VISVX; expense ratio 0.19%; model beat the fund by 1.13%/yr on 1998-06..2026-08 (339 months); basis: overlap gap); with the drag the model returns 9.19%/yr vs the fund's 9.19% on the overlap
 validate VBRSIM vs VBR 2004-03..2026-08: monthly correlation 0.976, tracking error 4.87%/yr, CAGR model 9.95% vs fund 9.53%, volatility 21.2% vs 19.1%
-VISGX fund history (for the SIMs): 7 quarter(s) matched to published returns (2000Q4 -11.17%->-6.39%, 2001Q2 +14.67%->+14.99%, 2001Q3 -17.28%->-17.50%, 2002Q4 +5.39%->+5.09%, 2003Q1 -3.06%->-3.60%, 2023Q4 +14.62%->+13.10%, 2024Q1 +6.52%->+7.96%)
+VISGX fund history (for the SIMs): 7 quarter(s) matched to published returns (2000Q4 -11.17%->-6.39%, 2001Q2 +14.68%->+14.99%, 2001Q3 -17.28%->-17.50%, 2002Q4 +5.39%->+5.09%, 2003Q1 -3.06%->-3.60%, 2023Q4 +14.62%->+13.10%, 2024Q1 +6.52%->+7.96%)
 VBKSIM model choice vs VISGX: small/low B/M: tracking error 8.16%/yr (339 months); 1/2 small/low + 1/2 small/neutral B/M: tracking error 6.09%/yr (339 months); 25 portfolios: size quintiles 2-3 x 2 lowest B/M quintiles: tracking error 5.40%/yr (339 months) -> 25 portfolios: size quintiles 2-3 x 2 lowest B/M quintiles
 validate VBKSIM vs VISGX 1998-06..2026-08: monthly correlation 0.969, tracking error 5.40%/yr, CAGR model 10.08% vs fund 9.22%, volatility 21.7% vs 20.7%
 drag VBKSIM: 0.79%/yr taken off the model before 1998-05-22 (hands over to VISGX; expense ratio 0.19%; model beat the fund by 0.79%/yr on 1998-06..2026-08 (339 months); basis: overlap gap); with the drag the model returns 9.22%/yr vs the fund's 9.22% on the overlap
@@ -57,17 +251,14 @@ validate VOTSIM vs VOT 2006-09..2026-08: monthly correlation 0.964, tracking err
 drag VOTSIM: 1.67%/yr taken off the model before 2006-08-28 (hands over to VOT; expense ratio 0.07%; model beat the fund by 1.67%/yr on 2006-09..2026-08 (240 months); basis: overlap gap); with the drag the model returns 9.96%/yr vs the fund's 9.96% on the overlap
 validate MIDSIM vs IJH 2000-06..2026-08: monthly correlation 0.982, tracking error 3.83%/yr, CAGR model 9.97% vs fund 9.66%, volatility 19.2% vs 17.7%
 drag MIDSIM: 0.23%/yr taken off the model before 1995-05-05 (hands over to MDY; expense ratio 0.23%; model beat the fund by 0.00%/yr on 1995-06..2026-08 (375 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 10.85%/yr vs the fund's 11.15% on the overlap
-French international index 'all' column MKT: Ind_all.Dat, 612 months 1975-01..2025-12
 validate EFASIM vs EFA 2001-09..2026-08: monthly correlation 0.984, tracking error 2.95%/yr, CAGR model 7.81% vs fund 6.70%, volatility 16.2% vs 16.6%
 drag EFASIM: 1.04%/yr taken off the model before 2001-08-28 (hands over to EFA; expense ratio 0.35%; model beat the fund by 1.04%/yr on 2001-09..2026-08 (300 months); basis: overlap gap); with the drag the model returns 6.70%/yr vs the fund's 6.70% on the overlap
-French international index 'eur_with_uk' column MKT: Ind_Eur_With_UK.Dat, 612 months 1975-01..2025-12
 validate VGKSIM vs VGK 2005-04..2026-08: monthly correlation 0.991, tracking error 2.50%/yr, CAGR model 7.16% vs fund 6.72%, volatility 18.1% vs 18.5%
 drag VGKSIM: 0.41%/yr taken off the model before 2005-03-11 (hands over to VGK; expense ratio 0.06%; model beat the fund by 0.41%/yr on 2005-04..2026-08 (257 months); basis: overlap gap); with the drag the model returns 6.72%/yr vs the fund's 6.72% on the overlap
 validate SCZSIM vs SCZ 2008-01..2026-08: monthly correlation 0.966, tracking error 4.94%/yr, CAGR model 5.15% vs fund 5.72%, volatility 17.5% vs 19.0%
 drag SCZSIM: 0.40%/yr taken off the model before 2007-12-13 (hands over to SCZ; expense ratio 0.40%; model beat the fund by 0.00%/yr on 2008-01..2026-08 (224 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 4.73%/yr vs the fund's 5.72% on the overlap
 validate AVDVSIM vs AVDV 2019-10..2026-08: monthly correlation 0.973, tracking error 5.71%/yr, CAGR model 14.04% vs fund 16.02%, volatility 16.3% vs 20.2%
 drag AVDVSIM: 0.36%/yr taken off the model before 2019-09-27 (hands over to AVDV; expense ratio 0.36%; model beat the fund by 0.00%/yr on 2019-10..2026-08 (83 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 13.63%/yr vs the fund's 16.02% on the overlap
-French international index 'all' column HIGH: Ind_all.Dat, 612 months 1975-01..2025-12
 validate EFVSIM vs EFV 2005-09..2026-08: monthly correlation 0.977, tracking error 4.27%/yr, CAGR model 7.75% vs fund 6.07%, volatility 19.5% vs 18.0%
 drag EFVSIM: 1.59%/yr taken off the model before 2005-08-08 (hands over to EFV; expense ratio 0.33%; model beat the fund by 1.59%/yr on 2005-09..2026-08 (252 months); basis: overlap gap); with the drag the model returns 6.07%/yr vs the fund's 6.07% on the overlap
 validate LQDSIM vs LQD 2002-08..2026-10: monthly correlation 0.887, tracking error 3.72%/yr, CAGR model 5.39% vs fund 4.43%, volatility 6.2% vs 7.9%
@@ -83,16 +274,16 @@ HYGSIM model choice vs VWEHX: 100% Baa 7-year par bond + 0% US stock market: tra
 validate HYGSIM vs VWEHX 1980-02..2026-08: monthly correlation 0.753, tracking error 4.84%/yr, CAGR model 9.73% vs fund 7.81%, volatility 5.8% vs 7.3%
 drag HYGSIM: 1.77%/yr taken off the model before 1980-01-03 (hands over to VWEHX; expense ratio 0.23%; model beat the fund by 1.77%/yr on 1980-02..2026-08 (559 months); basis: overlap gap); with the drag the model returns 7.81%/yr vs the fund's 7.81% on the overlap
 validate HYGSIM model vs HYG 2007-05..2026-08: monthly correlation 0.751, tracking error 6.84%/yr, CAGR model 6.69% vs fund 4.88%, volatility 6.4% vs 10.2%
-BWXSIM model: 668 months 1971-02..2026-09, countries ['AU', 'BE', 'CA', 'CH', 'DE', 'ES', 'FR', 'GB', 'IT', 'JP', 'NL', 'SE'] (unhedged, month-end exchange rates; monthly averages where FRED has no daily series)
-validate BWXSIM model vs IGOV 2009-03..2026-08: monthly correlation 0.924, tracking error 3.36%/yr, CAGR model 0.80% vs fund 0.33%, volatility 8.4% vs 8.7%
-validate BWXSIM vs BWX 2007-11..2026-08: monthly correlation 0.933, tracking error 3.27%/yr, CAGR model 0.76% vs fund 0.40%, volatility 8.9% vs 9.0%
-drag BWXSIM: 0.36%/yr taken off the model before 2007-10-12 (hands over to BWX; expense ratio 0.35%; model beat the fund by 0.36%/yr on 2007-11..2026-08 (226 months); basis: overlap gap); with the drag the model returns 0.40%/yr vs the fund's 0.40% on the overlap
-BNDXSIM model: 800 months 1960-02..2026-09, countries ['AU', 'BE', 'CA', 'CH', 'DE', 'ES', 'FR', 'GB', 'IT', 'JP', 'NL', 'SE']
-validate BNDXSIM model vs BNDX 2013-07..2026-08: monthly correlation 0.704, tracking error 3.03%/yr, CAGR model 1.72% vs fund 2.41%, volatility 3.8% vs 4.0%
+BWXSIM model: 669 months 1971-02..2026-10, countries ['AU', 'BE', 'CA', 'CH', 'DE', 'ES', 'FR', 'GB', 'IT', 'JP', 'NL', 'SE'] (unhedged, month-end exchange rates; monthly averages where FRED has no daily series)
+validate BWXSIM model vs IGOV 2009-03..2026-09: monthly correlation 0.925, tracking error 3.35%/yr, CAGR model 0.62% vs fund 0.13%, volatility 8.4% vs 8.8%
+validate BWXSIM vs BWX 2007-11..2026-09: monthly correlation 0.934, tracking error 3.26%/yr, CAGR model 0.59% vs fund 0.25%, volatility 8.9% vs 9.0%
+drag BWXSIM: 0.35%/yr taken off the model before 2007-10-12 (hands over to BWX; expense ratio 0.35%; model beat the fund by 0.33%/yr on 2007-11..2026-09 (227 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 0.24%/yr vs the fund's 0.25% on the overlap
+BNDXSIM model: 801 months 1960-02..2026-10, countries ['AU', 'BE', 'CA', 'CH', 'DE', 'ES', 'FR', 'GB', 'IT', 'JP', 'NL', 'SE']
+validate BNDXSIM model vs BNDX 2013-07..2026-09: monthly correlation 0.707, tracking error 3.02%/yr, CAGR model 1.59% vs fund 2.31%, volatility 3.8% vs 4.0%
 PFORX fund history (for the SIMs): 5 quarter(s) matched to published returns (1993Q4 +0.29%->+4.30%, 1995Q3 +4.72%->+5.33%, 1995Q4 +7.90%->+7.22%, 1997Q1 +1.07%->+0.88%, 1997Q2 +3.31%->+3.51%)
-validate BNDXSIM vs PFORX 1993-01..2026-08: monthly correlation 0.611, tracking error 3.43%/yr, CAGR model 4.57% vs fund 6.06%, volatility 3.9% vs 3.9%
-drag BNDXSIM: 0.50%/yr taken off the model before 1992-12-03 (hands over to PFORX; expense ratio 0.50%; model beat the fund by 0.00%/yr on 1993-01..2026-08 (404 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 4.05%/yr vs the fund's 6.06% on the overlap
-validate EEMSIM vs EEM 2003-05..2026-08: monthly correlation 0.968, tracking error 5.22%/yr, CAGR model 11.43% vs fund 9.83%, volatility 19.7% vs 20.8%
+validate BNDXSIM vs PFORX 1993-01..2026-09: monthly correlation 0.613, tracking error 3.43%/yr, CAGR model 4.51% vs fund 5.99%, volatility 3.9% vs 3.9%
+drag BNDXSIM: 0.50%/yr taken off the model before 1992-12-03 (hands over to PFORX; expense ratio 0.50%; model beat the fund by 0.00%/yr on 1993-01..2026-09 (405 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 3.99%/yr vs the fund's 5.99% on the overlap
+validate EEMSIM vs EEM 2003-05..2026-08: monthly correlation 0.968, tracking error 5.21%/yr, CAGR model 11.43% vs fund 9.83%, volatility 19.7% vs 20.8%
 drag EEMSIM: 1.46%/yr taken off the model before 2003-04-15 (hands over to EEM; expense ratio 0.70%; model beat the fund by 1.46%/yr on 2003-05..2026-08 (280 months); basis: overlap gap); with the drag the model returns 9.83%/yr vs the fund's 9.83% on the overlap
 validate VWOSIM vs VEIEX 1994-06..2026-08: monthly correlation 0.971, tracking error 5.12%/yr, CAGR model 7.14% vs fund 6.41%, volatility 20.5% vs 21.4%
 drag VWOSIM: 0.68%/yr taken off the model before 1994-05-05 (hands over to VEIEX; expense ratio 0.29%; model beat the fund by 0.68%/yr on 1994-06..2026-08 (387 months); basis: overlap gap); with the drag the model returns 6.41%/yr vs the fund's 6.41% on the overlap
@@ -126,41 +317,13 @@ validate IWCSIM vs IWC 2005-09..2026-08: monthly correlation 0.989, tracking err
 drag IWCSIM: 0.60%/yr taken off the model before 2005-08-17 (hands over to IWC; expense ratio 0.60%; model beat the fund by 0.40%/yr on 2005-09..2026-08 (252 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 7.55%/yr vs the fund's 7.76% on the overlap
 DFSCX fund history (for the SIMs): 4 quarter(s) matched to published returns (1986Q4 +9.81%->+0.42%, 1987Q4 -28.39%->-28.51%, 2001Q2 +17.30%->+21.83%, 2001Q3 -14.31%->-17.50%)
 validate IWCSIM vs DFSCX 1986-02..2026-08: monthly correlation 0.968, tracking error 5.43%/yr, CAGR model 9.96% vs fund 11.01%, volatility 21.5% vs 20.2%
-World Bank market caps download failed (HTTPSConnectionPool(host='api.worldbank.org', port=443): Read timed out. (read timeout=60)); using world_market_caps.csv
 VTSIM model choice vs VT: World Bank year-end market caps, emerging markets x 0.5: tracking error 1.93%/yr (218 months); World Bank year-end market caps, emerging markets x 0.75: tracking error 2.06%/yr (218 months); World Bank year-end market caps, emerging markets x 1: tracking error 2.26%/yr (218 months) -> World Bank year-end market caps, emerging markets x 0.5
 VTSIM US weight among developed markets (World Bank year-end market caps): 1976: 63%, 1980: 52%, 1985: 50%, 1990: 30%, 1995: 37%, 2000: 46%, 2005: 48%, 2008: 40%
 validate VTSIM vs VT 2008-07..2026-08: monthly correlation 0.993, tracking error 1.93%/yr, CAGR model 8.90% vs fund 8.95%, volatility 16.3% vs 16.6%
 drag VTSIM: 0.06%/yr taken off the model before 2008-06-27 (hands over to VT; expense ratio 0.06%; model beat the fund by 0.00%/yr on 2008-07..2026-08 (218 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 8.84%/yr vs the fund's 8.95% on the overlap
 validate VTSIM vs ACWI 2008-04..2026-08: monthly correlation 0.992, tracking error 2.12%/yr, CAGR model 8.71% vs fund 8.65%, volatility 16.3% vs 16.6%
-French country index Japan.Dat: 612 months 1975-01..2025-12
-French country index Austrlia.Dat: 612 months 1975-01..2025-12
-French country index HongKong.Dat: 612 months 1975-01..2025-12
 VPLSIM Japan weight (World Bank year-end market caps): 1980: 79%, 1985: 88%, 1990: 94%, 1995: 85%, 2000: 78%, 2005: 65%
-validate VPLSIM vs VPACX 1990-07..2026-08: monthly correlation 0.969, tracking error 4.55%/yr, CAGR model 4.40% vs fund 4.35%, volatility 18.1% vs 18.3%
-drag VPLSIM: 0.23%/yr taken off the model before 1990-06-19 (hands over to VPACX; expense ratio 0.23%; model beat the fund by 0.05%/yr on 1990-07..2026-08 (434 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 4.16%/yr vs the fund's 4.35% on the overlap
+validate VPLSIM vs VPACX 1990-08..2026-08: monthly correlation 0.969, tracking error 4.57%/yr, CAGR model 4.38% vs fund 4.35%, volatility 18.2% vs 18.3%
+drag VPLSIM: 0.23%/yr taken off the model before 1990-06-19 (hands over to VPACX; expense ratio 0.23%; model beat the fund by 0.03%/yr on 1990-08..2026-08 (433 months); basis: expense ratio (the model did not beat the fund)); with the drag the model returns 4.14%/yr vs the fund's 4.35% on the overlap
 validate VPLSIM vs VPL 2005-04..2026-08: monthly correlation 0.940, tracking error 5.58%/yr, CAGR model 6.88% vs fund 6.97%, volatility 15.6% vs 16.4%
 validate VNQISIM (RWX) vs VNQI 2010-12..2026-10: monthly correlation 0.962, tracking error 4.60%/yr, CAGR model 2.64% vs fund 3.30%, volatility 16.9% vs 16.3%
-French country index Japan.Dat: 612 months 1975-01..2025-12
-validate EWJSIM vs EWJ 1996-04..2026-08: monthly correlation 0.940, tracking error 5.98%/yr, CAGR model 3.90% vs fund 2.91%, volatility 16.8% vs 17.6%
-drag EWJSIM: 0.96%/yr taken off the model before 1996-03-19 (hands over to EWJ; expense ratio 0.50%; model beat the fund by 0.96%/yr on 1996-04..2026-08 (365 months); basis: overlap gap); with the drag the model returns 2.91%/yr vs the fund's 2.91% on the overlap
-French country index UK.Dat: 612 months 1975-01..2025-12
-validate EWUSIM vs EWU 1996-04..2025-11: monthly correlation 0.973, tracking error 3.84%/yr, CAGR model 6.61% vs fund 5.79%, volatility 16.4% vs 16.5%
-drag EWUSIM: 0.78%/yr taken off the model before 1996-03-19 (hands over to EWU; expense ratio 0.50%; model beat the fund by 0.78%/yr on 1996-04..2025-11 (356 months); basis: overlap gap); with the drag the model returns 5.79%/yr vs the fund's 5.79% on the overlap
-French country index Germany.Dat: 612 months 1975-01..2025-12
-validate EWGSIM vs EWG 1996-04..2025-11: monthly correlation 0.986, tracking error 4.14%/yr, CAGR model 7.03% vs fund 6.27%, volatility 21.0% vs 23.0%
-drag EWGSIM: 0.72%/yr taken off the model before 1996-03-19 (hands over to EWG; expense ratio 0.50%; model beat the fund by 0.72%/yr on 1996-04..2025-11 (356 months); basis: overlap gap); with the drag the model returns 6.27%/yr vs the fund's 6.27% on the overlap
-French country index Canada.Dat: 588 months 1977-01..2025-12
-validate EWCSIM vs EWC 1996-04..2025-11: monthly correlation 0.985, tracking error 3.48%/yr, CAGR model 9.75% vs fund 8.68%, volatility 19.4% vs 20.1%
-drag EWCSIM: 0.99%/yr taken off the model before 1996-03-19 (hands over to EWC; expense ratio 0.50%; model beat the fund by 0.99%/yr on 1996-04..2025-11 (356 months); basis: overlap gap); with the drag the model returns 8.68%/yr vs the fund's 8.68% on the overlap
-French country index Austrlia.Dat: 612 months 1975-01..2025-12
-validate EWASIM vs EWA 1996-04..2025-11: monthly correlation 0.972, tracking error 5.10%/yr, CAGR model 8.38% vs fund 7.37%, volatility 21.0% vs 21.6%
-drag EWASIM: 0.94%/yr taken off the model before 1996-03-19 (hands over to EWA; expense ratio 0.50%; model beat the fund by 0.94%/yr on 1996-04..2025-11 (356 months); basis: overlap gap); with the drag the model returns 7.37%/yr vs the fund's 7.37% on the overlap
-French country index France.Dat: 612 months 1975-01..2025-12
-validate EWQSIM vs EWQ 1996-04..2025-11: monthly correlation 0.981, tracking error 4.06%/yr, CAGR model 8.38% vs fund 7.24%, volatility 19.9% vs 20.7%
-drag EWQSIM: 1.07%/yr taken off the model before 1996-03-19 (hands over to EWQ; expense ratio 0.50%; model beat the fund by 1.07%/yr on 1996-04..2025-11 (356 months); basis: overlap gap); with the drag the model returns 7.24%/yr vs the fund's 7.24% on the overlap
-French country index Swtzrlnd.Dat: 612 months 1975-01..2025-12
-validate EWLSIM vs EWL 1996-04..2025-11: monthly correlation 0.974, tracking error 3.75%/yr, CAGR model 8.48% vs fund 7.55%, volatility 15.6% vs 16.5%
-drag EWLSIM: 0.87%/yr taken off the model before 1996-03-19 (hands over to EWL; expense ratio 0.50%; model beat the fund by 0.87%/yr on 1996-04..2025-11 (356 months); basis: overlap gap); with the drag the model returns 7.55%/yr vs the fund's 7.55% on the overlap
-French country index HongKong.Dat: 612 months 1975-01..2025-12
-validate EWHSIM vs EWH 1996-04..2025-11: monthly correlation 0.958, tracking error 6.86%/yr, CAGR model 5.49% vs fund 4.84%, volatility 22.5% vs 24.0%
-drag EWHSIM: 0.62%/yr taken off the model before 1996-03-19 (hands over to EWH; expense ratio 0.50%; model beat the fund by 0.62%/yr on 1996-04..2025-11 (356 months); basis: overlap gap); with the drag the model returns 4.84%/yr vs the fund's 4.84% on the overlap

@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-11-14T02:55:12+00:00",
+ "updated_utc": "2026-11-17T04:57:20+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
@@ -113,8 +113,24 @@
   },
   "AAAB": {
    "name": "Corgi FTSE Aaa\u2013A Intermediate Corporate Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "Corporate Bond",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 752999.0,
+   "expense_ratio": 0.0005,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.01,
+    "stock": 0.0,
+    "bond": 0.9792,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0107
+   },
+   "description": "Under normal circumstances, at least 80% of the value of its net assets, plus borrowings for investment purposes, in U.S. dollar-denominated Aaa through A-rated corporate bonds of U.S. and foreign issuers with a remaining maturity of less than ten years that comprise the index. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "AAAC": {
    "name": "Columbia AAA CLO ETF",
@@ -6501,8 +6517,24 @@
   },
   "AGGB": {
    "name": "Corgi FTSE U.S. Aggregate Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "Intermediate Core Bond",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 1007245.0,
+   "expense_ratio": 0.0002,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.0377,
+    "stock": 0.0,
+    "bond": 0.95489997,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0074
+   },
+   "description": "Under normal circumstances, at least 80% of the value of its net assets, plus borrowings for investment purposes, in U.S. dollar-denominated investment-grade bonds issued in the U.S. market that comprise the index. The index measures the broad U.S. dollar-denominated investment-grade bond market through its 0+ Years universe. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "AGGH": {
    "name": "Simplify Aggregate Bond ETF",
@@ -12739,8 +12771,24 @@
   },
   "ANG": {
    "name": "Corgi FTSE Fallen Angels Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "High Yield Bond",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 997802.0,
+   "expense_ratio": 0.0008,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.0094,
+    "stock": 0.0,
+    "bond": 0.98050004,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.010199999
+   },
+   "description": "The fund invests 80% of the value of its net assets, plus borrowings for investment purposes, in U.S. dollar-denominated below-investment-grade corporate bonds of U.S. and Canadian issuers that were previously rated investment grade and subsequently downgraded that comprise the index. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "ANGL": {
    "name": "VanEck Fallen Angel High Yield Bond ETF",
@@ -22342,11 +22390,84 @@
    "family": "Avantis Investors",
    "legal_type": "Exchange Traded Fund",
    "inception": "2026-10-13",
+   "net_assets": 360698048.0,
    "expense_ratio": 0.0015,
    "turnover": 0.0,
-   "net_assets": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "IWF",
+     "name": "iShares Russell 1000 Growth ETF",
+     "weight": 0.0684125
+    },
+    {
+     "symbol": "IWD",
+     "name": "iShares Russell 1000 Value ETF",
+     "weight": 0.0580577
+    },
+    {
+     "symbol": "AAPL",
+     "name": "Apple Inc",
+     "weight": 0.0532148
+    },
+    {
+     "symbol": "MSFT",
+     "name": "Microsoft Corp",
+     "weight": 0.0396816
+    },
+    {
+     "symbol": "NVDA",
+     "name": "NVIDIA Corp",
+     "weight": 0.0391397
+    },
+    {
+     "symbol": "JPM",
+     "name": "JPMorgan Chase & Co",
+     "weight": 0.0278845
+    },
+    {
+     "symbol": "BRK-B",
+     "name": "Berkshire Hathaway Inc Class B",
+     "weight": 0.022019899
+    },
+    {
+     "symbol": "GOOG",
+     "name": "Alphabet Inc Class C",
+     "weight": 0.0215654
+    },
+    {
+     "symbol": "JNJ",
+     "name": "Johnson & Johnson",
+     "weight": 0.017493
+    },
+    {
+     "symbol": "AMZN",
+     "name": "Amazon.com Inc",
+     "weight": 0.016932499
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0055,
+    "stock": 0.9939,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0007
+   },
+   "sectors": {
+    "realestate": 0.0083,
+    "consumer_cyclical": 0.0738,
+    "basic_materials": 0.015,
+    "consumer_defensive": 0.0805,
+    "technology": 0.32389998,
+    "communication_services": 0.0731,
+    "financial_services": 0.1906,
+    "utilities": 0.0117999995,
+    "industrials": 0.0866,
+    "energy": 0.036,
+    "healthcare": 0.100600004
+   },
    "description": "Under normal market conditions, the fund will invest at least 80% of its assets in equity securities of U.S. companies. It invests primarily in a diverse group of U.S. companies across market sectors and industry groups. The fund may invest in companies of all market capitalizations. The fund seeks securities of companies that the Advisor expects to have higher returns by placing an enhanced emphasis on securities of companies with smaller market capitalizations and securities of companies with higher profitability and value characteristics.",
-   "fetched": "2026-10-16"
+   "fetched": "2026-11-17"
   },
   "AVUQ": {
    "name": "Avantis U.S. Quality ETF",
@@ -25253,8 +25374,24 @@
   },
   "BBBB": {
    "name": "Corgi FTSE BBB Rated Corporate Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "Corporate Bond",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 501447.0,
+   "expense_ratio": 0.0005,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.0116,
+    "stock": 0.0,
+    "bond": 0.9784,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0101
+   },
+   "description": "Under normal circumstances, at least 80% of the value of its net assets, plus borrowings for investment purposes, in U.S. dollar-denominated BBB-rated corporate bonds of U.S. and foreign issuers that comprise the index. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "BBBI": {
    "name": "Bondbloxx BBB Rated 5-10 Year Corporate Bond ETF",
@@ -134363,8 +134500,24 @@
   },
   "FTN": {
    "name": "Corgi FTSE 5\u201310 Year IG Corporate Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "Corporate Bond",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 1761559.0,
+   "expense_ratio": 0.0002,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.007900001,
+    "stock": 0.0,
+    "bond": 0.9824,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0098
+   },
+   "description": "The fund invests at least 80% of the value of its net assets, plus borrowings for investment purposes, in U.S. dollar-denominated investment-grade corporate bonds of U.S. and foreign issuers with a remaining maturity of at least five years and less than ten years that comprise the index. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "FTNJ": {
    "name": "Franklin New Jersey Municipal Income ETF",
@@ -138841,6 +138994,90 @@
    "description": "The fund will invest at least 80% of its net assets (plus borrowings for investment purposes) in the component securities of the index. The index constituents are weighted based on a banded float modified market capitalization ranking.",
    "fetched": "2026-10-31"
   },
+  "GANZ": {
+   "name": "Tuttle Capital Thematic ETF",
+   "quote_type": "ETF",
+   "category": "Large Growth",
+   "family": "Tuttle Capital Management, LLC",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-14",
+   "net_assets": 972183.0,
+   "expense_ratio": 0.0075,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "VNOM",
+     "name": "Viper Energy Inc Ordinary Shares - Class A",
+     "weight": 0.0429632
+    },
+    {
+     "symbol": "DPZ",
+     "name": "Domino's Pizza Inc",
+     "weight": 0.042916898
+    },
+    {
+     "symbol": "LRCX",
+     "name": "Lam Research Corp",
+     "weight": 0.0423039
+    },
+    {
+     "symbol": "ADBE",
+     "name": "Adobe Inc",
+     "weight": 0.041954096
+    },
+    {
+     "symbol": "UBER",
+     "name": "Uber Technologies Inc",
+     "weight": 0.0416795
+    },
+    {
+     "symbol": "CRM",
+     "name": "Salesforce Inc",
+     "weight": 0.0398383
+    },
+    {
+     "symbol": "PWR",
+     "name": "Quanta Services Inc",
+     "weight": 0.0363945
+    },
+    {
+     "symbol": "RYN",
+     "name": "Rayonier Inc",
+     "weight": 0.0343671
+    },
+    {
+     "symbol": "WRB",
+     "name": "WR Berkley Corp",
+     "weight": 0.034112
+    },
+    {
+     "symbol": "CEG",
+     "name": "Constellation Energy Corp",
+     "weight": 0.034006
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0074,
+    "stock": 0.9926,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": -0.0001
+   },
+   "sectors": {
+    "realestate": 0.0346,
+    "consumer_cyclical": 0.0432,
+    "basic_materials": 0.0327,
+    "technology": 0.5669,
+    "financial_services": 0.0344,
+    "utilities": 0.0343,
+    "industrials": 0.0696,
+    "energy": 0.104499996,
+    "healthcare": 0.0798
+   },
+   "description": "Under normal market conditions, the fund seeks to achieve its investment objective by investing primarily in equity securities of U.S.-listed companies, including common stocks, exchange-listed options on individual equity securities, and exchange-listed equity index options. It is non-diversified.",
+   "fetched": "2026-11-17"
+  },
   "GAPR": {
    "name": "FT Vest U.S. Equity Moderate Buffer ETF - April",
    "quote_type": "ETF",
@@ -139542,8 +139779,24 @@
   },
   "GCB": {
    "name": "Corgi FTSE Intermediate Government/Credit Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "Intermediate Core Bond",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 502510.0,
+   "expense_ratio": 0.0005,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.041500002,
+    "stock": 0.0,
+    "bond": 0.94949996,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0091
+   },
+   "description": "Under normal circumstances, at least 80% of the value of its net assets, plus borrowings for investment purposes, in U.S. dollar-denominated government and investment-grade credit bonds with a remaining maturity of less than ten years that comprise the index. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "GCC": {
    "name": "WisdomTree Enhanced Commodity Strategy Fund",
@@ -153130,6 +153383,11 @@
    "description": "The fund is actively managed and seeks to provide enhanced returns across multiple market cycles that are broadly correlated to the U.S. equity markets. The fund will invest in, to have exposure to, U.S. equity securities in order to achieve capital appreciation, or will invest in cash or cash equivalents in order to attempt to preserve capital during market downturns. The fund is non-diversified.",
    "fetched": "2026-11-03"
   },
+  "HCOP": {
+   "name": "Hartford Hybrid and Credit Opportunities ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-11-17"
+  },
   "HCOW": {
    "name": "Amplify COWS Covered Call ETF",
    "quote_type": "ETF",
@@ -155918,8 +156176,24 @@
   },
   "HH": {
    "name": "Corgi FTSE High Yield Corporate Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "High Yield Bond",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 995351.0,
+   "expense_ratio": 0.0005,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.0085,
+    "stock": 0.0,
+    "bond": 0.9768,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0146
+   },
+   "description": "Under normal circumstances, at least 80% of the value of its net assets, plus borrowings for investment purposes, in U.S. dollar-denominated below-investment-grade corporate bonds of U.S. and foreign issuers that comprise the index. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "HIAI": {
    "name": "AI Funds High Conviction US Equity AI-Managed ETF",
@@ -157392,6 +157666,86 @@
    },
    "description": "The fund, under normal circumstances, invests at least 80% of its net assets (plus any borrowings for investment purposes) in the securities of HOOD and financial instruments, such as swap agreements and options, that, in combination, provide 2X daily leveraged exposure to HOOD, consistent with the fund\u2019s investment objective. The fund is non-diversified.",
    "fetched": "2026-11-03"
+  },
+  "HOID": {
+   "name": "Rareview Humanoid Robotics ETF",
+   "quote_type": "ETF",
+   "category": "Technology",
+   "family": "Rareview Capital LLC",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 486983.0,
+   "expense_ratio": 0.0075,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "TDY",
+     "name": "Teledyne Technologies Inc",
+     "weight": 0.0675831
+    },
+    {
+     "symbol": "ADI",
+     "name": "Analog Devices Inc",
+     "weight": 0.0633817
+    },
+    {
+     "symbol": "CGNX",
+     "name": "Cognex Corp",
+     "weight": 0.059264496
+    },
+    {
+     "symbol": "TSLA",
+     "name": "Tesla Inc",
+     "weight": 0.055827096
+    },
+    {
+     "symbol": "QCOM",
+     "name": "Qualcomm Inc",
+     "weight": 0.0487283
+    },
+    {
+     "symbol": "NVDA",
+     "name": "NVIDIA Corp",
+     "weight": 0.047065
+    },
+    {
+     "symbol": "ROK",
+     "name": "Rockwell Automation Inc",
+     "weight": 0.0429951
+    },
+    {
+     "symbol": "GOOGL",
+     "name": "Alphabet Inc Class A",
+     "weight": 0.040225
+    },
+    {
+     "symbol": "SYM",
+     "name": "Symbotic Inc Ordinary Shares - Class A",
+     "weight": 0.040034
+    },
+    {
+     "symbol": "AMZN",
+     "name": "Amazon.com Inc",
+     "weight": 0.038496003
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.015,
+    "stock": 0.96819997,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0168
+   },
+   "sectors": {
+    "consumer_cyclical": 0.097399995,
+    "basic_materials": 0.0150999995,
+    "technology": 0.65809995,
+    "communication_services": 0.041500002,
+    "industrials": 0.1878
+   },
+   "description": "Under normal circumstances, the fund invests at least 80% of its net assets in Humanoid Robotics Companies. Humanoid Robotics Companies are issuers that derive at least 50% of their revenue from, or commit at least 50% of their assets to, one or more of the following activities: (1) the manufacture of humanoid robotics; or (2) development, production or supply of critical hardware software or other enabling technology essential to humanoid robots. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "HOLA": {
    "name": "JPMorgan International Hedged Equity Laddered Overlay ETF",
@@ -167688,8 +168042,24 @@
   },
   "IGB": {
    "name": "Corgi FTSE U.S. IG Corporate Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "Intermediate Core Bond",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 2010912.0,
+   "expense_ratio": 0.0002,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.0092,
+    "stock": 0.0,
+    "bond": 0.9803,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0106
+   },
+   "description": "Under normal circumstances, at least 80% of the value of its net assets, plus borrowings for investment purposes, in U.S. dollar-denominated investment-grade corporate bonds of U.S. and foreign issuers that comprise the index. The index is weighted by market value and rebalanced monthly.",
+   "fetched": "2026-11-17"
   },
   "IGBH": {
    "name": "iShares Interest Rate Hedged Long-Term Corporate Bond ETF",
@@ -203063,8 +203433,24 @@
   },
   "LIGB": {
    "name": "Corgi FTSE 10+ Year IG Corporate Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "Corporate Bond",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 1509988.0,
+   "expense_ratio": 0.0002,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.0095,
+    "stock": 0.0,
+    "bond": 0.97720003,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.013300001
+   },
+   "description": "Under normal circumstances, at least 80% of the value of its net assets, plus borrowings for investment purposes, in U.S. dollar-denominated investment-grade corporate bonds of U.S. and foreign issuers with a remaining maturity of at least ten years that comprise the index. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "LINT": {
    "name": "Direxion Daily INTC Bull 2X ETF",
@@ -206557,8 +206943,24 @@
   },
   "LTB": {
    "name": "Corgi FTSE 20+ Year U.S. Treasury Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "Long Government",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 254757.0,
+   "expense_ratio": 0.0005,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.0238,
+    "stock": 0.0,
+    "bond": 0.96300006,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.013099999
+   },
+   "description": "The fund invests at least 80% of the value of its net assets, plus borrowings for investment purposes, in U.S. dollar-denominated U.S. Treasury bond with a remaining maturity of at least twenty years that comprise the index. The index consists of U.S. domestic sovereign bonds eligible for the FTSE World Government Bond Index with a remaining maturity of at least twenty years. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "LTCC": {
    "name": "Canary Litecoin ETF",
@@ -216837,8 +217239,24 @@
   },
   "MMF": {
    "name": "Corgi Money Market ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "Money Market-Taxable",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 1000644.0,
+   "expense_ratio": 0.001,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.97269994,
+    "stock": 0.0,
+    "bond": 0.0287,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": -0.0014
+   },
+   "description": "Under normal circumstances, the fund invests at least 80% of the value of its net assets (plus any borrowings for investment purposes) in Money Market Securities.",
+   "fetched": "2026-11-17"
   },
   "MMHI": {
    "name": "NYLIM MacKay Muni High Income ETF",
@@ -301344,6 +301762,85 @@
    "description": "The fund will invest at least 80% of the value of its net assets, plus any borrowings for investment purposes, in financial instruments (for example, swaps and futures) that, in the aggregate, provide leveraged exposure to the Underlying Security equal to approximately two times its daily performance. It is non-diversified.",
    "fetched": "2026-11-06"
   },
+  "SMRZ": {
+   "name": "Global X Small Modular Reactor ETF",
+   "quote_type": "ETF",
+   "category": "Infrastructure",
+   "family": "Global X Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-14",
+   "net_assets": 1457268.0,
+   "expense_ratio": 0.0075,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "SMR",
+     "name": "NuScale Power Corp Class A",
+     "weight": 0.2000757
+    },
+    {
+     "symbol": "XE",
+     "name": "X-Energy Inc Class A",
+     "weight": 0.1929567
+    },
+    {
+     "symbol": "OKLO",
+     "name": "Oklo Inc Class A Shares",
+     "weight": 0.14672731
+    },
+    {
+     "symbol": "NNE",
+     "name": "Nano Nuclear Energy Inc",
+     "weight": 0.1320949
+    },
+    {
+     "symbol": "IMSR",
+     "name": "Terrestrial Energy Inc",
+     "weight": 0.093649596
+    },
+    {
+     "symbol": "GEV",
+     "name": "GE Vernova Inc",
+     "weight": 0.070626706
+    },
+    {
+     "symbol": "FISN",
+     "name": "Deep Fission Inc",
+     "weight": 0.051982697
+    },
+    {
+     "symbol": "BWXT",
+     "name": "BWX Technologies Inc",
+     "weight": 0.0345225
+    },
+    {
+     "symbol": "052690.KQ",
+     "name": "KEPCO Engineering & Construction Co Inc",
+     "weight": 0.0295084
+    },
+    {
+     "symbol": "STDN",
+     "name": "Standard Nuclear Inc Class A",
+     "weight": 0.0279954
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.001,
+    "stock": 0.999,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "basic_materials": 0.027999999,
+    "utilities": 0.24059999,
+    "industrials": 0.7125,
+    "energy": 0.0189
+   },
+   "description": "Under normal circumstances, the fund invests at least 80% of its net assets, plus the amount of any borrowings for investment purposes, in SMR Companies and/or derivative instruments that provide economic exposure to SMR Companies. It is non-diversified.",
+   "fetched": "2026-11-17"
+  },
   "SMST": {
    "name": "Defiance Daily Target 2X Short MSTR ETF",
    "quote_type": "ETF",
@@ -312158,8 +312655,24 @@
   },
   "SVTN": {
    "name": "Corgi FTSE 7-10 Year U.S. Treasury Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "Long Government",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 253152.0,
+   "expense_ratio": 0.0005,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.0148,
+    "stock": 0.0,
+    "bond": 0.9725,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0127
+   },
+   "description": "Under normal circumstances, at least 80% of the value of its net assets, plus borrowings for investment purposes, in U.S. dollar-denominated U.S. Treasury bonds with a remaining maturity of at least seven years and less than ten years that comprise the index. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "SVXY": {
    "name": "ProShares Short VIX Short-Term Futures ETF",
@@ -326313,8 +326826,24 @@
   },
   "TNTW": {
    "name": "Corgi FTSE 10-20 Year U.S. Treasury Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "Long Government",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 254706.0,
+   "expense_ratio": 0.0002,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.0186,
+    "stock": 0.0,
+    "bond": 0.96940005,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0119
+   },
+   "description": "Under normal circumstances, at least 80% of the value of its net assets, plus borrowings for investment purposes, in U.S. dollar-denominated U.S. Treasury bonds with a remaining maturity of at least ten years and less than twenty years that comprise the index. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "TNUK": {
    "name": "Tortoise Nuclear Renaissance ETF",
@@ -333492,8 +334021,24 @@
   },
   "TTTT": {
    "name": "Corgi FTSE U.S. TIPS Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "Inflation-Protected Bond",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 252430.0,
+   "expense_ratio": 0.0002,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.0387,
+    "stock": 0.0,
+    "bond": 0.9607,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0007
+   },
+   "description": "Under normal circumstances, at least 80% of the value of its net assets, plus borrowings for investment purposes, in inflation-protected U.S. Treasury bonds (\"TIPS\") that comprise the index. The index comprises U.S. government inflation-linked securities eligible for the FTSE World Inflation-Linked Securities 0+ Years Index. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "TTXD": {
    "name": "Direxion Daily Technology Top 5 Bear 2X ETF",
@@ -335854,8 +336399,24 @@
   },
   "UB": {
    "name": "Corgi FTSE U.S. Treasury Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-17"
+   "quote_type": "ETF",
+   "category": "Intermediate Government",
+   "family": "Corgi Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 252025.0,
+   "expense_ratio": 0.0002,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.051599998,
+    "stock": 0.0,
+    "bond": 0.9406,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0078
+   },
+   "description": "Under normal circumstances, at least 80% of the value of its net assets, plus borrowings for investment purposes, in U.S. dollar-denominated U.S. Treasury bonds that comprise the index. The index comprises the U.S. domestic sovereign component of the FTSE World Government Bond 0+ Years Index. It includes eligible fixed-rate U.S. Treasury bonds through the final month before maturity; a one-month minimum remaining maturity applies. It is non-diversified.",
+   "fetched": "2026-11-17"
   },
   "UBEW": {
    "name": "Roundhill UBER WeeklyPay ETF",
@@ -366830,9 +367391,30 @@
    "fetched": "2026-10-28"
   },
   "WBEM": {
-   "name": "William Blair ETF Trust - William Blair Emerging Markets Equity ETF",
+   "name": "William Blair Emerging Markets Equity ETF",
    "quote_type": "ETF",
-   "fetched": "2026-10-16"
+   "category": "Diversified Emerging Mkts",
+   "family": "William Blair",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-14",
+   "net_assets": 9105944.0,
+   "expense_ratio": 0.0064999997,
+   "turnover": 0.0,
+   "description": "Under normal circumstances, the fund invests at least 80% of its net assets (plus the amount of any borrowings for investment purposes) in emerging markets equity securities. It is non-diversified.",
+   "fetched": "2026-11-17"
+  },
+  "WBIE": {
+   "name": "William Blair International Equity ETF",
+   "quote_type": "ETF",
+   "category": "Foreign Large Growth",
+   "family": "William Blair",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-14",
+   "net_assets": 4802458.0,
+   "expense_ratio": 0.0055,
+   "turnover": 0.0,
+   "description": "Under normal circumstances, the fund invests at least 80% of its net assets (plus the amount of any borrowings for investment purposes) in equity securities, including common stocks and other forms of equity investments.",
+   "fetched": "2026-11-17"
   },
   "WBIF": {
    "name": "WBI BullBear Value 3000 ETF",
