@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-11-17T04:57:20+00:00",
+ "updated_utc": "2026-11-18T04:12:02+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
@@ -62531,6 +62531,11 @@
    },
    "description": "The fund invests in financial instruments that ProShare Advisors believes, in combination, should track the performance of the index. The index is designed to measure the performance of companies that provide services related to analytics, software, hardware, and computing infrastructure for managing and extracting information from large structured and unstructured data sets. The fund will invest at least 80% of its total assets in components of the index or in instruments with similar economic characteristics.",
    "fetched": "2026-09-30"
+  },
+  "DAU": {
+   "name": "GraniteShares ETF Trust - GraniteShares Autocallable AMD ETF",
+   "quote_type": "ETF",
+   "fetched": "2026-11-18"
   },
   "DAUG": {
    "name": "FT Vest U.S. Equity Deep Buffer ETF - August",
@@ -231037,6 +231042,19 @@
    },
    "description": "The fund has adopted a policy to have at least 80% of its investment exposure to financial instruments with economic characteristics that should have 2 times the performance of the Underlying Stock.",
    "fetched": "2026-11-05"
+  },
+  "NTCR": {
+   "name": "Nuveen Technology & Infrastructure Credit ETF",
+   "quote_type": "ETF",
+   "category": "Corporate Bond",
+   "family": "Nuveen",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-11-16",
+   "expense_ratio": 0.0047999998,
+   "turnover": 0.0,
+   "net_assets": 0.0,
+   "description": "Under normal market conditions, the fund invests at least 80% of the sum of its net assets and the amount of any borrowings for investment purposes in credit and credit-related instruments of issuers in, or economically tied to, the technology or infrastructure sectors. It is non-diversified.",
+   "fetched": "2026-11-18"
   },
   "NTRL": {
    "name": "First Trust Equity Market Neutral ETF",

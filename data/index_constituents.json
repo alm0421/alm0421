@@ -1,5 +1,5 @@
 {
-"updated": "2026-11-17",
+"updated": "2026-11-18",
 "source": "Wikipedia 'List of S&P 500 companies', 'List of S&P 400 companies', 'List of S&P 600 companies' (table id=constituents, column Symbol; '.' written as '-' as Yahoo does); refreshed by the data job",
 "sp500": {
 "MMM": "3M",
@@ -555,7 +555,7 @@
 "BILL": "Bill Holdings",
 "BIO": "Bio-Rad Laboratories",
 "BJ": "BJ's Wholesale Club",
-"BKH": "Black Hills Corporation",
+"HZN": "Bright Horizon Energy Corporation",
 "BMRN": "BioMarin Pharmaceutical",
 "BRKR": "Bruker",
 "BROS": "Dutch Bros Inc.",
@@ -1819,8 +1819,8 @@
 }
 },
 "fetched": {
-"sp500": "2026-11-17",
-"sp400": "2026-11-17",
-"sp600": "2026-11-17"
+"sp500": "2026-11-18",
+"sp400": "2026-11-18",
+"sp600": "2026-11-18"
 }
 }
