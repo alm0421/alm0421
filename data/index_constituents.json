@@ -1,5 +1,5 @@
 {
-"updated": "2026-11-18",
+"updated": "2026-11-19",
 "source": "Wikipedia 'List of S&P 500 companies', 'List of S&P 400 companies', 'List of S&P 600 companies' (table id=constituents, column Symbol; '.' written as '-' as Yahoo does); refreshed by the data job",
 "sp500": {
 "MMM": "3M",
@@ -555,7 +555,6 @@
 "BILL": "Bill Holdings",
 "BIO": "Bio-Rad Laboratories",
 "BJ": "BJ's Wholesale Club",
-"HZN": "Bright Horizon Energy Corporation",
 "BMRN": "BioMarin Pharmaceutical",
 "BRKR": "Bruker",
 "BROS": "Dutch Bros Inc.",
@@ -584,6 +583,7 @@
 "CHH": "Choice Hotels",
 "CHRD": "Chord Energy",
 "CHWY": "Chewy",
+"CHYM": "Chime Financial",
 "CLF": "Cleveland-Cliffs",
 "CLH": "Clean Harbors",
 "CMC": "Commercial Metals",
@@ -692,6 +692,7 @@
 "HUBS": "HubSpot",
 "HWC": "Hancock Whitney",
 "HXL": "Hexcel",
+"HZN": "Bright Horizon Energy Corporation",
 "IBOC": "Intl Bancshares Corp",
 "IDA": "Idacorp",
 "IDCC": "InterDigital",
@@ -759,7 +760,6 @@
 "NTNX": "Nutanix",
 "NVST": "Envista Holdings",
 "NVT": "nVent Electric plc",
-"NWE": "NorthWestern Energy",
 "NXST": "Nexstar Media Group",
 "NXT": "Nextpower",
 "NYT": "New York Times Company",
@@ -1819,8 +1819,8 @@
 }
 },
 "fetched": {
-"sp500": "2026-11-18",
-"sp400": "2026-11-18",
-"sp600": "2026-11-18"
+"sp500": "2026-11-19",
+"sp400": "2026-11-19",
+"sp600": "2026-11-19"
 }
 }

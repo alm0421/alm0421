@@ -2570,6 +2570,20 @@
     "why": "close 233.52 is 28% from the day before and 41% from the day after, which agree within 1.4%; replaced by their geometric mean 327.032"
    }
   },
+  "SENEB": {
+   "1998-10-27": {
+    "kind": "bad_tick",
+    "ratio": null,
+    "applied": "replaced",
+    "day_return_in_file": 0.25,
+    "day_return_repaired": 0.0,
+    "expected_from_reference": 0.0,
+    "residual_sd": 0.033865,
+    "reference": null,
+    "volume_ratio_after": null,
+    "why": "close 3 is 25% from the day before and 20% from the day after, which agree within 0.0%; replaced by their geometric mean 2.4"
+   }
+  },
   "SEQUX": {
    "2026-10-09": {
     "kind": "inferred_split",

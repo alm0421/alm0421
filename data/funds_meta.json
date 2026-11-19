@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-11-18T04:12:02+00:00",
+ "updated_utc": "2026-11-19T03:55:12+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
@@ -2744,6 +2744,88 @@
    },
    "description": "Under normal market conditions, the fund invests at least 80% of its net assets in inflation-adjusted bonds. It also may invest in derivative instruments such as futures contracts and swap agreements (including, but not limited to, inflation swap agreements and credit default swap agreements), bank loans, securities backed by mortgages or other assets and collateralized debt obligations. The fund may invest in U.S. Treasury futures, inflation swap agreements and credit default swap agreements to manage duration, inflation and credit exposure.",
    "fetched": "2026-10-28"
+  },
+  "ACIV": {
+   "name": "Hartford Alpha Capture International Value ETF",
+   "quote_type": "ETF",
+   "category": "Foreign Large Value",
+   "family": "Hartford Mutual Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2017-02-28",
+   "net_assets": 97749848.0,
+   "yield": 0.0061000003,
+   "expense_ratio": 0.0056,
+   "turnover": 0.61,
+   "top_holdings": [
+    {
+     "symbol": "SHEL.L",
+     "name": "Shell PLC",
+     "weight": 0.0360709
+    },
+    {
+     "symbol": "TTE.PA",
+     "name": "TotalEnergies SE",
+     "weight": 0.0291332
+    },
+    {
+     "symbol": "IBE.MC",
+     "name": "Iberdrola SA",
+     "weight": 0.023562701
+    },
+    {
+     "symbol": "8306.T",
+     "name": "Mitsubishi UFJ Financial Group Inc",
+     "weight": 0.021466
+    },
+    {
+     "symbol": "ULVR.L",
+     "name": "Unilever PLC",
+     "weight": 0.021189699
+    },
+    {
+     "symbol": "NOVN.SW",
+     "name": "Novartis AG Registered Shares",
+     "weight": 0.0193542
+    },
+    {
+     "symbol": "HSBA.L",
+     "name": "HSBC Holdings PLC",
+     "weight": 0.0190616
+    },
+    {
+     "symbol": "UCG.MI",
+     "name": "UniCredit SpA",
+     "weight": 0.017819
+    },
+    {
+     "symbol": "NG.L",
+     "name": "National Grid PLC",
+     "weight": 0.0157663
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0058,
+    "stock": 0.9802,
+    "bond": 0.014099999,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "realestate": 0.0107,
+    "consumer_cyclical": 0.0752,
+    "basic_materials": 0.051999997,
+    "consumer_defensive": 0.0841,
+    "technology": 0.097600006,
+    "communication_services": 0.056399997,
+    "financial_services": 0.25100002,
+    "utilities": 0.077800006,
+    "industrials": 0.1574,
+    "energy": 0.0788,
+    "healthcare": 0.059
+   },
+   "description": "The fund seeks to achieve its objective by investing in securities of U.S. and foreign issuers, including non-dollar securities and securities of emerging market issuers. Under normal market conditions, the fund invests at least 80% of its assets in securities of issuers that seek opportunities to address or benefit from climate change, which include but are not limited to companies classified as promoting clean and/or efficient energy, sustainable transportation, water and/or resource management, companies exhibiting low-carbon leadership and businesses that service such companies.",
+   "fetched": "2026-11-19"
   },
   "ACJL": {
    "name": "Buffered Bulldog ETF",
@@ -7950,6 +8032,90 @@
    },
    "description": "Under normal circumstances, the fund invests at least 80% of its net assets, plus borrowings for investment purposes, in equity securities and derivative instruments of companies that are located in China or are economically tied to China and that derive significant revenues, profits, assets, or business exposure from AI-related activities (\u201cChina AI Companies\u201d). It is non-diversified.",
    "fetched": "2026-10-29"
+  },
+  "AIED": {
+   "name": "Defiance LLM Catalyst Momentum ETF",
+   "quote_type": "ETF",
+   "category": "Large Growth",
+   "family": "Defiance ETFs LLC",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2019-05-20",
+   "net_assets": 20438240.0,
+   "yield": 0.0,
+   "expense_ratio": 0.0075,
+   "turnover": 2.13,
+   "top_holdings": [
+    {
+     "symbol": "NVDA",
+     "name": "NVIDIA Corp",
+     "weight": 0.08284721
+    },
+    {
+     "symbol": "LLY",
+     "name": "Eli Lilly and Co",
+     "weight": 0.0672464
+    },
+    {
+     "symbol": "AVGO",
+     "name": "Broadcom Inc",
+     "weight": 0.0423878
+    },
+    {
+     "symbol": "PLTR",
+     "name": "Palantir Technologies Inc Ordinary Shares - Class A",
+     "weight": 0.0355301
+    },
+    {
+     "symbol": "GE",
+     "name": "GE Aerospace",
+     "weight": 0.0308185
+    },
+    {
+     "symbol": "MU",
+     "name": "Micron Technology Inc",
+     "weight": 0.0299422
+    },
+    {
+     "symbol": "PANW",
+     "name": "Palo Alto Networks Inc",
+     "weight": 0.029398602
+    },
+    {
+     "symbol": "CRWD",
+     "name": "CrowdStrike Holdings Inc Class A",
+     "weight": 0.0279366
+    },
+    {
+     "symbol": "CAT",
+     "name": "Caterpillar Inc",
+     "weight": 0.02604
+    },
+    {
+     "symbol": "AMD",
+     "name": "Advanced Micro Devices Inc",
+     "weight": 0.0258481
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0044,
+    "stock": 0.9956,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "basic_materials": 0.0146,
+    "technology": 0.61259997,
+    "communication_services": 0.0148,
+    "financial_services": 0.026600001,
+    "utilities": 0.0148,
+    "industrials": 0.148,
+    "energy": 0.0849,
+    "healthcare": 0.0837
+   },
+   "description": "The fund generally invests in securities of U.S.-listed large capitalization companies. The fund defines large capitalization companies as those that, at the time of investment, have a minimum market capitalization equal to or greater than the minimum market capitalization of a widely recognized index of large capitalization companies based upon the composition of the index at the time of investment (the \u201cUniverse\u201d). It invests in equity securities of such companies, including common stock, American Depositary Receipts (\u201cADRs\u201d), and Global Depositary Receipts (\u201cGDRs\u201d). The fund is non-diversif",
+   "fetched": "2026-11-19"
   },
   "AIEQ": {
    "name": "Amplify AI Powered Equity ETF",
@@ -47263,6 +47429,11 @@
    },
    "description": "The fund is an actively managed exchange-traded fund (\u201cETF\u201d) that is sub-advised by Concourse Capital Advisors, LLC (\u201cSub-Adviser\u201d). Under normal circumstances, at least 80% of the fund\u2019s net assets, plus borrowing for investment purposes, will be invested in equity securities. For purposes of the fund\u2019s 80% policy, equity securities include common stock, preferred stock, real estate investment trusts (\u201cREITs\u201d), and American Depositary Receipts (\u201cADRs\u201d). The fund is non-diversified.",
    "fetched": "2026-10-30"
+  },
+  "CCHP": {
+   "name": "Global X China Semiconductor ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-11-19"
   },
   "CCML": {
    "name": "Roundhill MLCC & PCB ETF",
@@ -156601,9 +156772,29 @@
   },
   "HINC": {
    "name": "Hartford High Yield ETF",
-   "quote_type": "EQUITY",
-   "description": "Hartford Funds Exchange-Traded Trust - Hartford High Yield ETF is an exchange traded fund launched and managed by Hartford Funds Management Company, LLC. The fund is co-managed by Wellington Management Company LLP. The fund invests in fixed income markets of global region. It invests in corporate debts, bank loans, loan participation interests, government debt, and other securities that are rated Ba or lower by Moody's Ratings, BB or lower by S&P Global Ratings or BB or lower by Fitch Ratings, Inc. The fund employs fundamental analysis with bottom-up and top-down security picking approach to c",
-   "fetched": "2026-10-20"
+   "quote_type": "ETF",
+   "category": "High Yield Bond",
+   "family": "Hartford Mutual Funds",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2017-02-28",
+   "net_assets": 396015104.0,
+   "yield": 0.0673,
+   "expense_ratio": 0.005,
+   "turnover": 0.51,
+   "asset_classes": {
+    "cash": 0.0385,
+    "stock": 0.0078,
+    "bond": 0.9361,
+    "preferred": 0.0036000002,
+    "convertible": 0.0139999995,
+    "other": 0.0
+   },
+   "sectors": {
+    "technology": 0.6707,
+    "industrials": 0.32930002
+   },
+   "description": "The fund normally invests at least 80%, and may invest up to 100%, of its assets in non-investment grade debt securities. In seeking to achieve the fund's investment objective, the sub-adviser invests in specific issuers and securities that the fund's sub-adviser considers to be attractive for providing current income as well as total return. It may invest up to 30% of its net assets in securities of foreign issuers, including non-dollar securities.",
+   "fetched": "2026-11-19"
   },
   "HIPS": {
    "name": "GraniteShares HIPS US High Income ETF",
@@ -293547,6 +293738,88 @@
    "description": "The fund is an actively-managed ETF that seeks to achieve its investment objective by investing substantially all of its assets in options on the S&P 500 Price Index. It will purchase call options and sell put options on the S&P 500 Price Index or an ETF that seeks to track the performance of the S&P 500 Price Index on each Initial Investment Day with an expiration on the next Roll Date.",
    "fetched": "2026-11-06"
   },
+  "SEQ": {
+   "name": "Sequoia ETF",
+   "quote_type": "ETF",
+   "category": "Global Large-Stock Growth",
+   "family": "Sequoia",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "1970-07-15",
+   "net_assets": 6750638080.0,
+   "yield": 0.0018000001,
+   "expense_ratio": 0.0099,
+   "turnover": 0.1,
+   "top_holdings": [
+    {
+     "symbol": "RR.L",
+     "name": "Rolls-Royce Holdings PLC",
+     "weight": 0.094138496
+    },
+    {
+     "symbol": "UMG.AS",
+     "name": "Universal Music Group NV",
+     "weight": 0.0936999
+    },
+    {
+     "symbol": "ERF.PA",
+     "name": "Eurofins Scientific SE",
+     "weight": 0.0720655
+    },
+    {
+     "symbol": "FWONK",
+     "name": "Liberty Media Corp Ordinary Shares Series C",
+     "weight": 0.0543926
+    },
+    {
+     "symbol": "CSU.TO",
+     "name": "Constellation Software Inc",
+     "weight": 0.0528337
+    },
+    {
+     "symbol": "TSM",
+     "name": "Taiwan Semiconductor Manufacturing Co Ltd ADR",
+     "weight": 0.049467202
+    },
+    {
+     "symbol": "ICE",
+     "name": "Intercontinental Exchange Inc",
+     "weight": 0.044990703
+    },
+    {
+     "symbol": "ELV",
+     "name": "Elevance Health Inc",
+     "weight": 0.0423777
+    },
+    {
+     "symbol": "COF",
+     "name": "Capital One Financial Corp",
+     "weight": 0.042107902
+    },
+    {
+     "symbol": "ICLR",
+     "name": "Icon PLC",
+     "weight": 0.042038497
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0027,
+    "stock": 0.9973,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "consumer_cyclical": 0.028299998,
+    "technology": 0.188,
+    "communication_services": 0.2215,
+    "financial_services": 0.1499,
+    "industrials": 0.16510001,
+    "healthcare": 0.2471
+   },
+   "description": "The fund's investment objective is long-term growth of capital. In pursuing this objective, it focuses on investing in equity securities that the advisor believes are undervalued at the time of purchase and have the potential for growth. The fund normally invests in equity securities of U.S. and non-U.S. companies. It may invest in securities of issuers with any market capitalization. The fund is non-diversified.",
+   "fetched": "2026-11-19"
+  },
   "SEQUX": {
    "name": "Sequoia",
    "quote_type": "MUTUALFUND",
@@ -308742,6 +309015,40 @@
    },
    "description": "Under normal market conditions, the fund will invest substantially all of its assets in FLexible EXchange\u00ae Options (\u201cFLEX Options\u201d) that reference the price performance of the State Street\u00ae SPDR\u00ae S&P 500\u00ae ETF Trust (the \u201cunderlying ETF\"). The underlying ETF is an exchange-traded unit investment trust that uses a replication strategy, meaning it invests in as many of the stocks in the S&P 500\u00ae Index as is practicable. The fund is non-diversified.",
    "fetched": "2026-11-06"
+  },
+  "SQBR": {
+   "name": "FT Vest U.S. Equity Quarterly 20 Barrier ETF",
+   "quote_type": "ETF",
+   "category": "Defined Outcome",
+   "family": "First Trust Advisors L.P.",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-15",
+   "net_assets": 1523993.0,
+   "expense_ratio": 0.0085,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.0136,
+    "stock": 0.9864,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "realestate": 0.0172,
+    "consumer_cyclical": 0.0912,
+    "basic_materials": 0.0154,
+    "consumer_defensive": 0.0463,
+    "technology": 0.39380002,
+    "communication_services": 0.0892,
+    "financial_services": 0.1169,
+    "utilities": 0.02,
+    "industrials": 0.075,
+    "energy": 0.0374,
+    "healthcare": 0.0975
+   },
+   "description": "Under normal market conditions, the fund will invest substantially all of its assets in FLexible EXchange\u00ae Options that reference the price performance of the State Street\u00ae SPDR\u00ae S&P 500\u00ae ETF Trust. -null-. It is non-diversified.",
+   "fetched": "2026-11-19"
   },
   "SQLT": {
    "name": "Ishares MSCI USA Small-Cap Quality Factor ETF",
@@ -364635,6 +364942,12 @@
    "description": "The fund manager employs an indexing investment approach designed to track the target index, a broadly diversified index made up of the value stocks of large U.S. companies, as determined by the index provider. Under normal circumstances, it invests at least 80% of its net assets, plus the amount of any borrowings for investment purposes, in the stocks that make up the target index.",
    "fetched": "2026-10-27"
   },
+  "VVPL": {
+   "name": "Elevation Series Trust - Vulcan Value Partners ETF",
+   "quote_type": "EQUITY",
+   "description": "Elevation Series Trust - Vulcan Value Partners ETF is an exchange traded fund launched and managed by Vulcan Value Partners, LLC. It invests in public equity markets of the United States. The fund invests in stocks of companies operating across diversified sectors. It invests in growth and value stocks of companies across diversified market capitalization. Elevation Series Trust - Vulcan Value Partners ETF is domiciled in the United States.",
+   "fetched": "2026-11-19"
+  },
   "VWAHX": {
    "name": "Vanguard High-Yield Tax-Exempt",
    "quote_type": "MUTUALFUND",
@@ -369864,6 +370177,31 @@
    },
    "description": "Under normal circumstances, the fund invests at least 80% of its net assets, plus any borrowings for investment purposes, in constituents of the index and/or investments that have economic characteristics that are substantially similar to the economic characteristics of such constituents. The index consists of the equity constituents of the WisdomTree International LargeCap Index, U.S. Treasury bills, and other instruments. The fund is non-diversified.",
    "fetched": "2026-11-07"
+  },
+  "WINC": {
+   "name": "William Blair Emerging Income ETF",
+   "quote_type": "ETF",
+   "category": "Emerging Markets Bond",
+   "family": "William Blair",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2021-05-25",
+   "net_assets": 83608032.0,
+   "yield": 0.0661,
+   "expense_ratio": 0.0055,
+   "turnover": 1.2,
+   "asset_classes": {
+    "cash": 0.0596,
+    "stock": 0.0,
+    "bond": 0.9404,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "realestate": 1.0
+   },
+   "description": "Under normal circumstances, the fund invests at least 80% of its net assets (plus the amount of any borrowings for investment purposes) in debt instruments that are economically tied to emerging market countries, which may be represented by forwards or derivatives such as options, futures contracts or swap agreements. It is non-diversified.",
+   "fetched": "2026-11-19"
   },
   "WINN": {
    "name": "Harbor Long-Term Growers ETF",
@@ -383104,6 +383442,11 @@
    "description": "The fund, under normal circumstances, invests at least 80% of the fund\u2019s net assets (plus borrowing for investment purposes) in financial instruments, that, in combination, provide 3X daily inverse (opposite) or short exposure to the index or to ETFs that track the index, consistent with the fund\u2019s investment objective. The index consists of the 50 largest and most liquid public Chinese companies currently trading on the Hong Kong Stock Exchange (\"SEHK\"). The fund is non-diversified.",
    "fetched": "2026-10-27"
   },
+  "YASX": {
+   "name": "Yorkville America Space Index ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-11-19"
+  },
   "YBIT": {
    "name": "YieldMax Bitcoin Option Income Strategy ETF",
    "quote_type": "ETF",
@@ -386377,8 +386720,7 @@
   }
  },
  "failed": {
-  "SEQ": "2026-10-20",
   "TIPG": "2026-11-06",
-  "WINC": "2026-10-20"
+  "VEN": "2026-11-19"
  }
 }
