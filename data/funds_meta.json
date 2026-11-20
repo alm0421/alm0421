@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-11-19T03:55:12+00:00",
+ "updated_utc": "2026-11-20T03:49:02+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
@@ -7916,8 +7916,24 @@
   },
   "AIBN": {
    "name": "Defiance AI Infrastructure Bond ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-21"
+   "quote_type": "ETF",
+   "category": "Corporate Bond",
+   "family": "Defiance ETFs LLC",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-19",
+   "net_assets": 2012399.0,
+   "expense_ratio": 0.0041,
+   "turnover": 0.0,
+   "asset_classes": {
+    "cash": 0.0057,
+    "stock": 0.0,
+    "bond": 0.9785,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.015800001
+   },
+   "description": "Under normal circumstances, the fund will invest at least 80% of its net assets, plus borrowings for investment purposes, in the component securities that make up the index. It is non-diversified.",
+   "fetched": "2026-11-20"
   },
   "AIBU": {
    "name": "Direxion Daily AI And Big Data Bull 2X Shares",
@@ -221393,6 +221409,90 @@
    },
    "description": "The fund invests at least 80% of its net assets in mortgage-backed securities. The advisor defines MBS as any agency or non-agency residential or commercial mortgage-backed security and any futures contract, forward agreement, swap contract, or option linked to the preceding. It is an actively managed exchange-traded fund that seeks to achieve its investment objectives by investing primarily in MBS\u2019s issued by the Government National Mortgage Association, Federal National Mortgage Association and Federal Home Loan Mortgage Corporation.",
    "fetched": "2026-11-03"
+  },
+  "MTGG": {
+   "name": "Maytech Global Growth ETF",
+   "quote_type": "ETF",
+   "category": "Global Large-Stock Growth",
+   "family": "Maytech ETF",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-19",
+   "net_assets": 57346424.0,
+   "expense_ratio": 0.0075,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "META",
+     "name": "Meta Platforms Inc Class A",
+     "weight": 0.1004636
+    },
+    {
+     "symbol": "MA",
+     "name": "Mastercard Inc Class A",
+     "weight": 0.0859782
+    },
+    {
+     "symbol": "NVDA",
+     "name": "NVIDIA Corp",
+     "weight": 0.084009305
+    },
+    {
+     "symbol": "AMZN",
+     "name": "Amazon.com Inc",
+     "weight": 0.082818
+    },
+    {
+     "symbol": "AAPL",
+     "name": "Apple Inc",
+     "weight": 0.0810036
+    },
+    {
+     "symbol": "PANW",
+     "name": "Palo Alto Networks Inc",
+     "weight": 0.080738895
+    },
+    {
+     "symbol": "ISRG",
+     "name": "Intuitive Surgical Inc",
+     "weight": 0.0711222
+    },
+    {
+     "symbol": "MELI",
+     "name": "MercadoLibre Inc",
+     "weight": 0.0693478
+    },
+    {
+     "symbol": "ASML",
+     "name": "ASML Holding NV ADR",
+     "weight": 0.0577248
+    },
+    {
+     "symbol": "GOOGL",
+     "name": "Alphabet Inc Class A",
+     "weight": 0.049681403
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0004,
+    "stock": 0.9997,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": -0.0002
+   },
+   "sectors": {
+    "consumer_cyclical": 0.2031,
+    "consumer_defensive": 0.0029,
+    "technology": 0.35959998,
+    "communication_services": 0.17379999,
+    "financial_services": 0.103,
+    "utilities": 0.002,
+    "industrials": 0.014099999,
+    "energy": 0.0039,
+    "healthcare": 0.1375
+   },
+   "description": "Under normal circumstances, the fund will invest at least 80% of the value of its assets, plus borrowings for investment purposes, in the equity securities of growth companies. As part of the 80%, the fund will invest at least 40% of its net assets, or if conditions are not favorable, invest at least 30% of its net assets, in equity securities of growth companies whose primary operations or principal trading market is in a foreign market, and that are not subject to the requirements of the U.S. securities laws, markets and accounting requirements, i.e., foreign securities. It is non-diversifie",
+   "fetched": "2026-11-20"
   },
   "MTGP": {
    "name": "WisdomTree Mortgage Plus Bond Fund",
