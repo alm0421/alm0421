@@ -1,5 +1,5 @@
 {
- "updated_utc": "2026-11-20T03:49:02+00:00",
+ "updated_utc": "2026-11-21T03:37:35+00:00",
  "source": "Yahoo Finance via yfinance (Ticker.info and Ticker.funds_data); expense_ratio and yield are fractions, net_assets in USD, top_holdings weights are fractions",
  "funds": {
   "AAA": {
@@ -7604,6 +7604,37 @@
    "description": "The fund is an actively managed exchange-traded fund that seeks current income by getting exposure to a portfolio of autocallables that reference the price of the common stock of Robinhood Markets, Inc. (NASDAQ: HOOD). The fund will invest at least 80% of its net assets (plus any borrowings for investment purposes) in derivatives contracts that utilize the autocallable on the underlying asset as their reference asset. The fund is non-diversified.",
    "fetched": "2026-10-29"
   },
+  "AHIC": {
+   "name": "Allspring Short-Term High Income Fund ETF Class",
+   "quote_type": "ETF",
+   "category": "High Yield Bond",
+   "family": "Allspring Global Investments",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-20",
+   "net_assets": 2578553344.0,
+   "expense_ratio": 0.0045,
+   "turnover": 0.45,
+   "top_holdings": [
+    {
+     "symbol": "WFFXX",
+     "name": "Allspring Government MMkt Select",
+     "weight": 0.020503499
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.026500002,
+    "stock": 0.0,
+    "bond": 0.9312,
+    "preferred": 0.0378,
+    "convertible": 0.0045,
+    "other": 0.0
+   },
+   "sectors": {
+    "communication_services": 1.0
+   },
+   "description": "The fund invests normally at least 80% of its net assets in below investment-grade corporate debt securities and up to 25% of its total assets in U.S. dollar-denominated debt securities of foreign issuers. It invests principally in below investment-grade debt securities (often called \"high-yield\" securities or \"junk bonds\") of corporate issuers. These include traditional corporate bonds as well as bank loans. These securities may have fixed, floating or variable rates.",
+   "fetched": "2026-11-21"
+  },
   "AHITX": {
    "name": "American Funds American High-Inc A",
    "quote_type": "MUTUALFUND",
@@ -7702,6 +7733,27 @@
    },
    "description": "Under normal market conditions, the portfolio managers will invest at least 80% of the fund\u2019s net assets, plus any borrowings for investment purposes, in high-yield debt securities. High-yield securities are also referred to as junk bonds. The portfolio managers will actively allocate the fund\u2019s assets in a range of high-yield corporate bonds. The fund is an actively managed exchange-traded fund (ETF) that does not seek to replicate the performance of a specified index.",
    "fetched": "2026-10-29"
+  },
+  "AHYM": {
+   "name": "Allspring High Yield Municipal Bond Fund ETF Class",
+   "quote_type": "ETF",
+   "category": "High Yield Muni",
+   "family": "Allspring Global Investments",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-20",
+   "net_assets": 171553712.0,
+   "expense_ratio": 0.005,
+   "turnover": 0.35,
+   "asset_classes": {
+    "cash": 0.0034999999,
+    "stock": 0.0,
+    "bond": 0.9965,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "description": "The fund invests at least 80% of the fund's net assets plus borrowings for investment purposes in municipal securities whose interest is exempt from federal income tax, but not necessarily federal alternative minimum tax (\"AMT\"). It invests up to 20% of the fund's total assets in securities whose interest is subject to federal AMT. At least 50% of the fund's total assets in municipal securities rated BBB and below or comparable unrated municipal securities.",
+   "fetched": "2026-11-21"
   },
   "AIA": {
    "name": "iShares Asia 50 ETF",
@@ -18935,6 +18987,27 @@
    },
    "description": "It invests at least 80% of its net assets (plus borrowings for investment purposes) in the Underlying Security and financial instruments with economic characteristics that, in combination, provide 200% daily leveraged exposure to the price of the Underlying Security, on a daily basis, consistent with the fund\u2019s investment objective. The fund is non-diversified.",
    "fetched": "2026-10-29"
+  },
+  "ASTM": {
+   "name": "Allspring Strategic Municipal Bond Fund ETF Class",
+   "quote_type": "ETF",
+   "category": "Muni National Short",
+   "family": "Allspring Global Investments",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-20",
+   "net_assets": 1824167808.0,
+   "expense_ratio": 0.0042,
+   "turnover": 0.15,
+   "asset_classes": {
+    "cash": 0.0239,
+    "stock": 0.0,
+    "bond": 0.976,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "description": "The fund normally invests at least 80% of the fund's net assets plus borrowings for investment purposes in municipal securities whose interest is exempt from regular federal income tax, but not necessarily the federal alternative minimum tax (AMT). It invests up to 35% of the fund's total assets in investment-grade municipal securities; up to 35% of the fund\u2019s total assets in investment-grade municipal securities; and up to 10% of the fund\u2019s total assets in inverse floaters.",
+   "fetched": "2026-11-21"
   },
   "ASTN": {
    "name": "Defiance Daily Target 2X Short ASTS ETF",
@@ -145063,6 +145136,92 @@
    "description": "The fund generally invests substantially all, but at least 80%, of its total assets in the securities comprising the index and in depositary receipts based on securities comprising the index. The index is a float-adjusted market capitalization weighted index designed to define and measure the investable universe of publicly traded companies domiciled in emerging Asian Pacific markets. The fund is non-diversified.",
    "fetched": "2026-11-03"
   },
+  "GMIE": {
+   "name": "GMO International Equity ETF",
+   "quote_type": "ETF",
+   "category": "Foreign Large Value",
+   "family": "GMO",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-20",
+   "net_assets": 1421792384.0,
+   "expense_ratio": 0.0075,
+   "turnover": 0.74,
+   "top_holdings": [
+    {
+     "symbol": "ASML",
+     "name": "ASML Holding NV ADR",
+     "weight": 0.0409947
+    },
+    {
+     "symbol": "BBVA.MC",
+     "name": "Banco Bilbao Vizcaya Argentaria SA",
+     "weight": 0.030423
+    },
+    {
+     "symbol": "TD",
+     "name": "The Toronto-Dominion Bank",
+     "weight": 0.027635401
+    },
+    {
+     "symbol": "6752.T",
+     "name": "Panasonic Holdings Corp",
+     "weight": 0.027038401
+    },
+    {
+     "symbol": "SAN.MC",
+     "name": "Banco Santander SA",
+     "weight": 0.025752
+    },
+    {
+     "symbol": "VOD",
+     "name": "Vodafone Group PLC ADR",
+     "weight": 0.0244448
+    },
+    {
+     "symbol": "8015.T",
+     "name": "Toyota Tsusho Corp",
+     "weight": 0.0221135
+    },
+    {
+     "symbol": "SAN.PA",
+     "name": "Sanofi SA",
+     "weight": 0.0220966
+    },
+    {
+     "symbol": "UNI.MI",
+     "name": "Unipol Assicurazioni SpA",
+     "weight": 0.0211097
+    },
+    {
+     "symbol": "POW.TO",
+     "name": "Power Corporation of Canada Shs Subord.Voting",
+     "weight": 0.020197202
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0127,
+    "stock": 0.98260003,
+    "bond": 0.013300001,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": -0.0086
+   },
+   "sectors": {
+    "realestate": 0.0023999999,
+    "consumer_cyclical": 0.0373,
+    "basic_materials": 0.0462,
+    "consumer_defensive": 0.0317,
+    "technology": 0.16309999,
+    "communication_services": 0.053600002,
+    "financial_services": 0.3109,
+    "utilities": 0.001,
+    "industrials": 0.22729999,
+    "energy": 0.0505,
+    "healthcare": 0.076
+   },
+   "description": "The adviser seeks to achieve the fund's investment objective by investing the fund\u2019s assets primarily in non-U.S. developed market equities. Under normal circumstances, the fund invests directly and indirectly at least 80% of its assets in equities. It also may invest in U.S. Treasury fund, in money market funds unaffiliated with GMO, and directly in the types of investments typically held by money market funds.",
+   "fetched": "2026-11-21"
+  },
   "GMMA": {
    "name": "Gammaroad Market Navigation ETF",
    "quote_type": "ETF",
@@ -253328,8 +253487,89 @@
   },
   "POMG": {
    "name": "PRIMECAP Odyssey Discovery ETF",
-   "quote_type": "EQUITY",
-   "fetched": "2026-10-22"
+   "quote_type": "ETF",
+   "category": "Mid-Cap Growth",
+   "family": "Primecap",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-20",
+   "net_assets": 53957840.0,
+   "expense_ratio": 0.0068,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "XMTR",
+     "name": "Xometry Inc Ordinary Shares - Class A",
+     "weight": 0.0438659
+    },
+    {
+     "symbol": "GRAL",
+     "name": "GRAIL Inc",
+     "weight": 0.042985503
+    },
+    {
+     "symbol": "OLED",
+     "name": "Universal Display Corp",
+     "weight": 0.033671997
+    },
+    {
+     "symbol": "GKOS",
+     "name": "Glaukos Corp",
+     "weight": 0.0331094
+    },
+    {
+     "symbol": "BBIO",
+     "name": "BridgeBio Pharma Inc",
+     "weight": 0.030359002
+    },
+    {
+     "symbol": "ELAN",
+     "name": "Elanco Animal Health Inc",
+     "weight": 0.0298476
+    },
+    {
+     "symbol": "ENTG",
+     "name": "Entegris Inc",
+     "weight": 0.0291768
+    },
+    {
+     "symbol": "MDB",
+     "name": "MongoDB Inc Class A",
+     "weight": 0.0262768
+    },
+    {
+     "symbol": "BMRN",
+     "name": "BioMarin Pharmaceutical Inc",
+     "weight": 0.0253319
+    },
+    {
+     "symbol": "SEPN",
+     "name": "Septerna Inc",
+     "weight": 0.024889199
+    }
+   ],
+   "asset_classes": {
+    "cash": -0.19590001,
+    "stock": 0.9964,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.19950001
+   },
+   "sectors": {
+    "realestate": 0.027,
+    "consumer_cyclical": 0.0325,
+    "basic_materials": 0.0107,
+    "consumer_defensive": 0.052699998,
+    "technology": 0.24229999,
+    "communication_services": 0.030299999,
+    "financial_services": 0.0744,
+    "utilities": 0.005,
+    "industrials": 0.2074,
+    "energy": 0.0086,
+    "healthcare": 0.3091
+   },
+   "description": "The fund seeks long-term capital appreciation by investing primarily in stocks of mid- and small-capitalization companies. It invests in stocks that trade in the United States. The managers define mid-cap companies as those the market capitalization (number of shares outstanding multiplied by share price) of which falls within the range of either the S&P MidCap 400\u00ae Index or the Russell Midcap\u00ae Growth Index at the time of initial purchase. It is non-diversified.",
+   "fetched": "2026-11-21"
   },
   "POMIX": {
    "name": "T. Rowe Price Total Equity Market Idx",
@@ -274297,6 +274537,86 @@
    "description": "Under normal circumstances, the fund will invest at least 80% of its net assets, plus borrowings for investment purposes, in securities and financial instruments that provide indirect exposure to RBLX. The fund is non-diversified.",
    "fetched": "2026-11-06"
   },
+  "RBTX": {
+   "name": "Ishares Future Robotics And Related Technologies Active ETF",
+   "quote_type": "ETF",
+   "category": "Technology",
+   "family": "BlackRock Fund Advisors",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-20",
+   "net_assets": 14079203.0,
+   "expense_ratio": 0.0064999997,
+   "turnover": 0.0,
+   "top_holdings": [
+    {
+     "symbol": "TSLA",
+     "name": "Tesla Inc",
+     "weight": 0.058945198
+    },
+    {
+     "symbol": "AMD",
+     "name": "Advanced Micro Devices Inc",
+     "weight": 0.048009902
+    },
+    {
+     "symbol": "NVDA",
+     "name": "NVIDIA Corp",
+     "weight": 0.0463341
+    },
+    {
+     "symbol": "CGNX",
+     "name": "Cognex Corp",
+     "weight": 0.0451558
+    },
+    {
+     "symbol": "LECO",
+     "name": "Lincoln Electric Holdings Inc",
+     "weight": 0.044939198
+    },
+    {
+     "symbol": "SPCX",
+     "name": "Space Exploration Technologies Corp Class A",
+     "weight": 0.0387813
+    },
+    {
+     "symbol": "G1A.DE",
+     "name": "GEA Group AG",
+     "weight": 0.0367031
+    },
+    {
+     "symbol": "6383.T",
+     "name": "Daifuku Co Ltd",
+     "weight": 0.0356746
+    },
+    {
+     "symbol": "3443.TW",
+     "name": "Global Unichip Corp",
+     "weight": 0.0331236
+    },
+    {
+     "symbol": "METSO.HE",
+     "name": "Metso Corp",
+     "weight": 0.0327149
+    }
+   ],
+   "asset_classes": {
+    "cash": 0.0343,
+    "stock": 0.9657,
+    "bond": 0.0,
+    "preferred": 0.0,
+    "convertible": 0.0,
+    "other": 0.0
+   },
+   "sectors": {
+    "consumer_cyclical": 0.1113,
+    "technology": 0.5666,
+    "communication_services": 0.0104,
+    "industrials": 0.3043,
+    "healthcare": 0.0074
+   },
+   "description": "Under normal market conditions, the fund invests at least 80% of its net assets, plus the amount of any borrowings for investment purposes, in equity securities issued by robotics companies and related technology companies and derivatives that provide investment exposure to such securities or to one or more market risk factors associated with such securities. It is non-diversified.",
+   "fetched": "2026-11-21"
+  },
   "RBUF": {
    "name": "Innovator U.S. Small Cap 10 Buffer ETF - Quarterly",
    "quote_type": "ETF",
@@ -290615,6 +290935,11 @@
    },
    "description": "The fund will invest at least 90% of its net assets in securities included in the index. The index is a broad-based benchmark measuring the performance of the U.S. investment grade, taxable bond market, including U.S. Treasuries, government-related and corporate bonds, mortgage pass-through securities, commercial mortgage-backed securities, and asset-backed securities that are publicly available for sale in the United States.",
    "fetched": "2026-10-27"
+  },
+  "SCIN": {
+   "name": "Schwab International Bond ETF",
+   "quote_type": "EQUITY",
+   "fetched": "2026-11-21"
   },
   "SCIO": {
    "name": "First Trust Structured Credit Income Opportunities ETF",
@@ -325119,6 +325444,18 @@
    "description": "The fund will invest at least 80% of its net assets (plus any borrowings for investment purposes) in derivatives contracts that utilize the autocallable on the Underlying Asset as their reference asset. It is non-diversified.",
    "fetched": "2026-11-06"
   },
+  "TLCE": {
+   "name": "Thrivent Large Cap Stock ETF",
+   "quote_type": "ETF",
+   "category": "Large Blend",
+   "family": "Thrivent",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-20",
+   "net_assets": 24431892.0,
+   "turnover": 0.0,
+   "description": "Under normal circumstances, the fund invests at least 80% of its net assets (plus the amount of any borrowing for investment purposes) in equity securities of large-capitalization companies. It is non-diversified.",
+   "fetched": "2026-11-21"
+  },
   "TLCI": {
    "name": "Touchstone International Equity ETF",
    "quote_type": "ETF",
@@ -333072,6 +333409,18 @@
    },
    "description": "Under normal circumstances, the fund will invest at least 80% of its net assets (plus borrowings for investment purposes) in the component securities of the underlying index. The underlying index is designed to track the performance of leading U.S.-listed companies that define the American economic landscape and lifestyle. The fund is non-diversified.",
    "fetched": "2026-11-06"
+  },
+  "TSIE": {
+   "name": "Thrivent Securitized Income ETF",
+   "quote_type": "ETF",
+   "category": "Securitized Bond - Diversified",
+   "family": "Thrivent",
+   "legal_type": "Exchange Traded Fund",
+   "inception": "2026-10-20",
+   "net_assets": 59200188.0,
+   "turnover": 0.0,
+   "description": "Under normal circumstances, the fund invests at least 80% of its net assets (plus the amount of any borrowings for investment purposes) in securitized securities or investments that provide exposure to securitized securities. It is non-diversified.",
+   "fetched": "2026-11-21"
   },
   "TSII": {
    "name": "REX TSLA Growth & Income ETF",
